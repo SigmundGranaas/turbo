@@ -686,6 +686,10 @@ pub struct Map {
     /// config each render to drift the procedural haze (so it "rolls in" and
     /// its patchiness moves over time). Animates while frames are produced.
     start: Instant,
+    /// Basemap brightness gain for the 3D sun-lit path (1.0 = unchanged). The
+    /// host raises it for dark imagery (satellite) so it reads under the same
+    /// lighting that suits bright topo. Set via [`set_basemap_gain`].
+    basemap_gain: f32,
 }
 
 /// Route/track 3D-tube state. Each entry is a polyline + style; the combined
@@ -828,6 +832,7 @@ impl Map {
             sky_enabled: true,
             route_tubes: RouteTubeState::default(),
             start: Instant::now(),
+            basemap_gain: 1.0,
         })
     }
 
@@ -1075,6 +1080,13 @@ impl Map {
     /// field is computed on the CPU and refreshed when the sun, the visible
     /// region, or the resident DEM changes — so a static view costs nothing
     /// after the first frame. See [`crate::render::shadow`].
+    /// Basemap brightness gain for the 3D sun-lit terrain (1.0 = unchanged).
+    /// Raise it (~1.8) for dark imagery (satellite) so it reads under the same
+    /// lighting that suits bright topo. No effect on the flat 2D map.
+    pub fn set_basemap_gain(&mut self, gain: f32) {
+        self.basemap_gain = gain.clamp(0.1, 8.0);
+    }
+
     pub fn set_terrain_shadows(&mut self, strength: f32) {
         let s = strength.clamp(0.0, 1.0);
         if s != self.shadow.strength {
@@ -2304,6 +2316,9 @@ impl Map {
         // Stamp the renderer wall clock so the procedural low haze drifts ("rolls
         // in") and its patchiness moves over time.
         frame.raster_terrain_cfg.time = self.start.elapsed().as_secs_f32();
+        // Per-basemap brightness lift (host sets it from the active layer, e.g.
+        // satellite). Only takes effect on the 3D sun-lit path (gated in raster).
+        frame.raster_terrain_cfg.basemap_gain = self.basemap_gain;
         // Terrain relief field: assemble the camera-centred cross-tile
         // heightfield whenever we have 3D terrain — it drives BOTH cast shadows
         // (per-fragment march, gated by `shadow_strength`) and the world-locked

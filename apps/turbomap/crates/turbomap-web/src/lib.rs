@@ -384,6 +384,13 @@ impl TurboMap {
         self.engine.set_terrain_shadows(strength);
     }
 
+    /// Basemap brightness gain for the 3D sun-lit terrain (1.0 = unchanged).
+    /// The web host raises it for dark imagery (satellite) so it reads under the
+    /// same lighting that suits bright topo. No effect on the flat 2D map.
+    pub fn set_basemap_gain(&mut self, gain: f32) {
+        self.engine.set_basemap_gain(gain);
+    }
+
     /// Drive sun lighting from a unix timestamp (seconds), or `null` for the
     /// default fixed sun.
     pub fn set_sun_time(&mut self, unix_secs: Option<f64>) {

@@ -552,6 +552,13 @@ impl TurbomapEngine {
         self.map.set_terrain_shadows(strength);
     }
 
+    /// Basemap brightness gain for the 3D sun-lit terrain (1.0 = unchanged).
+    /// Raise it for dark imagery (satellite). No effect on the flat 2D map.
+    /// See [`turbomap_core::Map::set_basemap_gain`].
+    pub fn set_basemap_gain(&mut self, gain: f32) {
+        self.map.set_basemap_gain(gain);
+    }
+
     /// Set (or clear, when `points` is empty) a route/track polyline drawn as a
     /// raised 3D tube. `points` are lng/lat; `radius_m` is the tube radius in
     /// metres. See [`turbomap_core::Map::set_route_tube`].

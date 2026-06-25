@@ -74,7 +74,10 @@ struct Globals {
     /// Seconds since renderer start. Slowly drifts the valley-fog field so it
     /// evolves over time. See the haze block in `shader.wgsl`.
     time: f32,
-    _pad0: f32,
+    /// Basemap brightness gain applied before sun-lighting (3D only); 1.0 =
+    /// unchanged. Lifts dark imagery (satellite) under the shared lighting.
+    /// (Reuses the former `_pad0` slot — no layout change.)
+    basemap_gain: f32,
     /// Absolute world-xy of the camera centre (the RTC origin). Added to the
     /// camera-relative fragment world-xy to reconstruct an absolute world
     /// position, so the valley-fog field stays welded to the terrain instead of
@@ -187,6 +190,10 @@ pub(crate) struct TerrainConfig {
     pub shadow_softness: f32,
     /// Seconds since renderer start — animates the procedural low-haze drift.
     pub time: f32,
+    /// Basemap brightness gain applied before sun-lighting (3D terrain only).
+    /// 1.0 = unchanged; raise it (~1.8) for dark imagery like satellite so it
+    /// reads well under the same lighting that suits bright topo.
+    pub basemap_gain: f32,
 }
 
 impl Default for TerrainConfig {
@@ -206,6 +213,7 @@ impl Default for TerrainConfig {
             shadow_texel_world: 0.0,
             shadow_softness: 1.0,
             time: 0.0,
+            basemap_gain: 1.0,
         }
     }
 }
@@ -652,7 +660,9 @@ impl RasterPipeline {
                 shadow_texel_world: terrain_options.shadow_texel_world,
                 shadow_softness: terrain_options.shadow_softness,
                 time: terrain_options.time,
-                _pad0: 0.0,
+                // Gain only with a DEM (the 3D sun-lit path); the flat 2D map
+                // samples the basemap untouched (bright satellite stays bright).
+                basemap_gain: if dem_present { terrain_options.basemap_gain } else { 1.0 },
                 cam_origin: [origin.x as f32, origin.y as f32],
                 _pad1: [0.0, 0.0],
             }),

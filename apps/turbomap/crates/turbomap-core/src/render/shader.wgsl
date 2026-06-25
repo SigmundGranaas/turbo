@@ -60,7 +60,8 @@ struct Globals {
     shadow_softness: f32,
     // Seconds since renderer start — slowly drifts the valley-fog field.
     time: f32,
-    _pad0: f32,
+    // Basemap brightness gain applied before sun-lighting (3D only; 1.0 in 2D).
+    basemap_gain: f32,
     // Absolute world-xy of the camera centre. Added to the camera-relative
     // fragment world-xy to reconstruct an absolute position, so the valley-fog
     // field stays welded to the terrain instead of sliding with the screen.
@@ -486,7 +487,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // the core of the more "atmospheric" look.
     let ambient_amt = globals.ambient * ao * (1.0 - 0.25 * occ);
     let sky_fill = mix(globals.light_color, globals.haze_color, 0.35);
-    var rgb = s.rgb * (ambient_amt * sky_fill + direct_amt * globals.light_color);
+    // Per-basemap brightness lift (e.g. dark satellite) before lighting, so it
+    // reads under the same sun/ambient that suits bright topo.
+    let base_rgb = s.rgb * globals.basemap_gain;
+    var rgb = base_rgb * (ambient_amt * sky_fill + direct_amt * globals.light_color);
 
     // Low-sun factor (1 near the horizon → 0 high up): drives the warm haze glow.
     let low_sun = 1.0 - smoothstep(0.10, 0.45, globals.sun_dir.z);

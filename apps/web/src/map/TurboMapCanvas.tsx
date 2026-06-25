@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import init, { TurboMap } from 'turbomap-web';
-import { buildBaseScene, type BaseLayerId } from './scene';
+import { buildBaseScene, basemapGain, type BaseLayerId } from './scene';
 import { templatesFor } from './templates';
 import { TileLoader } from './tileFetcher';
 
@@ -105,6 +105,7 @@ export function TurboMapCanvas({ base = 'norgeskart', threeD = false, camera, on
 
       const b0 = baseRef.current;
       map.apply_scene(JSON.stringify(buildBaseScene(b0, threeDRef.current)));
+      map.set_basemap_gain(basemapGain(b0));
 
       const loader = new TileLoader(map, templatesFor(b0));
       mapRef.current = map;
@@ -302,6 +303,7 @@ export function TurboMapCanvas({ base = 'norgeskart', threeD = false, camera, on
     if (!map || !loader) return;
     loader.setTemplates(templatesFor(base));
     map.apply_scene(JSON.stringify(buildBaseScene(base, threeD)));
+    map.set_basemap_gain(basemapGain(base));
   }, [base, threeD]);
 
   const isWebGpu = error?.toLowerCase().includes('webgpu');

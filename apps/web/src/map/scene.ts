@@ -117,6 +117,14 @@ export function baseSourceId(base: BaseLayerId): string {
   return `basemap-${base}`;
 }
 
+/** 3D sun-lit basemap brightness gain. Satellite imagery is intrinsically dark
+ *  (forest/rock + baked lighting), so under the terrain sun-lighting it reads
+ *  near-black at the brightness that suits bright topo — lift it. Only affects
+ *  the 3D lit path (2D is flat/untouched). Tune by eye. */
+export function basemapGain(base: BaseLayerId): number {
+  return base === 'satellite' ? 1.8 : 1.0;
+}
+
 /** Build the base scene for a given base layer. `terrain` adds the DEM
  *  heightmap + height-only hillshade so 3D shows relief — gated to 3D ONLY:
  *  in 2D the hillshade would sun-shade the flat basemap (wrecking satellite —
