@@ -195,8 +195,9 @@ export function attachMapGestures(
         orbitArmed = true;
         if (!cb.is3d()) cb.onEnter3d();
       }
-      // drag right → rotate, drag up → tilt toward horizon, pivot under cursor.
-      map.orbit_around(-dx * BEARING_PER_PX, -dy * PITCH_PER_PX, ...focusPx(e.clientX, e.clientY));
+      // drag right → rotate the map the way the drag points (grab-and-turn, like
+      // Google/Apple), drag up → tilt toward horizon, pivot under cursor.
+      map.orbit_around(dx * BEARING_PER_PX, -dy * PITCH_PER_PX, ...focusPx(e.clientX, e.clientY));
       return;
     }
     if (!map || !pointers.has(e.pointerId)) return;

@@ -14,6 +14,8 @@ import { searchPlaces, type PlaceHit } from '../api/places';
 import { parseCoord } from '../geo';
 import { TurboMapCanvas } from './TurboMapCanvas';
 import { LayerPicker } from './LayerPicker';
+import { UserLocation } from './UserLocation';
+import { MapContextMenu, type ContextMenuTarget } from './MapContextMenu';
 import { useMarkers, useDeleteMarker } from './markers/useMarkers';
 import { useTracks, useDeleteTrack } from './paths/useTracks';
 import { MarkerPins } from './markers/MarkerPins';
@@ -78,6 +80,7 @@ export function MapScreen() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PlaceHit[]>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<ContextMenuTarget | null>(null);
   const [shareToken] = useState(() => new URLSearchParams(window.location.search).get('share'));
   const mapRef = useRef<TurboMap | null>(null);
   // Time-of-day (hours past local midnight) for the sun slider; seeded to now.
@@ -365,25 +368,29 @@ export function MapScreen() {
     }
   };
 
-  // Drop a new marker at a screen point (reverse-geocoded name). Shared by the
-  // desktop click-to-add and the mobile long-press-to-add paths.
-  const createMarkerAt = async (x: number, y: number) => {
-    const m = mapRef.current;
-    if (!m) return;
-    const g = m.unproject(x * DPR(), y * DPR());
-    if (!g) return;
-    const [lat, lng] = g;
+  // Open the new-marker editor at a geographic point (reverse-geocoded name).
+  const createMarkerLatLng = async (lat: number, lng: number) => {
     useUiStore.getState().closeAccount();
     useConditionsPanel.getState().close();
     usePaths.getState().close();
     useSelection.getState().openNew(lat, lng, await reverseGeocode(lat, lng));
   };
 
+  // Open the point contextual menu (the Android long-press menu) at a screen
+  // point: unproject to a geo point and anchor the menu there.
+  const openContextMenu = (x: number, y: number) => {
+    const m = mapRef.current;
+    if (!m) return;
+    const g = m.unproject(x * DPR(), y * DPR());
+    if (!g) return;
+    setCtxMenu({ x, y, lat: g[0], lng: g[1] });
+  };
+
   // A tap/click on the map (the gesture controller already filtered out drags,
-  // doubles, and long-presses). While routing, any tap adds a waypoint. Else
-  // we follow platform convention: mouse-click adds a marker; a touch tap
-  // selects/deselects (its add gesture is long-press) so it doesn't fight
-  // double-tap-zoom or drop pins when dismissing a panel.
+  // doubles, and long-presses). While routing, any tap adds a waypoint. Else a
+  // mouse click opens the point menu; a touch tap dismisses an open menu/panel
+  // (touch opens the menu via long-press instead, so it doesn't fight
+  // double-tap-zoom).
   const onMapTap = (x: number, y: number, pointerType: string) => {
     const m = mapRef.current;
     if (!m) return;
@@ -393,18 +400,27 @@ export function MapScreen() {
       return;
     }
     if (pointerType === 'mouse') {
-      void createMarkerAt(x, y);
+      openContextMenu(x, y);
       return;
     }
-    // Touch tap on empty map → dismiss any open panel (select happens on pins).
+    // Touch tap on empty map → dismiss the menu / any open panel.
+    setCtxMenu(null);
     useUiStore.getState().closeAccount();
     useConditionsPanel.getState().close();
     usePaths.getState().close();
     useSelection.getState().close();
   };
 
+  // Long-press (touch) → the point menu, even while routing (tap still adds
+  // waypoints). Mirrors the native long-press contextual menu.
   const onMapLongPress = (x: number, y: number) => {
-    if (!useRouting.getState().active) void createMarkerAt(x, y);
+    if (useRouting.getState().active) {
+      const m = mapRef.current;
+      const g = m?.unproject(x * DPR(), y * DPR());
+      if (g) useRouting.getState().addWaypoint({ lat: g[0], lng: g[1] });
+      return;
+    }
+    openContextMenu(x, y);
   };
 
   const onPinSelect = (id: string) => {
@@ -416,17 +432,6 @@ export function MapScreen() {
       useConditionsPanel.getState().close();
       usePaths.getState().close();
       useSelection.getState().openDetail(id);
-    }
-  };
-
-  const toggleRouting = () => {
-    if (routing.active) useRouting.getState().close();
-    else {
-      useUiStore.getState().closeAccount();
-      useConditionsPanel.getState().close();
-      useSelection.getState().close();
-      usePaths.getState().close();
-      useRouting.getState().open();
     }
   };
 
@@ -470,6 +475,7 @@ export function MapScreen() {
         />
       )}
       <MarkerPins mapRef={mapRef} markers={markers} selectedId={sel.selectedId} onSelect={onPinSelect} />
+      <UserLocation mapRef={mapRef} />
 
       {/* left: app-shell nav rail (desktop) */}
       {!isMobile && (
@@ -487,10 +493,13 @@ export function MapScreen() {
         }
       >
         <SearchField dark={dark} value={query} onChange={setQuery} width={isMobile ? '100%' : 420} avatar={avatar} onAvatar={onAccount} />
-        <Glass dark={dark} radius={9999} style={{ padding: 4, display: 'flex' }}>
-          <GlassIconBtn icon="directions" active={routing.active} title="Plan a route" onClick={toggleRouting} />
-          {isMobile && <GlassIconBtn icon="bookmark" active={paths.open} title="Saved" onClick={() => onNav('saved')} />}
-        </Glass>
+        {/* Routing is started from the map point menu (long-press / click),
+            mirroring native — so there's no standalone route toggle here. */}
+        {isMobile && (
+          <Glass dark={dark} radius={9999} style={{ padding: 4, display: 'flex' }}>
+            <GlassIconBtn icon="bookmark" active={paths.open} title="Saved" onClick={() => onNav('saved')} />
+          </Glass>
+        )}
       </div>
 
       {/* search results dropdown */}
@@ -567,6 +576,7 @@ export function MapScreen() {
         )}
         <MapRail
           dark={dark}
+          getBearing={() => cam()?.bearing ?? 0}
           state={{ layers, is3d: threeD, sun, following }}
           on={{
             onLayers: () => useUiStore.getState().setLayers(!layers),
@@ -724,6 +734,28 @@ export function MapScreen() {
       {/* add-to-collection picker (modal over everything) */}
       {paths.pickerItem && (
         <CollectionPicker dark={dark} item={paths.pickerItem} onClose={() => usePaths.getState().closePicker()} />
+      )}
+
+      {ctxMenu && (
+        <MapContextMenu
+          dark={dark}
+          target={ctxMenu}
+          onNewMarker={() => void createMarkerLatLng(ctxMenu.lat, ctxMenu.lng)}
+          onRouteHere={() =>
+            useRouting.getState().active
+              ? useRouting.getState().addWaypoint({ lat: ctxMenu.lat, lng: ctxMenu.lng })
+              : routeHere(ctxMenu.lat, ctxMenu.lng)
+          }
+          onStartRoute={() => {
+            useUiStore.getState().closeAccount();
+            useConditionsPanel.getState().close();
+            useSelection.getState().close();
+            usePaths.getState().close();
+            useRouting.getState().open({ lat: ctxMenu.lat, lng: ctxMenu.lng });
+          }}
+          onForecast={(name) => useConditionsPanel.getState().open(ctxMenu.lat, ctxMenu.lng, name)}
+          onClose={() => setCtxMenu(null)}
+        />
       )}
 
       {toast && (

@@ -47,7 +47,12 @@ export async function planStream(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/api/route/plan/stream`, {
     method: 'POST',
-    credentials: 'include',
+    // The routing API is public and answers with `Access-Control-Allow-Origin: *`.
+    // A browser REFUSES a credentialed (`include`) request against a wildcard CORS
+    // origin, so the stream silently never arrives — omit credentials (no auth
+    // needed) to let the wildcard response through. (curl ignores CORS, which hid
+    // this.)
+    credentials: 'omit',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
     body: JSON.stringify({ points: points.map((p) => [p.lng, p.lat]), preset, profile }),
     signal,

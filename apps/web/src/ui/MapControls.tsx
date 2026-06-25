@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Glass, GlassIconBtn, Divider } from './Glass';
 
 /** Bottom-right floating control cluster over the map: layers, 2D/3D, sun,
@@ -20,8 +21,20 @@ export interface MapRailHandlers {
   onZoomOut?: () => void;
 }
 
-export function MapRail({ dark, state, on }: { dark: boolean; state: MapRailState; on: MapRailHandlers }) {
-  const { layers, is3d = true, sun, following, compass = 18 } = state;
+export function MapRail({
+  dark,
+  state,
+  on,
+  getBearing,
+}: {
+  dark: boolean;
+  state: MapRailState;
+  on: MapRailHandlers;
+  /** Live camera bearing accessor (deg). The compass needle tracks it every
+   *  frame so it points to true north as the map rotates. */
+  getBearing?: () => number;
+}) {
+  const { layers, is3d = true, sun, following } = state;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-end' }}>
       <Glass dark={dark} radius={22} style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -38,7 +51,7 @@ export function MapRail({ dark, state, on }: { dark: boolean; state: MapRailStat
           title="Recenter"
           onClick={on.onRecenter}
         />
-        <CompassBtn rot={compass} active={following} onClick={on.onCompass} />
+        <CompassBtn getBearing={getBearing} active={following} onClick={on.onCompass} />
       </Glass>
       <Glass dark={dark} radius={28} style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
         <GlassIconBtn icon="add" iconSize={22} title="Zoom in" onClick={on.onZoomIn} />
@@ -74,7 +87,27 @@ function ThreeDToggle({ is3d, onClick }: { is3d: boolean; onClick?: () => void }
   );
 }
 
-function CompassBtn({ rot = 0, active, onClick }: { rot?: number; active?: boolean; onClick?: () => void }) {
+function CompassBtn({ getBearing, active, onClick }: { getBearing?: () => number; active?: boolean; onClick?: () => void }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  // Rotate the needle to point at true north as the camera bearing changes —
+  // driven off rAF + mutated directly (no React re-render per frame, mirrors
+  // how the marker layer projects).
+  useEffect(() => {
+    if (!getBearing) return;
+    let raf = 0;
+    let last = NaN;
+    const tick = () => {
+      const b = getBearing() || 0;
+      // `last` starts NaN, so seed on the first frame (NaN comparisons are false).
+      if (svgRef.current && (Number.isNaN(last) || Math.abs(b - last) > 0.2)) {
+        svgRef.current.style.transform = `rotate(${-b}deg)`;
+        last = b;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [getBearing]);
   return (
     <button
       title="Compass · reset north"
@@ -91,7 +124,7 @@ function CompassBtn({ rot = 0, active, onClick }: { rot?: number; active?: boole
         justifyContent: 'center',
       }}
     >
-      <svg width="26" height="26" viewBox="0 0 35 34" style={{ transform: `rotate(${-rot}deg)` }}>
+      <svg ref={svgRef} width="26" height="26" viewBox="0 0 35 34">
         <path fill={active ? 'var(--on-tertiary-container)' : 'var(--error)'} d="M17.4 4 L20.6 16 H14.2 Z" />
         <path fill={active ? 'var(--on-tertiary-container)' : 'var(--primary)'} d="M17.4 30 L14.2 18 H20.6 Z" opacity=".55" />
       </svg>
