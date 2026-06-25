@@ -552,27 +552,6 @@ impl TurbomapEngine {
         self.map.set_terrain_shadows(strength);
     }
 
-    /// Drive the realistic-water surface from the MET wave/wind forecast (wave
-    /// direction + ferocity, whitecaps, shoreline foam). All inputs optional
-    /// (`None` ⇒ calm default). Bearings are degrees the wave/wind comes *from*.
-    /// See [`turbomap_core::Map::set_water_conditions`].
-    pub fn set_water_conditions(
-        &mut self,
-        wave_from_deg: Option<f32>,
-        wave_height_m: Option<f32>,
-        wind_speed_ms: Option<f32>,
-        wind_from_deg: Option<f32>,
-    ) {
-        self.map
-            .set_water_conditions(wave_from_deg, wave_height_m, wind_speed_ms, wind_from_deg);
-    }
-
-    /// Select the realistic-water (AAA) render path. See
-    /// [`turbomap_core::Map::set_realistic_water`].
-    pub fn set_realistic_water(&mut self, enabled: bool) {
-        self.map.set_realistic_water(enabled);
-    }
-
     /// Set (or clear, when `points` is empty) a route/track polyline drawn as a
     /// raised 3D tube. `points` are lng/lat; `radius_m` is the tube radius in
     /// metres. See [`turbomap_core::Map::set_route_tube`].

@@ -18,13 +18,6 @@ pub(crate) struct VectorEntry {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub index_count: u32,
-    /// Water-body fills split out at tessellation time, drawn by the dedicated
-    /// realistic-water pipeline. Separate vertex/index buffers (same vertex
-    /// format as the main mesh). `water_index_count == 0` ⇒ no water in this tile
-    /// (the buffers are 4-byte placeholders).
-    pub water_vertex_buffer: wgpu::Buffer,
-    pub water_index_buffer: wgpu::Buffer,
-    pub water_index_count: u32,
     pub labels: Vec<LabelRequest>,
     pub icons: Vec<IconRequest>,
     pub interactive: Vec<InteractiveFeature>,
@@ -122,7 +115,6 @@ impl VectorMeshCache {
         &mut self,
         id: TileId,
         mesh: &Mesh,
-        water_mesh: &Mesh,
         labels: Vec<LabelRequest>,
         icons: Vec<IconRequest>,
         interactive: Vec<InteractiveFeature>,
@@ -132,14 +124,12 @@ impl VectorMeshCache {
             return Vec::new();
         }
 
-        // Build GPU buffers for both the ordinary vector mesh and the split-out
-        // water mesh. Empty meshes get 4-byte placeholders with index_count 0, so
-        // even a fully-empty tile still inserts a "loaded but empty" marker entry
-        // (the host then won't keep re-fetching it) and the draw loop skips it.
+        // Build GPU buffers for the vector mesh. Empty meshes get 4-byte
+        // placeholders with index_count 0, so even a fully-empty tile still
+        // inserts a "loaded but empty" marker entry (the host then won't keep
+        // re-fetching it) and the draw loop skips it.
         let (vertex_buffer, index_buffer, index_count, mesh_bytes) =
             make_mesh_buffers(&self.device, mesh, "turbomap-vector");
-        let (water_vertex_buffer, water_index_buffer, water_index_count, water_bytes) =
-            make_mesh_buffers(&self.device, water_mesh, "turbomap-water");
 
         let label_bytes: usize = labels.iter().map(|l| l.text.len() + 32).sum();
         let icon_bytes: usize = icons.iter().map(|i| i.sprite.len() + 24).sum();
@@ -168,7 +158,6 @@ impl VectorMeshCache {
         }
         hit_index.finish();
         let bytes = mesh_bytes
-            + water_bytes
             + label_bytes
             + icon_bytes
             + interactive_bytes
@@ -179,9 +168,6 @@ impl VectorMeshCache {
                 vertex_buffer,
                 index_buffer,
                 index_count,
-                water_vertex_buffer,
-                water_index_buffer,
-                water_index_count,
                 labels,
                 icons,
                 interactive,

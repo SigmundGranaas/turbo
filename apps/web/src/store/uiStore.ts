@@ -14,7 +14,6 @@ interface UiState {
   threeD: boolean;
   layers: boolean;
   sun: boolean;
-  water: boolean;
   following: boolean;
   accountOpen: boolean;
   setTheme: (t: ThemeMode) => void;
@@ -23,7 +22,6 @@ interface UiState {
   setThreeD: (v: boolean) => void;
   setLayers: (v: boolean) => void;
   setSun: (v: boolean) => void;
-  setWater: (v: boolean) => void;
   setFollowing: (v: boolean) => void;
   openAccount: () => void;
   closeAccount: () => void;
@@ -38,7 +36,6 @@ export const useUiStore = create<UiState>()(
       threeD: false,
       layers: false,
       sun: false,
-      water: false,
       following: false,
       accountOpen: false,
       setTheme: (theme) => set({ theme }),
@@ -47,7 +44,6 @@ export const useUiStore = create<UiState>()(
       setThreeD: (threeD) => set({ threeD }),
       setLayers: (layers) => set({ layers }),
       setSun: (sun) => set({ sun }),
-      setWater: (water) => set({ water }),
       setFollowing: (following) => set({ following }),
       openAccount: () => set({ accountOpen: true }),
       closeAccount: () => set({ accountOpen: false }),

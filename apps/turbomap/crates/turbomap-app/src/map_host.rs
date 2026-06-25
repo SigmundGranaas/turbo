@@ -133,7 +133,6 @@ impl MapHost {
                 VectorOutcome::Decoded {
                     id,
                     mesh,
-                    water_mesh,
                     labels,
                     icons,
                     interactive,
@@ -144,7 +143,6 @@ impl MapHost {
                         VECTOR_LAYER_ID,
                         id,
                         &mesh,
-                        &water_mesh,
                         labels,
                         icons,
                         interactive,

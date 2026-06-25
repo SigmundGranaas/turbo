@@ -4,7 +4,6 @@ import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.MapEngine
 import com.sigmundgranaas.turbo.expressive.domain.TerrainSunOverlay
-import com.sigmundgranaas.turbo.expressive.domain.WaterConditionsOverlay
 import com.sigmundgranaas.turbo.expressive.domain.WeatherCloudOverlay
 
 /**
@@ -21,7 +20,7 @@ class TurbomapMapEngine(
     private val handle: Long,
     private var widthPx: Int,
     private var heightPx: Int,
-) : MapEngine, WeatherCloudOverlay, TerrainSunOverlay, WaterConditionsOverlay {
+) : MapEngine, WeatherCloudOverlay, TerrainSunOverlay {
 
     /**
      * Invoked after any camera/projection mutation so the host can request a
@@ -168,25 +167,6 @@ class TurbomapMapEngine(
 
     override fun setTerrainShadows(strength: Float) {
         NativeSurfaceMap.nativeSetTerrainShadows(handle, strength)
-        onMutated()
-    }
-
-    // ── WaterConditionsOverlay ──────────────────────────────────────────────
-
-    override fun setWaterConditions(
-        waveFromDeg: Float?,
-        waveHeightM: Float?,
-        windSpeedMs: Float?,
-        windFromDeg: Float?,
-    ) {
-        // The native side reads NaN as "absent" for each optional field.
-        NativeSurfaceMap.nativeSetWaterConditions(
-            handle,
-            waveFromDeg ?: Float.NaN,
-            waveHeightM ?: Float.NaN,
-            windSpeedMs ?: Float.NaN,
-            windFromDeg ?: Float.NaN,
-        )
         onMutated()
     }
 

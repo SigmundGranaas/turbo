@@ -1,8 +1,7 @@
 //! The frame's render attachments — the multisampled HDR colour target the
 //! frame pass draws into, the depth buffer it tests against, the single-sample
-//! HDR texture it resolves to (sampled by the post-process), the two
-//! half-resolution HDR ping-pong textures the bloom blur bounces between, and
-//! (for the realistic-water frame restructure) a single-sample HDR composite.
+//! HDR texture it resolves to (sampled by the post-process), and the two
+//! half-resolution HDR ping-pong textures the bloom blur bounces between.
 //!
 //! Pulls the `Map`'s loose `depth_view` + `depth_size` + `msaa_color_view`
 //! trio into one type that owns their creation and the resize rule (recreate
@@ -14,23 +13,10 @@
 //! to [`HDR_FORMAT`], which the [`post`](super::post) pass then bloom-blurs and
 //! filmic-tonemaps down to the surface. So highlights can exceed 1.0 through the
 //! whole geometry pass and only get compressed at the very end.
-//!
-//! ## Realistic-water frame restructure (flag-gated)
-//! When realistic water is on, the single monolithic pass is split so the water
-//! can sample the opaque scene (for reflection/refraction):
-//!   1. **opaque pass** → MSAA colour, **STORED** (not discarded) so the water
-//!      pass can load it, AND resolved to [`Self::hdr_resolve_view`] (the *Scene
-//!      Colour* the water samples). MSAA depth written.
-//!   2. **water pass** → loads the stored MSAA colour, draws water on top (still
-//!      4× MSAA, so the same water pipeline works and edges stay anti-aliased),
-//!      resolves into [`Self::composite_view`]; depth = MSAA depth read-only;
-//!      samples `hdr_resolve` (a *different* texture) as Scene Colour.
-//!   3. **post** reads `composite` instead of `hdr_resolve`.
-//! On the flat-water path none of this is used (post reads `hdr_resolve`).
 
 use super::{DEPTH_FORMAT, HDR_FORMAT, MSAA_SAMPLES};
 
-/// Multisampled HDR colour + depth + resolve + bloom + composite attachments,
+/// Multisampled HDR colour + depth + resolve + bloom attachments,
 /// sized to the surface.
 pub(crate) struct FrameTargets {
     /// Multisampled HDR colour target the frame pass renders into; resolved to
@@ -48,9 +34,6 @@ pub(crate) struct FrameTargets {
     /// between (bright-pass + downsample → `a`, blur_h → `b`, blur_v → `a`).
     bloom_a_view: wgpu::TextureView,
     bloom_b_view: wgpu::TextureView,
-    /// Single-sample HDR composite (realistic-water path only): the water pass
-    /// resolves opaque-scene-plus-water into it, and post reads it.
-    composite_view: wgpu::TextureView,
     /// The size all attachments were built for; resize is a no-op until the
     /// surface actually changes dimensions.
     size: (u32, u32),
@@ -65,7 +48,6 @@ impl FrameTargets {
             hdr_resolve_view: create_resolve_view(device, size, "turbomap-hdr-resolve"),
             bloom_a_view: create_bloom_view(device, (bw, bh), "turbomap-bloom-a"),
             bloom_b_view: create_bloom_view(device, (bw, bh), "turbomap-bloom-b"),
-            composite_view: create_resolve_view(device, size, "turbomap-composite"),
             size,
         }
     }
@@ -84,7 +66,6 @@ impl FrameTargets {
         self.hdr_resolve_view = create_resolve_view(device, size, "turbomap-hdr-resolve");
         self.bloom_a_view = create_bloom_view(device, (bw, bh), "turbomap-bloom-a");
         self.bloom_b_view = create_bloom_view(device, (bw, bh), "turbomap-bloom-b");
-        self.composite_view = create_resolve_view(device, size, "turbomap-composite");
         self.size = size;
     }
 
@@ -106,10 +87,6 @@ impl FrameTargets {
 
     pub(crate) fn bloom_b_view(&self) -> &wgpu::TextureView {
         &self.bloom_b_view
-    }
-
-    pub(crate) fn composite_view(&self) -> &wgpu::TextureView {
-        &self.composite_view
     }
 }
 

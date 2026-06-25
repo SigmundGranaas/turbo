@@ -133,25 +133,9 @@ pub struct InteractiveFeature {
 #[derive(Debug, Default, Clone)]
 pub struct TessellationOutput {
     pub mesh: Mesh,
-    /// Water-fill triangles, split out of `mesh` so the renderer can draw them
-    /// through the dedicated realistic-water pipeline (animated waves, Fresnel,
-    /// sky reflection, sun glitter) instead of as a flat matte fill. Same vertex
-    /// format as `mesh`; the baked `color` is reused as the deep-water tint.
-    /// Empty when the tile has no water polygons.
-    pub water_mesh: Mesh,
     pub labels: Vec<LabelRequest>,
     pub icons: Vec<IconRequest>,
     pub interactive: Vec<InteractiveFeature>,
-}
-
-/// Whether an MVT source layer carries water-body polygons that should render
-/// through the realistic-water pipeline rather than as a flat fill. Matches the
-/// OpenMapTiles convention (`"water"`); waterway *rivers* are `Line` paint and
-/// stay in the ordinary vector mesh, so only fills land here.
-pub fn is_water_source_layer(name: &str) -> bool {
-    // OMT/kart-api use "water"; VersaTiles (Shortbread) splits the sea into
-    // "ocean" and inland bodies into "water_polygons".
-    matches!(name, "water" | "ocean" | "water_polygons")
 }
 
 /// Tessellation tolerance in **tile units** (one tile = 1.0). One tile is
@@ -169,172 +153,6 @@ pub fn tile_tolerance() -> f32 {
     0.5 / 256.0
 }
 
-/// Per-tile vertex budget for the refined water grid (the displaceable surface
-/// the realistic-water Gerstner path samples).
-const WATER_GRID_VERT_BUDGET: usize = 8192;
-/// Max uniform-subdivision rounds (each multiplies triangles by 4).
-const WATER_GRID_MAX_ROUNDS: u32 = 3;
-
-/// Shared edge midpoint vertex (cached by the unordered endpoint pair so
-/// adjacent triangles reuse it ⇒ the refined mesh stays watertight). Interpolates
-/// `base`/`z`; fills carry no stroke attributes (normal/width/dist = 0).
-fn edge_midpoint(
-    verts: &mut Vec<VectorVertex>,
-    cache: &mut std::collections::HashMap<(u32, u32), u32>,
-    a: u32,
-    b: u32,
-) -> u32 {
-    let key = if a < b { (a, b) } else { (b, a) };
-    if let Some(&m) = cache.get(&key) {
-        return m;
-    }
-    let va = verts[a as usize];
-    let vb = verts[b as usize];
-    let m = VectorVertex {
-        base: [
-            (va.base[0] + vb.base[0]) * 0.5,
-            (va.base[1] + vb.base[1]) * 0.5,
-        ],
-        normal: [0.0, 0.0],
-        width_px: 0.0,
-        color: va.color,
-        edge_pos: [128, 128, 128, 128],
-        dist: 0.0,
-        z: (va.z + vb.z) * 0.5,
-    };
-    let idx = verts.len() as u32;
-    verts.push(m);
-    cache.insert(key, idx);
-    idx
-}
-
-/// Shore distance (tile-local) for water vertices with no real shoreline in
-/// their tile — open sea, or the interior of a body whose banks lie in other
-/// tiles. 1.0 ⇒ a full tile from shore ⇒ unambiguously deep at every zoom.
-const WATER_DEEP_DEFAULT: f32 = 1.0;
-
-/// A water-polygon edge lying along the tile boundary is an MVT *clipping*
-/// artefact, not a real shoreline; baking shore distance from it paints a false
-/// shallow band at every tile seam (and makes all-water tiles read shallow).
-/// Detect axis-aligned segments on — or just outside, allowing for the tile
-/// buffer — the `[0, 1]` tile border.
-fn is_tile_border_edge(a: [f32; 2], b: [f32; 2]) -> bool {
-    const EPS: f32 = 0.02;
-    let vertical = (a[0] - b[0]).abs() < EPS;
-    let horizontal = (a[1] - b[1]).abs() < EPS;
-    let x_border = a[0] <= EPS || a[0] >= 1.0 - EPS;
-    let y_border = a[1] <= EPS || a[1] >= 1.0 - EPS;
-    (vertical && x_border) || (horizontal && y_border)
-}
-
-/// Squared distance from point `p` to segment `a`→`b` (tile-local units).
-fn point_seg_dist2(p: [f32; 2], a: [f32; 2], b: [f32; 2]) -> f32 {
-    let ab = [b[0] - a[0], b[1] - a[1]];
-    let ap = [p[0] - a[0], p[1] - a[1]];
-    let len2 = ab[0] * ab[0] + ab[1] * ab[1];
-    let t = if len2 > 0.0 {
-        ((ap[0] * ab[0] + ap[1] * ab[1]) / len2).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    let c = [a[0] + t * ab[0], a[1] + t * ab[1]];
-    let d = [p[0] - c[0], p[1] - c[1]];
-    d[0] * d[0] + d[1] * d[1]
-}
-
-/// Bake each water vertex's distance to the nearest shoreline edge (tile-local
-/// units) into its `dist` attribute. `segments` are the water polygons' boundary
-/// edges, `[x0,y0,x1,y1]`. With no boundary (shouldn't happen for water) every
-/// vertex stays at `dist = 0` (treated as shallow — the safe, brighter default).
-/// Keep only the water-boundary edges that appear exactly once. An ST_Subdivide
-/// cut between two water blocks contributes the SAME segment from each block
-/// (water on both sides → not shore); a real coastline edge borders land and so
-/// appears once. Endpoints are quantised before comparison because adjacent
-/// blocks share identical integer MVT coords, but float projection is exact only
-/// up to rounding.
-fn unique_shore_edges(edges: &[[f32; 4]]) -> Vec<[f32; 4]> {
-    use std::collections::HashMap;
-    let q = |v: f32| (v * 100_000.0).round() as i64;
-    let key = |e: &[f32; 4]| {
-        let a = (q(e[0]), q(e[1]));
-        let b = (q(e[2]), q(e[3]));
-        if a <= b {
-            (a, b)
-        } else {
-            (b, a)
-        }
-    };
-    let mut counts: HashMap<((i64, i64), (i64, i64)), u32> = HashMap::new();
-    for e in edges {
-        *counts.entry(key(e)).or_insert(0) += 1;
-    }
-    edges
-        .iter()
-        .filter(|e| counts.get(&key(e)) == Some(&1))
-        .copied()
-        .collect()
-}
-
-fn bake_shore_distance(mesh: &mut Mesh, segments: &[[f32; 4]]) {
-    if segments.is_empty() {
-        // No real shoreline in this tile ⇒ deep everywhere (NOT the shallow
-        // `dist = 0` default), so open water doesn't read as a bright shallows.
-        for v in &mut mesh.vertices {
-            v.dist = WATER_DEEP_DEFAULT;
-        }
-        return;
-    }
-    for v in &mut mesh.vertices {
-        let p = v.base;
-        let mut best = f32::MAX;
-        for s in segments {
-            let d2 = point_seg_dist2(p, [s[0], s[1]], [s[2], s[3]]);
-            if d2 < best {
-                best = d2;
-                if best == 0.0 {
-                    break;
-                }
-            }
-        }
-        v.dist = best.sqrt();
-    }
-}
-
-/// Uniformly subdivide a triangle mesh (each triangle → 4 via shared edge
-/// midpoints, so it stays watertight — no T-junction cracks) until another round
-/// would exceed `max_verts`, or `max_rounds` is reached. Turns the minimal lyon
-/// water fill into a fine grid the realistic-water path can displace.
-pub fn refine_mesh(mut mesh: Mesh, max_verts: usize, max_rounds: u32) -> Mesh {
-    for _ in 0..max_rounds {
-        let tris = mesh.indices.len() / 3;
-        // A round adds ≈ one vertex per unique edge (~1.5·tris); stop before the
-        // budget is blown.
-        if tris == 0 || mesh.vertices.len() + tris * 2 > max_verts {
-            break;
-        }
-        let Mesh {
-            mut vertices,
-            indices,
-        } = mesh;
-        let mut out_idx: Vec<u32> = Vec::with_capacity(indices.len() * 4);
-        let mut cache: std::collections::HashMap<(u32, u32), u32> = std::collections::HashMap::new();
-        let mut i = 0;
-        while i + 2 < indices.len() {
-            let (a, b, c) = (indices[i], indices[i + 1], indices[i + 2]);
-            let ab = edge_midpoint(&mut vertices, &mut cache, a, b);
-            let bc = edge_midpoint(&mut vertices, &mut cache, b, c);
-            let ca = edge_midpoint(&mut vertices, &mut cache, c, a);
-            out_idx.extend_from_slice(&[a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca]);
-            i += 3;
-        }
-        mesh = Mesh {
-            vertices,
-            indices: out_idx,
-        };
-    }
-    mesh
-}
-
 /// Tessellate a tile through `style` into a single mesh in **tile-local
 /// units** (`[0, 1]` across the tile, buffer geometry slightly outside).
 /// Errors out of individual features (e.g. a degenerate polygon) are
@@ -344,14 +162,6 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
     let mut fill_tess = FillTessellator::new();
     let mut stroke_tess = StrokeTessellator::new();
     let mut buffers: VertexBuffers<VectorVertex, u32> = VertexBuffers::new();
-    // Water fills tessellate into their own buffer so the renderer can draw them
-    // through the dedicated water pipeline. Everything else (incl. water outlines,
-    // which are `Line` paint) stays in `buffers`.
-    let mut water_buffers: VertexBuffers<VectorVertex, u32> = VertexBuffers::new();
-    // Shoreline edge segments (tile-local coords) of every water polygon, used
-    // after refinement to bake each water vertex's distance-to-shore into `dist`
-    // — the shallowness cue the water shader turns into depth-based absorption.
-    let mut water_boundary: Vec<[f32; 4]> = Vec::new();
     let mut labels: Vec<LabelRequest> = Vec::new();
     let mut icons: Vec<IconRequest> = Vec::new();
     let mut interactive: Vec<InteractiveFeature> = Vec::new();
@@ -378,43 +188,8 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                     if let Geometry::Polygon(rings) = &feature.geometry {
                         let path = build_polygon_path(tile_id, extent, rings);
                         let packed = pack_color(*color);
-                        // Route water-body fills into the dedicated water buffer
-                        // (realistic-water pipeline); everything else into the
-                        // ordinary vector mesh.
-                        let is_water = is_water_source_layer(&layer.name);
-                        if is_water {
-                            // Collect this body's REAL shoreline edges (tile-local)
-                            // for the post-refinement shore-distance bake, skipping
-                            // tile-clip edges (see is_tile_border_edge).
-                            let mut push_edge = |a: lyon::math::Point, b: lyon::math::Point| {
-                                let pa = [a.x, a.y];
-                                let pb = [b.x, b.y];
-                                if !is_tile_border_edge(pa, pb) {
-                                    water_boundary.push([pa[0], pa[1], pb[0], pb[1]]);
-                                }
-                            };
-                            for ring in rings {
-                                if ring.len() < 2 {
-                                    continue;
-                                }
-                                let mut prev = project(tile_id, extent, ring[0]);
-                                for &pt in &ring[1..] {
-                                    let cur = project(tile_id, extent, pt);
-                                    push_edge(prev, cur);
-                                    prev = cur;
-                                }
-                                // Close the ring (last → first).
-                                let first = project(tile_id, extent, ring[0]);
-                                push_edge(prev, first);
-                            }
-                        }
-                        let target = if is_water {
-                            &mut water_buffers
-                        } else {
-                            &mut buffers
-                        };
                         let mut builder =
-                            BuffersBuilder::new(target, |v: FillVertex| VectorVertex {
+                            BuffersBuilder::new(&mut buffers, |v: FillVertex| VectorVertex {
                                 base: v.position().to_array(),
                                 normal: [0.0, 0.0], // fills don't extrude
                                 width_px: 0.0,
@@ -669,35 +444,11 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
         }
     }
 
-    // Refine the water fill into a fine grid so the realistic-water path has
-    // vertices to displace (Gerstner). lyon emits minimal large interior
-    // triangles; uniform 1→4 subdivision (shared midpoints ⇒ watertight, no
-    // cracks) gives a dense grid, bounded by a per-tile vertex budget. The flat
-    // water path renders the denser mesh identically (still a flat fill).
-    let mut water_mesh = refine_mesh(
-        Mesh {
-            vertices: water_buffers.vertices,
-            indices: water_buffers.indices,
-        },
-        WATER_GRID_VERT_BUDGET,
-        WATER_GRID_MAX_ROUNDS,
-    );
-    // Keep only REAL shoreline edges before baking: prod runs ST_Subdivide on
-    // the sea polygons, whose interior cut edges are shared by two adjacent water
-    // blocks. Treating those as shore painted a false shallow band around every
-    // block ("coastal blocks"). A genuine coast edge borders land, so it belongs
-    // to exactly ONE water polygon; a subdivide cut appears TWICE. Drop the
-    // duplicates → only true coastlines remain.
-    let shore_edges = unique_shore_edges(&water_boundary);
-    // Bake distance-to-shore (tile-local units) into each water vertex's `dist`
-    // so the shader can shade shallows (near an edge) brighter than deeps.
-    bake_shore_distance(&mut water_mesh, &shore_edges);
     TessellationOutput {
         mesh: Mesh {
             vertices: buffers.vertices,
             indices: buffers.indices,
         },
-        water_mesh,
         labels,
         icons,
         interactive,
@@ -857,126 +608,6 @@ mod tests {
     use crate::style::{Filter, Paint, Rule};
     use crate::vector::{Feature, GeomType, Geometry, VectorTile};
     use std::collections::HashMap;
-
-    fn fill_vertex(x: f32, y: f32) -> VectorVertex {
-        VectorVertex {
-            base: [x, y],
-            normal: [0.0, 0.0],
-            width_px: 0.0,
-            color: [10, 30, 60, 255],
-            edge_pos: [128, 128, 128, 128],
-            dist: 0.0,
-            z: 0.0,
-        }
-    }
-
-    #[test]
-    fn refine_mesh_subdivides_and_shares_midpoints() {
-        // Two triangles sharing edge (1,2) — a unit quad. One round must add
-        // exactly one midpoint per *unique* edge (5 edges ⇒ 5 new verts), and
-        // turn 2 triangles into 8, with no vertex left unreferenced.
-        let mesh = Mesh {
-            vertices: vec![
-                fill_vertex(0.0, 0.0),
-                fill_vertex(1.0, 0.0),
-                fill_vertex(0.0, 1.0),
-                fill_vertex(1.0, 1.0),
-            ],
-            indices: vec![0, 1, 2, 1, 3, 2],
-        };
-        let refined = refine_mesh(mesh, 1_000, 1);
-        assert_eq!(refined.indices.len(), 2 * 4 * 3, "each triangle → 4");
-        // 4 corners + 5 shared edge midpoints (the diagonal 1↔2 is shared).
-        assert_eq!(refined.vertices.len(), 9, "midpoints shared across the seam");
-        for &i in &refined.indices {
-            assert!((i as usize) < refined.vertices.len());
-        }
-        // The shared-edge midpoint is the quad centre, interpolated cleanly.
-        assert!(refined
-            .vertices
-            .iter()
-            .any(|v| (v.base[0] - 0.5).abs() < 1e-6 && (v.base[1] - 0.5).abs() < 1e-6));
-    }
-
-    #[test]
-    fn bake_shore_distance_marks_edges_shallow_and_interior_deep() {
-        // A unit-square water body; boundary = its 4 edges. A vertex on an edge
-        // must get ~0 distance (shallow); the centre must get ~0.5 (deep).
-        let segments = [
-            [0.0, 0.0, 1.0, 0.0],
-            [1.0, 0.0, 1.0, 1.0],
-            [1.0, 1.0, 0.0, 1.0],
-            [0.0, 1.0, 0.0, 0.0],
-        ];
-        let mut mesh = Mesh {
-            vertices: vec![
-                fill_vertex(0.0, 0.5), // on the left edge
-                fill_vertex(0.5, 0.5), // centre
-            ],
-            indices: vec![],
-        };
-        bake_shore_distance(&mut mesh, &segments);
-        assert!(mesh.vertices[0].dist < 1e-6, "edge vertex is shallow");
-        assert!(
-            (mesh.vertices[1].dist - 0.5).abs() < 1e-6,
-            "centre is the deepest point (0.5 from every edge)"
-        );
-        // No real shoreline ⇒ deep default (open sea is deep, not shallow).
-        let mut bare = Mesh {
-            vertices: vec![fill_vertex(0.3, 0.7)],
-            indices: vec![],
-        };
-        bake_shore_distance(&mut bare, &[]);
-        assert_eq!(bare.vertices[0].dist, WATER_DEEP_DEFAULT);
-    }
-
-    #[test]
-    fn unique_shore_edges_drops_shared_subdivide_cuts() {
-        // Two water blocks sharing the cut edge (1,0)->(1,1): that edge appears
-        // twice (once per block, possibly reversed) → dropped. The outer real
-        // coastline edges appear once → kept.
-        let edges = [
-            [0.0, 0.0, 1.0, 0.0], // block A outer
-            [1.0, 0.0, 1.0, 1.0], // shared cut (A side)
-            [1.0, 1.0, 0.0, 1.0], // block A outer
-            [1.0, 1.0, 1.0, 0.0], // shared cut (B side, reversed)
-            [1.0, 0.0, 2.0, 0.0], // block B outer
-            [2.0, 0.0, 2.0, 1.0], // block B outer
-        ];
-        let kept = unique_shore_edges(&edges);
-        // 6 edges − 2 shared-cut instances = 4 real coast edges.
-        assert_eq!(kept.len(), 4);
-        // The cut (x=1 vertical) must be gone.
-        assert!(!kept
-            .iter()
-            .any(|e| (e[0] - 1.0).abs() < 1e-6 && (e[2] - 1.0).abs() < 1e-6));
-    }
-
-    #[test]
-    fn tile_border_edges_are_not_shoreline() {
-        // Clip edges along the tile border are rejected; a real interior shore is
-        // kept.
-        assert!(is_tile_border_edge([0.0, 0.0], [0.0, 1.0]), "left border");
-        assert!(is_tile_border_edge([1.0, 0.0], [1.0, 1.0]), "right border");
-        assert!(is_tile_border_edge([0.0, 1.0], [1.0, 1.0]), "top border");
-        assert!(is_tile_border_edge([-0.05, 0.2], [-0.05, 0.8]), "buffer overhang");
-        assert!(!is_tile_border_edge([0.3, 0.3], [0.7, 0.6]), "interior coastline");
-        assert!(!is_tile_border_edge([0.5, 0.0], [0.6, 0.4]), "diagonal off the border");
-    }
-
-    #[test]
-    fn refine_mesh_respects_vertex_budget() {
-        let mesh = Mesh {
-            vertices: vec![fill_vertex(0.0, 0.0), fill_vertex(1.0, 0.0), fill_vertex(0.0, 1.0)],
-            indices: vec![0, 1, 2],
-        };
-        // Budget that admits zero rounds (3 + 1·2 = 5 > 4) leaves it untouched.
-        let tight = refine_mesh(mesh.clone(), 4, 8);
-        assert_eq!(tight.indices.len(), 3);
-        // A generous budget but max_rounds=0 is also a no-op.
-        let capped = refine_mesh(mesh, 100_000, 0);
-        assert_eq!(capped.indices.len(), 3);
-    }
 
     #[test]
     fn tile_tolerance_is_half_a_native_pixel() {
@@ -1203,9 +834,6 @@ mod tests {
     fn polygon_matching_a_fill_rule_produces_triangles() {
         let tile = VectorTile {
             layers: vec![crate::vector::Layer {
-                // Non-water fill → ordinary vector mesh. (Water fills are split
-                // into `water_mesh`; that path is covered by
-                // `water_fill_lands_in_the_water_mesh_not_the_main_mesh`.)
                 name: "landcover".into(),
                 version: 2,
                 extent: 4096,
@@ -1242,41 +870,6 @@ mod tests {
             mesh.indices.len().is_multiple_of(3),
             "index count must be a multiple of 3"
         );
-    }
-
-    #[test]
-    fn water_fill_lands_in_the_water_mesh_not_the_main_mesh() {
-        // A "water" source-layer fill must be split into `water_mesh` (drawn by
-        // the realistic-water pipeline) and produce no triangles in the ordinary
-        // mesh; a non-water fill stays in `mesh`.
-        let square = vec![vec![(100, 100), (200, 100), (200, 200), (100, 200), (100, 100)]];
-        let fill_rule = |layer: &str| VectorStyle {
-            background: Color::rgb(255, 255, 255),
-            rules: vec![Rule {
-                source_layer: layer.into(),
-                filter: Filter::Always,
-                paint: Paint::Fill { color: Color::rgb(0, 0, 255) },
-                min_zoom: 0,
-                max_zoom: 22,
-                interactive: false,
-            }],
-        };
-        let tile = |layer: &str| VectorTile {
-            layers: vec![crate::vector::Layer {
-                name: layer.into(),
-                version: 2,
-                extent: 4096,
-                features: vec![poly(square.clone())],
-            }],
-        };
-
-        let water = tessellate(TileId::new(5, 1, 1), &tile("water"), &fill_rule("water"));
-        assert!(water.mesh.is_empty(), "water fill must not land in the main mesh");
-        assert!(!water.water_mesh.is_empty(), "water fill must land in the water mesh");
-
-        let land = tessellate(TileId::new(5, 1, 1), &tile("landcover"), &fill_rule("landcover"));
-        assert!(!land.mesh.is_empty(), "non-water fill stays in the main mesh");
-        assert!(land.water_mesh.is_empty(), "non-water fill must not land in the water mesh");
     }
 
     #[test]

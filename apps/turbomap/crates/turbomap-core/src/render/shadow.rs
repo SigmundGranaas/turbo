@@ -237,13 +237,6 @@ impl ShadowMap {
         &self.ao_view
     }
 
-    /// A fresh view of the heightfield texture — the water reflection march binds
-    /// it (the view stays valid across `upload_heights`, which only rewrites the
-    /// texture contents, not the view).
-    pub(crate) fn height_view(&self) -> wgpu::TextureView {
-        self.texture.create_view(&Default::default())
-    }
-
     /// Upload the assembled heightfield (world-z elevations, row-major, `HEIGHT_DIM²`).
     /// A size mismatch is ignored rather than panicking, leaving prior contents.
     pub(crate) fn upload_heights(&self, heights: &[f32]) {

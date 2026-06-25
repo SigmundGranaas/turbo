@@ -7,7 +7,6 @@ export interface MapRailState {
   layers?: boolean;
   is3d?: boolean;
   sun?: boolean;
-  water?: boolean;
   following?: boolean;
   compass?: number;
 }
@@ -15,7 +14,6 @@ export interface MapRailHandlers {
   onLayers?: () => void;
   onToggle3d?: () => void;
   onSun?: () => void;
-  onWater?: () => void;
   onRecenter?: () => void;
   onCompass?: () => void;
   onZoomIn?: () => void;
@@ -23,7 +21,7 @@ export interface MapRailHandlers {
 }
 
 export function MapRail({ dark, state, on }: { dark: boolean; state: MapRailState; on: MapRailHandlers }) {
-  const { layers, is3d = true, sun, water, following, compass = 18 } = state;
+  const { layers, is3d = true, sun, following, compass = 18 } = state;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-end' }}>
       <Glass dark={dark} radius={22} style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -31,7 +29,6 @@ export function MapRail({ dark, state, on }: { dark: boolean; state: MapRailStat
         <Divider inset />
         <ThreeDToggle is3d={is3d} onClick={on.onToggle3d} />
         <GlassIconBtn icon="wb_sunny" active={sun} fill={sun} title="Sun & shadows" onClick={on.onSun} />
-        <GlassIconBtn icon="waves" active={water} fill={water} title="Ocean conditions" onClick={on.onWater} />
       </Glass>
       <Glass dark={dark} radius={22} style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
         <GlassIconBtn

@@ -108,27 +108,6 @@ struct UiState {
     metrics_display: MetricsDisplay,
     /// Procedural cloud-overlay debug controls. See [`CloudUiState`].
     clouds: CloudUiState,
-    /// Realistic-water (AAA) debug controls. See [`WaterUiState`].
-    water: WaterUiState,
-}
-
-/// Live water + sun debug controls — the levers that previously needed an
-/// on-device build to evaluate (realistic-water path, sun position for
-/// glitter/reflection, sea state). Pushed into the Map each frame from
-/// `build_ui`.
-#[derive(Debug, Clone)]
-struct WaterUiState {
-    /// Realistic AAA water path vs the flat fill (Map::set_realistic_water).
-    realistic: bool,
-    /// Sun azimuth/altitude (deg) → Map::set_sun_position. Drives the sky,
-    /// terrain light AND the water reflection/glitter.
-    sun_az: f32,
-    sun_alt: f32,
-    /// Sea state → Map::set_water_conditions: wave height (m) + the bearing the
-    /// swell runs FROM (deg), plus whitecap-driving wind speed (m/s).
-    wave_height_m: f32,
-    wave_from_deg: f32,
-    wind_speed_ms: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -260,15 +239,6 @@ impl Default for UiState {
             fade_in_secs: 0.0,
             metrics_display: MetricsDisplay::new(),
             clouds: CloudUiState::default(),
-            water: WaterUiState {
-                realistic: true,
-                // Low sun toward the default view → glitter/reflection in frame.
-                sun_az: 145.0,
-                sun_alt: 18.0,
-                wave_height_m: 0.8,
-                wave_from_deg: 270.0,
-                wind_speed_ms: 4.0,
-            },
         }
     }
 }
@@ -349,29 +319,18 @@ impl ApplicationHandler for TurbomapApp {
             self.style.clone(),
         );
 
-        // Apply the initial water/sun debug state (mirrors UiState::default().water)
-        // so the realistic-water path, sun and sea state are live from the first
-        // frame — not only after the user first nudges a panel slider.
-        let water0 = UiState::default().water;
-        map.set_realistic_water(water0.realistic);
+        // A fixed low sun so terrain lighting is in frame from the first render.
         map.set_sun_position(Some(SunPosition {
-            azimuth_deg: water0.sun_az,
-            altitude_deg: water0.sun_alt,
+            azimuth_deg: 145.0,
+            altitude_deg: 18.0,
         }));
-        map.set_water_conditions(
-            Some(water0.wave_from_deg),
-            Some(water0.wave_height_m),
-            Some(water0.wind_speed_ms),
-            None,
-        );
-        // Minimal water-debug scene by default: no sky, no hillshade overlay
-        // (DEM stays for the water reflection). Mirrors UiState defaults.
+        // Minimal scene by default: no sky, no hillshade overlay (DEM stays).
         map.set_sky_enabled(false);
         if self.dem_source.is_some() {
             map.set_layer_visibility(crate::map_host::HILLSHADE_LAYER_ID, false);
         }
 
-        // Demo city markers — off by default (clutter for water debug); set
+        // Demo city markers — off by default; set
         // TURBO_MARKERS=1 to drop them for hit-test testing.
         if std::env::var("TURBO_MARKERS").is_ok() {
             for (name, lat, lng, color) in [
@@ -770,12 +729,6 @@ impl RunningState {
         if self.ui_state.clouds.enabled && self.ui_state.clouds.animate {
             self.window.request_redraw();
         }
-        // Realistic water animates off the renderer clock (wave phase), which
-        // also isn't tracked by `Map::is_animating` — keep redrawing so the
-        // waves actually move instead of freezing when the camera is idle.
-        if self.ui_state.water.realistic {
-            self.window.request_redraw();
-        }
     }
 
     /// Push the cloud debug-panel state into the Map for this frame.
@@ -961,80 +914,8 @@ fn build_ui(ctx: &egui::Context, ui: &mut UiState, map: &mut Map, cloud_frame_co
             });
 
             panel.separator();
-            build_water_controls(panel, &mut ui.water, map);
-
-            panel.separator();
             build_cloud_controls(panel, &mut ui.clouds, cloud_frame_count);
             });
-        });
-}
-
-/// Live realistic-water + sun + sea-state controls. Applies straight to the Map
-/// on change (cheap setters), so the water look — the realistic path, the sun
-/// position that drives reflection/glitter, and the forecast-driven sea state —
-/// can be tuned interactively on the Mac instead of via an on-device build.
-fn build_water_controls(panel: &mut egui::Ui, w: &mut WaterUiState, map: &mut Map) {
-    egui::CollapsingHeader::new("realistic water")
-        .default_open(true)
-        .show(panel, |ui| {
-            if ui
-                .checkbox(&mut w.realistic, "realistic water (AAA path)")
-                .changed()
-            {
-                map.set_realistic_water(w.realistic);
-            }
-
-            ui.separator();
-            ui.label("sun — sky + water reflection/glitter");
-            let mut sun_changed = false;
-            ui.horizontal(|row| {
-                row.label("azimuth");
-                sun_changed |= row
-                    .add(egui::Slider::new(&mut w.sun_az, 0.0..=360.0).suffix("°"))
-                    .changed();
-            });
-            ui.horizontal(|row| {
-                row.label("altitude");
-                sun_changed |= row
-                    .add(egui::Slider::new(&mut w.sun_alt, -5.0..=85.0).suffix("°"))
-                    .changed();
-            });
-            if sun_changed {
-                map.set_sun_position(Some(SunPosition {
-                    azimuth_deg: w.sun_az,
-                    altitude_deg: w.sun_alt,
-                }));
-            }
-
-            ui.separator();
-            ui.label("sea state (MET-style forecast)");
-            let mut sea_changed = false;
-            ui.horizontal(|row| {
-                row.label("wave height");
-                sea_changed |= row
-                    .add(egui::Slider::new(&mut w.wave_height_m, 0.0..=8.0).suffix(" m"))
-                    .changed();
-            });
-            ui.horizontal(|row| {
-                row.label("wave from");
-                sea_changed |= row
-                    .add(egui::Slider::new(&mut w.wave_from_deg, 0.0..=360.0).suffix("°"))
-                    .changed();
-            });
-            ui.horizontal(|row| {
-                row.label("wind");
-                sea_changed |= row
-                    .add(egui::Slider::new(&mut w.wind_speed_ms, 0.0..=25.0).suffix(" m/s"))
-                    .changed();
-            });
-            if sea_changed {
-                map.set_water_conditions(
-                    Some(w.wave_from_deg),
-                    Some(w.wave_height_m),
-                    Some(w.wind_speed_ms),
-                    None,
-                );
-            }
         });
 }
 

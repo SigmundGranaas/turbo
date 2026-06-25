@@ -133,16 +133,7 @@ fun MapScreen(
     val recState by recordingViewModel.state.collectAsStateWithLifecycle()
     val recSession by recordingViewModel.session.collectAsStateWithLifecycle()
     val followSession by routeViewModel.followSession.collectAsStateWithLifecycle()
-    val seaState by viewModel.seaState.collectAsStateWithLifecycle()
 
-    // Feed the live MET wave/wind forecast into the wgpu water surface (wave
-    // direction + ferocity, whitecaps, shoreline foam). No-op on MapLibre, which
-    // doesn't implement the capability.
-    LaunchedEffect(ui.controller, seaState) {
-        val s = seaState
-        (ui.controller as? com.sigmundgranaas.turbo.expressive.domain.WaterConditionsOverlay)
-            ?.setWaterConditions(s?.waveFromDeg, s?.waveHeightM, s?.windSpeedMs, s?.windFromDeg)
-    }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -603,8 +594,6 @@ fun MapScreen(
                     // 3D mode: 1-finger orbit about the user location, two
                     // fingers pan. Only meaningful on this wgpu engine.
                     threeDMode = state.threeDMode,
-                    // Realistic-water (AAA) path selector — rail toggle, implies 3D.
-                    waterMode = state.waterMode,
                     // In 3D, displace the ground by the real DEM heightmap (the
                     // tileserver's Terrain-RGB). Null in 2D → flat, no DEM fetches.
                     demUrl = if (state.threeDMode) MapStyles.TERRAIN_DEM_URL else null,
@@ -784,10 +773,6 @@ fun MapScreen(
                     // 2D/3D toggle — the wgpu engine's orbit + tilt.
                     threeD = state.threeDMode,
                     onToggle3D = { viewModel.setThreeDMode(!state.threeDMode) },
-                    // Realistic-water (experimental): displaced ocean + reflections.
-                    // Between 3D and sun on the rail; implies 3D.
-                    waterMode = state.waterMode,
-                    onToggleWater = { viewModel.setWaterMode(!state.waterMode) },
                     // Sun mode: movable sun + atmosphere + cast shadows. Turning it
                     // on also flips to 3D — the relief, sky and shadows only read
                     // under tilt.

@@ -56,7 +56,6 @@ export function MapScreen() {
   const threeD = useUiStore((s) => s.threeD);
   const layers = useUiStore((s) => s.layers);
   const sun = useUiStore((s) => s.sun);
-  const water = useUiStore((s) => s.water);
   const following = useUiStore((s) => s.following);
   const accountOpen = useUiStore((s) => s.accountOpen);
 
@@ -292,15 +291,6 @@ export function MapScreen() {
     m.set_sun_time(next ? Date.now() / 1000 : undefined);
     useUiStore.getState().setSun(next);
   };
-  const toggleWater = () => {
-    const m = mapRef.current;
-    const c = cam();
-    if (!m || !c) return;
-    const next = !water;
-    if (next) ensure3d(m, c);
-    m.set_realistic_water(next);
-    useUiStore.getState().setWater(next);
-  };
   const recenter = () => {
     const m = mapRef.current;
     if (!m || !('geolocation' in navigator)) return;
@@ -522,12 +512,11 @@ export function MapScreen() {
         )}
         <MapRail
           dark={dark}
-          state={{ layers, is3d: threeD, sun, water, following }}
+          state={{ layers, is3d: threeD, sun, following }}
           on={{
             onLayers: () => useUiStore.getState().setLayers(!layers),
             onToggle3d: toggle3d,
             onSun: toggleSun,
-            onWater: toggleWater,
             onRecenter: recenter,
             onCompass: resetNorth,
             onZoomIn: () => zoom(1.4),

@@ -56,16 +56,6 @@ pub(crate) struct PreparedVector {
     tiles: Vec<(TileId, Option<TileId>)>,
 }
 
-impl PreparedVector {
-    /// The ordered draw list: `(mesh_tile, dem_source_tile)` per slot, slot `i`
-    /// keyed to the per-tile uniform at `i * TILE_UNIFORM_STRIDE`. The water
-    /// pipeline replays this same list (and the same uniforms/bind groups) to
-    /// draw each tile's water mesh in lockstep with the vector mesh.
-    pub(crate) fn tiles(&self) -> &[(TileId, Option<TileId>)] {
-        &self.tiles
-    }
-}
-
 pub(crate) struct VectorPipeline {
     pipeline: wgpu::RenderPipeline,
     camera_buffer: wgpu::Buffer,
@@ -268,20 +258,6 @@ impl VectorPipeline {
             tile_bind_group,
             queue,
         }
-    }
-
-    /// The camera bind group (group 0) this pipeline filled in `prepare`. The
-    /// water pipeline binds the same group so its vertex shader uses an
-    /// identical world→clip transform + drape params.
-    pub(crate) fn camera_bind_group(&self) -> &wgpu::BindGroup {
-        &self.camera_bind_group
-    }
-
-    /// The per-tile bind group (group 1, dynamic offset) this pipeline filled in
-    /// `prepare`. The water pipeline binds it at the same `i * TILE_UNIFORM_STRIDE`
-    /// offsets so each water tile drapes with the vector tile's origin/span/DEM-UV.
-    pub(crate) fn tile_bind_group(&self) -> &wgpu::BindGroup {
-        &self.tile_bind_group
     }
 
     /// CPU half of a frame: camera + per-tile uniform writes (fade

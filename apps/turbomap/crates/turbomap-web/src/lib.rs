@@ -373,11 +373,6 @@ impl TurboMap {
         self.engine.set_terrain_shadows(strength);
     }
 
-    /// Toggle the realistic-water surface (3D only).
-    pub fn set_realistic_water(&mut self, on: bool) {
-        self.engine.set_realistic_water(on);
-    }
-
     /// Drive sun lighting from a unix timestamp (seconds), or `null` for the
     /// default fixed sun.
     pub fn set_sun_time(&mut self, unix_secs: Option<f64>) {

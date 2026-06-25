@@ -807,14 +807,6 @@ fn main() {
     } else {
         map.set_sun_position(Some(SunPosition { azimuth_deg: 145.0, altitude_deg: 30.0 }));
     }
-    // Realistic AAA water (Gerstner vertex displacement + wave normals + Fresnel
-    // reflection + glitter) for the water dev loop (TURBO_WATER=1). Off by default
-    // so the other probes keep the flat fill. The synthetic `water` rect above
-    // gives the displacement a surface to lift under tilt.
-    if std::env::var("TURBO_WATER").is_ok() {
-        map.set_realistic_water(true);
-    }
-
     // A 3D route tube winding across the relief — exercises the route pipeline
     // (terrain-sampled tube mesh, lit, depth-tested) so its look can be eyeballed
     // in the frame dumps before it ships to the device.

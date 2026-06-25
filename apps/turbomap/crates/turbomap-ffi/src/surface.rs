@@ -362,19 +362,7 @@ impl OnScreen {
                 self.engine.set_viewport_inset(px);
             }
             Cmd::SetTerrainShadows(s) => self.engine.set_terrain_shadows(s),
-            Cmd::SetRealisticWater(on) => self.engine.set_realistic_water(on),
             Cmd::SetSunTime(t) => self.engine.set_sun_time(t),
-            Cmd::SetWaterConditions {
-                wave_from_deg,
-                wave_height_m,
-                wind_speed_ms,
-                wind_from_deg,
-            } => self.engine.set_water_conditions(
-                wave_from_deg,
-                wave_height_m,
-                wind_speed_ms,
-                wind_from_deg,
-            ),
             Cmd::EnableClouds { w, h } => self.engine.enable_clouds(w, h),
             Cmd::SetCloudsVisible(v) => self.engine.set_clouds_visible(v),
             Cmd::SetCloudGeoBounds { w, s, e, n } => self.engine.set_cloud_geo_bounds(w, s, e, n),
@@ -572,14 +560,7 @@ enum Cmd {
     CancelAnimation,
     SetViewportInset(f64),
     SetTerrainShadows(f32),
-    SetRealisticWater(bool),
     SetSunTime(Option<f64>),
-    SetWaterConditions {
-        wave_from_deg: Option<f32>,
-        wave_height_m: Option<f32>,
-        wind_speed_ms: Option<f32>,
-        wind_from_deg: Option<f32>,
-    },
     EnableClouds { w: u32, h: u32 },
     SetCloudsVisible(bool),
     SetCloudGeoBounds { w: f64, s: f64, e: f64, n: f64 },
@@ -1476,47 +1457,6 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     strength: jfloat,
 ) {
     unsafe { enqueue(handle, Cmd::SetTerrainShadows(strength)) };
-}
-
-/// Select the realistic-water (AAA) render path (displaced ocean + reflections)
-/// vs the flat normal-mapped fill. Toggled from the map rail.
-#[no_mangle]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetRealisticWater(
-    _env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    enabled: jni::sys::jboolean,
-) {
-    unsafe { enqueue(handle, Cmd::SetRealisticWater(enabled != 0)) };
-}
-
-/// Drive the realistic-water surface from the MET wave/wind forecast: wave
-/// direction + ferocity, whitecaps when extreme, shoreline foam. Each parameter
-/// is optional — pass `NaN` for any value the forecast doesn't provide (MET
-/// drops fields inland / at the series tail). Bearings are degrees the wave/wind
-/// comes *from* (compass). All-`NaN` ⇒ calm default.
-#[no_mangle]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetWaterConditions(
-    _env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    wave_from_deg: jfloat,
-    wave_height_m: jfloat,
-    wind_speed_ms: jfloat,
-    wind_from_deg: jfloat,
-) {
-    let opt = |v: jfloat| if v.is_nan() { None } else { Some(v) };
-    unsafe {
-        enqueue(
-            handle,
-            Cmd::SetWaterConditions {
-                wave_from_deg: opt(wave_from_deg),
-                wave_height_m: opt(wave_height_m),
-                wind_speed_ms: opt(wind_speed_ms),
-                wind_from_deg: opt(wind_from_deg),
-            },
-        )
-    };
 }
 
 /// Geo-register the radar to the `west/south/east/north` lat-lng box it covers

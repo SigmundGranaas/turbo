@@ -114,9 +114,6 @@ fun TurbomapMapView(
     // location (or screen centre if it's off-screen) and two fingers pan + zoom.
     // Default false → unchanged 2D pan/zoom. See the 2D/3D mode design doc.
     threeDMode: Boolean = false,
-    // Realistic-water (AAA) mode: selects the displaced-ocean + reflection render
-    // path for the water layer. Implies 3D. Default false → flat normal-mapped fill.
-    waterMode: Boolean = false,
     // DEM tile URL template (Mapbox-Terrain-RGB, `{z}/{x}/{y}`). When non-null the
     // ground displaces by real elevation (3D terrain). Pass it only in 3D mode.
     demUrl: String? = null,
@@ -159,11 +156,6 @@ fun TurbomapMapView(
     // to flat on leaving. The orbit gesture takes over from there.
     LaunchedEffect(threeDMode) {
         controller.easePitch(if (threeDMode) DEFAULT_3D_PITCH_DEG else 0.0)
-    }
-
-    // Realistic-water mode → select the AAA render path in the engine.
-    LaunchedEffect(waterMode) {
-        controller.setRealisticWater(waterMode)
     }
 
     Box(modifier.fillMaxSize()) {
@@ -577,13 +569,6 @@ internal class TurbomapSurfaceController {
         if (handle == 0L) return
         NativeSurfaceMap.nativeEasePitch(handle, pitchDeg, durationMs)
         requestRender(cameraMoved = true)
-    }
-
-    /** Select the realistic-water (AAA) render path. */
-    fun setRealisticWater(enabled: Boolean) {
-        if (handle == 0L) return
-        NativeSurfaceMap.nativeSetRealisticWater(handle, enabled)
-        requestRender(cameraMoved = false)
     }
 
     /** Finger down: catch any in-flight fling/ease so the map stops where it is. */

@@ -19,7 +19,6 @@ use crate::sun::{self, SunPosition};
 use super::floor::FloorGlobals;
 use super::raster::TerrainConfig;
 use super::sky::SkyGlobals;
-use super::water::WaterGlobals;
 
 /// The terrain inputs a [`RenderFrame`] needs, pulled off the Map's optional
 /// terrain so the frame builder doesn't have to know about `Terrain` itself.
@@ -57,11 +56,6 @@ pub(crate) struct RenderFrame {
     /// gaps where terrain tiles haven't streamed in. `None` → skip (flat 2D / no
     /// terrain). Drawn after the sky, before the terrain.
     pub floor_globals: Option<FloorGlobals>,
-    /// Realistic-water lighting + animation globals (group 3 of the water
-    /// pipeline). Always present — water is an ordinary layer that renders in 2D
-    /// and 3D — but only consumed when a vector layer actually has water tiles.
-    /// `time` is stamped from the renderer wall clock in `Map::render`.
-    pub water_globals: WaterGlobals,
 }
 
 impl RenderFrame {
@@ -211,54 +205,6 @@ impl RenderFrame {
             }
         };
 
-        // Water lighting/animation. Built unconditionally (water renders in 2D
-        // and 3D); `time` and the heightfield-reflection fields (`ssr_enabled`,
-        // `hf_origin`, `hf_inv_size`) are stamped in `Map::render` once the
-        // shadow/AO heightfield is assembled. `cos²lat` converts that field's
-        // steeper world-z into the mesh's: `meters_to_world·circ = cos(lat)`.
-        let coslat = meters_to_world * earth_circumference_m;
-        // Same RTC view-proj the water vertex stage uses (group 0) — the fragment
-        // projects SSR march hits to screen with it to read the real Scene Colour.
-        let water_view_proj =
-            camera.view_projection_matrix_rtc(camera.center.to_world(), viewport_px);
-        let water_globals = WaterGlobals {
-            sun_dir: sun.world_dir(),
-            sun_intensity,
-            zenith_color: atmos.zenith_color,
-            time: 0.0,
-            horizon_color: atmos.horizon_color,
-            meters_to_world,
-            sun_color: atmos.light_color,
-            ssr_enabled: 0.0,
-            eye: camera.eye_offset_world(viewport_px),
-            foam: 1.0,
-            hf_origin: [0.0, 0.0],
-            hf_inv_size: 0.0,
-            hf_to_mesh_z: coslat * coslat,
-            // Calm defaults; `Map::set_water_conditions` overrides from the MET
-            // wave/wind forecast each time it changes.
-            wave_dir: [1.0, 0.0],
-            wave_amp: 1.0,
-            whitecap: 0.0,
-            // Off by default; `Map::render` sets it from the `realistic_water`
-            // flag the rail toggle drives.
-            realistic: 0.0,
-            // P3 shallowness: shore→deep colour ramp over ~120 m of shore
-            // proximity (continuous, sampled from the terrain heightfield).
-            shallow_scale: 120.0,
-            // P3 refraction: screen-UV bend of the underlying scene colour in
-            // shallow water (the wobbling sea-bed look).
-            refract: 0.014,
-            // P6 quality tier: full SSR + refraction by default; lowered on
-            // weaker GPUs via `Map::set_water_quality`.
-            quality: 1.0,
-            viewport: [viewport_px.0 as f32, viewport_px.1 as f32],
-            // P3 clarity: moderately clear coastal water by default.
-            clarity: 0.62,
-            zscale: vec_terrain_zscale,
-            view_proj: water_view_proj,
-        };
-
         Self {
             meters_to_world,
             raster_terrain_cfg,
@@ -267,7 +213,6 @@ impl RenderFrame {
             vec_terrain_halo_uv,
             sky_globals,
             floor_globals,
-            water_globals,
         }
     }
 }
