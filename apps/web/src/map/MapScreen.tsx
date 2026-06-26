@@ -506,11 +506,12 @@ export function MapScreen() {
       <div
         style={{
           position: 'absolute',
-          right: !isMobile && panelShown ? 416 : 16,
+          // Pinned to the right edge — the side panel overlays it when open
+          // (don't shove the controls into the middle of the map).
+          right: 16,
           // lift above the mobile bottom nav so the zoom buttons aren't covered
           bottom: isMobile ? 80 : 16,
           zIndex: 10,
-          transition: 'right .25s var(--ease-out)',
           display: isMobile && panelShown ? 'none' : undefined,
         }}
       >
