@@ -1,7 +1,5 @@
-import { useRouting } from '../../store/routingStore';
-import { usePaths } from '../../store/pathsStore';
-import { ROUTE_PRESETS, ROUTE_PROFILES } from '../../api/routing';
-import { useCreateTrack } from '../../features/tracks';
+import { useRouting } from './routingStore';
+import { ROUTE_PRESETS, ROUTE_PROFILES } from './api';
 import { SidePanel, Eyebrow, StatTile, Chip2, Tabs } from '../../ui/Panel';
 import { Btn } from '../../ui/Glass';
 import { Icon } from '../../ui/Icon';
@@ -15,44 +13,34 @@ const hm = (s: number) => {
 
 /** The routing tool side panel — profile tabs, the ordered stops list, preset
  *  chips, and live stats that fill in as the SSE solver streams. Ports the
- *  design's `RoutePlanner` (minus follow/navigation, out of scope on web). */
-export function RoutePlannerPanel({ dark }: { dark: boolean }) {
+ *  design's `RoutePlanner` (minus follow/navigation, out of scope on web).
+ *  Visibility + "save route as a track" (a routing→tracks step) are the host's
+ *  job, passed in via `onClose`/`onSaveAsTrack`. */
+export function RoutePlannerPanel({
+  dark,
+  onClose,
+  onSaveAsTrack,
+  saving,
+}: {
+  dark: boolean;
+  onClose: () => void;
+  onSaveAsTrack: () => void;
+  saving: boolean;
+}) {
   const r = useRouting();
   const units = useUiStore((s) => s.units);
-  const createTrack = useCreateTrack();
   const profileIdx = Math.max(0, ROUTE_PROFILES.findIndex((p) => p.key === r.profile));
-  const profileIcon = ROUTE_PROFILES[profileIdx].icon;
-
-  const saveAsTrack = () => {
-    if (!r.plan) return;
-    createTrack.mutate(
-      {
-        name: `Route · ${new Date().toLocaleDateString()}`,
-        points: r.plan.coords,
-        iconKey: profileIcon,
-        distanceM: r.plan.distanceM,
-        ascentM: r.plan.ascentM,
-        movingTimeS: Math.round(r.plan.durationS),
-      },
-      {
-        onSuccess: (t) => {
-          r.close();
-          usePaths.getState().openDetail(t.id);
-        },
-      },
-    );
-  };
   const stopLabel = (i: number) => (i === 0 ? 'Start' : i === r.waypoints.length - 1 && r.waypoints.length > 1 ? 'Destination' : `Stop ${i}`);
 
   return (
     <SidePanel
       dark={dark}
       title="Plan a route"
-      onClose={r.close}
+      onClose={onClose}
       footer={
         <div style={{ display: 'flex', gap: 10 }}>
           <Btn label="Clear" tone="surface" full onClick={r.clear} />
-          <Btn label={createTrack.isPending ? 'Saving…' : 'Save route'} icon="bookmark_add" full onClick={r.plan && !createTrack.isPending ? saveAsTrack : undefined} />
+          <Btn label={saving ? 'Saving…' : 'Save route'} icon="bookmark_add" full onClick={r.plan && !saving ? onSaveAsTrack : undefined} />
         </div>
       }
     >

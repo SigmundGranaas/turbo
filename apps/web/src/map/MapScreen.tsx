@@ -4,20 +4,17 @@ import type { TurboMap } from 'turbomap-web';
 import { useSession } from '../api/auth';
 import { createShareLink, redeemLink, shareUrl } from '../api/sharing';
 import { useUiStore } from '../store/uiStore';
-import { useRouting } from '../store/routingStore';
 import { usePaths } from '../store/pathsStore';
-import { planStream } from '../api/routing';
 import { searchPlaces, type PlaceHit } from '../api/places';
 import { parseCoord } from '../geo';
 import { MapSurface } from '../map-engine';
-import { UserLocationLayer, usePanelHost } from '../map-core';
+import { UserLocationLayer, RouteOverlay, usePanelHost } from '../map-core';
 import { SunSlider, useSun } from '../features/sun';
 import { LayerPicker } from './LayerPicker';
 import { MapContextMenu, type ContextMenuTarget } from './MapContextMenu';
 import { MarkerPins, MarkerDetailPanel, MarkerEditorPanel, useMarkers, useDeleteMarker, useSelection, openMarkerDetail, openMarkerEditor, openNewMarker, closeMarker, reverseGeocode } from '../features/markers';
-import { RouteOverlay } from './routing/RouteOverlay';
-import { RoutePlannerPanel } from './routing/RoutePlannerPanel';
-import { useTracks, useDeleteTrack, PathsListPanel, PathDetailPanel, TrackEditorPanel, type Track } from '../features/tracks';
+import { useRouting, RouteController, RoutePlannerPanel, openRouting, closeRouting, ROUTE_PROFILES } from '../features/routing';
+import { useTracks, useDeleteTrack, useCreateTrack, PathsListPanel, PathDetailPanel, TrackEditorPanel, type Track } from '../features/tracks';
 import { useCollections, CollectionsListPanel, CollectionDetailPanel, CollectionPicker } from '../features/collections';
 import type { CollectionItem } from '../api/collections';
 import { AccountSettingsPanel } from '../features/account';
@@ -54,10 +51,10 @@ export function MapScreen() {
   const markersQ = useMarkers();
   const del = useDeleteMarker();
   const sel = useSelection();
-  const routing = useRouting();
   const paths = usePaths();
   const tracksQ = useTracks();
   const delTrack = useDeleteTrack();
+  const createTrack = useCreateTrack();
   const collectionsQ = useCollections();
   const conditions = useConditionsPanel();
 
@@ -158,13 +155,16 @@ export function MapScreen() {
     item.type === 'marker'
       ? markers.find((m) => m.id === item.uuid)?.name || 'Marker'
       : tracks.find((t) => t.id === item.uuid)?.name || 'Path';
+  // Every side panel is now one mutex slot (account/conditions/route/marker-*/
+  // saved) — exactly one can be active, so visibility is a plain equality, no
+  // precedence cascade. The routing OVERLAY/solve persists independently via the
+  // store (RouteController), so it can outlive a hidden planner panel.
   const accountPanel = activePanel === 'account';
   const conditionsPanel = activePanel === 'conditions';
-  const routePanel = !accountPanel && !conditionsPanel && routing.active;
-  const markerActive = activePanel === 'marker-detail' || activePanel === 'marker-edit' || activePanel === 'marker-new';
-  const markerPanel = !accountPanel && !conditionsPanel && !routePanel && markerActive;
-  const savedPanel = !accountPanel && !conditionsPanel && !routePanel && !markerPanel && activePanel === 'saved';
-  const panelShown = accountPanel || conditionsPanel || routePanel || markerPanel || savedPanel;
+  const routePanel = activePanel === 'route';
+  const markerPanel = activePanel === 'marker-detail' || activePanel === 'marker-edit' || activePanel === 'marker-new';
+  const savedPanel = activePanel === 'saved';
+  const panelShown = activePanel !== null;
 
   useEffect(() => {
     const root = document.documentElement;
@@ -207,30 +207,6 @@ export function MapScreen() {
       })
       .catch(() => showToast('That share link is invalid or expired'));
   }, [shareToken, session.data, qc]);
-
-  // Run the SSE solver whenever the route inputs change; cancel stale streams.
-  useEffect(() => {
-    if (!routing.active || routing.waypoints.length < 2) {
-      useRouting.getState().setPreview(null);
-      return;
-    }
-    const ac = new AbortController();
-    useRouting.getState().setStatus('solving');
-    planStream(
-      routing.waypoints,
-      routing.preset,
-      routing.profile,
-      {
-        onProgress: (c) => useRouting.getState().setPreview(c),
-        onResult: (p) => useRouting.getState().setPlan(p),
-        onError: (msg) => useRouting.getState().setStatus('error', msg),
-      },
-      ac.signal,
-    ).catch((e: Error) => {
-      if (e.name !== 'AbortError') useRouting.getState().setStatus('error', 'Routing failed');
-    });
-    return () => ac.abort();
-  }, [routing.active, routing.waypoints, routing.preset, routing.profile]);
 
   const frameTrack = (t: Track) => {
     const m = mapRef.current;
@@ -319,6 +295,31 @@ export function MapScreen() {
     usePanelHost.getState().close();
   };
 
+  // Save the solved route as a track (a routing→tracks step the host owns), then
+  // close the planner and open the new track's detail.
+  const saveRouteAsTrack = () => {
+    const r = useRouting.getState();
+    if (!r.plan) return;
+    const icon = ROUTE_PROFILES.find((p) => p.key === r.profile)?.icon;
+    createTrack.mutate(
+      {
+        name: `Route · ${new Date().toLocaleDateString()}`,
+        points: r.plan.coords,
+        iconKey: icon,
+        distanceM: r.plan.distanceM,
+        ascentM: r.plan.ascentM,
+        movingTimeS: Math.round(r.plan.durationS),
+      },
+      {
+        onSuccess: (t) => {
+          closeRouting();
+          usePaths.getState().openDetail(t.id);
+          usePanelHost.getState().open('saved');
+        },
+      },
+    );
+  };
+
   const onNav = (id: string) => {
     useConditionsPanel.getState().close();
     useRouting.getState().close();
@@ -397,10 +398,9 @@ export function MapScreen() {
   };
 
   const routeHere = (lat: number, lng: number) => {
-    usePanelHost.getState().close();
     useConditionsPanel.getState().close();
     useSelection.getState().clear();
-    useRouting.getState().open({ lat, lng });
+    openRouting({ lat, lng });
   };
 
   const onAccount = () => {
@@ -410,8 +410,6 @@ export function MapScreen() {
     usePanelHost.getState().open('account');
   };
   const avatar = session.data ? (session.data.name ?? session.data.email ?? 'S').trim().charAt(0).toUpperCase() : undefined;
-
-  const routeCoords = routing.plan?.coords ?? routing.preview ?? [];
 
   return (
     <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: 'var(--surface)' }}>
@@ -423,9 +421,7 @@ export function MapScreen() {
         onTap={onMapTap}
         onLongPress={onMapLongPress}
       />
-      {(routeCoords.length > 0 || routing.waypoints.length > 0) && (
-        <RouteOverlay coords={routeCoords} waypoints={routing.waypoints} dashed={!routing.plan} />
-      )}
+      <RouteController />
       {savedPanel && selectedTrack && selectedTrack.points.length > 0 && (
         <RouteOverlay
           coords={selectedTrack.points}
@@ -624,7 +620,14 @@ export function MapScreen() {
               onClose={() => usePanelHost.getState().close()}
             />
           )}
-          {routePanel && <RoutePlannerPanel dark={dark} />}
+          {routePanel && (
+            <RoutePlannerPanel
+              dark={dark}
+              onClose={closeRouting}
+              onSaveAsTrack={saveRouteAsTrack}
+              saving={createTrack.isPending}
+            />
+          )}
           {markerPanel && activePanel === 'marker-detail' && selectedMarker && (
             <MarkerDetailPanel
               dark={dark}
@@ -714,10 +717,9 @@ export function MapScreen() {
               : routeHere(ctxMenu.lat, ctxMenu.lng)
           }
           onStartRoute={() => {
-            usePanelHost.getState().close();
             useConditionsPanel.getState().close();
             useSelection.getState().clear();
-            useRouting.getState().open({ lat: ctxMenu.lat, lng: ctxMenu.lng });
+            openRouting({ lat: ctxMenu.lat, lng: ctxMenu.lng });
           }}
           onForecast={(name) => showConditions(ctxMenu.lat, ctxMenu.lng, name)}
           onClose={() => setCtxMenu(null)}

@@ -1,6 +1,6 @@
 import { useRef } from 'react';
-import { useProjectedLayer } from '../../map-core';
-import type { LatLng } from '../../geo';
+import { useProjectedLayer } from './useProjectedLayer';
+import type { LatLng } from '../geo';
 
 // Cap projected vertices per frame so a dense route stays cheap to reproject.
 const MAX_VERTS = 400;

@@ -1,5 +1,5 @@
-import { API_BASE } from '../config';
-import type { LatLng } from '../geo';
+import { API_BASE } from '../../config';
+import type { LatLng } from '../../geo';
 
 /** Trip-style presets (match the tileserver pathfinder). */
 export const ROUTE_PRESETS = [

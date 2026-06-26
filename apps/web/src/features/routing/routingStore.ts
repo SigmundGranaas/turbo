@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { LatLng } from '../geo';
-import type { RoutePlan, RoutePresetKey, RouteProfile } from '../api/routing';
+import type { LatLng } from '../../geo';
+import type { RoutePlan, RoutePresetKey, RouteProfile } from './api';
 
 export type RouteStatus = 'idle' | 'solving' | 'done' | 'error';
 
