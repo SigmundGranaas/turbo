@@ -54,7 +54,7 @@ turbo-tiles-admin = { path = "crates/turbo-tiles-admin" }
 
 axum = { version = "0.7", features = ["macros", "multipart"] }
 tower = "0.4"
-tower-http = { version = "0.5", features = ["trace", "compression-br", "limit", "cors", "fs"] }
+tower-http = { version = "0.5", features = ["trace", "compression-full", "limit", "cors", "fs"] }
 hyper = { version = "1", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "macros", "migrate"] }
