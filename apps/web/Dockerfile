@@ -32,6 +32,10 @@ COPY web/package.json ./
 COPY --from=wasm /src/turbomap/crates/turbomap-web/pkg /src/turbomap/crates/turbomap-web/pkg
 RUN pnpm install --no-frozen-lockfile
 COPY web/ ./
+# Gate the build on the architecture boundaries (eslint-plugin-boundaries) +
+# lint. `pnpm build` runs tsc, so types are already gated; this adds the
+# feature-slice tier enforcement so a boundary violation fails the image build.
+RUN pnpm lint
 RUN pnpm build
 
 # ── Stage 3: static nginx runtime (unprivileged, :8080) ─────────────────────

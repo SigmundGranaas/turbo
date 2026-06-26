@@ -53,8 +53,9 @@ const TERRAIN_DEM_URL = `${API_BASE}/v1/dem/rgb/{z}/{x}/{y}.png?halo=1`;
 const TERRAIN_HALO = 1;
 const TERRAIN_EXAGGERATION = 6.0;
 
-/** The base map a scene is built around. */
-export type BaseLayerId = 'norgeskart' | 'topo' | 'osm' | 'satellite';
+/** The base map a scene is built around (id vocabulary lives in shared). */
+export type { BaseLayerId } from '../baseLayers';
+import type { BaseLayerId } from '../baseLayers';
 
 export interface BaseLayerDef {
   label: string;
