@@ -10,7 +10,13 @@ spec:
     requests.cpu: "3"
     requests.memory: 4Gi
     limits.cpu: "8"
-    limits.memory: 6Gi
+    # 8Gi, not 6Gi: the steady services commit ~5.5Gi of *limits*, leaving no
+    # room for the weekly turbo-places-ingest pod (2Gi limit) — its job kept
+    # failing as "exceeded quota" until its deadline, so the places DB never
+    # filled. Limits overcommit the 5.7Gi node, but that's safe: scheduling is by
+    # requests (all pods request ~1.5Gi total + ingest 512Mi) and actual usage is
+    # ~2.6Gi, so the bounded-batch ingest has real RAM to run in.
+    limits.memory: 8Gi
     pods: "30"
 ---
 apiVersion: v1
