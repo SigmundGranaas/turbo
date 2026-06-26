@@ -76,7 +76,7 @@ fun AboutScreen(onBack: () -> Unit) {
                 SpecRow("Topographic", "© Kartverket")
                 SpecRow("Streets", "© OpenStreetMap contributors")
                 SpecRow("Satellite", "© Esri / Kartverket")
-                SpecRow("Rendering", "MapLibre GL Native")
+                SpecRow("Rendering", "Turbomap (wgpu / Rust)")
                 SpecRow("Routing", "kart-api.sandring.no")
             }
 
@@ -97,7 +97,7 @@ fun AboutScreen(onBack: () -> Unit) {
                 SpecRow("DI", "Hilt / Dagger (Apache-2.0)")
                 SpecRow("Networking", "Ktor · OkHttp (Apache-2.0)")
                 SpecRow("Storage", "AndroidX Room · DataStore (Apache-2.0)")
-                SpecRow("Maps", "MapLibre GL Native (BSD-2-Clause)")
+                SpecRow("Maps", "Turbomap · wgpu (Apache-2.0 / MIT)")
             }
 
             Spacer(Modifier.height(16.dp))

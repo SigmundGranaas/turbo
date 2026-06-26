@@ -1,11 +1,11 @@
 package com.sigmundgranaas.turbo.expressive.feature.recording
 
-import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
-import com.sigmundgranaas.turbo.expressive.core.data.LocationSample
+import com.sigmundgranaas.turbo.expressive.core.tracking.LocationRepository
+import com.sigmundgranaas.turbo.expressive.core.tracking.LocationSample
 import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
-import com.sigmundgranaas.turbo.expressive.core.data.RecordingController
-import com.sigmundgranaas.turbo.expressive.core.data.RecordingDraft
-import com.sigmundgranaas.turbo.expressive.core.data.RecordingDraftStore
+import com.sigmundgranaas.turbo.expressive.core.tracking.RecordingController
+import com.sigmundgranaas.turbo.expressive.core.tracking.RecordingDraft
+import com.sigmundgranaas.turbo.expressive.core.tracking.RecordingDraftStore
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.SavedPath
@@ -19,15 +19,20 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
-private class FakeRecordingLauncher : RecordingLauncher {
-    var starts = 0
-    var stops = 0
-    override fun start() { starts++ }
-    override fun stop() { stops++ }
+/**
+ * Faithful stand-in for the foreground recording service: starting/stopping it
+ * actually starts/stops the recording — exactly as the real service drives the
+ * [RecordingController]. This lets tests assert the *recording* (state.recording),
+ * not that a method was called.
+ */
+private class FakeRecordingLauncher(private val controller: RecordingController) : RecordingLauncher {
+    override fun start() { controller.start() }
+    override fun stop() { controller.stop() }
 }
 
 private class FakeLocationRepository(var permitted: Boolean = true) : LocationRepository {
@@ -61,43 +66,51 @@ class RecordingViewModelTest {
     private fun vmWith(
         scope: CoroutineScope,
         location: FakeLocationRepository = FakeLocationRepository(),
-        launcher: FakeRecordingLauncher = FakeRecordingLauncher(),
         paths: FakePathRepository = FakePathRepository(),
     ): Triple<RecordingViewModel, RecordingController, FakeRecordingLauncher> {
         val controller = RecordingController(location, NoopDraftStore(), scope)
+        val launcher = FakeRecordingLauncher(controller)
         val vm = RecordingViewModel(launcher, controller, location, paths)
         return Triple(vm, controller, launcher)
     }
 
+    // state is WhileSubscribed — the screen activates it; tests must too.
+    private fun CoroutineScope.observe(vm: RecordingViewModel) = launch { vm.state.collect { } }
+
     @Test
-    fun `granting permission starts the service`() = runTest(mainRule.dispatcher) {
-        val (vm, _, launcher) = vmWith(backgroundScope)
+    fun `granting permission begins recording`() = runTest(mainRule.dispatcher) {
+        val (vm, _, _) = vmWith(backgroundScope)
+        backgroundScope.observe(vm)
         vm.onPermissionResult(true)
-        assertEquals(1, launcher.starts)
-    }
-
-    @Test
-    fun `start without permission does not launch`() = runTest(mainRule.dispatcher) {
-        val (vm, _, launcher) = vmWith(backgroundScope, location = FakeLocationRepository(permitted = false))
-        vm.start()
-        assertEquals(0, launcher.starts)
-    }
-
-    @Test
-    fun `stop delegates to the launcher`() = runTest(mainRule.dispatcher) {
-        val (vm, _, launcher) = vmWith(backgroundScope)
-        vm.stop()
-        assertEquals(1, launcher.stops)
-    }
-
-    @Test
-    fun `state mirrors the controller session`() = runTest(mainRule.dispatcher) {
-        val location = FakeLocationRepository()
-        val (vm, controller, _) = vmWith(backgroundScope, location = location)
-        // state is WhileSubscribed — activate an observer (the screen does this in prod).
-        backgroundScope.launch { vm.state.collect { } }
-        controller.start()
         runCurrent()
+        assertTrue(vm.state.value.recording)
+    }
+
+    @Test
+    fun `without location permission recording does not begin`() = runTest(mainRule.dispatcher) {
+        val (vm, _, _) = vmWith(backgroundScope, location = FakeLocationRepository(permitted = false))
+        backgroundScope.observe(vm)
+        vm.start()
+        runCurrent()
+        assertFalse(vm.state.value.recording)
+    }
+
+    @Test
+    fun `stopping ends the recording`() = runTest(mainRule.dispatcher) {
+        val (vm, _, _) = vmWith(backgroundScope)
+        backgroundScope.observe(vm)
+        vm.onPermissionResult(true); runCurrent()
+        assertTrue("expected recording active after starting", vm.state.value.recording)
+        vm.stop(); runCurrent()
+        assertFalse("expected recording to end after stopping", vm.state.value.recording)
+    }
+
+    @Test
+    fun `recording captures incoming fixes`() = runTest(mainRule.dispatcher) {
+        val location = FakeLocationRepository()
+        val (vm, _, _) = vmWith(backgroundScope, location = location)
+        backgroundScope.observe(vm)
+        vm.onPermissionResult(true); runCurrent()
         location.emit(69.0, 18.0); runCurrent()
         location.emit(69.001, 18.0); runCurrent()
         advanceUntilIdle()

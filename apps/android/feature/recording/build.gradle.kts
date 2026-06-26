@@ -9,6 +9,7 @@ android {
 
 dependencies {
     implementation(project(":core:data"))
+    implementation(project(":core:tracking"))
     implementation(project(":core:sync"))
     implementation(project(":core:map"))
 

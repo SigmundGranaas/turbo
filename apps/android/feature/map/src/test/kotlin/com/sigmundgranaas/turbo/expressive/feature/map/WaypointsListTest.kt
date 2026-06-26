@@ -1,5 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
+import com.sigmundgranaas.turbo.expressive.feature.map.route.WaypointsList
+
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled

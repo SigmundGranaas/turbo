@@ -28,7 +28,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.domain.DetailLevel
 import com.sigmundgranaas.turbo.expressive.domain.OfflineEstimate
-import com.sigmundgranaas.turbo.expressive.feature.map.R
 
 /**
  * Pre-flight confirm for "Download this area": a Standard/Detailed zoom-depth
@@ -38,7 +37,7 @@ import com.sigmundgranaas.turbo.expressive.feature.map.R
  * gate between the layers sheet's "Download this area" and the actual download.
  */
 @Composable
-internal fun DownloadAreaDialog(
+fun DownloadAreaDialog(
     estimateFor: (DetailLevel) -> OfflineEstimate,
     onConfirm: (DetailLevel) -> Unit,
     onDismiss: () -> Unit,

@@ -5,11 +5,11 @@ package com.sigmundgranaas.turbo.expressive.domain
  *
  * Feature code (the map screen, the locate/zoom rail, the offline downloader,
  * the route/measure tools) holds a [MapEngine] and never names the renderer
- * behind it. Two implementations exist: `MapLibreEngine` (`:core:map`, over
- * MapLibre's `MapLibreMap`) and `TurbomapMapEngine` (`:core:turbomap-android`,
- * over the wgpu/Rust engine via JNI). It lives here, in the renderer-agnostic
- * `:core:model`, so both can implement it without either depending on the
- * other — which is what makes A/B and shadow-parity testing expressible.
+ * behind it. The implementation today is `TurbomapMapEngine`
+ * (`:core:turbomap-android`, over the wgpu/Rust engine via JNI). The seam lives
+ * here, in the renderer-agnostic `:core:model`, so a second engine could
+ * implement it without either depending on the other — which is what keeps A/B
+ * and shadow-parity testing expressible.
  *
  * **Scope today = the control plane** the app actually uses: camera moves,
  * projection (screen↔geographic), the visible box, and the overlay inset.

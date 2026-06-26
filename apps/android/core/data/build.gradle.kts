@@ -6,8 +6,8 @@ plugins {
 
 android {
     namespace = "com.sigmundgranaas.turbo.expressive.core.data"
-    // BuildConfig.DEBUG selects the offline route simulator (see NetworkModule).
-    buildFeatures { buildConfig = true }
+    // Offline synthetic backends are wired per-variant (RemoteRepositoriesModule
+    // in src/debug vs src/release) rather than via a BuildConfig flag.
 }
 
 dependencies {

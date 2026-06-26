@@ -27,8 +27,6 @@ import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.MapEngine
 import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.domain.TurbomapScene
-import com.sigmundgranaas.turbo.expressive.ui.components.MapOverlay
-import com.sigmundgranaas.turbo.expressive.ui.components.PhotoPin
 import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

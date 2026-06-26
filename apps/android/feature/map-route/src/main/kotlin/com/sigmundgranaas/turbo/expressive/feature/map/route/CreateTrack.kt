@@ -1,4 +1,4 @@
-package com.sigmundgranaas.turbo.expressive.feature.map
+package com.sigmundgranaas.turbo.expressive.feature.map.route
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -85,7 +85,7 @@ private val OffTrailColor = Color(0xFFD98A2B)
  * route-style row, and the undo/clear · Save/Follow action bar.
  */
 @Composable
-internal fun CreateTrackPanel(
+fun CreateTrackPanel(
     mode: TrackMode,
     onMode: (TrackMode) -> Unit,
     distanceText: String,
@@ -283,7 +283,7 @@ private fun SurfaceMix(surfaces: Map<String, Double>, modifier: Modifier = Modif
 /** The single dialog: route-style preset picker (Balanced / Avoid roads / …). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun RouteStyleSheet(selected: RoutePreset, onSelect: (RoutePreset) -> Unit, onDismiss: () -> Unit) {
+fun RouteStyleSheet(selected: RoutePreset, onSelect: (RoutePreset) -> Unit, onDismiss: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -335,7 +335,7 @@ internal fun RouteStyleSheet(selected: RoutePreset, onSelect: (RoutePreset) -> U
 
 /** Top-left close affordance for the active tool. */
 @Composable
-internal fun CreateTrackCloseButton(onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun CreateTrackCloseButton(onClose: () -> Unit, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
     Surface(
         onClick = onClose,
@@ -355,7 +355,7 @@ internal fun CreateTrackCloseButton(onClose: () -> Unit, modifier: Modifier = Mo
  * recenter, so building a route doesn't trap the camera (the full rail is hidden).
  */
 @Composable
-internal fun CreateTrackMapControls(
+fun CreateTrackMapControls(
     following: Boolean,
     onLocate: () -> Unit,
     onZoomIn: () -> Unit,
@@ -409,7 +409,7 @@ private fun ZoomCookie(icon: androidx.compose.ui.graphics.vector.ImageVector, de
 
 /** Coachmark shown while a planned route re-solves after a stop edit (graceful re-route). */
 @Composable
-internal fun CreateTrackUpdatingChip(modifier: Modifier = Modifier) {
+fun CreateTrackUpdatingChip(modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
     Surface(shape = CircleShape, color = cs.inverseSurface, shadowElevation = 2.dp, modifier = modifier.testTag("updatingRoute")) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {

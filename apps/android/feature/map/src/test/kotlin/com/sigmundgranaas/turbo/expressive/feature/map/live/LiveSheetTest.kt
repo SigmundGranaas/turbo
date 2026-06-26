@@ -6,8 +6,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import com.sigmundgranaas.turbo.expressive.core.data.LiveMode
-import com.sigmundgranaas.turbo.expressive.core.data.LiveStats
+import com.sigmundgranaas.turbo.expressive.core.tracking.LiveMode
+import com.sigmundgranaas.turbo.expressive.core.tracking.LiveStats
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test

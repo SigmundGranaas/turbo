@@ -1,5 +1,8 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
+import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteCard
+import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteUiState
+
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -57,7 +60,7 @@ class RouteCardTest {
     }
 
     @Test
-    fun `follow button invokes the follow callback`() {
+    fun `tapping Follow starts following the route`() {
         var followed = false
         composeRule.setContent {
             RouteCard(

@@ -1,4 +1,4 @@
-package com.sigmundgranaas.turbo.expressive.feature.map
+package com.sigmundgranaas.turbo.expressive.feature.map.route
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Balance
@@ -10,7 +10,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.sigmundgranaas.turbo.expressive.domain.RoutePreset
 
 /** A glyph that conveys each route style at a glance, used in the preset picker. */
-internal val RoutePreset.icon: ImageVector
+val RoutePreset.icon: ImageVector
     get() = when (this) {
         RoutePreset.Balanced -> Icons.Rounded.Balance
         RoutePreset.AvoidRoads -> Icons.Rounded.Forest

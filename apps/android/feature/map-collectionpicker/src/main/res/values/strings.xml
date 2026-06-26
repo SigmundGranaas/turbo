@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="collections_add_title">Add to collection</string>
+    <string name="collections_create">Create collection</string>
+    <string name="collections_member">In this collection</string>
+    <string name="collections_new_hint">New collection…</string>
+</resources>

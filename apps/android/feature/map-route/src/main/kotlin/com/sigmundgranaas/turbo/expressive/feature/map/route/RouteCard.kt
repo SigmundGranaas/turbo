@@ -1,4 +1,4 @@
-package com.sigmundgranaas.turbo.expressive.feature.map
+package com.sigmundgranaas.turbo.expressive.feature.map.route
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -44,7 +44,7 @@ import kotlin.math.roundToInt
 
 /** Bottom card reflecting the route solve: presets, solving spinner, result stats, follow, or error. */
 @Composable
-internal fun RouteCard(
+fun RouteCard(
     state: RouteUiState,
     preset: RoutePreset,
     onSelectPreset: (RoutePreset) -> Unit,
@@ -217,7 +217,7 @@ private fun RouteStat(value: String, label: String) {
     }
 }
 
-internal fun formatDuration(seconds: Double): String {
+fun formatDuration(seconds: Double): String {
     val total = seconds.roundToInt()
     val h = total / 3600
     val m = (total % 3600) / 60

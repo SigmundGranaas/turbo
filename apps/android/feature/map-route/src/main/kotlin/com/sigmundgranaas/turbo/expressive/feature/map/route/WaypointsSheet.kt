@@ -1,4 +1,4 @@
-package com.sigmundgranaas.turbo.expressive.feature.map
+package com.sigmundgranaas.turbo.expressive.feature.map.route
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -43,12 +43,12 @@ import com.sigmundgranaas.turbo.expressive.domain.LatLng
 private val RowHeight = 56.dp
 
 /** Stop-kind colours from the design (start green, end red, vias use the scheme primary). */
-internal val StopStart = Color(0xFF2E7D32)
-internal val StopEnd = Color(0xFFC0392B)
+val StopStart = Color(0xFF2E7D32)
+val StopEnd = Color(0xFFC0392B)
 
 /** Per-stop colour: start green, end red, otherwise the route primary. */
 @Composable
-internal fun stopColor(index: Int, last: Int): Color = when (index) {
+fun stopColor(index: Int, last: Int): Color = when (index) {
     0 -> StopStart
     last -> StopEnd
     else -> MaterialTheme.colorScheme.primary
@@ -63,7 +63,7 @@ internal fun stopColor(index: Int, last: Int): Color = when (index) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun WaypointsSheet(
+fun WaypointsSheet(
     waypoints: List<LatLng>,
     statText: String,
     onMove: (from: Int, to: Int) -> Unit,
@@ -83,7 +83,7 @@ internal fun WaypointsSheet(
 
 /** Host-free stop list — the body of [WaypointsSheet], exercised directly in tests. */
 @Composable
-internal fun WaypointsList(
+fun WaypointsList(
     waypoints: List<LatLng>,
     statText: String,
     onMove: (from: Int, to: Int) -> Unit,

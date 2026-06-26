@@ -1,8 +1,8 @@
-package com.sigmundgranaas.turbo.expressive.feature.map
+package com.sigmundgranaas.turbo.expressive.feature.map.route
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.sigmundgranaas.turbo.expressive.core.data.FollowController
+import com.sigmundgranaas.turbo.expressive.core.tracking.FollowController
 import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
@@ -358,7 +358,7 @@ class RouteViewModel @Inject constructor(
 }
 
 /** Pure waypoint geometry, isolated for testability. */
-internal object Waypoints {
+object Waypoints {
     /**
      * Insert [point] into [waypoints] at the position that adds the least extra
      * straight-line distance — i.e. on the segment whose detour through the point

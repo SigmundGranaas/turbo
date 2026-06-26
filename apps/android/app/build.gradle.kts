@@ -16,6 +16,10 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
+    // Robolectric needs the merged manifest + resources to resolve activities
+    // (HiltTestActivity) and render Compose for the headless E2E suite.
+    testOptions { unitTests { isIncludeAndroidResources = true } }
+
     // A dedicated, committed keystore so every CI release build is signed
     // identically — sideloaded APKs then reinstall over each other cleanly
     // (no "signatures do not match"). This is a throwaway distribution key,
@@ -82,6 +86,11 @@ dependencies {
     implementation(project(":core:sync"))
     implementation(project(":core:designsystem"))
     implementation(project(":feature:map"))
+    // The offline-maps screen is a top-level nav destination owned by the app graph.
+    implementation(project(":feature:map-offline"))
+    // The map-host override seam (LocalMapEngineOverride) used by MainActivity to
+    // run the map headlessly under @Preview / Robolectric E2E.
+    implementation(project(":feature:map-core"))
     implementation(project(":feature:auth"))
     implementation(project(":feature:settings"))
     implementation(project(":feature:search"))
@@ -105,4 +114,13 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.konsist)
+
+    // Headless E2E: drive the real app (MainActivity + nav graph + ViewModels) under
+    // Robolectric with Hilt fakes at the edges (renderer, network).
+    testImplementation(libs.hilt.android.testing)
+    kspTest(libs.hilt.compiler)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.ui.test.junit4)
+    testImplementation(libs.androidx.test.core)
+    debugImplementation(libs.androidx.ui.test.manifest)
 }

@@ -36,9 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.sigmundgranaas.turbo.expressive.core.data.LiveStats
+import com.sigmundgranaas.turbo.expressive.core.tracking.LiveStats
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
-import com.sigmundgranaas.turbo.expressive.feature.map.R
 import androidx.compose.ui.res.stringResource
 
 /** Accent palette for a live surface — red while recording, green while following. */
@@ -299,7 +298,7 @@ internal fun formatShortDuration(seconds: Int): String {
 }
 
 /** A running clock for the recording title: "MM:SS" (or "H:MM:SS" past an hour). */
-internal fun formatLiveClock(seconds: Int): String {
+fun formatLiveClock(seconds: Int): String {
     val h = seconds / 3600
     val m = (seconds % 3600) / 60
     val s = seconds % 60

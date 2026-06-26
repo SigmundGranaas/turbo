@@ -1,6 +1,8 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
-import com.sigmundgranaas.turbo.expressive.core.data.RecordingSession
+import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteUiState
+
+import com.sigmundgranaas.turbo.expressive.core.tracking.RecordingSession
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.RoutePlan
 import org.junit.Assert.assertEquals

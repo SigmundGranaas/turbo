@@ -1,4 +1,4 @@
-package com.sigmundgranaas.turbo.expressive.core.data
+package com.sigmundgranaas.turbo.expressive.core.tracking
 
 import android.Manifest
 import android.annotation.SuppressLint

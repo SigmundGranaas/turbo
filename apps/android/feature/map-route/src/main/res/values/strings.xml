@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="measure_clear">Clear</string>
+    <string name="measure_undo">Undo</string>
+    <string name="route_ascent">Ascent</string>
+    <string name="route_cancel">Cancel</string>
+    <string name="route_clear">Clear</string>
+    <string name="route_dismiss">Dismiss</string>
+    <string name="route_distance">Distance</string>
+    <string name="route_follow">Follow</string>
+    <string name="route_on_trail">On trail</string>
+    <string name="route_remove_stop">Remove stop %1$d</string>
+    <string name="route_solving">Finding the best route…</string>
+    <string name="route_stop_n">Stop %1$d</string>
+    <string name="route_time">Time</string>
+    <string name="track_close">Close create track</string>
+    <string name="track_mode_draw">Draw</string>
+    <string name="track_mode_line">Line</string>
+    <string name="track_mode_route">Route</string>
+    <string name="track_route_style">Route style</string>
+    <string name="track_route_style_subtitle">How the route trades off trails, roads and climbing.</string>
+    <string name="track_stops_row">Stops</string>
+    <string name="track_stops_title">Stops</string>
+    <string name="track_updating">Updating route…</string>
+    <string name="wp_add_stop">Add stop</string>
+    <string name="wp_end">Destination</string>
+    <string name="wp_move_down">Move stop down</string>
+    <string name="wp_move_up">Move stop up</string>
+    <string name="wp_remove">Remove stop</string>
+    <string name="wp_start">Start</string>
+    <string name="wp_stop">Stop %1$d</string>
+</resources>

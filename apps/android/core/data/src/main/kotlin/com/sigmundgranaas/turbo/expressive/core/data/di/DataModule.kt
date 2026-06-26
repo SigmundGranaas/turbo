@@ -3,7 +3,6 @@ package com.sigmundgranaas.turbo.expressive.core.data.di
 import android.content.Context
 import androidx.room.Room
 import com.sigmundgranaas.turbo.expressive.core.common.StringProvider
-import com.sigmundgranaas.turbo.expressive.core.data.AndroidLocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.AndroidStringProvider
 import com.sigmundgranaas.turbo.expressive.core.data.CollectionRepository
 import com.sigmundgranaas.turbo.expressive.core.data.DataStoreSettingsRepository
@@ -12,13 +11,10 @@ import com.sigmundgranaas.turbo.expressive.core.data.RoomCollectionRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RoomPhotoRepository
 import com.sigmundgranaas.turbo.expressive.core.data.database.CollectionDao
 import com.sigmundgranaas.turbo.expressive.core.data.database.PhotoDao
-import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.DataStoreRecentSearchRepository
-import com.sigmundgranaas.turbo.expressive.core.data.DataStoreRecordingDraftStore
 import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RecentSearchRepository
-import com.sigmundgranaas.turbo.expressive.core.data.RecordingDraftStore
 import com.sigmundgranaas.turbo.expressive.core.data.RoomMarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RoomPathRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
@@ -50,12 +46,6 @@ abstract class DataModule {
 
     @Binds
     abstract fun bindPathRepository(impl: RoomPathRepository): PathRepository
-
-    @Binds
-    abstract fun bindLocationRepository(impl: AndroidLocationRepository): LocationRepository
-
-    @Binds
-    abstract fun bindRecordingDraftStore(impl: DataStoreRecordingDraftStore): RecordingDraftStore
 
     @Binds
     abstract fun bindRecentSearchRepository(impl: DataStoreRecentSearchRepository): RecentSearchRepository

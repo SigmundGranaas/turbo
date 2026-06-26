@@ -1,4 +1,4 @@
-package com.sigmundgranaas.turbo.expressive.ui.components
+package com.sigmundgranaas.turbo.expressive.core.turbomap.android
 
 import android.graphics.BitmapFactory
 import androidx.compose.animation.core.RepeatMode
@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.MapEngine
 import com.sigmundgranaas.turbo.expressive.domain.Marker
+import com.sigmundgranaas.turbo.expressive.ui.components.MarkerPin
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
 import kotlin.math.atan2
 import kotlin.math.cos

@@ -11,9 +11,9 @@ import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.IBinder
-import com.sigmundgranaas.turbo.expressive.core.data.FollowController
-import com.sigmundgranaas.turbo.expressive.core.data.LiveStats
-import com.sigmundgranaas.turbo.expressive.core.data.RecordingController
+import com.sigmundgranaas.turbo.expressive.core.tracking.FollowController
+import com.sigmundgranaas.turbo.expressive.core.tracking.LiveStats
+import com.sigmundgranaas.turbo.expressive.core.tracking.RecordingController
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope

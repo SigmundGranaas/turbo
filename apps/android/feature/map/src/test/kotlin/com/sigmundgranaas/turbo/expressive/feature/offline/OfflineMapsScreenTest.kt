@@ -78,7 +78,7 @@ class OfflineMapsScreenTest {
     }
 
     @Test
-    fun `a failed region offers retry which calls the manager`() {
+    fun `tapping Retry on a failed download restarts it`() {
         val region = OfflineRegionInfo(
             id = 3, name = "Senja", status = OfflineStatus.Failed, progress = 0f, sizeBytes = 0,
             errorReason = "Area too large",

@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.common.StringProvider
 import com.sigmundgranaas.turbo.expressive.core.data.ConditionsRepository
-import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
+import com.sigmundgranaas.turbo.expressive.core.tracking.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RadarRepository
 import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository

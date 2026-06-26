@@ -1,65 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Live-panel (opptak / følging over kartet) -->
-    <string name="live_rec">OPPTAK</string>
-    <string name="live_on_route">På rute</string>
-    <string name="live_moving">i bevegelse</string>
-    <string name="live_route_length">%1$s rute</string>
     <string name="live_km">km</string>
-    <string name="live_km_left">igjen</string>
-    <string name="live_ascent_up">stigning ↑</string>
-    <string name="live_descent_down">nedstigning ↓</string>
-    <string name="live_covered">Tilbakelagt %1$s · ↑ %2$s · ↓ %3$s · %4$s</string>
-    <string name="live_checkpoints">Sjekkpunkter</string>
-    <string name="live_next_checkpoint">Neste · %1$s</string>
-    <string name="live_nudge_title">Beveger du deg på pause?</string>
-    <string name="live_nudge_body">%1$s fanget · fortsett for å beholde det</string>
     <string name="live_resume_buffer_title">Beveget deg på pause</string>
     <string name="live_resume_buffer_body">Du gikk %1$s mens du var på pause. Legge det til i sporet?</string>
     <string name="live_resume_include">Ta med</string>
     <string name="live_resume_discard">Forkast</string>
     <string name="live_arrival">ankomst · %1$s</string>
-    <string name="live_arrival_label">ankomst</string>
-    <string name="live_progress">%1$s av %2$s fullført</string>
-    <string name="live_swipe_stats">⌃ Dra opp for full statistikk</string>
-    <string name="live_swipe_more">⌃ Dra opp for høyde og kontroller</string>
-    <string name="live_pause">Pause</string>
-    <string name="live_resume">Fortsett</string>
-    <string name="live_finish">Avslutt</string>
-    <string name="live_stop_following">Stopp følging</string>
     <string name="live_mute">Demp stemme</string>
-    <string name="live_speed">Fart</string>
-    <string name="live_avg_pace">Snittfart</string>
-    <string name="live_max">Maks</string>
-    <string name="live_ascent">Stigning</string>
-    <string name="live_descent">Nedstigning</string>
-    <string name="live_energy">Energi</string>
-    <string name="live_to_climb">Igjen å klatre</string>
-    <string name="live_ahead">Igjen</string>
-    <string name="live_altitude">Høyde</string>
-    <string name="live_elevation">Høyde</string>
-    <string name="live_elevation_now">%1$s nå</string>
-    <string name="live_elevation_to_go">%1$s · ↑%2$s igjen</string>
     <string name="live_next_waypoint">Neste veipunkt · %1$s</string>
-    <string name="live_expand">Utvid live-panel</string>
-    <string name="live_kcal">kcal</string>
     <string name="live_min">min</string>
 
-    <string name="collections_add_title">Legg til i samling</string>
-    <string name="collections_member">I denne samlingen</string>
-    <string name="collections_new_hint">Ny samling…</string>
-    <string name="collections_create">Opprett samling</string>
 
     <!-- Route card -->
-    <string name="route_solving">Finner beste rute…</string>
-    <string name="route_cancel">Avbryt</string>
-    <string name="route_dismiss">Lukk</string>
-    <string name="route_distance">Distanse</string>
-    <string name="route_time">Tid</string>
-    <string name="route_ascent">Stigning</string>
-    <string name="route_on_trail">På sti</string>
-    <string name="route_follow">Følg</string>
-    <string name="route_clear">Fjern</string>
     <string name="route_save_title">Lagre rute som spor</string>
     <string name="route_saved">Rute lagret i spor</string>
     <string name="route_save_action">Lagre rute</string>
@@ -74,45 +27,25 @@
     <string name="route_arrived">Du er framme</string>
     <string name="route_done">Ferdig</string>
     <string name="route_stop">Stopp</string>
-    <string name="route_stop_n">Stopp %1$d</string>
-    <string name="route_remove_stop">Fjern stopp %1$d</string>
 
     <!-- Measure tool -->
     <string name="measure_title">Mål</string>
     <string name="measure_hint">Trykk på kartet for å legge til punkter</string>
     <string name="measure_points">%1$d punkter</string>
-    <string name="measure_undo">Angre</string>
-    <string name="measure_clear">Tøm</string>
     <string name="measure_done">Ferdig</string>
 
     <!-- Create track — unified route generator + track drawing -->
     <string name="track_title">Lag spor</string>
-    <string name="track_mode_route">Rute</string>
-    <string name="track_mode_line">Linje</string>
-    <string name="track_mode_draw">Tegn</string>
     <string name="track_hint_route">Trykk på kartet for å legge til stopp</string>
-    <string name="track_updating">Oppdaterer rute…</string>
     <string name="track_hint_line">Trykk for å plassere punkter</string>
     <string name="track_hint_draw">Dra på kartet for å tegne</string>
-    <string name="track_route_style">Rutestil</string>
     <!-- Route stops manager -->
-    <string name="track_stops_row">Stopp</string>
-    <string name="track_stops_title">Stopp</string>
     <string name="track_stops_hint">Dra i håndtaket for å endre rekkefølge · trykk ✕ for å fjerne</string>
-    <string name="wp_start">Start</string>
-    <string name="wp_end">Mål</string>
-    <string name="wp_stop">Stopp %1$d</string>
-    <string name="wp_remove">Fjern stopp</string>
     <string name="wp_reorder">Endre rekkefølge</string>
-    <string name="wp_move_up">Flytt stopp opp</string>
-    <string name="wp_move_down">Flytt stopp ned</string>
-    <string name="wp_add_stop">Legg til stopp</string>
-    <string name="track_route_style_subtitle">Hvordan ruta veier av stier, veier og stigning.</string>
     <string name="track_meta_line">%1$d punkter plassert</string>
     <string name="track_meta_draw">Frihåndsstrek</string>
     <string name="track_meta_empty">Plasser punkter for å lage et spor</string>
     <string name="track_save_title">Lagre spor</string>
-    <string name="track_close">Lukk lag spor</string>
     <string name="track_discard_title">Forkaste sporet?</string>
     <string name="track_discard_body">Det ulagrede sporet går tapt.</string>
     <string name="track_discard">Forkast</string>
@@ -123,14 +56,6 @@
     <string name="lp_add_photo">Legg til bilde her</string>
 
     <!-- Marker editor -->
-    <string name="marker_new">Ny markør</string>
-    <string name="marker_edit">Rediger markør</string>
-    <string name="marker_name">Navn</string>
-    <string name="marker_notes">Notater (valgfritt)</string>
-    <string name="marker_icon">Ikon</string>
-    <string name="marker_colour">Farge</string>
-    <string name="marker_save">Lagre markør</string>
-    <string name="marker_update">Oppdater markør</string>
     <string name="marker_add_to_collection">Legg til i samling</string>
     <string name="marker_add_photo">Legg til bilde</string>
 
@@ -157,47 +82,8 @@
     <string name="cond_forecast_unavailable">Værvarsel utilgjengelig</string>
 
     <!-- Offline maps -->
-    <string name="offline_title">Frakoblede kart</string>
-    <string name="offline_back">Tilbake</string>
-    <string name="offline_empty_title">Ingen frakoblede kart ennå</string>
-    <string name="offline_empty_body">Åpne kartlag-arket og trykk «Last ned dette området» for å lagre det for frakoblet bruk.</string>
-    <string name="offline_region_desc">frakoblet område %1$s</string>
-    <string name="offline_downloaded">Lastet ned · %1$s</string>
-    <string name="offline_downloading">Laster ned … %1$d %%</string>
-    <string name="offline_paused">Pauset · %1$d %%</string>
-    <string name="offline_failed">Nedlasting mislyktes</string>
-    <string name="offline_failed_reason">Nedlasting mislyktes · %1$s</string>
-    <string name="offline_retry">Prøv igjen</string>
-    <string name="offline_pause">Sett %1$s på pause</string>
-    <string name="offline_resume">Fortsett %1$s</string>
-    <string name="offline_delete">Slett %1$s</string>
-    <string name="offline_notif_channel">Nedlasting av frakoblede kart</string>
-    <string name="offline_notif_channel_desc">Fremdrift mens kartområder lastes ned</string>
-    <string name="offline_notif_title">Laster ned kart</string>
-    <string name="offline_notif_content">%1$d områder · %2$d %%</string>
-    <string name="offline_notif_pause">Pause</string>
-    <string name="offline_notif_resume">Fortsett</string>
-    <string name="offline_download_title">Last ned dette området?</string>
-    <string name="offline_download_estimate">Omtrent %1$s · %2$d fliser lagres for frakoblet bruk.</string>
-    <string name="offline_download_too_large">Dette området er for stort (omtrent %1$s). Zoom inn og prøv igjen.</string>
-    <string name="offline_download_confirm">Last ned</string>
-    <string name="offline_download_cancel">Avbryt</string>
-    <string name="offline_detail_standard">Standard</string>
-    <string name="offline_detail_detailed">Detaljert</string>
-    <string name="offline_deleted_snackbar">Slettet %1$s</string>
-    <string name="offline_undo">Angre</string>
-    <string name="offline_rename_title">Gi området nytt navn</string>
-    <string name="offline_rename_confirm">Gi nytt navn</string>
-    <string name="offline_clear_cache">Tøm kartbufferen</string>
-    <string name="offline_clear_cache_title">Tømme kartbufferen?</string>
-    <string name="offline_clear_cache_body">Fjerner midlertidig bufrede kartfliser fra utforsking. Nedlastede frakoblede områder beholdes.</string>
-    <string name="offline_clear_cache_confirm">Tøm</string>
     <string name="offline_chip">Du er frakoblet — viser lagrede kart</string>
     <string name="offline_chip_uncovered">Frakoblet — utenfor nedlastede områder</string>
-    <plurals name="offline_summary">
-        <item quantity="one">%1$d område · %2$s</item>
-        <item quantity="other">%1$d områder · %2$s</item>
-    </plurals>
 
     <!-- Navigation drawer -->
     <string name="drawer_tagline">Turkart for Norge</string>

@@ -17,7 +17,6 @@ import com.sigmundgranaas.turbo.expressive.core.map.NetworkMonitor
 import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
 import com.sigmundgranaas.turbo.expressive.domain.OfflineStatus
-import com.sigmundgranaas.turbo.expressive.feature.map.R
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

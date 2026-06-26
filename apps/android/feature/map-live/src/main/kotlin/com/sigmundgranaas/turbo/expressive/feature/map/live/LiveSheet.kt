@@ -70,9 +70,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
-import com.sigmundgranaas.turbo.expressive.core.data.LiveStats
+import com.sigmundgranaas.turbo.expressive.core.tracking.LiveStats
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
-import com.sigmundgranaas.turbo.expressive.feature.map.R
 import com.sigmundgranaas.turbo.expressive.ui.components.LiveElevationSpark
 import com.sigmundgranaas.turbo.expressive.ui.components.LiveMetricTile
 import com.sigmundgranaas.turbo.expressive.ui.components.MetricTone

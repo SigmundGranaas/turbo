@@ -2,10 +2,10 @@ package com.sigmundgranaas.turbo.expressive.feature.recording
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
+import com.sigmundgranaas.turbo.expressive.core.tracking.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
-import com.sigmundgranaas.turbo.expressive.core.data.RecordingController
-import com.sigmundgranaas.turbo.expressive.core.data.RecordingSession
+import com.sigmundgranaas.turbo.expressive.core.tracking.RecordingController
+import com.sigmundgranaas.turbo.expressive.core.tracking.RecordingSession
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPath
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
 import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId

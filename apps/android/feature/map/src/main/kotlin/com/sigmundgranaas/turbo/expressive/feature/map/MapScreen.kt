@@ -1,5 +1,17 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
+import com.sigmundgranaas.turbo.expressive.feature.map.route.CreateTrackCloseButton
+import com.sigmundgranaas.turbo.expressive.feature.map.route.CreateTrackMapControls
+import com.sigmundgranaas.turbo.expressive.feature.map.route.CreateTrackPanel
+import com.sigmundgranaas.turbo.expressive.feature.map.route.CreateTrackUpdatingChip
+import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteCard
+import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteStyleSheet
+import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteUiState
+import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteViewModel
+import com.sigmundgranaas.turbo.expressive.feature.map.route.TrackMode
+import com.sigmundgranaas.turbo.expressive.feature.map.route.WaypointsSheet
+import com.sigmundgranaas.turbo.expressive.feature.map.route.formatDuration
+
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -91,11 +103,9 @@ import com.sigmundgranaas.turbo.expressive.ui.theme.icon
 import com.sigmundgranaas.turbo.expressive.ui.theme.labelRes
 import kotlinx.coroutines.launch
 
-/** How far off the planned line (metres) before we re-solve while following. */
-private const val OFF_ROUTE_THRESHOLD_M = 50.0
-
-/** Zoom used when first recentring on the user's GPS fix at startup. */
-private const val INITIAL_LOCATION_ZOOM = 13.0
+// Off-route threshold + startup zoom live on MapHostCoordinator, alongside the
+// pure decisions that read them.
+private const val INITIAL_LOCATION_ZOOM = MapHostCoordinator.INITIAL_LOCATION_ZOOM
 
 @Composable
 fun MapScreen(
@@ -162,7 +172,7 @@ fun MapScreen(
                 extraActions = listOf(
                     com.sigmundgranaas.turbo.expressive.core.map.MapEntityAction(
                         id = "follow_track",
-                        label = context.getString(R.string.route_follow),
+                        label = context.getString(com.sigmundgranaas.turbo.expressive.feature.map.route.R.string.route_follow),
                         icon = androidx.compose.material.icons.Icons.Rounded.Navigation,
                         onInvoke = {
                             routeViewModel.followTrack(pts, path.path.distanceM, ascent, (path.path.movingTimeSeconds ?: 0).toDouble())
@@ -240,20 +250,22 @@ fun MapScreen(
     // first-ever launch (no saved camera) fall back to flying to the first GPS fix.
     // Either way it fires once and never fights manual panning afterwards.
     var didInitialCenter by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(state.lastCamera, ui.controller) {
-        if (didInitialCenter || focusRequest != null) return@LaunchedEffect
-        val cam = state.lastCamera ?: return@LaunchedEffect
+    LaunchedEffect(state.lastCamera, state.userLocation, ui.controller, state.following, recState.recording) {
         val c = ui.controller ?: return@LaunchedEffect
-        c.flyTo(cam, state.lastCameraZoom ?: INITIAL_LOCATION_ZOOM)
-        didInitialCenter = true
-    }
-    LaunchedEffect(state.userLocation, ui.controller) {
-        if (didInitialCenter || focusRequest != null || state.lastCamera != null) return@LaunchedEffect
-        val here = state.userLocation ?: return@LaunchedEffect
-        val c = ui.controller ?: return@LaunchedEffect
-        if (!state.following && !recState.recording) {
-            c.flyTo(here, INITIAL_LOCATION_ZOOM)
-            didInitialCenter = true
+        when (
+            val r = MapHostCoordinator.cameraRestore(
+                didInitialCenter = didInitialCenter,
+                hasFocusRequest = focusRequest != null,
+                lastCamera = state.lastCamera,
+                lastCameraZoom = state.lastCameraZoom,
+                userLocation = state.userLocation,
+                following = state.following,
+                recording = recState.recording,
+            )
+        ) {
+            is MapHostCoordinator.CameraRestore.RestoreSaved -> { c.flyTo(r.target, r.zoom); didInitialCenter = true }
+            is MapHostCoordinator.CameraRestore.FlyToFix -> { c.flyTo(r.target, r.zoom); didInitialCenter = true }
+            MapHostCoordinator.CameraRestore.None -> Unit
         }
     }
 
@@ -285,12 +297,7 @@ fun MapScreen(
             kotlinx.coroutines.delay(1500)
             val centre = c.center()
             val cur = Triple(centre.lat, centre.lng, c.zoom())
-            // Skip null-island (uninitialised), the exact world-overview fallback
-            // (so a brand-new user's pre-navigation view isn't persisted as "last"),
-            // and unchanged frames (DataStore would no-op anyway).
-            val atFallback = kotlin.math.abs(centre.lat - fb.lat) < 1e-6 &&
-                kotlin.math.abs(centre.lng - fb.lng) < 1e-6
-            if (cur != last && !atFallback && (centre.lat != 0.0 || centre.lng != 0.0)) {
+            if (MapHostCoordinator.shouldPersistCamera(cur, last, fb)) {
                 viewModel.saveCamera(cur.first, cur.second, cur.third)
                 last = cur
             }
@@ -326,7 +333,7 @@ fun MapScreen(
     LaunchedEffect(routeState, state.userLocation) {
         val following = routeState as? RouteUiState.Following ?: return@LaunchedEffect
         val here = state.userLocation ?: return@LaunchedEffect
-        if (GeoMetrics.distanceToPath(following.plan.geometry, here) > OFF_ROUTE_THRESHOLD_M) {
+        if (MapHostCoordinator.isOffRoute(following.plan.geometry, here)) {
             routeViewModel.reroute(here)
         }
     }
@@ -357,15 +364,7 @@ fun MapScreen(
         val followingNow = routeState is RouteUiState.Following && ui.trackMode == null
         if (!recState.recording && !followingNow) { c.setBottomInset(0); return@LaunchedEffect }
         val screenPx = with(density) { configuration.screenHeightDp.dp.toPx() }
-        val sheetPx = when (liveDetent) {
-            com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Mini ->
-                with(density) { 208.dp.toPx() }.coerceAtMost(screenPx * 0.64f)
-            com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Peek ->
-                with(density) { 340.dp.toPx() }.coerceAtMost(screenPx * 0.64f)
-            com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Half -> screenPx * 0.56f
-            com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Full -> screenPx * 0.92f
-        }
-        c.setBottomInset(sheetPx.coerceAtMost(screenPx * 0.5f).toInt())
+        c.setBottomInset(MapHostCoordinator.bottomInsetPx(liveDetent, screenPx, density))
     }
     // Stop-following save prompt + the snackbar that bridges Save → Follow.
     val snackbarHostState = remember { SnackbarHostState() }
@@ -546,7 +545,14 @@ fun MapScreen(
             // async, so building early opens on the fallback (world overview) and
             // can't be moved back without discarding a fresh user pan. One settled
             // build at the restored camera instead.
-            if (state.settingsLoaded) {
+            val engineOverride = com.sigmundgranaas.turbo.expressive.feature.map.core.LocalMapEngineOverride.current
+            if (engineOverride != null) {
+                // Headless (Robolectric E2E) / @Preview: no native surface — drive the
+                // host with the provided engine so the whole screen is exercisable
+                // without a GPU. Real builds fall through to the wgpu host below.
+                LaunchedEffect(engineOverride) { ui.controller = engineOverride }
+                Box(Modifier.fillMaxSize())
+            } else if (state.settingsLoaded) {
                 TurbomapMapView(
                     rasters = MapStyles.turbomapRasterSpecs(state.baseLayer, ui.activeOverlays),
                     vectors = MapStyles.turbomapVectorSpecs(),
@@ -600,7 +606,7 @@ fun MapScreen(
                     markers = state.markers,
                     selectedMarkerId = ui.selectionState.selection?.id,
                     photoPins = photoClusters.map {
-                        com.sigmundgranaas.turbo.expressive.ui.components.PhotoPin(it.id, it.center.lat, it.center.lng, it.count, it.coverUri)
+                        com.sigmundgranaas.turbo.expressive.core.turbomap.android.PhotoPin(it.id, it.center.lat, it.center.lng, it.count, it.coverUri)
                     },
                     onPhotoPinClick = { pin -> ui.openCluster = photoClusters.firstOrNull { it.id == pin.id } },
                     waypoints = if (ui.trackMode == TrackMode.Route) toolWaypoints else emptyList(),
@@ -810,7 +816,7 @@ fun MapScreen(
                 // The music-app-style live sheet (peek → half → full) owns the bottom
                 // slot while recording, reading the same LiveStats the lock-screen widget shows.
                 com.sigmundgranaas.turbo.expressive.feature.map.live.LiveSheet(
-                    stats = com.sigmundgranaas.turbo.expressive.core.data.LiveStats.of(recSession),
+                    stats = com.sigmundgranaas.turbo.expressive.core.tracking.LiveStats.of(recSession),
                     metric = metric,
                     title = com.sigmundgranaas.turbo.expressive.feature.map.live.formatLiveClock(recSession.elapsedSec),
                     detent = ui.recDetent,
@@ -832,7 +838,7 @@ fun MapScreen(
                 // Following a route → the same live sheet, in follow mode.
                 val followName = followSession.name
                 com.sigmundgranaas.turbo.expressive.feature.map.live.LiveSheet(
-                    stats = com.sigmundgranaas.turbo.expressive.core.data.LiveStats.of(followSession),
+                    stats = com.sigmundgranaas.turbo.expressive.core.tracking.LiveStats.of(followSession),
                     metric = metric,
                     title = followName ?: stringResource(R.string.route_following),
                     detent = ui.followDetent,
@@ -914,7 +920,7 @@ fun MapScreen(
                 val unitText = if (full.contains(' ')) full.substringAfterLast(' ') else ""
                 val meta = when (mode) {
                     TrackMode.Route -> when (val s = routeState) {
-                        is RouteUiState.Solving -> stringResource(R.string.route_solving)
+                        is RouteUiState.Solving -> stringResource(com.sigmundgranaas.turbo.expressive.feature.map.route.R.string.route_solving)
                         is RouteUiState.Done -> "${formatDuration(s.plan.durationS)}  ·  ↑ ${com.sigmundgranaas.turbo.expressive.core.geo.Units.elevation(s.plan.ascentM, metric)}"
                         is RouteUiState.Error -> s.message
                         else -> stringResource(R.string.track_meta_empty)
@@ -1170,87 +1176,5 @@ fun MapScreen(
 }
 
 
-/** How close a saved marker must sit to the planned route to count as a checkpoint (D3). */
-private const val CHECKPOINT_NEAR_M = 40.0
-
-/**
- * Saved markers within [CHECKPOINT_NEAR_M] of the solved route, as (position, name) checkpoints
- * (D3). [RouteViewModel.follow] merges these with the route stops and orders both by arc-length.
- */
-private fun nearbyCheckpoints(state: RouteUiState, markers: List<Marker>): List<Pair<LatLng, String>> {
-    val geometry = (state as? RouteUiState.Done)?.plan?.geometry ?: return emptyList()
-    return markers
-        .filter { GeoMetrics.distanceToPath(geometry, it.position) <= CHECKPOINT_NEAR_M }
-        .map { it.position to it.name }
-}
-
-/** Export a single marker as a .geojson file and fire a share chooser. */
-private fun shareMarkerGeoJson(context: android.content.Context, marker: Marker) {
-    val dir = java.io.File(context.cacheDir, "markers").apply { mkdirs() }
-    val file = java.io.File(dir, com.sigmundgranaas.turbo.expressive.feature.markers.MarkerGeoJson.fileName(marker.name))
-    file.writeText(com.sigmundgranaas.turbo.expressive.feature.markers.MarkerGeoJson.encode(listOf(marker)))
-    val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-        type = "application/geo+json"
-        putExtra(android.content.Intent.EXTRA_STREAM, uri)
-        clipData = android.content.ClipData.newRawUri(marker.name, uri)
-        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    context.startActivity(android.content.Intent.createChooser(send, "Share marker").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-}
-
-/** Small pill shown under the search bar while waiting for the first GPS fix. */
-@Composable
-private fun LocatingChip(modifier: Modifier = Modifier) {
-    val cs = MaterialTheme.colorScheme
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(50),
-        color = cs.surfaceContainerHigh,
-        shadowElevation = 3.dp,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-        ) {
-            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = cs.primary)
-            Spacer(Modifier.width(10.dp))
-            Text(
-                stringResource(R.string.location_finding),
-                style = MaterialTheme.typography.labelLarge,
-                color = cs.onSurface,
-            )
-        }
-    }
-}
-
-/** "You're offline" pill under the search bar; says so louder when the camera is
- *  also outside every downloaded region (i.e. the basemap will be blank). */
-@Composable
-private fun OfflineChip(outsideCoverage: Boolean, modifier: Modifier = Modifier) {
-    val cs = MaterialTheme.colorScheme
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(50),
-        color = if (outsideCoverage) cs.errorContainer else cs.surfaceContainerHigh,
-        shadowElevation = 3.dp,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-        ) {
-            Icon(
-                Icons.Rounded.CloudOff,
-                null,
-                tint = if (outsideCoverage) cs.onErrorContainer else cs.primary,
-                modifier = Modifier.size(16.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                stringResource(if (outsideCoverage) R.string.offline_chip_uncovered else R.string.offline_chip),
-                style = MaterialTheme.typography.labelLarge,
-                color = if (outsideCoverage) cs.onErrorContainer else cs.onSurface,
-            )
-        }
-    }
-}
+// Self-contained host pieces (nearbyCheckpoints, shareMarkerGeoJson, LocatingChip,
+// OfflineChip) live in MapScreenParts.kt.

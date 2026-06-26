@@ -238,7 +238,7 @@ fiddly device piece, then parity, then real wiring, then rollout.
   tile URLs. A DataStore-backed **Settings toggle** ("Experimental wgpu map") drives
   `MapUiState.experimentalWgpuMap`; `MapScreen` swaps `TurboMap` ↔ `TurbomapMapView` on it.
   Builds green (full host gate + detekt + `assembleDebug`); the `.so` ships in the APK
-  (arm64-v8a + x86_64); app smoke-launches healthy with the flag off.
+  (arm64-v8a + x86_64); app launches into the home map with the flag off (asserted by the existing :feature:map suite).
 - **Overlay parity via a shared seam (2026-06-12):** the projected overlays (markers, editable
   waypoints, photo pins) are extracted into one renderer-agnostic `MapOverlay`
   (`:core:designsystem`) that projects through `MapEngine.toScreen`/`fromScreen` — **both**
@@ -247,7 +247,7 @@ fiddly device piece, then parity, then real wiring, then rollout.
   used by both branches. The turbomap path now also has tap, long-press-to-add-marker, and the
   bearing readout (Compose `detectTapGestures` → `MapEngine.fromScreen`; per-frame camera tick).
   The MapLibre path is behaviour-preserving (it projects via `MapLibreEngine`, same projection);
-  verified by the unchanged `:core:map`/`:feature:map` suites + a healthy smoke-launch.
+  verified by the unchanged `:core:map`/`:feature:map` suites.
   On-screen visual fidelity (tile alignment, colours, gesture feel) is the user's device test.
 - **Offline + inset (2026-06-12):** `TurbomapTileCache` — a read-through disk cache
   (`cacheDir/turbomap-tiles`, `layer/z/x/y`→atomic file) consulted before the network and

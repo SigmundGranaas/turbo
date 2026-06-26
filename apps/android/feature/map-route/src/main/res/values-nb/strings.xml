@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="measure_clear">Tøm</string>
+    <string name="measure_undo">Angre</string>
+    <string name="route_ascent">Stigning</string>
+    <string name="route_cancel">Avbryt</string>
+    <string name="route_clear">Fjern</string>
+    <string name="route_dismiss">Lukk</string>
+    <string name="route_distance">Distanse</string>
+    <string name="route_follow">Følg</string>
+    <string name="route_on_trail">På sti</string>
+    <string name="route_remove_stop">Fjern stopp %1$d</string>
+    <string name="route_solving">Finner beste rute…</string>
+    <string name="route_stop_n">Stopp %1$d</string>
+    <string name="route_time">Tid</string>
+    <string name="track_close">Lukk lag spor</string>
+    <string name="track_mode_draw">Tegn</string>
+    <string name="track_mode_line">Linje</string>
+    <string name="track_mode_route">Rute</string>
+    <string name="track_route_style">Rutestil</string>
+    <string name="track_route_style_subtitle">Hvordan ruta veier av stier, veier og stigning.</string>
+    <string name="track_stops_row">Stopp</string>
+    <string name="track_stops_title">Stopp</string>
+    <string name="track_updating">Oppdaterer rute…</string>
+    <string name="wp_add_stop">Legg til stopp</string>
+    <string name="wp_end">Mål</string>
+    <string name="wp_move_down">Flytt stopp ned</string>
+    <string name="wp_move_up">Flytt stopp opp</string>
+    <string name="wp_remove">Fjern stopp</string>
+    <string name="wp_start">Start</string>
+    <string name="wp_stop">Stopp %1$d</string>
+</resources>

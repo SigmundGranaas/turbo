@@ -57,7 +57,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
 import com.sigmundgranaas.turbo.expressive.domain.OfflineStatus
-import com.sigmundgranaas.turbo.expressive.feature.map.R
 import com.sigmundgranaas.turbo.expressive.ui.components.EmptyState
 import com.sigmundgranaas.turbo.expressive.ui.components.NameInputDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.TurboConfirmDialog

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="marker_colour">Farge</string>
+    <string name="marker_edit">Rediger markør</string>
+    <string name="marker_icon">Ikon</string>
+    <string name="marker_name">Navn</string>
+    <string name="marker_new">Ny markør</string>
+    <string name="marker_notes">Notater (valgfritt)</string>
+    <string name="marker_save">Lagre markør</string>
+    <string name="marker_update">Oppdater markør</string>
+</resources>

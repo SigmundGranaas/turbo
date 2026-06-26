@@ -6,8 +6,8 @@ import android.graphics.drawable.Icon
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
-import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
-import com.sigmundgranaas.turbo.expressive.core.data.RecordingController
+import com.sigmundgranaas.turbo.expressive.core.tracking.LocationRepository
+import com.sigmundgranaas.turbo.expressive.core.tracking.RecordingController
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 

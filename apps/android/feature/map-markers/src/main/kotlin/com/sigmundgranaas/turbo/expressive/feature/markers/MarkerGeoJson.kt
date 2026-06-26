@@ -7,7 +7,7 @@ import com.sigmundgranaas.turbo.expressive.domain.Marker
  * GeoJSON order [lng, lat]; name / kind / notes ride along in each feature's
  * `properties`. Pure string building (no JSON dependency in this module).
  */
-internal object MarkerGeoJson {
+object MarkerGeoJson {
     fun encode(markers: List<Marker>): String {
         val features = markers.joinToString(",") { m ->
             val props = buildString {

@@ -41,7 +41,7 @@ expensive/flaky parts (GPU, devices) are reduced to small, controlled surfaces.
 | T4 | **Differential / shadow** | "not worse than MapLibre" | same scene+camera → MapLibre adapter vs turbomap, diff pixels + projection + hit-test |
 | T5 | **FFI binding** | uniffi marshalling, errors, lifecycle/leaks | generated Kotlin/Swift round-trip tests |
 | T6 | **Host integration** | the native view, gestures, overlays, offline | Compose UI test / XCTest+snapshot / Flutter widget+integration |
-| T7 | **E2E + performance** | real-device smoke, frame budgets, memory | device lane + criterion benches + GPU-timestamp gates |
+| T7 | **E2E + performance** | real-device E2E (specific user goals), frame budgets, memory | device lane + criterion benches + GPU-timestamp gates |
 
 ### Four design-for-testability decisions (do these or the plan doesn't hold)
 
@@ -183,7 +183,7 @@ gates** (what proves it's done). Phases ship independently behind a renderer fla
 - **Lane E — Host integration (per app, on app or engine change):** Android
   instrumented (emulator/device farm), iOS XCTest+snapshot, Flutter
   `integration_test` (extend `user_journeys_test.dart`).
-- **Lane F — E2E smoke + shadow metrics (nightly + pre-release):** real-device
+- **Lane F — E2E behaviour + shadow metrics (nightly + pre-release):** real-device
   load/pan/zoom/route/offline; shadow differential corpus report.
 
 Determinism notes: pin the wgpu adapter and driver in Lanes B/C; seed all data;

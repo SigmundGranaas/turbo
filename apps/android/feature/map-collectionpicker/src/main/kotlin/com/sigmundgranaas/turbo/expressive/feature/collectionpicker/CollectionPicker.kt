@@ -38,7 +38,6 @@ import androidx.lifecycle.viewModelScope
 import com.sigmundgranaas.turbo.expressive.core.data.CollectionRepository
 import com.sigmundgranaas.turbo.expressive.domain.CollectionItemType
 import com.sigmundgranaas.turbo.expressive.domain.MapCollection
-import com.sigmundgranaas.turbo.expressive.feature.map.R
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted

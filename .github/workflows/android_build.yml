@@ -58,8 +58,11 @@ jobs:
           ./gradlew
           :core:model:test :core:common:test
           :core:data:testDebugUnitTest :core:map:testDebugUnitTest
+          :core:tracking:testDebugUnitTest
           :feature:search:testDebugUnitTest :feature:map:testDebugUnitTest
+          :feature:map-markers:testDebugUnitTest
           :feature:recording:testDebugUnitTest :feature:settings:testDebugUnitTest
+          :feature:auth:testDebugUnitTest
           :app:testDebugUnitTest
           --no-configuration-cache
 

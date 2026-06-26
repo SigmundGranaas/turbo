@@ -122,6 +122,11 @@ dependencies {
     implementation(libs.okhttp)
 
     testImplementation(libs.junit)
+    // The MapOverlay overlay composables live here now; their Robolectric +
+    // Compose UI tests moved with them from :core:designsystem.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.ui.test.junit4)
+    debugImplementation(libs.androidx.ui.test.manifest)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.core)
