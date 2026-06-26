@@ -54,11 +54,7 @@ metadata:
   labels:
     app: tileserver
 spec:
-  replicas: 0               # TEMP maintenance window: scaled to 0 to free ~2Gi of
-                            # the namespace memory quota so the one-shot national
-                            # Places (SSR) ingest can run on this 5.7Gi node. Restore
-                            # to 1 immediately after the ingest finishes (revert this
-                            # commit).
+  replicas: 1
   strategy:
     type: Recreate          # single RWO artifact volume — no two pods mounting it
   selector:
