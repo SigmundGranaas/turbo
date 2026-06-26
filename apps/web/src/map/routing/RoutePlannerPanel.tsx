@@ -1,7 +1,7 @@
 import { useRouting } from '../../store/routingStore';
 import { usePaths } from '../../store/pathsStore';
 import { ROUTE_PRESETS, ROUTE_PROFILES } from '../../api/routing';
-import { useCreateTrack } from '../paths/useTracks';
+import { useCreateTrack } from '../../features/tracks';
 import { SidePanel, Eyebrow, StatTile, Chip2, Tabs } from '../../ui/Panel';
 import { Btn } from '../../ui/Glass';
 import { Icon } from '../../ui/Icon';

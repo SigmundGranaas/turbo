@@ -6,7 +6,6 @@ import { createShareLink, redeemLink, shareUrl } from '../api/sharing';
 import { useUiStore } from '../store/uiStore';
 import { useRouting } from '../store/routingStore';
 import { usePaths } from '../store/pathsStore';
-import type { Track } from '../api/tracks';
 import { planStream } from '../api/routing';
 import { searchPlaces, type PlaceHit } from '../api/places';
 import { parseCoord } from '../geo';
@@ -15,17 +14,11 @@ import { UserLocationLayer, usePanelHost } from '../map-core';
 import { SunSlider, useSun } from '../features/sun';
 import { LayerPicker } from './LayerPicker';
 import { MapContextMenu, type ContextMenuTarget } from './MapContextMenu';
-import { useTracks, useDeleteTrack } from './paths/useTracks';
 import { MarkerPins, MarkerDetailPanel, MarkerEditorPanel, useMarkers, useDeleteMarker, useSelection, openMarkerDetail, openMarkerEditor, openNewMarker, closeMarker, reverseGeocode } from '../features/markers';
 import { RouteOverlay } from './routing/RouteOverlay';
 import { RoutePlannerPanel } from './routing/RoutePlannerPanel';
-import { PathsListPanel } from './paths/PathsListPanel';
-import { PathDetailPanel } from './paths/PathDetailPanel';
-import { TrackEditorPanel } from './paths/TrackEditorPanel';
-import { useCollections } from './collections/useCollections';
-import { CollectionsListPanel } from './collections/CollectionsListPanel';
-import { CollectionDetailPanel } from './collections/CollectionDetailPanel';
-import { CollectionPicker } from './collections/CollectionPicker';
+import { useTracks, useDeleteTrack, PathsListPanel, PathDetailPanel, TrackEditorPanel, type Track } from '../features/tracks';
+import { useCollections, CollectionsListPanel, CollectionDetailPanel, CollectionPicker } from '../features/collections';
 import type { CollectionItem } from '../api/collections';
 import { AccountSettingsPanel } from '../features/account';
 import { ConditionsPanel, useConditionsPanel } from '../features/conditions';
@@ -170,8 +163,8 @@ export function MapScreen() {
   const routePanel = !accountPanel && !conditionsPanel && routing.active;
   const markerActive = activePanel === 'marker-detail' || activePanel === 'marker-edit' || activePanel === 'marker-new';
   const markerPanel = !accountPanel && !conditionsPanel && !routePanel && markerActive;
-  const pathsPanel = !accountPanel && !conditionsPanel && !routePanel && !markerPanel && paths.open;
-  const panelShown = accountPanel || conditionsPanel || routePanel || markerPanel || pathsPanel;
+  const savedPanel = !accountPanel && !conditionsPanel && !routePanel && !markerPanel && activePanel === 'saved';
+  const panelShown = accountPanel || conditionsPanel || routePanel || markerPanel || savedPanel;
 
   useEffect(() => {
     const root = document.documentElement;
@@ -206,7 +199,10 @@ export function MapScreen() {
         window.history.replaceState({}, '', window.location.pathname);
         showToast('Added to your library');
         const rt = (res.resourceType ?? '').toLowerCase();
-        if (rt.includes('track') || rt.includes('path')) usePaths.getState().openDetail(res.resourceId);
+        if (rt.includes('track') || rt.includes('path')) {
+          usePaths.getState().openDetail(res.resourceId);
+          usePanelHost.getState().open('saved');
+        }
         else openMarkerDetail(res.resourceId);
       })
       .catch(() => showToast('That share link is invalid or expired'));
@@ -311,27 +307,35 @@ export function MapScreen() {
     usePanelHost.getState().open('conditions');
   };
 
-  const onNav = (id: string) => {
+  // The "Saved" panel is one mutex slot (`saved`); its tab/detail/edit
+  // sub-navigation lives in `pathsStore` and survives while hidden. Opening it
+  // via the mutex auto-hides the other mutex panels; closing resets the sub-nav.
+  const openSaved = () => {
+    usePaths.getState().openList();
+    usePanelHost.getState().open('saved');
+  };
+  const closeSaved = () => {
+    usePaths.getState().reset();
     usePanelHost.getState().close();
+  };
+
+  const onNav = (id: string) => {
     useConditionsPanel.getState().close();
     useRouting.getState().close();
     useSelection.getState().clear();
     if (id === 'saved') {
-      usePaths.getState().openList();
+      openSaved();
     } else if (id === 'conditions') {
-      usePaths.getState().close();
       const c = cam();
       if (c) showConditions(c.lat, c.lng, 'Map centre');
     } else {
-      usePaths.getState().close();
+      usePanelHost.getState().close();
     }
   };
 
   // Open the new-marker editor at a geographic point (reverse-geocoded name).
   const createMarkerLatLng = async (lat: number, lng: number) => {
-    usePanelHost.getState().close();
     useConditionsPanel.getState().close();
-    usePaths.getState().close();
     openNewMarker(lat, lng, await reverseGeocode(lat, lng));
   };
 
@@ -366,7 +370,7 @@ export function MapScreen() {
     setCtxMenu(null);
     usePanelHost.getState().close();
     useConditionsPanel.getState().close();
-    usePaths.getState().close();
+    usePaths.getState().reset();
     useSelection.getState().clear();
   };
 
@@ -387,9 +391,7 @@ export function MapScreen() {
       const mk = markers.find((x) => x.id === id);
       if (mk) useRouting.getState().addWaypoint({ lat: mk.lat, lng: mk.lng });
     } else {
-      usePanelHost.getState().close();
       useConditionsPanel.getState().close();
-      usePaths.getState().close();
       openMarkerDetail(id);
     }
   };
@@ -398,7 +400,6 @@ export function MapScreen() {
     usePanelHost.getState().close();
     useConditionsPanel.getState().close();
     useSelection.getState().clear();
-    usePaths.getState().close();
     useRouting.getState().open({ lat, lng });
   };
 
@@ -406,7 +407,6 @@ export function MapScreen() {
     useRouting.getState().close();
     useConditionsPanel.getState().close();
     useSelection.getState().clear();
-    usePaths.getState().close();
     usePanelHost.getState().open('account');
   };
   const avatar = session.data ? (session.data.name ?? session.data.email ?? 'S').trim().charAt(0).toUpperCase() : undefined;
@@ -426,7 +426,7 @@ export function MapScreen() {
       {(routeCoords.length > 0 || routing.waypoints.length > 0) && (
         <RouteOverlay coords={routeCoords} waypoints={routing.waypoints} dashed={!routing.plan} />
       )}
-      {pathsPanel && selectedTrack && selectedTrack.points.length > 0 && (
+      {savedPanel && selectedTrack && selectedTrack.points.length > 0 && (
         <RouteOverlay
           coords={selectedTrack.points}
           waypoints={[selectedTrack.points[0], selectedTrack.points[selectedTrack.points.length - 1]]}
@@ -439,7 +439,7 @@ export function MapScreen() {
       {/* left: app-shell nav rail (desktop) */}
       {!isMobile && (
         <div style={{ position: 'absolute', top: 16, left: 16, bottom: 16, zIndex: 10 }}>
-          <NavRail dark={dark} active={paths.open ? 'saved' : 'explore'} signedIn={Boolean(session.data)} avatar={avatar ?? 'S'} onNav={onNav} onAccount={onAccount} />
+          <NavRail dark={dark} active={savedPanel ? 'saved' : 'explore'} signedIn={Boolean(session.data)} avatar={avatar ?? 'S'} onNav={onNav} onAccount={onAccount} />
         </div>
       )}
 
@@ -456,7 +456,7 @@ export function MapScreen() {
             mirroring native — so there's no standalone route toggle here. */}
         {isMobile && (
           <Glass dark={dark} radius={9999} style={{ padding: 4, display: 'flex' }}>
-            <GlassIconBtn icon="bookmark" active={paths.open} title="Saved" onClick={() => onNav('saved')} />
+            <GlassIconBtn icon="bookmark" active={savedPanel} title="Saved" onClick={() => onNav('saved')} />
           </Glass>
         )}
       </div>
@@ -650,7 +650,7 @@ export function MapScreen() {
               onSaved={(m) => openMarkerDetail(m.id)}
             />
           )}
-          {pathsPanel &&
+          {savedPanel &&
             (selectedTrack && paths.editingId === selectedTrack.id ? (
               <TrackEditorPanel
                 dark={dark}
@@ -668,7 +668,7 @@ export function MapScreen() {
                 onShare={() => void shareResource(selectedTrack.id)}
                 onDelete={() => delTrack.mutate(selectedTrack, { onSuccess: () => usePaths.getState().openList() })}
                 onBack={() => usePaths.getState().openList()}
-                onClose={() => usePaths.getState().close()}
+                onClose={() => closeSaved()}
               />
             ) : selectedCollection ? (
               <CollectionDetailPanel
@@ -676,7 +676,7 @@ export function MapScreen() {
                 collection={selectedCollection}
                 resolveName={resolveItemName}
                 onBack={() => usePaths.getState().openList()}
-                onClose={() => usePaths.getState().close()}
+                onClose={() => closeSaved()}
               />
             ) : paths.tab === 'collections' ? (
               <CollectionsListPanel
@@ -684,7 +684,7 @@ export function MapScreen() {
                 collections={collections}
                 loading={collectionsQ.isLoading}
                 onOpen={(id) => usePaths.getState().openCollection(id)}
-                onClose={() => usePaths.getState().close()}
+                onClose={() => closeSaved()}
               />
             ) : (
               <PathsListPanel
@@ -692,7 +692,7 @@ export function MapScreen() {
                 tracks={tracks}
                 loading={tracksQ.isLoading}
                 onSelect={(id) => usePaths.getState().openDetail(id)}
-                onClose={() => usePaths.getState().close()}
+                onClose={() => closeSaved()}
               />
             ))}
         </div>
@@ -717,7 +717,6 @@ export function MapScreen() {
             usePanelHost.getState().close();
             useConditionsPanel.getState().close();
             useSelection.getState().clear();
-            usePaths.getState().close();
             useRouting.getState().open({ lat: ctxMenu.lat, lng: ctxMenu.lng });
           }}
           onForecast={(name) => showConditions(ctxMenu.lat, ctxMenu.lng, name)}

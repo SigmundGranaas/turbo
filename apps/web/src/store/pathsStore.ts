@@ -3,11 +3,13 @@ import type { CollectionItem } from '../api/collections';
 
 export type SavedTab = 'paths' | 'collections';
 
-/** The "Saved" panel: a tabbed list of paths or collections, a selected path's
- *  detail, or a selected collection's detail. Also owns the cross-cutting
- *  add-to-collection picker target. */
+/** Sub-navigation state for the host's "Saved" panel (the single `saved` mutex
+ *  slot, shared by the `tracks` + `collections` slices): which tab, the selected
+ *  path / collection, the path being edited, and the cross-cutting
+ *  add-to-collection picker target. WHETHER the Saved panel is visible is the
+ *  host panel mutex (`usePanelHost`), not this store — so the sub-nav survives
+ *  while the panel is hidden (reopens to the same view). */
 interface PathsState {
-  open: boolean;
   tab: SavedTab;
   selectedId?: string; // path
   editingId?: string; // path being edited (overrides detail view)
@@ -21,19 +23,18 @@ interface PathsState {
   openCollection: (id: string) => void;
   openPicker: (item: CollectionItem) => void;
   closePicker: () => void;
-  close: () => void;
+  reset: () => void;
 }
 
 export const usePaths = create<PathsState>((set) => ({
-  open: false,
   tab: 'paths',
-  openList: () => set({ open: true, selectedId: undefined, editingId: undefined, selectedCollectionId: undefined }),
+  openList: () => set({ selectedId: undefined, editingId: undefined, selectedCollectionId: undefined }),
   setTab: (tab) => set({ tab, selectedId: undefined, editingId: undefined, selectedCollectionId: undefined }),
-  openDetail: (selectedId) => set({ open: true, selectedId, editingId: undefined, selectedCollectionId: undefined }),
-  openEdit: (editingId) => set({ open: true, editingId, selectedId: editingId, selectedCollectionId: undefined }),
+  openDetail: (selectedId) => set({ selectedId, editingId: undefined, selectedCollectionId: undefined }),
+  openEdit: (editingId) => set({ editingId, selectedId: editingId, selectedCollectionId: undefined }),
   closeEdit: () => set({ editingId: undefined }),
-  openCollection: (selectedCollectionId) => set({ open: true, tab: 'collections', selectedCollectionId, selectedId: undefined, editingId: undefined }),
+  openCollection: (selectedCollectionId) => set({ tab: 'collections', selectedCollectionId, selectedId: undefined, editingId: undefined }),
   openPicker: (pickerItem) => set({ pickerItem }),
   closePicker: () => set({ pickerItem: undefined }),
-  close: () => set({ open: false, selectedId: undefined, editingId: undefined, selectedCollectionId: undefined }),
+  reset: () => set({ tab: 'paths', selectedId: undefined, editingId: undefined, selectedCollectionId: undefined }),
 }));

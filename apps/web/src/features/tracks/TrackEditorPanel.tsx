@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Track } from '../../api/tracks';
+import type { Track } from './api';
 import { ACTIVITY_KINDS, kindForIcon } from '../../activities/kinds';
 import { SidePanel, Eyebrow, FilledField } from '../../ui/Panel';
 import { Btn } from '../../ui/Glass';

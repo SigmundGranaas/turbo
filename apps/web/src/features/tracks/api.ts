@@ -1,5 +1,5 @@
-import { ApiError, apiFetch } from './client';
-import type { LatLng } from '../geo';
+import { ApiError, apiFetch } from '../../api/client';
+import type { LatLng } from '../../geo';
 
 /** A saved path / track. Mirrors the tracks aggregate (`/api/tracks/Tracks`):
  *  geometry (points + optional elevations), display metadata, and stats. See

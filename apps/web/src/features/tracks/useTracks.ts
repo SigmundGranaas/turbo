@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTrack, deleteTrack, listTracks, updateTrack, type Track, type TrackChanges, type TrackInput } from '../../api/tracks';
+import { createTrack, deleteTrack, listTracks, updateTrack, type Track, type TrackChanges, type TrackInput } from './api';
 
 const KEY = ['tracks'];
 

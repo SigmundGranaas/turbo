@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import type { Track } from '../../api/tracks';
+import type { Track } from './api';
 import { kindForIcon } from '../../activities/kinds';
 import { usePaths } from '../../store/pathsStore';
 import { SidePanel, Tabs, FilledField } from '../../ui/Panel';
