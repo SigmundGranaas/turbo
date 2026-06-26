@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Marker } from '../../api/markers';
+import type { Marker } from './api';
 import { ACTIVITY_KINDS, DEFAULT_KIND, kindForIcon } from '../../activities/kinds';
 import { SidePanel, Eyebrow, FilledField } from '../../ui/Panel';
 import { Btn } from '../../ui/Glass';

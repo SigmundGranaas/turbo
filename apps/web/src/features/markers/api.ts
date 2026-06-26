@@ -1,4 +1,4 @@
-import { ApiError, apiFetch } from './client';
+import { ApiError, apiFetch } from '../../api/client';
 
 /** A map marker / POI. Mirrors the geo `Location` aggregate
  *  (`/api/geo/Location`): name/description/icon + a point + a version for

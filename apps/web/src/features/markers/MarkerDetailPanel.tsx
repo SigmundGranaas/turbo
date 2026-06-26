@@ -1,4 +1,4 @@
-import type { Marker } from '../../api/markers';
+import type { Marker } from './api';
 import { kindForIcon } from '../../activities/kinds';
 import { SidePanel, Eyebrow, StatTile, GlassIconBtnSolid } from '../../ui/Panel';
 import { Btn } from '../../ui/Glass';

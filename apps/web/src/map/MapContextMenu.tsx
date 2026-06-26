@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Glass } from '../ui/Glass';
 import { Icon } from '../ui/Icon';
-import { reverseGeocode } from '../api/markers';
+import { reverseGeocode } from '../features/markers';
 import { getConditions } from '../api/conditions';
 
 export interface ContextMenuTarget {

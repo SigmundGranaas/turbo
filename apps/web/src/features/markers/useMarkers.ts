@@ -6,7 +6,7 @@ import {
   updateMarker,
   type Marker,
   type MarkerInput,
-} from '../../api/markers';
+} from './api';
 
 const KEY = ['markers'];
 

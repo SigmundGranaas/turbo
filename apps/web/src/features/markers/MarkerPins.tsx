@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { useProjectedLayer } from '../../map-core';
-import type { Marker } from '../../api/markers';
+import type { Marker } from './api';
 import { kindForIcon } from '../../activities/kinds';
 
 /** Billboarded marker pins overlaid on the map. Positioned every frame via the
