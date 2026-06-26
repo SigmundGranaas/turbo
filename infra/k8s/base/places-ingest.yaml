@@ -23,7 +23,14 @@ spec:
   failedJobsHistoryLimit: 2
   jobTemplate:
     spec:
-      activeDeadlineSeconds: 3600  # 1h: order + download (~150MB) + stage (~1M rows) + swap
+      # Staging the national SSR is fast — 1,058,735 rows in ~272s + a 34s swap,
+      # proven (see places-foundation-plan §"SSR national run"). The long pole is
+      # the Geonorge async ORDER prep + the ~3GB download over a home link, which
+      # the old 1h cap killed mid-flight (DeadlineExceeded surfaced as "timed out
+      # waiting for the condition" on the last two runs). 6h covers order +
+      # download + stage + swap with headroom; concurrencyPolicy:Forbid keeps it
+      # from overlapping the weekly schedule.
+      activeDeadlineSeconds: 21600  # 6h
       backoffLimit: 1
       template:
         metadata:
