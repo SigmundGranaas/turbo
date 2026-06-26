@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
-import type { TurboMap } from 'turbomap-web';
+import { useEffect, useRef, useState } from 'react';
+import { useProjectedLayer } from './useProjectedLayer';
 
-const DPR = () => Math.min(window.devicePixelRatio || 1, 2);
-
-/** The blue "you are here" dot. Watches the browser geolocation and projects
- *  the fix onto the map every frame (like the marker layer), so it stays glued
- *  to the ground as the camera pans/zooms/rotates/tilts. Pointer-transparent. */
-export function UserLocation({ mapRef }: { mapRef: RefObject<TurboMap | null> }) {
+/** The blue "you are here" dot — a kernel map primitive (always-on, read by the
+ *  recenter control and "weather here"). Watches browser geolocation and projects
+ *  the fix onto the map every frame via the shared `useProjectedLayer`, so it
+ *  stays glued to the ground as the camera pans/zooms/rotates/tilts.
+ *  Pointer-transparent. Reads the engine from context — no props. */
+export function UserLocationLayer() {
   const dotRef = useRef<HTMLDivElement>(null);
   const fix = useRef<{ lat: number; lng: number } | null>(null);
   const [hasFix, setHasFix] = useState(false);
@@ -26,26 +26,17 @@ export function UserLocation({ mapRef }: { mapRef: RefObject<TurboMap | null> })
     return () => navigator.geolocation.clearWatch(id);
   }, []);
 
-  useEffect(() => {
-    let raf = 0;
-    const tick = () => {
-      const m = mapRef.current;
-      const el = dotRef.current;
-      if (m && el && fix.current) {
-        const p = m.project(fix.current.lat, fix.current.lng);
-        if (p) {
-          const dpr = DPR();
-          el.style.transform = `translate(${p[0] / dpr}px, ${p[1] / dpr}px) translate(-50%, -50%)`;
-          el.style.display = 'block';
-        } else {
-          el.style.display = 'none';
-        }
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [mapRef]);
+  useProjectedLayer((engine, dpr) => {
+    const el = dotRef.current;
+    if (!el || !fix.current) return;
+    const p = engine.project(fix.current.lat, fix.current.lng);
+    if (p) {
+      el.style.transform = `translate(${p[0] / dpr}px, ${p[1] / dpr}px) translate(-50%, -50%)`;
+      el.style.display = 'block';
+    } else {
+      el.style.display = 'none';
+    }
+  });
 
   if (!hasFix) return null;
   return (

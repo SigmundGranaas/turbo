@@ -3,3 +3,5 @@
  *  features, the host, or the `map-engine` implementation. */
 export type { MapEngine } from './engine';
 export { MapEngineProvider, useMapEngine, useMapEnginePublisher } from './MapEngineContext';
+export { useProjectedLayer, viewportDpr } from './useProjectedLayer';
+export { UserLocationLayer } from './UserLocation';

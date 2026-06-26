@@ -1,8 +1,7 @@
-import { useEffect, useRef, type RefObject } from 'react';
-import type { TurboMap } from 'turbomap-web';
+import { useRef } from 'react';
+import { useProjectedLayer } from '../../map-core';
 import type { LatLng } from '../../geo';
 
-const DPR = () => Math.min(window.devicePixelRatio || 1, 2);
 // Cap projected vertices per frame so a dense route stays cheap to reproject.
 const MAX_VERTS = 400;
 
@@ -19,13 +18,11 @@ function downsample(coords: LatLng[]): LatLng[] {
  *  waypoint stop rings. Vertices are projected every frame via `map.project`
  *  (the design's `RouteLine`). Pointer-transparent so it never blocks the map. */
 export function RouteOverlay({
-  mapRef,
   coords,
   waypoints,
   dashed,
   color = 'var(--primary)',
 }: {
-  mapRef: RefObject<TurboMap | null>;
   coords: LatLng[];
   waypoints: LatLng[];
   dashed?: boolean;
@@ -40,38 +37,28 @@ export function RouteOverlay({
   coordsRef.current = downsample(coords);
   wpRef.current = waypoints;
 
-  useEffect(() => {
-    let raf = 0;
-    const tick = () => {
-      const m = mapRef.current;
-      if (m) {
-        const dpr = DPR();
-        let d = '';
-        const pts = coordsRef.current;
-        for (let i = 0; i < pts.length; i++) {
-          const p = m.project(pts[i].lat, pts[i].lng);
-          if (p) d += `${d ? 'L' : 'M'}${(p[0] / dpr).toFixed(1)} ${(p[1] / dpr).toFixed(1)}`;
-        }
-        haloRef.current?.setAttribute('d', d);
-        lineRef.current?.setAttribute('d', d);
-        wpRef.current.forEach((w, i) => {
-          const c = stopRefs.current[i];
-          if (!c) return;
-          const p = m.project(w.lat, w.lng);
-          if (p) {
-            c.setAttribute('cx', String(p[0] / dpr));
-            c.setAttribute('cy', String(p[1] / dpr));
-            c.style.display = 'block';
-          } else {
-            c.style.display = 'none';
-          }
-        });
+  useProjectedLayer((engine, dpr) => {
+    let d = '';
+    const pts = coordsRef.current;
+    for (let i = 0; i < pts.length; i++) {
+      const p = engine.project(pts[i].lat, pts[i].lng);
+      if (p) d += `${d ? 'L' : 'M'}${(p[0] / dpr).toFixed(1)} ${(p[1] / dpr).toFixed(1)}`;
+    }
+    haloRef.current?.setAttribute('d', d);
+    lineRef.current?.setAttribute('d', d);
+    wpRef.current.forEach((w, i) => {
+      const c = stopRefs.current[i];
+      if (!c) return;
+      const p = engine.project(w.lat, w.lng);
+      if (p) {
+        c.setAttribute('cx', String(p[0] / dpr));
+        c.setAttribute('cy', String(p[1] / dpr));
+        c.style.display = 'block';
+      } else {
+        c.style.display = 'none';
       }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [mapRef]);
+    });
+  });
 
   return (
     <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 5 }}>

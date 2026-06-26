@@ -1,52 +1,39 @@
-import { useEffect, useRef, type RefObject } from 'react';
-import type { TurboMap } from 'turbomap-web';
+import { useRef } from 'react';
+import { useProjectedLayer } from '../../map-core';
 import type { Marker } from '../../api/markers';
 import { kindForIcon } from '../../activities/kinds';
 
-const DPR = () => Math.min(window.devicePixelRatio || 1, 2);
-
-/** Billboarded marker pins overlaid on the map. Positioned every frame via
- *  `map.project(lat,lng)` (the design renders entities as screen-space billboards
- *  over the 3D terrain). The layer is pointer-transparent except the pins, so it
- *  never blocks map pan. */
+/** Billboarded marker pins overlaid on the map. Positioned every frame via the
+ *  shared `useProjectedLayer` (`engine.project(lat,lng)`) — the design renders
+ *  entities as screen-space billboards over the 3D terrain. The layer is
+ *  pointer-transparent except the pins, so it never blocks map pan. */
 export function MarkerPins({
-  mapRef,
   markers,
   selectedId,
   onSelect,
 }: {
-  mapRef: RefObject<TurboMap | null>;
   markers: Marker[];
   selectedId?: string;
   onSelect: (id: string) => void;
 }) {
   const layerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    let raf = 0;
-    const tick = () => {
-      const m = mapRef.current;
-      const layer = layerRef.current;
-      if (m && layer) {
-        const dpr = DPR();
-        for (const node of Array.from(layer.children)) {
-          const el = node as HTMLElement;
-          const lat = Number(el.dataset.lat);
-          const lng = Number(el.dataset.lng);
-          const p = m.project(lat, lng);
-          if (p) {
-            el.style.transform = `translate(${p[0] / dpr}px, ${p[1] / dpr}px) translate(-50%, -100%)`;
-            el.style.display = 'block';
-          } else {
-            el.style.display = 'none';
-          }
-        }
+  useProjectedLayer((engine, dpr) => {
+    const layer = layerRef.current;
+    if (!layer) return;
+    for (const node of Array.from(layer.children)) {
+      const el = node as HTMLElement;
+      const lat = Number(el.dataset.lat);
+      const lng = Number(el.dataset.lng);
+      const p = engine.project(lat, lng);
+      if (p) {
+        el.style.transform = `translate(${p[0] / dpr}px, ${p[1] / dpr}px) translate(-50%, -100%)`;
+        el.style.display = 'block';
+      } else {
+        el.style.display = 'none';
       }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [mapRef]);
+    }
+  });
 
   return (
     <div ref={layerRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 6 }}>

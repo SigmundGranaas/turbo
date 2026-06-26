@@ -13,9 +13,8 @@ import { planStream } from '../api/routing';
 import { searchPlaces, type PlaceHit } from '../api/places';
 import { parseCoord } from '../geo';
 import { MapSurface } from '../map-engine';
-import { MapEngineProvider } from '../map-core';
+import { MapEngineProvider, UserLocationLayer } from '../map-core';
 import { LayerPicker } from './LayerPicker';
-import { UserLocation } from './UserLocation';
 import { MapContextMenu, type ContextMenuTarget } from './MapContextMenu';
 import { useMarkers, useDeleteMarker } from './markers/useMarkers';
 import { useTracks, useDeleteTrack } from './paths/useTracks';
@@ -468,18 +467,17 @@ export function MapScreen() {
         onLongPress={onMapLongPress}
       />
       {(routeCoords.length > 0 || routing.waypoints.length > 0) && (
-        <RouteOverlay mapRef={mapRef} coords={routeCoords} waypoints={routing.waypoints} dashed={!routing.plan} />
+        <RouteOverlay coords={routeCoords} waypoints={routing.waypoints} dashed={!routing.plan} />
       )}
       {pathsPanel && selectedTrack && selectedTrack.points.length > 0 && (
         <RouteOverlay
-          mapRef={mapRef}
           coords={selectedTrack.points}
           waypoints={[selectedTrack.points[0], selectedTrack.points[selectedTrack.points.length - 1]]}
           color={selectedTrack.colorHex || 'var(--primary)'}
         />
       )}
-      <MarkerPins mapRef={mapRef} markers={markers} selectedId={sel.selectedId} onSelect={onPinSelect} />
-      <UserLocation mapRef={mapRef} />
+      <MarkerPins markers={markers} selectedId={sel.selectedId} onSelect={onPinSelect} />
+      <UserLocationLayer />
 
       {/* left: app-shell nav rail (desktop) */}
       {!isMobile && (
