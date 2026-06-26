@@ -77,6 +77,13 @@ export function MapSurface({ base = 'norgeskart', threeD = false, camera, onRead
     let raf = 0;
     let map: TurboMap | null = null;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Render-on-demand: the WASM render() is a full GPU pass and in sun mode it's
+    // expensive (per-fragment terrain shadow march + AO + sky). `dirty` is set by
+    // any input/state change; between changes we draw at a low safety cadence
+    // instead of pegging the GPU at 60 fps while the view sits still.
+    let dirty = true;
+    let lastRender = 0;
+    const invalidate = () => { dirty = true; };
 
     const fail = (msg: string) => {
       if (disposed) return;
@@ -130,11 +137,21 @@ export function MapSurface({ base = 'norgeskart', threeD = false, camera, onRead
       publish(map);
       onReady?.(map);
 
-      const frame = () => {
+      const frame = (ts: number) => {
         if (disposed || !map) return;
         loader.pump();
         map.pump_local_tiles();
-        map.render();
+        // Draw on change / while animating (camera moves, tile fade-in), else a
+        // ~5 fps safety tick so any missed state change still lands quickly. This
+        // keeps idle sun-mode from continuously re-running the shadow march.
+        if (dirty || map.is_animating()) {
+          map.render();
+          dirty = false;
+          lastRender = ts;
+        } else if (ts - lastRender > 200) {
+          map.render();
+          lastRender = ts;
+        }
         raf = requestAnimationFrame(frame);
       };
       raf = requestAnimationFrame(frame);
@@ -151,6 +168,12 @@ export function MapSurface({ base = 'norgeskart', threeD = false, camera, onRead
       onLongPress: (x, y) => onLongPressRef.current?.(x, y),
     });
 
+    // Any direct interaction marks the next frame dirty so it draws immediately
+    // (the gesture controller mutates the camera from these same events). Capture
+    // + passive so it fires regardless of how the controller handles the event.
+    const INPUT = ['pointerdown', 'pointermove', 'wheel', 'touchstart', 'touchmove'] as const;
+    INPUT.forEach((e) => canvas.addEventListener(e, invalidate, { passive: true, capture: true }));
+
     const onResize = () => {
       if (!map) return;
       const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
@@ -158,6 +181,7 @@ export function MapSurface({ base = 'norgeskart', threeD = false, camera, onRead
       canvas.width = w;
       canvas.height = h;
       map.resize(w, h);
+      invalidate();
     };
     window.addEventListener('resize', onResize);
 
@@ -167,6 +191,7 @@ export function MapSurface({ base = 'norgeskart', threeD = false, camera, onRead
       disposed = true;
       cancelAnimationFrame(raf);
       detachGestures();
+      INPUT.forEach((e) => canvas.removeEventListener(e, invalidate, { capture: true } as EventListenerOptions));
       window.removeEventListener('resize', onResize);
       publish(null);
       mapRef.current = null;
