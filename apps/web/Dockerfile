@@ -36,6 +36,7 @@ COPY web/ ./
 # lint. `pnpm build` runs tsc, so types are already gated; this adds the
 # feature-slice tier enforcement so a boundary violation fails the image build.
 RUN pnpm lint
+RUN pnpm test
 RUN pnpm build
 
 # ── Stage 3: static nginx runtime (unprivileged, :8080) ─────────────────────

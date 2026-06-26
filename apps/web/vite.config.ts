@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 // The turbomap-web WASM module is a `file:` dependency, so it resolves through
@@ -13,6 +13,12 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   optimizeDeps: { exclude: ['turbomap-web'] },
+  // Vitest unit tests (pure logic + store behaviour). jsdom gives trackImport a
+  // DOMParser; the WASM renderer is never imported by tested code.
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.{ts,tsx}'],
+  },
   server: {
     port: 5173,
     proxy: {

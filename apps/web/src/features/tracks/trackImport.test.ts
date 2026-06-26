@@ -1,0 +1,75 @@
+import { describe, it, expect } from 'vitest';
+import { parseTrack, trackStats } from './trackImport';
+
+const GPX = `<?xml version="1.0"?>
+<gpx version="1.1"><trk><name>QA Imported Track</name><trkseg>
+<trkpt lat="60.39" lon="5.32"><ele>10</ele></trkpt>
+<trkpt lat="60.40" lon="5.33"><ele>55</ele></trkpt>
+<trkpt lat="60.41" lon="5.35"><ele>120</ele></trkpt>
+<trkpt lat="60.42" lon="5.34"><ele>80</ele></trkpt>
+</trkseg></trk></gpx>`;
+
+const KML = `<?xml version="1.0"?>
+<kml><Document><Placemark><LineString><coordinates>
+5.32,60.39,10 5.33,60.40,55 5.35,60.41,120
+</coordinates></LineString></Placemark></Document></kml>`;
+
+const GEOJSON = JSON.stringify({
+  type: 'Feature',
+  geometry: { type: 'LineString', coordinates: [[5.32, 60.39], [5.33, 60.40], [5.35, 60.41]] },
+});
+
+/** Importing a track file (the user's goal): the points come back in order with
+ *  the right coordinates, regardless of GPX/KML/GeoJSON; too-short or junk files
+ *  are rejected rather than producing a broken track. */
+describe('parseTrack', () => {
+  it('reads a GPX track: name, ordered points, and elevations', () => {
+    const t = parseTrack(GPX)!;
+    expect(t).not.toBeNull();
+    expect(t.name).toBe('QA Imported Track');
+    expect(t.points).toHaveLength(4);
+    expect(t.points[0]).toEqual({ lat: 60.39, lng: 5.32 });
+    expect(t.elevations).toEqual([10, 55, 120, 80]);
+  });
+
+  it('reads a KML LineString (lon,lat,ele coordinate tuples)', () => {
+    const t = parseTrack(KML)!;
+    expect(t.points).toHaveLength(3);
+    expect(t.points[1]).toEqual({ lat: 60.4, lng: 5.33 });
+  });
+
+  it('reads a GeoJSON LineString (no elevations → nulls)', () => {
+    const t = parseTrack(GEOJSON)!;
+    expect(t.points).toHaveLength(3);
+    expect(t.points[2]).toEqual({ lat: 60.41, lng: 5.35 });
+  });
+
+  it('rejects a file with fewer than two points', () => {
+    const onePoint = `<gpx><trk><trkseg><trkpt lat="60.39" lon="5.32"/></trkseg></trk></gpx>`;
+    expect(parseTrack(onePoint)).toBeNull();
+  });
+
+  it('rejects junk that is not a track', () => {
+    expect(parseTrack('not a track at all')).toBeNull();
+  });
+});
+
+/** Stats shown on the track (distance + climb): distance accumulates along the
+ *  points; ascent/descent sum the up/down elevation deltas, and are absent when
+ *  the file had no elevation data. */
+describe('trackStats', () => {
+  it('sums distance and ascent/descent from elevation deltas', () => {
+    const t = parseTrack(GPX)!;
+    const s = trackStats(t.points, t.elevations);
+    expect(s.distanceM).toBeGreaterThan(0);
+    // up: (55-10)+(120-55)=110 ; down: (120-80)=40
+    expect(s.ascentM).toBeCloseTo(110, 5);
+    expect(s.descentM).toBeCloseTo(40, 5);
+  });
+
+  it('omits elevation totals when there is no elevation data', () => {
+    const s = trackStats([{ lat: 60.39, lng: 5.32 }, { lat: 60.4, lng: 5.33 }], [null, null]);
+    expect(s.distanceM).toBeGreaterThan(0);
+    expect(s.ascentM).toBeUndefined();
+  });
+});
