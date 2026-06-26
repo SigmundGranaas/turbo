@@ -1,6 +1,6 @@
 import { Glass } from '../ui/Glass';
 import { Icon } from '../ui/Icon';
-import { BASE_LAYERS, type BaseLayerId } from './scene';
+import { BASE_LAYERS, type BaseLayerId } from '../map-engine';
 
 /** Base-layer chooser popover (opened by the MapRail "Map layers" button).
  *  Lists every entry in `BASE_LAYERS`; selecting one swaps the basemap in place

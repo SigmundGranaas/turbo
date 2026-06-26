@@ -12,7 +12,8 @@ import type { Track } from '../api/tracks';
 import { planStream } from '../api/routing';
 import { searchPlaces, type PlaceHit } from '../api/places';
 import { parseCoord } from '../geo';
-import { TurboMapCanvas } from './TurboMapCanvas';
+import { MapSurface } from '../map-engine';
+import { MapEngineProvider } from '../map-core';
 import { LayerPicker } from './LayerPicker';
 import { UserLocation } from './UserLocation';
 import { MapContextMenu, type ContextMenuTarget } from './MapContextMenu';
@@ -456,8 +457,9 @@ export function MapScreen() {
   const routeCoords = routing.plan?.coords ?? routing.preview ?? [];
 
   return (
+    <MapEngineProvider>
     <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: 'var(--surface)' }}>
-      <TurboMapCanvas
+      <MapSurface
         base={base}
         threeD={threeD}
         onReady={onReady}
@@ -790,5 +792,6 @@ export function MapScreen() {
 
       {!ready && <div className="booting">Starting the map…</div>}
     </div>
+    </MapEngineProvider>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import init, { TurboMap } from 'turbomap-web';
+import { useMapEnginePublisher } from '../map-core';
 import { buildBaseScene, basemapGain, type BaseLayerId } from './scene';
 import { templatesFor } from './templates';
 import { TileLoader } from './tileFetcher';
@@ -49,7 +50,8 @@ function ensureWasm(): Promise<unknown> {
  *  analogue of Android's `TurbomapMapView` — a thin host around the shared
  *  engine. Everything map-visual lives in the engine; this component only feeds
  *  it input + tiles and pumps frames. */
-export function TurboMapCanvas({ base = 'norgeskart', threeD = false, camera, onReady, onError, onEnter3d, onTap, onLongPress }: Props) {
+export function MapSurface({ base = 'norgeskart', threeD = false, camera, onReady, onError, onEnter3d, onTap, onLongPress }: Props) {
+  const publish = useMapEnginePublisher();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mapRef = useRef<TurboMap | null>(null);
   const loaderRef = useRef<TileLoader | null>(null);
@@ -122,6 +124,10 @@ export function TurboMapCanvas({ base = 'norgeskart', threeD = false, camera, on
       mapRef.current = map;
       loaderRef.current = loader;
       if (import.meta.env.DEV) (window as unknown as { __map?: TurboMap }).__map = map;
+      // Publish the live engine to the kernel context (the seam features read via
+      // `useMapEngine()`); `onReady` is kept for the host's existing `mapRef`
+      // wiring until overlays migrate off it.
+      publish(map);
       onReady?.(map);
 
       const frame = () => {
@@ -162,6 +168,7 @@ export function TurboMapCanvas({ base = 'norgeskart', threeD = false, camera, on
       cancelAnimationFrame(raf);
       detachGestures();
       window.removeEventListener('resize', onResize);
+      publish(null);
       mapRef.current = null;
       loaderRef.current = null;
       map?.free?.();

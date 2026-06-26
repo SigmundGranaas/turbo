@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { BaseLayerId } from '../map/scene';
+import type { BaseLayerId } from '../map-engine';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type Units = 'metric' | 'imperial';
