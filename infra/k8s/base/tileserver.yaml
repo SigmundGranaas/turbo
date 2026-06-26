@@ -132,13 +132,17 @@ spec:
             # source version is unchanged (hash freshness), so it's cheap.
             - name: TILESERVER_PROVISION_REFRESH_SECS
               value: "86400"
-            # Decompressed DEM-tile cache ceiling. The binary default is
-            # 512MiB — sized for dev boxes, not this 1536Mi-limit pod
-            # (cache + heap + resident mmap pages must fit under the
-            # cgroup limit or big routes get OOMKilled). 128MiB keeps the
-            # hot corridor tiles warm; misses page from the SSD mmap.
+            # Decompressed DEM-tile cache ceiling — the largest of the four
+            # in-RAM cache tiers and the only one with no SSD byte-tier behind
+            # it (a miss re-decompresses from the mmap'd DEM), so routing wants
+            # it warm. It gets the lion's share of a deliberately small total
+            # RAM-cache budget: the four mem tiers (this 64 + dem-rgb 8 + mvt 8
+            # + raster 8) sum to 88MiB, held under a 100MB ceiling so the pod's
+            # cache footprint stays tiny and predictable on this 5.7Gi node.
+            # 64MiB still keeps the hot corridor warm; misses page from the SSD
+            # mmap (cheap, the DEM is immutable per deploy).
             - name: TILESERVER_DEM_CACHE_BYTES
-              value: "134217728"
+              value: "67108864"     # 64 MiB
             # Concurrent routing solves (each holds corridor + trail
             # scratch for its duration; excess requests queue). Match the
             # CPU limit rather than the node's core count.
@@ -159,10 +163,11 @@ spec:
             # cleans up before the kubelet evicts the pod on ephemeral storage.
             - name: TILESERVER_DEM_TILE_CACHE_DISK_BYTES
               value: "3221225472"   # 3 GiB
-            # RAM tier — small, in front of the SSD. Stays well under the 2Gi
-            # pod limit alongside heap + the 128MiB DEM source cache + mmap.
+            # RAM tier — tiny hot-set buffer in front of the 3Gi SSD LRU. Part
+            # of the 100MB total RAM-cache budget; misses hit the SSD at ~1ms,
+            # so 8MiB here is plenty and keeps peak RSS down.
             - name: TILESERVER_DEM_TILE_CACHE_MEM_BYTES
-              value: "67108864"     # 64 MiB
+              value: "8388608"      # 8 MiB
             # Max concurrent tile RENDERS (cache misses). Past this a miss
             # returns 429 + Retry-After (throttle) instead of piling onto the
             # CPU-bound renderer and collapsing it. Sized to the 2-core CPU
@@ -187,7 +192,7 @@ spec:
             - name: TILESERVER_MVT_TILE_CACHE_DIR
               value: "/var/lib/tileserver/mvt-cache"
             - name: TILESERVER_MVT_TILE_CACHE_MEM_BYTES
-              value: "16777216"     # 16 MiB — small, just the hot set
+              value: "8388608"      # 8 MiB — hot set only (2Gi SSD tier behind it)
             - name: TILESERVER_MVT_TILE_CACHE_DISK_BYTES
               value: "2147483648"   # 2 GiB — big, the real cache
             # Rendered-RASTER (PNG) cache — same two-tier design as MVT. The
@@ -203,7 +208,7 @@ spec:
             - name: TILESERVER_RASTER_TILE_CACHE_DIR
               value: "/var/lib/tileserver/raster-cache"
             - name: TILESERVER_RASTER_TILE_CACHE_MEM_BYTES
-              value: "16777216"     # 16 MiB — small, just the hot set
+              value: "8388608"      # 8 MiB — hot set only (2Gi SSD tier behind it)
             - name: TILESERVER_RASTER_TILE_CACHE_DISK_BYTES
               value: "2147483648"   # 2 GiB — big, the real cache
             # JWT_SECRET gates only the /admin + debug surface; the public
