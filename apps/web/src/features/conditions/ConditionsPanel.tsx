@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { windDir } from '../../api/conditions';
-import { useConditions } from './useConditions';
+import { useConditions } from '../../api/useConditions';
 import { useUiStore } from '../../store/uiStore';
 import { formatTemp, formatWind } from '../../format';
 import { SidePanel, Eyebrow, StatTile, Tabs } from '../../ui/Panel';

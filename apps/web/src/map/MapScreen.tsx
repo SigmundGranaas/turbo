@@ -33,8 +33,7 @@ import { CollectionDetailPanel } from './collections/CollectionDetailPanel';
 import { CollectionPicker } from './collections/CollectionPicker';
 import type { CollectionItem } from '../api/collections';
 import { AccountSettingsPanel } from '../features/account';
-import { ConditionsPanel } from './conditions/ConditionsPanel';
-import { useConditionsPanel } from '../store/conditionsStore';
+import { ConditionsPanel, useConditionsPanel } from '../features/conditions';
 import { useResolvedDark } from '../theme/useTheme';
 import { useIsMobile } from '../theme/useMedia';
 import { NavRail } from '../ui/NavRail';
@@ -172,7 +171,7 @@ export function MapScreen() {
       ? markers.find((m) => m.id === item.uuid)?.name || 'Marker'
       : tracks.find((t) => t.id === item.uuid)?.name || 'Path';
   const accountPanel = activePanel === 'account';
-  const conditionsPanel = !accountPanel && Boolean(conditions.target);
+  const conditionsPanel = activePanel === 'conditions';
   const routePanel = !accountPanel && !conditionsPanel && routing.active;
   const markerPanel = !accountPanel && !conditionsPanel && !routePanel && sel.mode !== 'none';
   const pathsPanel = !accountPanel && !conditionsPanel && !routePanel && !markerPanel && paths.open;
@@ -309,6 +308,13 @@ export function MapScreen() {
     m.ease_to(c.lat, c.lng, c.zoom, 0, 500);
   };
 
+  // Show the conditions panel for a point — sets its target (the panel payload)
+  // and makes it the active panel via the host mutex.
+  const showConditions = (lat: number, lng: number, name: string) => {
+    useConditionsPanel.getState().open(lat, lng, name);
+    usePanelHost.getState().open('conditions');
+  };
+
   const onNav = (id: string) => {
     usePanelHost.getState().close();
     useConditionsPanel.getState().close();
@@ -319,7 +325,7 @@ export function MapScreen() {
     } else if (id === 'conditions') {
       usePaths.getState().close();
       const c = cam();
-      if (c) useConditionsPanel.getState().open(c.lat, c.lng, 'Map centre');
+      if (c) showConditions(c.lat, c.lng, 'Map centre');
     } else {
       usePaths.getState().close();
     }
@@ -619,7 +625,7 @@ export function MapScreen() {
               lat={conditions.target.lat}
               lng={conditions.target.lng}
               name={conditions.target.name}
-              onClose={() => useConditionsPanel.getState().close()}
+              onClose={() => usePanelHost.getState().close()}
             />
           )}
           {routePanel && <RoutePlannerPanel dark={dark} />}
@@ -631,7 +637,7 @@ export function MapScreen() {
               onRoute={() => routeHere(selectedMarker.lat, selectedMarker.lng)}
               onSave={() => usePaths.getState().openPicker({ type: 'marker', uuid: selectedMarker.id })}
               onShare={() => void shareResource(selectedMarker.id)}
-              onConditions={() => useConditionsPanel.getState().open(selectedMarker.lat, selectedMarker.lng, selectedMarker.name)}
+              onConditions={() => showConditions(selectedMarker.lat, selectedMarker.lng, selectedMarker.name)}
               onDelete={() => del.mutate(selectedMarker, { onSuccess: () => useSelection.getState().close() })}
               onClose={() => useSelection.getState().close()}
             />
@@ -718,7 +724,7 @@ export function MapScreen() {
             usePaths.getState().close();
             useRouting.getState().open({ lat: ctxMenu.lat, lng: ctxMenu.lng });
           }}
-          onForecast={(name) => useConditionsPanel.getState().open(ctxMenu.lat, ctxMenu.lng, name)}
+          onForecast={(name) => showConditions(ctxMenu.lat, ctxMenu.lng, name)}
           onClose={() => setCtxMenu(null)}
         />
       )}

@@ -2,7 +2,7 @@ import type { Marker } from '../../api/markers';
 import { kindForIcon } from '../../activities/kinds';
 import { SidePanel, Eyebrow, StatTile, GlassIconBtnSolid } from '../../ui/Panel';
 import { Btn } from '../../ui/Glass';
-import { useConditions } from '../conditions/useConditions';
+import { useConditions } from '../../api/useConditions';
 import { windDir } from '../../api/conditions';
 import { useUiStore } from '../../store/uiStore';
 import { formatTemp, formatWind } from '../../format';

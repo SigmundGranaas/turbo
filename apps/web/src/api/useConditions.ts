@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { getConditions } from '../../api/conditions';
+import { getConditions } from './conditions';
 
 /** Weather at a point. Keyed by ~1km-rounded coords so nearby selections share
  *  a cache entry and don't refetch on sub-km jitter. */
