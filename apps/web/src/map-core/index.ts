@@ -5,3 +5,4 @@ export type { MapEngine } from './engine';
 export { MapEngineProvider, useMapEngine, useMapEnginePublisher } from './MapEngineContext';
 export { useProjectedLayer, viewportDpr } from './useProjectedLayer';
 export { UserLocationLayer } from './UserLocation';
+export { usePanelHost, type PanelId } from './panelHost';

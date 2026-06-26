@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useSession, loginWithPassword, registerWithPassword, loginWithGoogle, logout } from '../api/auth';
-import { getProfile } from '../api/sharing';
-import { ApiError } from '../api/client';
-import { useUiStore, type ThemeMode, type Units } from '../store/uiStore';
-import { SidePanel, Eyebrow, Tabs, FilledField } from '../ui/Panel';
-import { Btn } from '../ui/Glass';
-import { Icon } from '../ui/Icon';
-import { Cookie } from '../ui/Cookie';
+import { useSession, loginWithPassword, registerWithPassword, loginWithGoogle, logout } from '../../api/auth';
+import { getProfile } from '../../api/sharing';
+import { ApiError } from '../../api/client';
+import { useUiStore, type ThemeMode, type Units } from '../../store/uiStore';
+import { SidePanel, Eyebrow, Tabs, FilledField } from '../../ui/Panel';
+import { Btn } from '../../ui/Glass';
+import { Icon } from '../../ui/Icon';
+import { Cookie } from '../../ui/Cookie';
 
 const THEME_ORDER: ThemeMode[] = ['system', 'light', 'dark'];
 

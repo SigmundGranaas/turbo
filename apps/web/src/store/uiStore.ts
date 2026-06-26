@@ -14,15 +14,12 @@ interface UiState {
   threeD: boolean;
   layers: boolean;
   following: boolean;
-  accountOpen: boolean;
   setTheme: (t: ThemeMode) => void;
   setUnits: (u: Units) => void;
   setBaseLayer: (b: BaseLayerId) => void;
   setThreeD: (v: boolean) => void;
   setLayers: (v: boolean) => void;
   setFollowing: (v: boolean) => void;
-  openAccount: () => void;
-  closeAccount: () => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -34,15 +31,12 @@ export const useUiStore = create<UiState>()(
       threeD: false,
       layers: false,
       following: false,
-      accountOpen: false,
       setTheme: (theme) => set({ theme }),
       setUnits: (units) => set({ units }),
       setBaseLayer: (baseLayer) => set({ baseLayer }),
       setThreeD: (threeD) => set({ threeD }),
       setLayers: (layers) => set({ layers }),
       setFollowing: (following) => set({ following }),
-      openAccount: () => set({ accountOpen: true }),
-      closeAccount: () => set({ accountOpen: false }),
     }),
     { name: 'turbo-ui', partialize: (s) => ({ theme: s.theme, units: s.units, baseLayer: s.baseLayer }) },
   ),

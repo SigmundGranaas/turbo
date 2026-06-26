@@ -13,7 +13,7 @@ import { planStream } from '../api/routing';
 import { searchPlaces, type PlaceHit } from '../api/places';
 import { parseCoord } from '../geo';
 import { MapSurface } from '../map-engine';
-import { UserLocationLayer } from '../map-core';
+import { UserLocationLayer, usePanelHost } from '../map-core';
 import { SunSlider, useSun } from '../features/sun';
 import { LayerPicker } from './LayerPicker';
 import { MapContextMenu, type ContextMenuTarget } from './MapContextMenu';
@@ -32,7 +32,7 @@ import { CollectionsListPanel } from './collections/CollectionsListPanel';
 import { CollectionDetailPanel } from './collections/CollectionDetailPanel';
 import { CollectionPicker } from './collections/CollectionPicker';
 import type { CollectionItem } from '../api/collections';
-import { AccountSettingsPanel } from '../account/AccountSettingsPanel';
+import { AccountSettingsPanel } from '../features/account';
 import { ConditionsPanel } from './conditions/ConditionsPanel';
 import { useConditionsPanel } from '../store/conditionsStore';
 import { useResolvedDark } from '../theme/useTheme';
@@ -61,7 +61,7 @@ export function MapScreen() {
   const layers = useUiStore((s) => s.layers);
   const sun = useSun();
   const following = useUiStore((s) => s.following);
-  const accountOpen = useUiStore((s) => s.accountOpen);
+  const activePanel = usePanelHost((s) => s.active);
 
   const session = useSession();
   const markersQ = useMarkers();
@@ -171,7 +171,7 @@ export function MapScreen() {
     item.type === 'marker'
       ? markers.find((m) => m.id === item.uuid)?.name || 'Marker'
       : tracks.find((t) => t.id === item.uuid)?.name || 'Path';
-  const accountPanel = accountOpen;
+  const accountPanel = activePanel === 'account';
   const conditionsPanel = !accountPanel && Boolean(conditions.target);
   const routePanel = !accountPanel && !conditionsPanel && routing.active;
   const markerPanel = !accountPanel && !conditionsPanel && !routePanel && sel.mode !== 'none';
@@ -200,7 +200,7 @@ export function MapScreen() {
   useEffect(() => {
     if (!shareToken) return;
     if (!session.data) {
-      useUiStore.getState().openAccount();
+      usePanelHost.getState().open('account');
       return;
     }
     redeemLink(shareToken)
@@ -310,7 +310,7 @@ export function MapScreen() {
   };
 
   const onNav = (id: string) => {
-    useUiStore.getState().closeAccount();
+    usePanelHost.getState().close();
     useConditionsPanel.getState().close();
     useRouting.getState().close();
     useSelection.getState().close();
@@ -327,7 +327,7 @@ export function MapScreen() {
 
   // Open the new-marker editor at a geographic point (reverse-geocoded name).
   const createMarkerLatLng = async (lat: number, lng: number) => {
-    useUiStore.getState().closeAccount();
+    usePanelHost.getState().close();
     useConditionsPanel.getState().close();
     usePaths.getState().close();
     useSelection.getState().openNew(lat, lng, await reverseGeocode(lat, lng));
@@ -362,7 +362,7 @@ export function MapScreen() {
     }
     // Touch tap on empty map → dismiss the menu / any open panel.
     setCtxMenu(null);
-    useUiStore.getState().closeAccount();
+    usePanelHost.getState().close();
     useConditionsPanel.getState().close();
     usePaths.getState().close();
     useSelection.getState().close();
@@ -385,7 +385,7 @@ export function MapScreen() {
       const mk = markers.find((x) => x.id === id);
       if (mk) useRouting.getState().addWaypoint({ lat: mk.lat, lng: mk.lng });
     } else {
-      useUiStore.getState().closeAccount();
+      usePanelHost.getState().close();
       useConditionsPanel.getState().close();
       usePaths.getState().close();
       useSelection.getState().openDetail(id);
@@ -393,7 +393,7 @@ export function MapScreen() {
   };
 
   const routeHere = (lat: number, lng: number) => {
-    useUiStore.getState().closeAccount();
+    usePanelHost.getState().close();
     useConditionsPanel.getState().close();
     useSelection.getState().close();
     usePaths.getState().close();
@@ -405,7 +405,7 @@ export function MapScreen() {
     useConditionsPanel.getState().close();
     useSelection.getState().close();
     usePaths.getState().close();
-    useUiStore.getState().openAccount();
+    usePanelHost.getState().open('account');
   };
   const avatar = session.data ? (session.data.name ?? session.data.email ?? 'S').trim().charAt(0).toUpperCase() : undefined;
 
@@ -612,7 +612,7 @@ export function MapScreen() {
               <div style={{ width: 36, height: 5, borderRadius: 3, background: 'var(--outline-variant)' }} />
             </div>
           )}
-          {accountPanel && <AccountSettingsPanel dark={dark} onClose={() => useUiStore.getState().closeAccount()} />}
+          {accountPanel && <AccountSettingsPanel dark={dark} onClose={() => usePanelHost.getState().close()} />}
           {conditionsPanel && conditions.target && (
             <ConditionsPanel
               dark={dark}
@@ -712,7 +712,7 @@ export function MapScreen() {
               : routeHere(ctxMenu.lat, ctxMenu.lng)
           }
           onStartRoute={() => {
-            useUiStore.getState().closeAccount();
+            usePanelHost.getState().close();
             useConditionsPanel.getState().close();
             useSelection.getState().close();
             usePaths.getState().close();
