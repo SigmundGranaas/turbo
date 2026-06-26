@@ -13,7 +13,8 @@ import { planStream } from '../api/routing';
 import { searchPlaces, type PlaceHit } from '../api/places';
 import { parseCoord } from '../geo';
 import { MapSurface } from '../map-engine';
-import { MapEngineProvider, UserLocationLayer } from '../map-core';
+import { UserLocationLayer } from '../map-core';
+import { SunSlider, useSun } from '../features/sun';
 import { LayerPicker } from './LayerPicker';
 import { MapContextMenu, type ContextMenuTarget } from './MapContextMenu';
 import { useMarkers, useDeleteMarker } from './markers/useMarkers';
@@ -21,7 +22,6 @@ import { useTracks, useDeleteTrack } from './paths/useTracks';
 import { MarkerPins } from './markers/MarkerPins';
 import { MarkerDetailPanel } from './markers/MarkerDetailPanel';
 import { MarkerEditorPanel } from './markers/MarkerEditorPanel';
-import { SunSlider } from './SunSlider';
 import { RouteOverlay } from './routing/RouteOverlay';
 import { RoutePlannerPanel } from './routing/RoutePlannerPanel';
 import { PathsListPanel } from './paths/PathsListPanel';
@@ -59,7 +59,7 @@ export function MapScreen() {
   const base = useUiStore((s) => s.baseLayer);
   const threeD = useUiStore((s) => s.threeD);
   const layers = useUiStore((s) => s.layers);
-  const sun = useUiStore((s) => s.sun);
+  const sun = useSun();
   const following = useUiStore((s) => s.following);
   const accountOpen = useUiStore((s) => s.accountOpen);
 
@@ -84,11 +84,6 @@ export function MapScreen() {
   const [ctxMenu, setCtxMenu] = useState<ContextMenuTarget | null>(null);
   const [shareToken] = useState(() => new URLSearchParams(window.location.search).get('share'));
   const mapRef = useRef<TurboMap | null>(null);
-  // Time-of-day (hours past local midnight) for the sun slider; seeded to now.
-  const [sunHour, setSunHour] = useState(() => {
-    const d = new Date();
-    return d.getHours() + d.getMinutes() / 60;
-  });
 
   // Search: debounced place-name lookup (tileserver anchors) + "lat, lng"
   // coordinate parse. Results render in a dropdown under the search field;
@@ -280,13 +275,6 @@ export function MapScreen() {
     }
   };
 
-  const ensure3d = (m: TurboMap, c: Cam) => {
-    if (!threeD) {
-      m.set_camera(c.lat, c.lng, c.zoom, 60, c.bearing);
-      useUiStore.getState().setThreeD(true);
-    }
-  };
-
   const zoom = (factor: number) => {
     const m = mapRef.current;
     if (!m) return;
@@ -301,38 +289,6 @@ export function MapScreen() {
     const next = !threeD;
     m.set_camera(c.lat, c.lng, c.zoom, next ? 60 : 0, c.bearing);
     useUiStore.getState().setThreeD(next);
-  };
-  // Apply a time-of-day (hours past local midnight) as the engine sun time.
-  const applySunHour = (h: number) => {
-    const m = mapRef.current;
-    if (!m) return;
-    const d = new Date();
-    d.setHours(Math.floor(h), Math.round((h - Math.floor(h)) * 60), 0, 0);
-    m.set_sun_time(d.getTime() / 1000);
-  };
-  const toggleSun = () => {
-    const m = mapRef.current;
-    const c = cam();
-    if (!m || !c) return;
-    const next = !sun;
-    if (next) {
-      ensure3d(m, c);
-      const d = new Date();
-      const h = d.getHours() + d.getMinutes() / 60;
-      setSunHour(h); // start at the real clock, then the slider sweeps it
-      applySunHour(h);
-      // Cast shadows (peaks shadow the valleys) — what makes the relief read as
-      // distinct, like the native app. Off by default; only on in sun mode.
-      m.set_terrain_shadows(0.7);
-    } else {
-      m.set_sun_time(undefined);
-      m.set_terrain_shadows(0);
-    }
-    useUiStore.getState().setSun(next);
-  };
-  const onSunHour = (h: number) => {
-    setSunHour(h);
-    applySunHour(h);
   };
   const recenter = () => {
     const m = mapRef.current;
@@ -456,7 +412,6 @@ export function MapScreen() {
   const routeCoords = routing.plan?.coords ?? routing.preview ?? [];
 
   return (
-    <MapEngineProvider>
     <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: 'var(--surface)' }}>
       <MapSurface
         base={base}
@@ -579,11 +534,11 @@ export function MapScreen() {
         <MapRail
           dark={dark}
           getBearing={() => cam()?.bearing ?? 0}
-          state={{ layers, is3d: threeD, sun, following }}
+          state={{ layers, is3d: threeD, sun: sun.on, following }}
           on={{
             onLayers: () => useUiStore.getState().setLayers(!layers),
             onToggle3d: toggle3d,
-            onSun: toggleSun,
+            onSun: sun.toggle,
             onRecenter: recenter,
             onCompass: resetNorth,
             onZoomIn: () => zoom(1.4),
@@ -617,7 +572,7 @@ export function MapScreen() {
 
       {/* sun time-of-day slider — only while Sun mode is on; bottom-centred,
           lifted clear of the mobile nav. Hidden under a mobile sheet. */}
-      {sun && !(isMobile && panelShown) && (
+      {sun.on && !(isMobile && panelShown) && (
         <div
           style={{
             position: 'absolute',
@@ -631,7 +586,7 @@ export function MapScreen() {
           }}
         >
           <div style={{ pointerEvents: 'auto' }}>
-            <SunSlider dark={dark} hour={sunHour} onChange={onSunHour} />
+            <SunSlider dark={dark} hour={sun.hour} onChange={sun.setHour} />
           </div>
         </div>
       )}
@@ -790,6 +745,5 @@ export function MapScreen() {
 
       {!ready && <div className="booting">Starting the map…</div>}
     </div>
-    </MapEngineProvider>
   );
 }

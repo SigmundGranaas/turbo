@@ -13,7 +13,6 @@ interface UiState {
   baseLayer: BaseLayerId;
   threeD: boolean;
   layers: boolean;
-  sun: boolean;
   following: boolean;
   accountOpen: boolean;
   setTheme: (t: ThemeMode) => void;
@@ -21,7 +20,6 @@ interface UiState {
   setBaseLayer: (b: BaseLayerId) => void;
   setThreeD: (v: boolean) => void;
   setLayers: (v: boolean) => void;
-  setSun: (v: boolean) => void;
   setFollowing: (v: boolean) => void;
   openAccount: () => void;
   closeAccount: () => void;
@@ -35,7 +33,6 @@ export const useUiStore = create<UiState>()(
       baseLayer: 'norgeskart',
       threeD: false,
       layers: false,
-      sun: false,
       following: false,
       accountOpen: false,
       setTheme: (theme) => set({ theme }),
@@ -43,7 +40,6 @@ export const useUiStore = create<UiState>()(
       setBaseLayer: (baseLayer) => set({ baseLayer }),
       setThreeD: (threeD) => set({ threeD }),
       setLayers: (layers) => set({ layers }),
-      setSun: (sun) => set({ sun }),
       setFollowing: (following) => set({ following }),
       openAccount: () => set({ accountOpen: true }),
       closeAccount: () => set({ accountOpen: false }),

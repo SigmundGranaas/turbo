@@ -1,4 +1,4 @@
-import { Glass } from '../ui/Glass';
+import { Glass } from '../../ui/Glass';
 
 /** Time-of-day slider shown while Sun mode is on. Drives the engine's solar
  *  position (`set_sun_time`) so the user can sweep the lighting from dawn to

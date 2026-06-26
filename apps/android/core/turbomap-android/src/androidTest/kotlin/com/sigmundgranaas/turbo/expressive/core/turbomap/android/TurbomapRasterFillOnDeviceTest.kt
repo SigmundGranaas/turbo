@@ -7,6 +7,7 @@ import android.hardware.HardwareBuffer
 import android.media.ImageReader
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -107,16 +108,37 @@ class TurbomapRasterFillOnDeviceTest {
             NativeSurfaceMap.nativePumpLocal(handle)
             NativeSurfaceMap.nativeRender(handle) // apply pumpLocal → pending populates
             val pending = JSONArray(NativeSurfaceMap.nativePendingTilesJson(handle))
-            val o = pending.optJSONObject(0)
-            assertTrue("engine should request a tile", o != null)
-            NativeSurfaceMap.nativeIngestRaster(handle, o.optString("layer"), o.optInt("z"), o.optInt("x"), o.optInt("y"), redTile)
-            NativeSurfaceMap.nativeRender(handle) // apply the ingest → the fade starts
 
-            // Just ingested → inside the ~0.3 s fade window → the host must keep drawing.
-            assertTrue("a freshly ingested tile is fading in", NativeSurfaceMap.nativeIsAnimating(handle))
+            // Ingest the VISIBLE viewport tile — the sharpest (highest-z) raster the
+            // engine wants, the one that fades in over the coarse base. Don't assume
+            // pending[0]: pending is streaming-priority ordered (Overview floor first,
+            // then Visible, then Prefetch — see turbomap TileTier), so index 0 is the
+            // coarse floor, not the tile whose fade-in this test is about.
+            var target: JSONObject? = null
+            for (i in 0 until pending.length()) {
+                val o = pending.optJSONObject(i) ?: continue
+                if (o.optString("kind") != "raster") continue
+                if (target == null || o.optInt("z") > target!!.optInt("z")) target = o
+            }
+            assertTrue("engine should request a viewport raster tile", target != null)
+            val t = target!!
+            NativeSurfaceMap.nativeIngestRaster(handle, t.optString("layer"), t.optInt("z"), t.optInt("x"), t.optInt("y"), redTile)
+
+            // The ingest + GPU upload that starts the fade applies on a later frame
+            // (async command queue + per-frame upload budget), so pump a bounded
+            // number of renders until the fade is observed rather than assuming
+            // exactly one render starts it. If it never fades, that's a real signal.
+            var fading = false
+            for (frame in 0 until 8) {
+                NativeSurfaceMap.nativeRender(handle)
+                if (NativeSurfaceMap.nativeIsAnimating(handle)) { fading = true; break }
+            }
+            assertTrue("a freshly ingested viewport tile fades in", fading)
+
+            // Past the ~0.3 s fade window → the animation settles → render-on-demand
+            // can park (this is the property the host relies on to stop drawing).
             Thread.sleep(450)
-            NativeSurfaceMap.nativeRender(handle) // tick the fade clock past the window
-            // Past the fade window → animation settles → render-on-demand can park.
+            NativeSurfaceMap.nativeRender(handle)
             assertTrue("fade completes and animation settles", !NativeSurfaceMap.nativeIsAnimating(handle))
         } finally {
             if (handle != 0L) NativeSurfaceMap.nativeDestroy(handle)
