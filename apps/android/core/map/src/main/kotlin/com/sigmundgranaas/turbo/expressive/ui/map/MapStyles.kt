@@ -49,7 +49,7 @@ object MapStyles {
      *  `water` layer — over the raster basemap, through the realistic-water
      *  pipeline (waves / sky-&-terrain reflection / foam / whitecaps). wgpu only.
      *
-     *  Served by the kart-api origin directly (the tiles.turkart.no Cloudflare
+     *  Served by the kart-api origin directly (the tiles.sandring.no Cloudflare
      *  cache front-door isn't wired yet). The basemap DB must be provisioned for
      *  tiles to be non-empty — see the tileserver boot-provision (N50/Geonorge). */
     private const val VECTOR_BASEMAP_URL = "https://kart-api.sandring.no/v1/basemap/{z}/{x}/{y}.mvt"

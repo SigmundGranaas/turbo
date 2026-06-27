@@ -87,7 +87,7 @@ fun SettingsScreen(
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Sigmund G.", style = MaterialTheme.typography.titleMedium, color = cs.onPrimaryContainer)
-                    Text("sigmund@turkart.no", style = MaterialTheme.typography.bodySmall, color = cs.onPrimaryContainer)
+                    Text("sigmund@sandring.no", style = MaterialTheme.typography.bodySmall, color = cs.onPrimaryContainer)
                 }
                 Icon(Icons.Rounded.ChevronRight, null, tint = cs.onPrimaryContainer)
             }

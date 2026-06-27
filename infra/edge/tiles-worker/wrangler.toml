@@ -3,9 +3,9 @@ name = "turbo-tiles-worker"
 main = "src/worker.js"
 compatibility_date = "2026-06-01"
 
-# Public host. Route DNS for tiles.turkart.no at the zone first.
+# Public host. Route DNS for tiles.sandring.no at the zone first.
 routes = [
-  { pattern = "tiles.turkart.no/*", zone_name = "turkart.no" },
+  { pattern = "tiles.sandring.no/*", zone_name = "sandring.no" },
 ]
 
 [vars]

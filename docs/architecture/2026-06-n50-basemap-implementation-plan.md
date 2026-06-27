@@ -118,7 +118,7 @@ wiring** + offline.
             └────────────┬─────────────────┘
                          ▼  ORIGIN  (kart-api.sandring.no, Traefik → tileserver)
             ┌────────────────────────────────────────────┐
-            │ Cloudflare Worker  (tiles.turkart.no)        │
+            │ Cloudflare Worker  (tiles.sandring.no)        │
             │  L1: edge Cache API                          │
             │  L2: R2 bucket  ── DISTRIBUTED CACHE ONLY    │
             │  miss → fetch origin → put R2 → return        │
@@ -131,7 +131,7 @@ wiring** + offline.
 ```
 
 **Request lifecycle (R2 as cache):**
-1. Client → `tiles.turkart.no/v1/basemap/{v}/{z}/{x}/{y}.mvt`.
+1. Client → `tiles.sandring.no/v1/basemap/{v}/{z}/{x}/{y}.mvt`.
 2. Worker checks **edge cache** (L1) → hit returns immediately.
 3. Miss → checks **R2** (L2) key `basemap/{v}/{z}/{x}/{y}.mvt` → hit puts into
    edge cache, returns.
@@ -287,7 +287,7 @@ export default {
   (z4–10, a few thousand tiles) after a rebuild so the first users hit warm
   edges — but warming is an optimization, not a correctness requirement.
 - `env.ORIGIN` = `https://kart-api.sandring.no` (Traefik → tileserver). DNS:
-  `tiles.turkart.no` → Worker route.
+  `tiles.sandring.no` → Worker route.
 
 **Why a Worker rather than R2-public-bucket-as-origin:** a public R2 bucket
 would make R2 the origin (violates rule 1). The Worker keeps PostGIS/the
@@ -366,7 +366,7 @@ not R2.
 - **Raster topo swap (Phase 1):** repoint
   `lib/features/tile_providers/data/providers/norges_kart_topo.dart` from
   `cache.atgcp1-prod.kartverket.cloud` to
-  `https://tiles.turkart.no/v1/raster/n50/{version}/{z}/{x}/{y}.webp`, behind
+  `https://tiles.sandring.no/v1/raster/n50/{version}/{z}/{x}/{y}.webp`, behind
   a feature flag in `TileRegistry`
   (`lib/features/tile_providers/data/tile_registry.dart`). Keep the Kartverket
   provider registered as a fallback/alternative during rollout.
@@ -417,7 +417,7 @@ cache only".
 - **Ingress:** add the `/v1/basemap`, `/v1/raster`, `/fonts`, `/sprite`
   paths to the Traefik route to the tileserver Service.
 - **Cloudflare:** new R2 bucket `turbo-tiles`, Worker `tiles-worker`
-  (`infra/edge/`), route `tiles.turkart.no/*`, lifecycle rule (30 d),
+  (`infra/edge/`), route `tiles.sandring.no/*`, lifecycle rule (30 d),
   `ORIGIN` binding → `kart-api.sandring.no`. Reuse the existing R2 creds
   pattern (`envs/prod/r2-backup-sealedsecret.yaml`) — but note this bucket is
   a cache, separate from the backup bucket.
@@ -433,7 +433,7 @@ cache only".
 | # | Deliverable | Acceptance |
 | --- | --- | --- |
 | **M0** | Spike: multi-layer `render_basemap_tile` over existing `terrain.*`/`paths.edge`/`anchors` for one region; `turbomap` renders it with a hand-written `n50-topo` style. | A Bergen-extent tile shows water + forest + roads + labels, styled, in turbomap. Validates the layer schema + style reach. |
-| **M1** | **Raster N50 fallback live.** Build `norway-n50-raster.pmtiles`; serve `/v1/raster/n50`; Worker+R2 cache; Flutter topo provider repointed behind a flag. | App basemap loads from `tiles.turkart.no`; Norgeskart CDN no longer hit (flag on); R2 fills on miss, origin hit once per tile. **Kartverket topo dependency removed.** |
+| **M1** | **Raster N50 fallback live.** Build `norway-n50-raster.pmtiles`; serve `/v1/raster/n50`; Worker+R2 cache; Flutter topo provider repointed behind a flag. | App basemap loads from `tiles.sandring.no`; Norgeskart CDN no longer hit (flag on); R2 fills on miss, origin hit once per tile. **Kartverket topo dependency removed.** |
 | **M2** | Contours + buildings ingested from the N50 Høyde theme; full Norway N50 in `tiles-db`; per-zoom matviews; health audits green. | `terrain.contour` populated nationally from `Høydekurve`/`Hjelpekurve`/`Forsenkningskurve` (20 m equidistance, index every 100 m); basemap tiles at z14 show buildings + contours matching Norgeskart N50; audit job passes. |
 | **M3** | **Vector basemap GA** on desktop/web: `/v1/basemap` + `style.json` + glyphs + sprites; grown style engine; 3 house styles. | turbomap renders the national vector basemap with any of 3 styles; labels place without overlap; style switch is instant (no re-fetch). |
 | **M4** | Own geometry/search endpoints: route live WFS/WMS/Overpass + Geonorge search through tileserver (curated MVT + `turbo-tiles-search`). | `wfs.geonorge.no`, `wms.geonorge.no`, `overpass-api.de`, `ws.geonorge.no` no longer called at runtime (fallbacks retained). |

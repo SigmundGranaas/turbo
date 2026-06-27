@@ -16,7 +16,7 @@ manifest values are still routing-only and will silently 404 the basemap.
 ## 0. What gets deployed, and the topology
 
 ```
-Flutter app ──► tiles.turkart.no  (Cloudflare Worker)
+Flutter app ──► tiles.sandring.no  (Cloudflare Worker)
                   │  L1 edge cache → L2 R2 (turbo-tiles-cache) → ORIGIN
                   ▼
             kart-api.sandring.no  (Traefik ingress → tileserver Service:8080)
@@ -56,8 +56,8 @@ works:
    this into `{BASE_URL}`, so the served `style.json` would emit
    `…/api/route/v1/basemap/{z}/{x}/{y}.mvt` and `…/api/route/fonts/…` — wrong
    host, wrong prefix. **Set `PUBLIC_BASE_URL` to the public client origin =
-   the Worker host**, `https://tiles.turkart.no`. Then the style emits
-   `tiles.turkart.no/v1/basemap/…`, which the Worker caches and forwards to
+   the Worker host**, `https://tiles.sandring.no`. Then the style emits
+   `tiles.sandring.no/v1/basemap/…`, which the Worker caches and forwards to
    `ORIGIN` (`kart-api.sandring.no`) where the ingress (step 1) routes it.
 
 3. **Worker `ORIGIN` must reach the tile paths.** `wrangler.toml` sets
@@ -69,8 +69,8 @@ works:
    build URLs from `tileserverBaseUrlProvider`, whose prod default is
    `https://api.sandring.no/api/tiles` (the curated-paths gateway). The
    basemap/raster/slope/dem endpoints live behind the **Worker**
-   (`tiles.turkart.no`), not that gateway. **Pass
-   `--dart-define=TURBO_TILESERVER_URL=https://tiles.turkart.no`** at build so
+   (`tiles.sandring.no`), not that gateway. **Pass
+   `--dart-define=TURBO_TILESERVER_URL=https://tiles.sandring.no`** at build so
    all `$base/v1/...` URLs hit the cached Worker host. (Curated-paths MVT also
    moves under the same host, or keep its own define — decide in §7.)
 
@@ -83,7 +83,7 @@ works:
 - **Cluster**: the k3s node with the CNPG operator (already runs the modulith).
   Confirm disk headroom — see §4 sizing (national needs **~40 GB peak free**
   on the SSD/cache disk, plus the tiles-db PVC).
-- **DNS**: `tiles.turkart.no` proxied (orange-cloud) at the `turkart.no` zone
+- **DNS**: `tiles.sandring.no` proxied (orange-cloud) at the `sandring.no` zone
   (Worker route); `kart-api.sandring.no` → the node (ingress).
 - **Egress allowlist**: `*.geonorge.no` and `nedlasting.geonorge.no` must be
   reachable from the tileserver pod (provisioning downloads from there). The
@@ -190,7 +190,7 @@ curl -fsS -o /dev/null -w '%{size_download}\n' \
 
 # Style resolves to the PUBLIC origin (Worker host), not /api/route:
 curl -fsS https://kart-api.sandring.no/v1/basemap/style.json | jq '.glyphs, .sprite, .sources.n50.tiles[0]'
-# → must be https://tiles.turkart.no/...  (proves §1.2 is fixed)
+# → must be https://tiles.sandring.no/...  (proves §1.2 is fixed)
 
 # Glyphs / sprites / slope:
 curl -fsS -o /dev/null -w '%{http_code} %{size_download}\n' https://kart-api.sandring.no/fonts/DejaVu%20Sans/0-255.pbf
@@ -198,7 +198,7 @@ curl -fsS -o /dev/null -w '%{http_code}\n' https://kart-api.sandring.no/sprite.j
 curl -fsS -o /dev/null -w '%{http_code}\n' https://kart-api.sandring.no/v1/slope/tiles/12/2170/1189.png   # 200 (DEM staged) or 503
 
 # Edge (Step D) — cache tier reports its layer:
-curl -sI https://tiles.turkart.no/v1/basemap/12/2170/1189.mvt | grep -i x-tiles-cache
+curl -sI https://tiles.sandring.no/v1/basemap/12/2170/1189.mvt | grep -i x-tiles-cache
 # first hit: miss → same PoP again: edge → other PoP: r2
 ```
 
@@ -225,7 +225,7 @@ alters tile bytes):
 ## 7. Client: wire the app, then flip the default
 
 1. **Point the app at the cached host**: build with
-   `--dart-define=TURBO_TILESERVER_URL=https://tiles.turkart.no`. The
+   `--dart-define=TURBO_TILESERVER_URL=https://tiles.sandring.no`. The
    `TurboN50TopoConfig` (raster basemap), `TurboSlopeOverlayConfig`, and the
    curated MVT providers then resolve under the Worker.
 2. **Soft-launch**: ship with `TurboN50Topo` *available but not default*
@@ -280,7 +280,7 @@ the same way (keep NVE for runout/utløp; see the slope provider's note).
 With §1 fixed: merge the GitOps branch (DB + tileserver go live), rsync
 `norway.dem` onto the node, set `PROVISION_ON_BOOT=national` +
 `REFRESH_SECS=86400` and let it self-populate (~40 min), `wrangler deploy` the
-Worker, smoke-test through `tiles.turkart.no`, then build the app with
-`TURBO_TILESERVER_URL=https://tiles.turkart.no`, soft-launch the N50 basemap,
+Worker, smoke-test through `tiles.sandring.no`, then build the app with
+`TURBO_TILESERVER_URL=https://tiles.sandring.no`, soft-launch the N50 basemap,
 and flip the default once parity holds — at which point the Kartverket
 Norgeskart dependency is gone.
