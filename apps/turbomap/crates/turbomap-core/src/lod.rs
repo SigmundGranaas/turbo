@@ -56,9 +56,16 @@ pub fn select(
     min_zoom: u8,
     max_zoom: u8,
     sse_target_px: f64,
+    max_tiles: usize,
 ) -> Vec<LodTile> {
     let min_zoom = min_zoom.min(max_zoom);
     let target = sse_target_px.max(1.0);
+    // Per-scene budget (≤ the global LOD_TILE_CAP). The DEM/terrain scene runs a
+    // SMALLER budget than the imagery — best-first spends it on the highest
+    // on-screen-error (nearest) tiles first, so a small budget yields fine near
+    // relief + coarse far (a proto-clipmap): few tiles, concentrated where the
+    // shape matters, far less of the slow DEM. Imagery keeps the full cap.
+    let max_tiles = max_tiles.clamp(1, MAX_TILES);
     // Camera eye in ABSOLUTE world (look-at centre + the RTC eye offset) plus the
     // focal scale, for DISTANCE-based screen-space error. Estimating a tile's
     // on-screen size from `world_size · ppw · (altitude / eye_distance)` is robust
@@ -88,14 +95,14 @@ pub fn select(
     }
     let mut out = Vec::new();
     while let Some((sbits, z, x, y)) = heap.pop() {
-        if out.len() >= MAX_TILES {
+        if out.len() >= max_tiles {
             break;
         }
         let tile = TileId::new(z, x, y);
         let span = f64::from_bits(sbits);
         // Stop subdividing once the working set (emitted + still-queued) would blow
         // the budget — emit the rest at their current, coarser zoom (no dropouts).
-        let budget_full = out.len() + heap.len() + 1 >= MAX_TILES;
+        let budget_full = out.len() + heap.len() + 1 >= max_tiles;
         // Distance-scaled SSE: a tile far from the eye needs a LARGER on-screen
         // span to earn a subdivision, so the far field coarsens faster than the
         // near. The far horizon is tiny on screen + washed out by aerial haze, so
@@ -292,7 +299,7 @@ mod tests {
         // At pitch 0 every tile is the same distance class, so the quadtree must
         // resolve to one zoom level — byte-for-byte the legacy rectangle, so the
         // 2D map + goldens are untouched.
-        let tiles = select(&cam(0.0, 13.0), VP, 4, 14, SSE);
+        let tiles = select(&cam(0.0, 13.0), VP, 4, 14, SSE, MAX_TILES);
         let zooms: std::collections::HashSet<u8> = tiles.iter().map(|t| t.id.z).collect();
         assert_eq!(zooms.len(), 1, "pitch 0 must be a single LOD");
         assert_eq!(*zooms.iter().next().unwrap(), 13);
@@ -302,7 +309,7 @@ mod tests {
     fn fine_near_coarse_far_at_high_pitch() {
         // A tilted view must mix LODs: fine tiles near the camera centre, coarser
         // ones toward the horizon.
-        let tiles = select(&cam(78.0, 14.0), VP, 4, 14, SSE);
+        let tiles = select(&cam(78.0, 14.0), VP, 4, 14, SSE, MAX_TILES);
         let zooms: Vec<u8> = tiles.iter().map(|t| t.id.z).collect();
         let min = *zooms.iter().min().unwrap();
         let max = *zooms.iter().max().unwrap();
@@ -314,15 +321,15 @@ mod tests {
     fn bounded_count_at_pitch_80() {
         // The whole point: count stays bounded no matter how far the horizon
         // reaches (today this is thousands → capped → starved).
-        let tiles = select(&cam(80.0, 14.0), VP, 4, 14, SSE);
+        let tiles = select(&cam(80.0, 14.0), VP, 4, 14, SSE, MAX_TILES);
         assert!(tiles.len() < 400, "count must stay bounded (got {})", tiles.len());
         assert!(!tiles.is_empty(), "must still cover the near ground");
     }
 
     #[test]
     fn deterministic_for_a_fixed_camera() {
-        let a = select(&cam(60.0, 13.0), VP, 4, 14, SSE);
-        let b = select(&cam(60.0, 13.0), VP, 4, 14, SSE);
+        let a = select(&cam(60.0, 13.0), VP, 4, 14, SSE, MAX_TILES);
+        let b = select(&cam(60.0, 13.0), VP, 4, 14, SSE, MAX_TILES);
         assert_eq!(a, b, "selection must be deterministic frame-to-frame");
     }
 
@@ -339,7 +346,7 @@ mod tests {
     #[test]
     fn device_tilt_spans_a_zoom_gradient_not_all_max() {
         let camera = cam(60.0, 15.0);
-        let tiles = select(&camera, DEVICE_VP, 5, 18, SSE);
+        let tiles = select(&camera, DEVICE_VP, 5, 18, SSE, MAX_TILES);
         let zooms: Vec<u8> = tiles.iter().map(|t| t.id.z).collect();
         let zmin = *zooms.iter().min().unwrap();
         let zmax = *zooms.iter().max().unwrap();
@@ -361,7 +368,7 @@ mod tests {
     fn device_tilt_footprint_reaches_the_far_field() {
         let camera = cam(70.0, 15.0);
         let c = camera.center.to_world();
-        let tiles = select(&camera, DEVICE_VP, 5, 18, SSE);
+        let tiles = select(&camera, DEVICE_VP, 5, 18, SSE, MAX_TILES);
         let max_d = tiles
             .iter()
             .map(|t| {

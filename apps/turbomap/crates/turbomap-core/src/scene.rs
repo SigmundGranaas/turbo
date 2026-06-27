@@ -131,6 +131,11 @@ pub struct Scene {
     /// DEM/terrain scene runs a coarser target than the imagery (relief geometry
     /// needs less resolution than texture, and the DEM tile server is slow).
     sse_target_px: f64,
+    /// Per-scene 3D LOD tile budget (≤ `LOD_TILE_CAP`). The DEM/terrain scene
+    /// runs a SMALLER budget than the imagery — best-first spends it on the
+    /// nearest (highest-error) tiles, so a small budget yields fine near relief
+    /// + coarse far (a proto-clipmap): far fewer of the slow DEM tiles.
+    lod_tile_cap: usize,
 }
 
 impl Scene {
@@ -155,6 +160,7 @@ impl Scene {
             animation: None,
             visible_memo: RefCell::new(None),
             sse_target_px: LOD_SSE_TARGET_PX,
+            lod_tile_cap: crate::capacity::LOD_TILE_CAP,
         }
     }
 
@@ -167,6 +173,13 @@ impl Scene {
     /// imagery default so the slow DEM requests far fewer tiles per view.
     pub fn set_sse_target_px(&mut self, px: f64) {
         self.sse_target_px = px.max(1.0);
+    }
+
+    /// Shrink (or restore) the 3D LOD tile budget for this scene. The terrain
+    /// scene sets this below the imagery so the slow DEM requests far fewer,
+    /// near-concentrated tiles (proto-clipmap). Clamped to `[1, LOD_TILE_CAP]`.
+    pub fn set_lod_tile_cap(&mut self, cap: usize) {
+        self.lod_tile_cap = cap.clamp(1, crate::capacity::LOD_TILE_CAP);
     }
 
     /// Snap directly to `camera`. Cancels any in-flight animation — direct
@@ -269,7 +282,7 @@ impl Scene {
     /// to plain tile ids. The coarse far leaves double as the overview backdrop.
     fn lod_tiles(&self) -> Vec<TileId> {
         let vp = (self.viewport_px.0 as f64, self.viewport_px.1 as f64);
-        crate::lod::select(&self.camera, vp, self.min_zoom, self.max_zoom, self.sse_target_px)
+        crate::lod::select(&self.camera, vp, self.min_zoom, self.max_zoom, self.sse_target_px, self.lod_tile_cap)
             .into_iter()
             .map(|t| t.id)
             .collect()

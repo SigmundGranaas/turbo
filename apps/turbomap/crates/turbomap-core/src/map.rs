@@ -1060,6 +1060,13 @@ impl Map {
         // (~1.5× target ⇒ roughly half the DEM tiles) so near relief streams in
         // far sooner. Imagery keeps the sharp default.
         scene.set_sse_target_px(crate::scene::TERRAIN_LOD_SSE_TARGET_PX);
+        // Proto-clipmap: a small LOD budget for the DEM so best-first spends it
+        // on the nearest (highest-error) relief — fine near, coarse far — far
+        // fewer of the slow DEM tiles per view than the imagery's full budget.
+        // Relief is smooth + the imagery carries the far look, so coarse far DEM
+        // is invisible. (A true camera-centred geometry clipmap is the next step.)
+        const DEM_LOD_TILE_CAP: usize = 96;
+        scene.set_lod_tile_cap(DEM_LOD_TILE_CAP);
         self.terrain = Some(Terrain::new(source, cache, scene, options));
     }
 
