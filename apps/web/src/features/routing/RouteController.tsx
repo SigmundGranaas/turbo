@@ -41,5 +41,12 @@ export function RouteController() {
 
   const coords = plan?.coords ?? preview ?? [];
   if (coords.length === 0 && waypoints.length === 0) return null;
-  return <RouteOverlay coords={coords} waypoints={waypoints} dashed={!plan} />;
+  return (
+    <RouteOverlay
+      coords={coords}
+      waypoints={waypoints}
+      dashed={!plan}
+      onWaypointDrag={(i, p) => useRouting.getState().updateWaypoint(i, p)}
+    />
+  );
 }

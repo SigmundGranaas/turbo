@@ -9,7 +9,7 @@ import { useToast } from '../store/toast';
 import { searchPlaces, type PlaceHit } from '../api/places';
 import { parseCoord } from '../geo';
 import { MapSurface } from '../map-engine';
-import { UserLocationLayer, RouteOverlay, usePanelHost } from '../map-core';
+import { UserLocationLayer, RouteOverlay, MapPointMarkers, useMapPoints, usePanelHost } from '../map-core';
 import { SunSlider, useSun } from '../features/sun';
 import { LayerPicker } from './LayerPicker';
 import { MapContextMenu, type ContextMenuTarget } from './MapContextMenu';
@@ -169,6 +169,12 @@ export function MapScreen() {
     if (dark) root.setAttribute('data-theme', 'dark');
     else root.removeAttribute('data-theme');
   }, [dark]);
+
+  // Show the click indicator (a ground ring) wherever the point menu is anchored,
+  // and clear it when the menu closes — the visible "you clicked here" marker.
+  useEffect(() => {
+    useMapPoints.getState().setClick(ctxMenu ? { lat: ctxMenu.lat, lng: ctxMenu.lng } : null);
+  }, [ctxMenu]);
 
   // Escape dismisses the topmost overlay: the point menu first, otherwise the
   // open side panel (+ its tool state). Standard overlay convention.
@@ -359,50 +365,66 @@ export function MapScreen() {
     openNewMarker(lat, lng, await reverseGeocode(lat, lng));
   };
 
-  // Open the point contextual menu (the Android long-press menu) at a screen
-  // point: unproject to a geo point and anchor the menu there.
-  const openContextMenu = (x: number, y: number) => {
+  // Screen (CSS px) → geo, raycast onto the 3D relief so a click lands on the
+  // mountainside the user actually sees in a tilted view — not the point
+  // downhill where a flat-plane ray would reach sea level. Falls back to the
+  // flat plane in 2D / before the DEM is resident.
+  const groundLatLng = (x: number, y: number): { lat: number; lng: number } | null => {
     const m = mapRef.current;
-    if (!m) return;
-    const g = m.unproject(x * DPR(), y * DPR());
-    if (!g) return;
-    setCtxMenu({ x, y, lat: g[0], lng: g[1] });
+    if (!m) return null;
+    const g = m.unproject_ground(x * DPR(), y * DPR());
+    if (!g || g.length < 2) return null;
+    return { lat: g[0], lng: g[1] };
   };
 
-  // A tap/click on the map (the gesture controller already filtered out drags,
-  // doubles, and long-presses). While routing, any tap adds a waypoint. Else a
-  // mouse click opens the point menu; a touch tap dismisses an open menu/panel
-  // (touch opens the menu via long-press instead, so it doesn't fight
-  // double-tap-zoom).
-  const onMapTap = (x: number, y: number, pointerType: string) => {
-    const m = mapRef.current;
-    if (!m) return;
-    if (useRouting.getState().active) {
-      const g = m.unproject(x * DPR(), y * DPR());
-      if (g) useRouting.getState().addWaypoint({ lat: g[0], lng: g[1] });
-      return;
-    }
-    if (pointerType === 'mouse') {
-      openContextMenu(x, y);
-      return;
-    }
-    // Touch tap on empty map → dismiss the menu / any open panel.
-    setCtxMenu(null);
+  // Close whatever panel/selection is open. Called before a fresh map click so
+  // clicking elsewhere always closes the previous panel first, then opens the
+  // new one (never two open at once). Routing is left alone — its tool persists.
+  const dismissPanels = () => {
     usePanelHost.getState().close();
     useConditionsPanel.getState().close();
     usePaths.getState().reset();
     useSelection.getState().clear();
   };
 
+  // Open the point contextual menu (the Android long-press menu) at a screen
+  // point: terrain-aware unproject to a geo point and anchor the menu there.
+  const openContextMenu = (x: number, y: number) => {
+    const g = groundLatLng(x, y);
+    if (!g) return;
+    setCtxMenu({ x, y, lat: g.lat, lng: g.lng });
+  };
+
+  // A tap/click on the map (the gesture controller already filtered out drags,
+  // doubles, and long-presses). While routing, any tap adds a waypoint. Else a
+  // mouse click closes any open panel then opens the point menu; a touch tap
+  // dismisses an open menu/panel (touch opens the menu via long-press instead,
+  // so it doesn't fight double-tap-zoom).
+  const onMapTap = (x: number, y: number, pointerType: string) => {
+    if (useRouting.getState().active) {
+      const g = groundLatLng(x, y);
+      if (g) useRouting.getState().addWaypoint(g);
+      return;
+    }
+    if (pointerType === 'mouse') {
+      dismissPanels();
+      openContextMenu(x, y);
+      return;
+    }
+    // Touch tap on empty map → dismiss the menu / any open panel.
+    setCtxMenu(null);
+    dismissPanels();
+  };
+
   // Long-press (touch) → the point menu, even while routing (tap still adds
   // waypoints). Mirrors the native long-press contextual menu.
   const onMapLongPress = (x: number, y: number) => {
     if (useRouting.getState().active) {
-      const m = mapRef.current;
-      const g = m?.unproject(x * DPR(), y * DPR());
-      if (g) useRouting.getState().addWaypoint({ lat: g[0], lng: g[1] });
+      const g = groundLatLng(x, y);
+      if (g) useRouting.getState().addWaypoint(g);
       return;
     }
+    dismissPanels();
     openContextMenu(x, y);
   };
 
@@ -411,6 +433,7 @@ export function MapScreen() {
       const mk = markers.find((x) => x.id === id);
       if (mk) useRouting.getState().addWaypoint({ lat: mk.lat, lng: mk.lng });
     } else {
+      setCtxMenu(null);
       useConditionsPanel.getState().close();
       openMarkerDetail(id);
     }
@@ -439,8 +462,10 @@ export function MapScreen() {
         onEnter3d={() => useUiStore.getState().setThreeD(true)}
         onTap={onMapTap}
         onLongPress={onMapLongPress}
+        onOrbit={(a) => useMapPoints.getState().setOrbit(a)}
       />
       <RouteController />
+      <MapPointMarkers />
       {savedPanel && selectedTrack && selectedTrack.points.length > 0 && (
         <RouteOverlay
           coords={selectedTrack.points}
@@ -526,9 +551,10 @@ export function MapScreen() {
       <div
         style={{
           position: 'absolute',
-          // Pinned to the right edge — the side panel overlays it when open
-          // (don't shove the controls into the middle of the map).
-          right: 16,
+          // On desktop, slide left of the side panel when one is open so the
+          // controls stay tappable instead of hiding behind it (panel is 384 +
+          // 16 right inset). Mobile hides the cluster under a sheet instead.
+          right: !isMobile && panelShown ? 412 : 16,
           // lift above the mobile bottom nav so the zoom buttons aren't covered
           bottom: isMobile ? 80 : 16,
           zIndex: 10,

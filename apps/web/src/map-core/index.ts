@@ -6,4 +6,6 @@ export { MapEngineProvider, useMapEngine, useMapEnginePublisher } from './MapEng
 export { useProjectedLayer, viewportDpr } from './useProjectedLayer';
 export { UserLocationLayer } from './UserLocation';
 export { RouteOverlay } from './RouteOverlay';
+export { MapPointMarkers } from './MapPointMarkers';
+export { useMapPoints } from './mapPoints';
 export { usePanelHost, type PanelId } from './panelHost';

@@ -15,6 +15,12 @@ export interface MapEngine {
   project(lat: number, lng: number): Float64Array | undefined;
   /** Screen px → ground-plane geo (pitch-consistent). `undefined` if no hit. */
   unproject(x: number, y: number): Float64Array | undefined;
+  /** Screen px → geo, raycast against the 3D relief (not the flat sea-level
+   *  plane `unproject` uses). Returns `[lat, lng, hitTerrain]` — `hitTerrain` is
+   *  1 when the ray struck terrain, 0 on the flat fallback (2D / no DEM). Use
+   *  this for clicks, marker placement, and waypoint drag so they land where the
+   *  user sees in a tilted 3D view. */
+  unproject_ground(x: number, y: number): Float64Array;
 
   ease_to(lat: number, lng: number, zoom: number, bearing_deg: number, duration_ms: number): void;
   set_camera(lat: number, lng: number, zoom: number, pitch_deg: number, bearing_deg: number): void;

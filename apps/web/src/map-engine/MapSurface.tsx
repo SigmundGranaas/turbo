@@ -32,6 +32,9 @@ interface Props {
   onTap?: (x: number, y: number, pointerType: string) => void;
   /** A touch long-press — the mobile "add marker" gesture. CSS px. */
   onLongPress?: (x: number, y: number) => void;
+  /** The terrain point a live 3D orbit/tilt gesture pivots around (or `null`
+   *  when it ends) — the host pins it on the relief. */
+  onOrbit?: (anchor: { lat: number; lng: number } | null) => void;
 }
 
 const DEFAULT_CAMERA: CameraInit = { lat: 60.39, lng: 5.32, zoom: 12 }; // Bergen
@@ -50,7 +53,7 @@ function ensureWasm(): Promise<unknown> {
  *  analogue of Android's `TurbomapMapView` — a thin host around the shared
  *  engine. Everything map-visual lives in the engine; this component only feeds
  *  it input + tiles and pumps frames. */
-export function MapSurface({ base = 'norgeskart', threeD = false, camera, onReady, onError, onEnter3d, onTap, onLongPress }: Props) {
+export function MapSurface({ base = 'norgeskart', threeD = false, camera, onReady, onError, onEnter3d, onTap, onLongPress, onOrbit }: Props) {
   const publish = useMapEnginePublisher();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mapRef = useRef<TurboMap | null>(null);
@@ -67,6 +70,8 @@ export function MapSurface({ base = 'norgeskart', threeD = false, camera, onRead
   onTapRef.current = onTap;
   const onLongPressRef = useRef<Props['onLongPress']>(onLongPress);
   onLongPressRef.current = onLongPress;
+  const onOrbitRef = useRef<Props['onOrbit']>(onOrbit);
+  onOrbitRef.current = onOrbit;
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -166,6 +171,7 @@ export function MapSurface({ base = 'norgeskart', threeD = false, camera, onRead
       onEnter3d: () => onEnter3dRef.current?.(),
       onTap: (x, y, t) => onTapRef.current?.(x, y, t),
       onLongPress: (x, y) => onLongPressRef.current?.(x, y),
+      onOrbit: (a) => onOrbitRef.current?.(a),
     });
 
     // Any direct interaction marks the next frame dirty so it draws immediately

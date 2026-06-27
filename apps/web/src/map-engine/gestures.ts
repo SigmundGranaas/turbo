@@ -14,6 +14,10 @@ export interface GestureCallbacks {
   onTap: (x: number, y: number, pointerType: string) => void;
   /** A touch long-press (~500ms held still) — the mobile "add marker" gesture. */
   onLongPress: (x: number, y: number) => void;
+  /** The terrain point a 3D orbit/tilt gesture is pivoting around (the focus
+   *  pixel raycast onto the relief), or `null` when the gesture ends. The host
+   *  shows a pin there so there's a visible anchor sitting on the 3D geometry. */
+  onOrbit?: (anchor: { lat: number; lng: number } | null) => void;
 }
 
 // Tuning — mirror the feel of Google/Apple/Mapbox.
@@ -48,6 +52,13 @@ export function attachMapGestures(
 ): () => void {
   const now = () => performance.now();
   const focusPx = (x: number, y: number): [number, number] => [x * dpr, y * dpr];
+  // Report the ground point under a 3D pivot pixel (device px) so the host can
+  // pin it on the relief. Terrain-aware raycast; falls back to the flat plane.
+  const reportOrbit = (map: TurboMap, fx: number, fy: number) => {
+    if (!cb.onOrbit) return;
+    const g = map.unproject_ground(fx, fy);
+    if (g && g.length >= 2) cb.onOrbit({ lat: g[0], lng: g[1] });
+  };
 
   // --- shared pointer set ---
   const pointers = new Map<number, { x: number; y: number }>();
@@ -198,6 +209,7 @@ export function attachMapGestures(
       // drag right → rotate the map the way the drag points (grab-and-turn, like
       // Google/Apple), drag up → tilt toward horizon, pivot under cursor.
       map.orbit_around(dx * BEARING_PER_PX, -dy * PITCH_PER_PX, ...focusPx(e.clientX, e.clientY));
+      reportOrbit(map, ...focusPx(e.clientX, e.clientY));
       return;
     }
     if (!map || !pointers.has(e.pointerId)) return;
@@ -255,6 +267,7 @@ export function attachMapGestures(
     if (twoMode === 'pitch') {
       const dCy = cy - (snapAy + snapBy) / 2;
       map.orbit_around(0, -dCy * PITCH_K, ...focusPx(cx, cy));
+      reportOrbit(map, ...focusPx(cx, cy));
     } else {
       // Exact 2-point similarity about the moving centroid: translate, scale,
       // then rotate (past a deadzone) — keeps both fingers glued.
@@ -304,6 +317,7 @@ export function attachMapGestures(
     const map = cb.getMap();
     if (orbitId === e.pointerId) {
       orbitId = null;
+      cb.onOrbit?.(null);
       try { canvas.releasePointerCapture(e.pointerId); } catch { /* released */ }
       return;
     }
@@ -326,6 +340,7 @@ export function attachMapGestures(
         const cy = (two[0].y + two[1].y) / 2;
         map.zoom_fling(zv, ...focusPx(cx, cy));
       }
+      cb.onOrbit?.(null); // drop the orbit pin if this was a tilt gesture
       twoMode = 'none';
       // A finger remains → reset it as a fresh pan baseline (no tap, gesture
       // already happened).

@@ -416,6 +416,17 @@ impl TurboMap {
             .map(|g| vec![g.lat, g.lng])
     }
 
+    /// Terrain-aware screen → geo. Unlike [`unproject`](Self::unproject) (which
+    /// hits the flat sea-level plane), this raycasts the view ray against the 3D
+    /// relief, so a click/drag in a tilted 3D view lands on the mountainside the
+    /// user actually sees — not the point downhill where the ray reaches sea
+    /// level. Returns `[lat, lng, hit_terrain]`; `hit_terrain` is `1.0` when the
+    /// ray struck relief and `0.0` on the flat fallback (2D, or no DEM resident).
+    pub fn unproject_ground(&self, x: f64, y: f64) -> Vec<f64> {
+        let (lat, lng, _world_z, hit) = self.engine.unproject_ground(x, y);
+        vec![lat, lng, if hit { 1.0 } else { 0.0 }]
+    }
+
     /// Enable terrain cast shadows at `strength` in `[0,1]` (0 = off).
     pub fn set_terrain_shadows(&mut self, strength: f32) {
         self.engine.set_terrain_shadows(strength);

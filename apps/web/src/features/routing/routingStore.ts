@@ -18,6 +18,7 @@ interface RoutingState {
   open: (dest?: LatLng) => void;
   close: () => void;
   addWaypoint: (p: LatLng) => void;
+  updateWaypoint: (i: number, p: LatLng) => void;
   removeWaypoint: (i: number) => void;
   clear: () => void;
   setProfile: (p: RouteProfile) => void;
@@ -39,6 +40,8 @@ export const useRouting = create<RoutingState>((set) => ({
     set({ active: true, waypoints: dest ? [dest] : [], preview: null, plan: null, status: 'idle', error: undefined }),
   close: () => set({ active: false, waypoints: [], preview: null, plan: null, status: 'idle', error: undefined }),
   addWaypoint: (p) => set((s) => ({ waypoints: [...s.waypoints, p], plan: null, preview: null })),
+  updateWaypoint: (i, p) =>
+    set((s) => ({ waypoints: s.waypoints.map((w, j) => (j === i ? p : w)), plan: null, preview: null })),
   removeWaypoint: (i) => set((s) => ({ waypoints: s.waypoints.filter((_, j) => j !== i), plan: null, preview: null })),
   clear: () => set({ waypoints: [], preview: null, plan: null, status: 'idle', error: undefined }),
   setProfile: (profile) => set({ profile }),

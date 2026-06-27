@@ -1,5 +1,6 @@
-import { useRef } from 'react';
-import { useProjectedLayer } from './useProjectedLayer';
+import { useRef, type PointerEvent as ReactPointerEvent } from 'react';
+import { useProjectedLayer, viewportDpr } from './useProjectedLayer';
+import { useMapEngine } from './MapEngineContext';
 import type { LatLng } from '../geo';
 
 // Cap projected vertices per frame so a dense route stays cheap to reproject.
@@ -16,40 +17,58 @@ function downsample(coords: LatLng[]): LatLng[] {
 
 /** The planned/preview route drawn as an SVG polyline over the map, with
  *  waypoint stop rings. Vertices are projected every frame via `map.project`
- *  (the design's `RouteLine`). Pointer-transparent so it never blocks the map. */
+ *  (the design's `RouteLine`) — terrain-aware, so the line + stops drape on the
+ *  3D relief. Pointer-transparent by default so it never blocks the map.
+ *
+ *  When `onWaypointDrag` is supplied the stop rings become draggable handles:
+ *  dragging one re-places that waypoint via the terrain-aware `unproject_ground`
+ *  (so it lands on the surface the user sees in 3D); the new position is
+ *  committed on release. */
 export function RouteOverlay({
   coords,
   waypoints,
   dashed,
   color = 'var(--primary)',
+  onWaypointDrag,
 }: {
   coords: LatLng[];
   waypoints: LatLng[];
   dashed?: boolean;
   /** Line + waypoint stroke colour (defaults to the theme primary). */
   color?: string;
+  /** When set, waypoint rings are draggable; called with the final position on
+   *  release (one call per drag, so the solver re-runs once). */
+  onWaypointDrag?: (index: number, p: LatLng) => void;
 }) {
+  const engine = useMapEngine();
   const haloRef = useRef<SVGPathElement>(null);
   const lineRef = useRef<SVGPathElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const stopRefs = useRef<(SVGCircleElement | null)[]>([]);
   const coordsRef = useRef(coords);
   const wpRef = useRef(waypoints);
   coordsRef.current = downsample(coords);
   wpRef.current = waypoints;
 
-  useProjectedLayer((engine, dpr) => {
+  // The ring currently being dragged — the per-frame projection skips it so the
+  // manual (pointer-driven) position isn't overwritten. The latest ground point
+  // is stashed and committed on release.
+  const dragIdx = useRef<number | null>(null);
+  const dragLatLng = useRef<LatLng | null>(null);
+
+  useProjectedLayer((eng, dpr) => {
     let d = '';
     const pts = coordsRef.current;
     for (let i = 0; i < pts.length; i++) {
-      const p = engine.project(pts[i].lat, pts[i].lng);
+      const p = eng.project(pts[i].lat, pts[i].lng);
       if (p) d += `${d ? 'L' : 'M'}${(p[0] / dpr).toFixed(1)} ${(p[1] / dpr).toFixed(1)}`;
     }
     haloRef.current?.setAttribute('d', d);
     lineRef.current?.setAttribute('d', d);
     wpRef.current.forEach((w, i) => {
       const c = stopRefs.current[i];
-      if (!c) return;
-      const p = engine.project(w.lat, w.lng);
+      if (!c || i === dragIdx.current) return; // leave the dragged ring under the finger
+      const p = eng.project(w.lat, w.lng);
       if (p) {
         c.setAttribute('cx', String(p[0] / dpr));
         c.setAttribute('cy', String(p[1] / dpr));
@@ -60,8 +79,38 @@ export function RouteOverlay({
     });
   });
 
+  const onHandleDown = (i: number) => (e: ReactPointerEvent<SVGCircleElement>) => {
+    if (!onWaypointDrag) return;
+    e.stopPropagation();
+    dragIdx.current = i;
+    dragLatLng.current = null;
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onHandleMove = (e: ReactPointerEvent<SVGCircleElement>) => {
+    if (dragIdx.current == null) return;
+    e.stopPropagation();
+    const rect = svgRef.current?.getBoundingClientRect();
+    const x = e.clientX - (rect?.left ?? 0);
+    const y = e.clientY - (rect?.top ?? 0);
+    // Follow the finger immediately (CSS px == SVG user units, no viewBox).
+    e.currentTarget.setAttribute('cx', String(x));
+    e.currentTarget.setAttribute('cy', String(y));
+    // Resolve the ground point under the finger (terrain-aware in 3D).
+    const g = engine?.unproject_ground(x * viewportDpr(), y * viewportDpr());
+    if (g && g.length >= 2) dragLatLng.current = { lat: g[0], lng: g[1] };
+  };
+  const onHandleUp = (i: number) => (e: ReactPointerEvent<SVGCircleElement>) => {
+    if (dragIdx.current == null) return;
+    e.stopPropagation();
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* released */ }
+    const p = dragLatLng.current;
+    dragIdx.current = null;
+    dragLatLng.current = null;
+    if (p) onWaypointDrag?.(i, p);
+  };
+
   return (
-    <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 5 }}>
+    <svg ref={svgRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 5 }}>
       <path ref={haloRef} fill="none" stroke="rgba(255,255,255,.7)" strokeWidth={9} strokeLinejoin="round" strokeLinecap="round" />
       <path
         ref={lineRef}
@@ -78,10 +127,15 @@ export function RouteOverlay({
           ref={(el) => {
             stopRefs.current[i] = el;
           }}
-          r={8}
+          r={onWaypointDrag ? 9 : 8}
           fill="var(--surface)"
           stroke={color}
           strokeWidth={3.5}
+          onPointerDown={onWaypointDrag ? onHandleDown(i) : undefined}
+          onPointerMove={onWaypointDrag ? onHandleMove : undefined}
+          onPointerUp={onWaypointDrag ? onHandleUp(i) : undefined}
+          onPointerCancel={onWaypointDrag ? onHandleUp(i) : undefined}
+          style={onWaypointDrag ? { pointerEvents: 'auto', cursor: 'grab', touchAction: 'none' } : undefined}
         />
       ))}
     </svg>
