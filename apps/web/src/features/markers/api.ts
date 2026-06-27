@@ -1,7 +1,7 @@
 import { ApiError, apiFetch } from '../../api/client';
 
 /** A map marker / POI. Mirrors the geo `Location` aggregate
- *  (`/api/geo/Location`): name/description/icon + a point + a version for
+ *  (`/api/geo/Locations`): name/description/icon + a point + a version for
  *  optimistic concurrency. There is no server-side colour — the pin tint is
  *  derived from the activity kind (icon). See port doc 06. */
 export interface Marker {
@@ -43,7 +43,7 @@ export interface MarkerInput {
  *  (signed-out web is read-only, not an error). */
 export async function listMarkers(): Promise<Marker[]> {
   try {
-    const r = await apiFetch<{ items: LocationResponse[] }>('/api/geo/Location');
+    const r = await apiFetch<{ items: LocationResponse[] }>('/api/geo/Locations');
     return (r.items ?? []).map(fromApi);
   } catch (e) {
     if (e instanceof ApiError && (e.status === 401 || e.status === 403)) return [];
@@ -52,7 +52,7 @@ export async function listMarkers(): Promise<Marker[]> {
 }
 
 export async function createMarker(input: MarkerInput): Promise<Marker> {
-  const r = await apiFetch<LocationResponse>('/api/geo/Location', {
+  const r = await apiFetch<LocationResponse>('/api/geo/Locations', {
     method: 'POST',
     body: JSON.stringify({
       display: { name: input.name, description: input.description ?? '', icon: input.icon },
@@ -63,7 +63,7 @@ export async function createMarker(input: MarkerInput): Promise<Marker> {
 }
 
 export async function updateMarker(m: Marker): Promise<Marker> {
-  const r = await apiFetch<LocationResponse>(`/api/geo/Location/${m.id}`, {
+  const r = await apiFetch<LocationResponse>(`/api/geo/Locations/${m.id}`, {
     method: 'PUT',
     headers: { 'If-Match': String(m.version) },
     body: JSON.stringify({
@@ -75,7 +75,7 @@ export async function updateMarker(m: Marker): Promise<Marker> {
 }
 
 export async function deleteMarker(m: Marker): Promise<void> {
-  await apiFetch(`/api/geo/Location/${m.id}`, { method: 'DELETE', headers: { 'If-Match': String(m.version) } });
+  await apiFetch(`/api/geo/Locations/${m.id}`, { method: 'DELETE', headers: { 'If-Match': String(m.version) } });
 }
 
 /** Best-effort reverse geocode for pre-filling a new marker's name. Public
