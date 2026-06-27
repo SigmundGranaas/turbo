@@ -1039,11 +1039,19 @@ impl Map {
             halo,
             options.encoding,
         );
+        // Cap the DEM LOD at its native resolution. The source is ~10 m/px
+        // (DTM10 ≈ z13–z14 at these latitudes); refining the relief mesh past
+        // that just re-renders the SAME elevation at a finer grid — extra slow
+        // DEM tiles for zero new shape. The basemap imagery still refines to its
+        // own (higher) max; the terrain mesh upsamples a z14 DEM tile under it,
+        // which is invisible (relief is smooth). Big cut to the high-zoom DEM
+        // request count (the after-zoom z15/z16 DEM tiles vanish).
+        const DEM_MAX_ZOOM: u8 = 14;
         let mut scene = Scene::with_margin(
             self.cam.camera,
             self.viewport_px,
             source.min_zoom(),
-            source.max_zoom(),
+            source.max_zoom().min(DEM_MAX_ZOOM),
             self.options.prefetch_margin_px,
         );
         // Coarsen the DEM LOD relative to the imagery: relief geometry reads

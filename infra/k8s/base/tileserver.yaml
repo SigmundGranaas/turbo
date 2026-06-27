@@ -183,7 +183,10 @@ spec:
             # keep it UNDER the dem-cache emptyDir sizeLimit (4Gi) so the app
             # cleans up before the kubelet evicts the pod on ephemeral storage.
             - name: TILESERVER_DEM_TILE_CACHE_DISK_BYTES
-              value: "3221225472"   # 3 GiB
+              value: "8589934592"   # 8 GiB — bigger rendered-tile cache so more
+              # of the (immutable) DEM pyramid stays warm within a pod lifetime;
+              # SSD/emptyDir, not counted against the RAM limit. Kept under the
+              # dem-cache emptyDir sizeLimit (10Gi) below.
             # RAM tier — tiny hot-set buffer in front of the 3Gi SSD LRU. Part
             # of the 100MB total RAM-cache budget; misses hit the SSD at ~1ms,
             # so 8MiB here is plenty and keeps peak RSS down.
@@ -194,8 +197,12 @@ spec:
             # CPU-bound renderer and collapsing it. Sized to the 2-core CPU
             # limit with a little overlap; cache HITS never take a permit, so a
             # warm server stays fully concurrent.
+            # Raised to match the 4-core CPU limit below (~2× overlap, same ratio
+            # as before). DEM renders are CPU-bound but light on RAM (~1.3 MB
+            # each), so more is safe memory-wise — the limit is cores. ~Doubles
+            # cold DEM throughput so near relief streams sooner + fewer 429s.
             - name: TILESERVER_DEM_RENDER_CONCURRENCY
-              value: "4"
+              value: "8"
             # Max concurrent basemap/resource MVT renders (cache misses). A cold
             # coastal tile renders a slice of the national sea/landcover polygons
             # and is memory-heavy; the default (≈CPU cores = 2) let two of them
@@ -290,7 +297,11 @@ spec:
               # full Norway sti network decimated at 100 m.
               # Bump (with the quota + node RAM) if big routes get OOMKilled.
               memory: "2Gi"
-              cpu: "2000m"
+              # Raised 2→4 cores (a ceiling; requests stay 250m so scheduling is
+              # unchanged). The DEM RGB render is CPU-bound (~234 ms/tile); a
+              # higher ceiling + matching DEM_RENDER_CONCURRENCY (8) ~doubles cold
+              # DEM tile throughput. No-op if the node has no spare cores.
+              cpu: "4000m"
           volumeMounts:
             - name: artifacts
               mountPath: /artifacts
@@ -337,15 +348,16 @@ spec:
           # the node has the free space (else the pod is evicted).
           emptyDir:
             sizeLimit: 30Gi
-        # Rendered DEM-tile cache, node-local SSD. A few GiB of immutable PNGs;
-        # the app's LRU keeps usage under TILESERVER_DEM_TILE_CACHE_DISK_BYTES
-        # (3Gi), and this 4Gi hard cap is the kubelet's backstop. emptyDir =
-        # zero-provisioning (ready on every deploy); it's wiped on pod removal
-        # and re-warms in seconds — the cache exists to absorb live load, not
-        # to persist. (Swap for a hostPath PV if cross-restart warmth matters.)
+        # Rendered DEM-tile cache, node-local SSD of immutable PNGs; the app's
+        # LRU keeps usage under TILESERVER_DEM_TILE_CACHE_DISK_BYTES (8Gi), and
+        # this 10Gi hard cap is the kubelet's backstop. emptyDir = zero-
+        # provisioning (ready on every deploy); it's wiped on pod removal and
+        # re-warms — the cache absorbs live load, not persists. (A hostPath PV
+        # would keep it warm across deploys; deferred — the browser Cache API
+        # now covers per-user revisits, and a PV adds node-coupling risk.)
         - name: dem-cache
           emptyDir:
-            sizeLimit: 4Gi
+            sizeLimit: 10Gi
         # Rendered MVT-tile cache, node-local SSD. The app's LRU keeps usage
         # under TILESERVER_MVT_TILE_CACHE_DISK_BYTES (2Gi); the 3Gi cap is the
         # kubelet backstop. Disk-backed (NOT medium: Memory), so it does not

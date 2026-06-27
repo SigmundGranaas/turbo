@@ -27,6 +27,14 @@ use crate::tile::TileId;
 /// field to ~camera zoom AND keep the coarse far field out to the horizon.
 use crate::capacity::LOD_TILE_CAP as MAX_TILES;
 
+/// Distance-scaled SSE strength: how fast the refine target loosens with the
+/// tile's distance-from-eye (in altitudes). 0 = uniform target (old behaviour);
+/// higher = far field coarsens faster (fewer far tiles). At ~10 altitudes out
+/// (near the horizon) the target is ~1 + 0.4·9 ≈ 4.6× the near target, so the
+/// deep horizon pyramid collapses to a few coarse tiles. Tuned to trim the
+/// far/coarse count without visible LOD popping (the far field is hazy anyway).
+const FAR_COARSEN_K: f64 = 0.4;
+
 /// One tile chosen by the LOD walk. A thin wrapper now (just the id the resolver
 /// needs); Phase 1+ may carry its computed screen-space error / neighbour LODs
 /// for skirt sizing without changing call sites.
@@ -88,8 +96,21 @@ pub fn select(
         // Stop subdividing once the working set (emitted + still-queued) would blow
         // the budget — emit the rest at their current, coarser zoom (no dropouts).
         let budget_full = out.len() + heap.len() + 1 >= MAX_TILES;
+        // Distance-scaled SSE: a tile far from the eye needs a LARGER on-screen
+        // span to earn a subdivision, so the far field coarsens faster than the
+        // near. The far horizon is tiny on screen + washed out by aerial haze, so
+        // its deep pyramid is wasted detail (and, for the DEM, a flood of slow
+        // tiles). Near tiles (dist≈altitude) keep the sharp `target`; the factor
+        // only grows past ~1 altitude out. Trims the far/coarse count with no
+        // perceptible loss (and no grey — the coarse tiles still cover it).
+        let (nw, se) = tile.world_bounds();
+        let ddx = eye[0].clamp(nw.x, se.x) - eye[0];
+        let ddy = eye[1].clamp(nw.y, se.y) - eye[1];
+        let ddz = -eye[2];
+        let dist = (ddx * ddx + ddy * ddy + ddz * ddz).sqrt().max(1e-9);
+        let eff_target = target * (1.0 + FAR_COARSEN_K * (dist / alt - 1.0).max(0.0));
         match tile.children() {
-            Some(children) if z < max_zoom && span > target && !budget_full => {
+            Some(children) if z < max_zoom && span > eff_target && !budget_full => {
                 for ch in children {
                     if let Some(cs) = tile_span(ch, camera, viewport_px, eye, ppw, alt) {
                         heap.push((cs.to_bits(), ch.z, ch.x, ch.y));
