@@ -432,6 +432,14 @@ impl TurboMap {
         self.engine.set_terrain_shadows(strength);
     }
 
+    /// Toggle terrain sun-lighting in 3D. `true` = lit (Lambertian shading +
+    /// shadows + haze); `false` = the bare bright basemap over the displaced
+    /// relief, so a plain 2D→3D switch doesn't darken the scene (and the heavy
+    /// per-fragment shading path is skipped). The host ties this to "sun mode".
+    pub fn set_terrain_lit(&mut self, lit: bool) {
+        self.engine.set_terrain_lit(lit);
+    }
+
     /// Basemap brightness gain for the 3D sun-lit terrain (1.0 = unchanged).
     /// The web host raises it for dark imagery (satellite) so it reads under the
     /// same lighting that suits bright topo. No effect on the flat 2D map.

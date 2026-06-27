@@ -565,6 +565,13 @@ impl TurbomapEngine {
         self.map.set_basemap_gain(gain);
     }
 
+    /// Toggle terrain sun-lighting in 3D (`true` = lit, default; `false` = bare
+    /// bright basemap over the relief so 2D→3D doesn't darken). Hosts tie this to
+    /// "sun mode". See [`turbomap_core::Map::set_terrain_lit`].
+    pub fn set_terrain_lit(&mut self, lit: bool) {
+        self.map.set_terrain_lit(lit);
+    }
+
     /// Set (or clear, when `points` is empty) a route/track polyline drawn as a
     /// raised 3D tube. `points` are lng/lat; `radius_m` is the tube radius in
     /// metres. See [`turbomap_core::Map::set_route_tube`].

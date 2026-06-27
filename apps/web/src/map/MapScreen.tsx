@@ -216,6 +216,15 @@ export function MapScreen() {
     m.set_viewport_inset_right(!isMobile && panelShown ? 468 : 0);
   }, [panelShown, isMobile]);
 
+  // Terrain sun-lighting (Lambertian shading + cast shadows + haze) belongs to
+  // sun mode. Plain 3D draws the bare bright basemap over the relief — so a
+  // 2D→3D switch doesn't darken the scene, and the heavy per-fragment shading
+  // path is skipped (big perf win). No-op in 2D (no DEM). Re-applied when sun
+  // toggles or the engine boots.
+  useEffect(() => {
+    mapRef.current?.set_terrain_lit(sun.on);
+  }, [sun.on, ready]);
+
   // Redeem a ?share=<token> link on open. Requires sign-in (the grant is
   // materialised for the current user), so prompt the account panel if needed;
   // once signed in, redeem → the resource flows in via sync → open it.

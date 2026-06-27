@@ -695,6 +695,11 @@ pub struct Map {
     /// host raises it for dark imagery (satellite) so it reads under the same
     /// lighting that suits bright topo. Set via [`set_basemap_gain`].
     basemap_gain: f32,
+    /// Apply terrain sun-lighting in 3D. `true` (default) = the established
+    /// lit-in-3D look; `false` = displaced geometry but the bare bright basemap
+    /// (no shading/shadows/haze) so 2D→3D doesn't darken. Set via
+    /// [`set_terrain_lit`]; hosts tie it to "sun mode".
+    terrain_lit: bool,
 }
 
 /// Route/track 3D-tube state. Each entry is a polyline + style; the combined
@@ -838,6 +843,7 @@ impl Map {
             route_tubes: RouteTubeState::default(),
             start: Instant::now(),
             basemap_gain: 1.0,
+            terrain_lit: true,
         })
     }
 
@@ -1090,6 +1096,15 @@ impl Map {
     /// lighting that suits bright topo. No effect on the flat 2D map.
     pub fn set_basemap_gain(&mut self, gain: f32) {
         self.basemap_gain = gain.clamp(0.1, 8.0);
+    }
+
+    /// Toggle terrain sun-lighting in 3D. `true` (default) keeps the lit look;
+    /// `false` draws the bare bright basemap over the displaced relief — used by
+    /// hosts to keep a plain 2D→3D switch from darkening the scene (lighting +
+    /// shadows belong to "sun mode"), which also skips the per-fragment shading
+    /// path. No effect on the flat 2D map (no DEM).
+    pub fn set_terrain_lit(&mut self, lit: bool) {
+        self.terrain_lit = lit;
     }
 
     pub fn set_terrain_shadows(&mut self, strength: f32) {
@@ -2343,6 +2358,7 @@ impl Map {
         // Per-basemap brightness lift (host sets it from the active layer, e.g.
         // satellite). Only takes effect on the 3D sun-lit path (gated in raster).
         frame.raster_terrain_cfg.basemap_gain = self.basemap_gain;
+        frame.raster_terrain_cfg.lit = self.terrain_lit;
         // Terrain relief field: assemble the camera-centred cross-tile
         // heightfield whenever we have 3D terrain — it drives BOTH cast shadows
         // (per-fragment march, gated by `shadow_strength`) and the world-locked

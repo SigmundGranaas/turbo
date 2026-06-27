@@ -39,4 +39,8 @@ export interface MapEngine {
   set_sun_time(unix_secs?: number | null): void;
   set_terrain_shadows(strength: number): void;
   set_basemap_gain(gain: number): void;
+  /** Toggle 3D terrain sun-lighting. `false` = bare bright basemap over the
+   *  relief (no darkening, no per-fragment shading) — used for plain 3D; `true`
+   *  for sun mode. No effect in 2D. */
+  set_terrain_lit(lit: boolean): void;
 }

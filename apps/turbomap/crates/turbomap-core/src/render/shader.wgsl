@@ -421,19 +421,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 // smooth normal) plus the ray's own rise, times a few steps.
                 let slope = length(n.xy) / max(n.z, 0.05);
                 let bias = (step * slope + rise) * SHADOW_BIAS_STEPS;
-                // Two jittered marches, averaged: a 2-tap SUPERSAMPLE of the soft
-                // shadow. At a low evening sun a tall peak throws long finger
-                // shadows through its cols; the coarse heightfield + discrete march
-                // alias those into a hard jagged comb. Offsetting two marches by
-                // half a step (interleaved-gradient dither, screen-locked) and
-                // averaging blends the fingers into a soft penumbra — the soft look
-                // the stochastic version had, but with ~half the noise and no acne.
+                // ONE jittered march (interleaved-gradient dither, screen-locked).
+                // A single tap halves the per-fragment shadow cost vs the old 2-tap
+                // supersample — the dominant sun-mode expense over a big retina
+                // viewport. The discrete-step/coarse-heightfield comb the second tap
+                // smoothed is instead dissolved by the analytic `fwidth` penumbra
+                // widening below (which tracks the on-screen shadow-edge speed), so
+                // the soft look survives at ~half the texture-march work.
                 let j0 = ign(floor(in.clip_position.xy));
-                let j1 = fract(j0 + 0.5);
                 let m0 = march_shadow(in.world_xy, dir, step, rise, h0, bias, j0);
-                let m1 = march_shadow(in.world_xy, dir, step, rise, h0, bias, j1);
-                over = (m0.x + m1.x) * 0.5;
-                hit_k = (m0.y + m1.y) * 0.5;
+                over = m0.x;
+                hit_k = m0.y;
             }
             // Contact hardening: the penumbra widens with the occluder's distance
             // (a far ridge throws a soft edge, a nearby lip a crisp one). Pushed

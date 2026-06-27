@@ -194,6 +194,8 @@ impl RenderFrame {
             // Patched in `Map::render` from `Map::basemap_gain` (this builder
             // doesn't see the active basemap). 1.0 = no change.
             basemap_gain: 1.0,
+            // Patched in `Map::render` from `Map::terrain_lit` (host "sun mode").
+            lit: true,
         };
 
         // Vector drape params, derived from the raster config.

@@ -194,6 +194,13 @@ pub(crate) struct TerrainConfig {
     /// 1.0 = unchanged; raise it (~1.8) for dark imagery like satellite so it
     /// reads well under the same lighting that suits bright topo.
     pub basemap_gain: f32,
+    /// Apply terrain sun-lighting (Lambertian shading + cast shadows + AO +
+    /// aerial haze) when a DEM is present. `false` keeps the 3D displaced
+    /// geometry but draws the bare basemap texture at full brightness — so
+    /// switching 2D→3D doesn't darken the scene (lighting belongs to "sun
+    /// mode"), and the expensive per-fragment shading path is skipped entirely.
+    /// Default `true` (the established always-lit-in-3D behaviour).
+    pub lit: bool,
 }
 
 impl Default for TerrainConfig {
@@ -214,6 +221,7 @@ impl Default for TerrainConfig {
             shadow_softness: 1.0,
             time: 0.0,
             basemap_gain: 1.0,
+            lit: true,
         }
     }
 }
@@ -638,7 +646,11 @@ impl RasterPipeline {
                     0.0
                 },
                 light_color: terrain_options.light_color,
-                terrain_lit: if dem_present { 1.0 } else { 0.0 },
+                // Lit only when a DEM is present AND the host enabled terrain
+                // lighting (sun mode). Plain 3D (lit=false) keeps the relief
+                // geometry but draws the bare bright texture — no darkening, and
+                // the whole shading/shadow/haze path below is skipped.
+                terrain_lit: if dem_present && terrain_options.lit { 1.0 } else { 0.0 },
                 shadow_origin: terrain_options.shadow_origin,
                 shadow_inv_size: terrain_options.shadow_inv_size,
                 // No DEM → no relief to occlude; force shadows off so the flat
