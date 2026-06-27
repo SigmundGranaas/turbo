@@ -34,7 +34,7 @@ images:
     # the modulith hosts have no csproj <Version>). Pinning the sha7 makes ArgoCD
     # sync the rollout instead of relying on a manual `:latest` restart. Bump to a
     # green build's 0.0.0-<sha7> and push. (Deployment strategy is Recreate.)
-    newTag: "0.0.0-eecf757"
+    newTag: "0.0.0-518ddad"
   - name: turbo-places
     newName: ghcr.io/sigmundgranaas/turbo-places
     newTag: latest
@@ -43,7 +43,7 @@ images:
     newTag: latest
   - name: turbo-web
     newName: ghcr.io/sigmundgranaas/turbo-web
-    newTag: "84fe9548bb9c43d672e9e95915074ce1f0917121"
+    newTag: "518ddadb30918ef476ac57c1122fcb343b6f9c7d"
   - name: turbo-tileserver
     newName: ghcr.io/sigmundgranaas/turbo-tileserver
     # Immutable, git-traceable deploy tag (a commit SHA). Bump this MANUALLY to
