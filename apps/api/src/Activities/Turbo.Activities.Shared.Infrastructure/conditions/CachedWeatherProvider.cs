@@ -68,4 +68,43 @@ public sealed class CachedWeatherProvider : IWeatherProvider
         await _cache.PutAsync(_inner.Key, grid, bucket, payload, now, now + CacheTtl, cancellationToken);
         return fresh;
     }
+
+    /// <summary>
+    /// Cache the whole forecast timeseries under a single key (distinct
+    /// provider-key suffix so it never collides with the per-hour single-slice
+    /// entries above), bucketed to the hour. One upstream fetch serves the
+    /// conditions endpoint's now + hourly + daily views.
+    /// </summary>
+    public async Task<IReadOnlyList<WeatherSlice>> GetForecastAsync(
+        double latitude, double longitude,
+        CancellationToken cancellationToken)
+    {
+        var key = _inner.Key + ":forecast";
+        var grid = $"{Math.Round(latitude, 2):F2}_{Math.Round(longitude, 2):F2}";
+        var now = _clock.GetUtcNow();
+        var bucket = ConditionsCacheKey.HourBucket(now);
+
+        var hit = await _cache.TryGetAsync(key, grid, bucket, cancellationToken);
+        if (hit is not null && hit.ExpiresAt > now)
+        {
+            try
+            {
+                var cached = JsonSerializer.Deserialize<List<WeatherSlice>>(hit.Payload.Span);
+                if (cached is { Count: > 0 })
+                {
+                    _logger.LogDebug("Weather forecast cache hit for {Key} {Grid} {Bucket}", key, grid, bucket);
+                    return cached;
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Discarding corrupt forecast cache entry for {Key} {Grid} {Bucket}", key, grid, bucket);
+            }
+        }
+
+        var fresh = await _inner.GetForecastAsync(latitude, longitude, cancellationToken);
+        var payload = JsonSerializer.SerializeToUtf8Bytes(fresh);
+        await _cache.PutAsync(key, grid, bucket, payload, now, now + CacheTtl, cancellationToken);
+        return fresh;
+    }
 }

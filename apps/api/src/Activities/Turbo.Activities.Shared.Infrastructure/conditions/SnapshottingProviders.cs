@@ -84,6 +84,13 @@ public sealed class SnapshottingWeatherProvider : IWeatherProvider
             _store, _inner.Key, grid, slice, slice.ValidAt, _clock.GetUtcNow(), _logger, cancellationToken);
         return slice;
     }
+
+    // The forecast view is a read-only convenience for the conditions endpoint;
+    // snapshots are populated by the per-instant GetAsync path / daemon, so just
+    // delegate so the inner cache decorator's single-fetch override is reached.
+    public Task<IReadOnlyList<WeatherSlice>> GetForecastAsync(
+        double latitude, double longitude, CancellationToken cancellationToken)
+        => _inner.GetForecastAsync(latitude, longitude, cancellationToken);
 }
 
 public sealed class SnapshottingAvalancheProvider : IAvalancheProvider

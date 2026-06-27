@@ -33,10 +33,12 @@ export function useSession() {
  *  URL (carrying a return path in `state`), then navigate there. The callback
  *  sets `.sandring.no` cookies and redirects back. */
 export async function loginWithGoogle(returnTo: string = window.location.href): Promise<void> {
-  const { url } = await apiFetch<{ url: string }>(
+  // The backend returns `{ authorizationUrl }` (NOT `url`) — reading the wrong
+  // field navigated to `undefined`, so Google sign-in silently did nothing.
+  const { authorizationUrl } = await apiFetch<{ authorizationUrl: string }>(
     `/api/auth/oauth/google/url?returnTo=${encodeURIComponent(returnTo)}`,
   );
-  window.location.assign(url);
+  window.location.assign(authorizationUrl);
 }
 
 /** Email/password sign-in. On success the server sets the `.sandring.no` auth

@@ -41,6 +41,27 @@ public sealed class MetNoWeatherProvider : IWeatherProvider
         DateTimeOffset at,
         CancellationToken cancellationToken)
     {
+        var response = await FetchAsync(latitude, longitude, cancellationToken);
+        var nearest = NearestTimeseries(response, at)
+                      ?? throw new ConditionsProviderException(
+                          $"met.no returned no timeseries entries usable for instant {at:O}");
+        return Project(nearest);
+    }
+
+    public async Task<IReadOnlyList<WeatherSlice>> GetForecastAsync(
+        double latitude, double longitude,
+        CancellationToken cancellationToken)
+    {
+        var response = await FetchAsync(latitude, longitude, cancellationToken);
+        var entries = response.Properties.Timeseries;
+        if (entries is null || entries.Count == 0)
+            throw new ConditionsProviderException("met.no returned an empty timeseries");
+        return entries.Select(Project).ToList();
+    }
+
+    private async Task<MetNoForecast> FetchAsync(
+        double latitude, double longitude, CancellationToken cancellationToken)
+    {
         var client = _http.CreateClient(HttpClientName);
         // met.no requires lat/lon clamped to 4 decimals max.
         var url = $"weatherapi/locationforecast/2.0/compact?lat={Math.Round(latitude, 4)}&lon={Math.Round(longitude, 4)}";
@@ -60,17 +81,17 @@ public sealed class MetNoWeatherProvider : IWeatherProvider
         }
         if (response is null)
             throw new ConditionsProviderException("met.no returned empty body");
+        return response;
+    }
 
-        var nearest = NearestTimeseries(response, at)
-                      ?? throw new ConditionsProviderException(
-                          $"met.no returned no timeseries entries usable for instant {at:O}");
-
-        var instant = nearest.Data.Instant.Details;
-        var next1h = nearest.Data.Next1Hours;
-        var next6h = nearest.Data.Next6Hours;
+    private static WeatherSlice Project(MetNoTimeseriesEntry entry)
+    {
+        var instant = entry.Data.Instant.Details;
+        var next1h = entry.Data.Next1Hours;
+        var next6h = entry.Data.Next6Hours;
 
         return new WeatherSlice(
-            validAt: nearest.Time,
+            validAt: entry.Time,
             airTemperatureCelsius: instant.AirTemperature,
             airPressureHpa: instant.AirPressureAtSeaLevel,
             relativeHumidityPct: instant.RelativeHumidity,

@@ -80,24 +80,85 @@ public sealed class CachedWeatherProviderTests
 
         inner.CallCount.Should().Be(2);
     }
+
+    [Fact]
+    public async Task Forecast_first_call_fetches_inner_series_once_and_caches()
+    {
+        var inner = new RecordingWeatherProvider();
+        var cache = new InMemoryConditionsCache();
+        var clock = new FixedTimeProvider(new DateTimeOffset(2026, 5, 20, 12, 0, 0, TimeSpan.Zero));
+        var sut = new CachedWeatherProvider(inner, cache, NullLogger<CachedWeatherProvider>.Instance, clock);
+
+        var series = await sut.GetForecastAsync(60.12, 5.32, CancellationToken.None);
+
+        inner.ForecastCallCount.Should().Be(1);
+        series.Should().HaveCount(2);
+        cache.Entries.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task Forecast_second_call_same_grid_and_hour_serves_from_cache()
+    {
+        var inner = new RecordingWeatherProvider();
+        var cache = new InMemoryConditionsCache();
+        var clock = new FixedTimeProvider(new DateTimeOffset(2026, 5, 20, 12, 0, 0, TimeSpan.Zero));
+        var sut = new CachedWeatherProvider(inner, cache, NullLogger<CachedWeatherProvider>.Instance, clock);
+
+        _ = await sut.GetForecastAsync(60.12, 5.32, CancellationToken.None);
+        var second = await sut.GetForecastAsync(60.121, 5.319, CancellationToken.None);
+
+        inner.ForecastCallCount.Should().Be(1);
+        second.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Forecast_cache_does_not_collide_with_single_slice_cache()
+    {
+        var inner = new RecordingWeatherProvider();
+        var cache = new InMemoryConditionsCache();
+        var clock = new FixedTimeProvider(new DateTimeOffset(2026, 5, 20, 12, 0, 0, TimeSpan.Zero));
+        var sut = new CachedWeatherProvider(inner, cache, NullLogger<CachedWeatherProvider>.Instance, clock);
+
+        _ = await sut.GetAsync(60.12, 5.32, new DateTimeOffset(2026, 5, 20, 12, 10, 0, TimeSpan.Zero), CancellationToken.None);
+        _ = await sut.GetForecastAsync(60.12, 5.32, CancellationToken.None);
+
+        // Distinct provider-key suffix → two independent entries, no overwrite.
+        cache.Entries.Should().HaveCount(2);
+        inner.CallCount.Should().Be(1);
+        inner.ForecastCallCount.Should().Be(1);
+    }
 }
 
 internal sealed class RecordingWeatherProvider : IWeatherProvider
 {
     public string Key => "synthetic_weather";
     public int CallCount { get; private set; }
+    public int ForecastCallCount { get; private set; }
 
     public Task<WeatherSlice> GetAsync(double latitude, double longitude, DateTimeOffset at, CancellationToken cancellationToken)
     {
         CallCount++;
-        return Task.FromResult(new WeatherSlice(
-            validAt: at,
-            airTemperatureCelsius: 10.0f, airPressureHpa: 1013.25f,
-            relativeHumidityPct: 70.0f, cloudCoveragePct: 40.0f,
-            windSpeedMs: 5.0f, windGustMs: 8.0f, windFromDegrees: 180.0f,
-            precipitationNext1hMm: 0.0f, precipitationNext6hMm: 0.0f,
-            symbolCode: "partlycloudy_day"));
+        return Task.FromResult(Slice(at));
     }
+
+    public Task<IReadOnlyList<WeatherSlice>> GetForecastAsync(double latitude, double longitude, CancellationToken cancellationToken)
+    {
+        ForecastCallCount++;
+        IReadOnlyList<WeatherSlice> series = new[]
+        {
+            Slice(new DateTimeOffset(2026, 5, 20, 12, 0, 0, TimeSpan.Zero)),
+            Slice(new DateTimeOffset(2026, 5, 21, 12, 0, 0, TimeSpan.Zero)),
+        };
+        return Task.FromResult(series);
+    }
+
+    private static WeatherSlice Slice(DateTimeOffset at) => new(
+        validAt: at,
+        airTemperatureCelsius: 10.0f, airPressureHpa: 1013.25f,
+        relativeHumidityPct: 70.0f, cloudCoveragePct: 40.0f,
+        windSpeedMs: 5.0f, windGustMs: 8.0f, windFromDegrees: 180.0f,
+        precipitationNext1hMm: 0.0f, precipitationNext6hMm: 0.0f,
+        symbolCode: "partlycloudy_day");
 }
 
 internal sealed class InMemoryConditionsCache : IConditionsCache

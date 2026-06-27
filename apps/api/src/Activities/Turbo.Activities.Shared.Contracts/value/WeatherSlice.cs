@@ -64,4 +64,28 @@ public interface IWeatherProvider
         double latitude, double longitude,
         DateTimeOffset at,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Fetch the full available forecast timeseries for a point in a single
+    /// upstream call (met.no returns hourly for ~2 days then 6-hourly out to
+    /// ~10 days in one response). Callers slice this into now / hourly / daily
+    /// views — much cheaper than calling <see cref="GetAsync"/> once per sample.
+    ///
+    /// The default samples <see cref="GetAsync"/> at a fixed cadence so cheap /
+    /// synthetic providers work without bespoke code; real upstream providers
+    /// (and the cache decorator) override it to fetch / cache the series once.
+    /// </summary>
+    async Task<IReadOnlyList<WeatherSlice>> GetForecastAsync(
+        double latitude, double longitude,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var midnight = new DateTimeOffset(now.UtcDateTime.Date, TimeSpan.Zero);
+        var slices = new List<WeatherSlice>();
+        for (var h = 0; h <= 24; h += 3)
+            slices.Add(await GetAsync(latitude, longitude, now.AddHours(h), cancellationToken));
+        for (var d = 1; d <= 7; d++)
+            slices.Add(await GetAsync(latitude, longitude, midnight.AddDays(d).AddHours(12), cancellationToken));
+        return slices;
+    }
 }

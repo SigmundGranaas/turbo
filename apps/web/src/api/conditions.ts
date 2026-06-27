@@ -38,9 +38,35 @@ export interface Tide {
   summary: string | null;
 }
 
+/** One day's rolled-up outlook. `date` is an ISO `YYYY-MM-DD` string (UTC). */
+export interface DayForecast {
+  date: string;
+  highC: number;
+  lowC: number;
+  precipMm: number | null;
+  symbol?: string;
+}
+
+interface DaySlice {
+  date: string;
+  highC: number;
+  lowC: number;
+  precipMm: number | null;
+  symbolCode?: string;
+}
+
+const mapDay = (d: DaySlice): DayForecast => ({
+  date: d.date,
+  highC: d.highC,
+  lowC: d.lowC,
+  precipMm: d.precipMm,
+  symbol: d.symbolCode,
+});
+
 export interface Conditions {
   now: Weather;
   hourly: Weather[];
+  daily: DayForecast[];
   tide?: Tide;
 }
 
@@ -48,11 +74,15 @@ export async function getConditions(lat: number, lng: number): Promise<Condition
   const r = await apiFetch<{
     now: WeatherSlice;
     hourly: WeatherSlice[];
+    daily?: DaySlice[];
     tide?: { currentHeightMeters: number | null; summary: string | null };
   }>(`/api/activities/conditions?lat=${lat.toFixed(4)}&lon=${lng.toFixed(4)}`);
   return {
     now: mapSlice(r.now),
     hourly: (r.hourly ?? []).map(mapSlice),
+    // `daily` is tolerated as absent so the web bundle can ship ahead of the
+    // backend deploy that adds it (the "Next days" section just stays hidden).
+    daily: (r.daily ?? []).map(mapDay),
     tide: r.tide ? { heightM: r.tide.currentHeightMeters, summary: r.tide.summary } : undefined,
   };
 }

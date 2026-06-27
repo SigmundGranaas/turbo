@@ -6,9 +6,32 @@ import { formatTemp, formatWind } from '../../format';
 import { SidePanel, Eyebrow, StatTile, Tabs } from '../../ui/Panel';
 import { Icon } from '../../ui/Icon';
 
-/** Full conditions panel: weather now + 24h outlook, and an ocean/tide tab.
- *  Ports the design's conditions sheet (avalanche tab deferred — needs a
- *  lat/lon→Varsom-region resolver the backend doesn't expose). */
+/** Compact emoji glyph for a met.no symbol_code (e.g. "partlycloudy_day",
+ *  "lightrain"). Falls back to a neutral disc for unknown / absent codes. */
+function symbolGlyph(code?: string): string {
+  if (!code) return '·';
+  const c = code.toLowerCase();
+  if (c.includes('thunder')) return '⛈️';
+  if (c.includes('sleet')) return '🌨️';
+  if (c.includes('snow')) return '❄️';
+  if (c.includes('rain')) return '🌧️';
+  if (c.includes('fog')) return '🌫️';
+  if (c.includes('cloudy') && !c.includes('partly')) return '☁️';
+  if (c.includes('partlycloudy') || c.includes('fair')) return '⛅';
+  if (c.includes('clearsky')) return '☀️';
+  return '·';
+}
+
+/** Weekday label for an ISO `YYYY-MM-DD` (UTC) date — "Today" for the first day. */
+function dayLabel(iso: string, isFirst: boolean): string {
+  if (isFirst) return 'Today';
+  const d = new Date(`${iso}T12:00:00Z`);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { weekday: 'short' });
+}
+
+/** Full conditions panel: weather now + 24h outlook + multi-day forecast, and
+ *  an ocean/tide tab. Ports the design's conditions sheet (avalanche tab
+ *  deferred — needs a lat/lon→Varsom-region resolver the backend doesn't expose). */
 export function ConditionsPanel({
   dark,
   lat,
@@ -27,6 +50,7 @@ export function ConditionsPanel({
   const [tab, setTab] = useState(0);
   const now = cond.data?.now;
   const hourly = cond.data?.hourly ?? [];
+  const daily = cond.data?.daily ?? [];
   const tide = cond.data?.tide;
 
   return (
@@ -68,6 +92,25 @@ export function ConditionsPanel({
                 </div>
               ))}
             </div>
+
+            {daily.length > 0 && (
+              <>
+                <Eyebrow style={{ margin: '22px 0 10px' }}>Next days</Eyebrow>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {daily.map((d, i) => (
+                    <div key={d.date} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 0', borderBottom: i < daily.length - 1 ? '1px solid var(--outline-variant)' : 'none' }}>
+                      <div style={{ width: 56, font: '500 13px/1 var(--font-sans)', color: 'var(--on-surface)' }}>{dayLabel(d.date, i === 0)}</div>
+                      <div style={{ width: 22, fontSize: 16, textAlign: 'center' }} title={(d.symbol ?? '').replace(/_/g, ' ')}>{symbolGlyph(d.symbol)}</div>
+                      <Icon name="water_drop" size={15} color="var(--on-surface-variant)" />
+                      <div style={{ width: 38, font: '400 13px/1 var(--font-sans)', color: 'var(--on-surface-variant)' }}>{(d.precipMm ?? 0).toFixed(1)}</div>
+                      <div style={{ flex: 1 }} />
+                      <div style={{ font: '600 15px/1 var(--font-sans)', color: 'var(--on-surface)' }}>{formatTemp(d.highC, units)}</div>
+                      <div style={{ width: 44, textAlign: 'right', font: '400 14px/1 var(--font-sans)', color: 'var(--on-surface-variant)' }}>{formatTemp(d.lowC, units)}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
 
