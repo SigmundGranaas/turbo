@@ -7,6 +7,7 @@ import {
   type Marker,
   type MarkerInput,
 } from './api';
+import { useToast } from '../../store/toast';
 
 const KEY = ['markers'];
 
@@ -35,5 +36,6 @@ export function useDeleteMarker() {
   return useMutation({
     mutationFn: (m: Marker) => deleteMarker(m),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onError: () => useToast.getState().show('Couldn’t delete the marker.'),
   });
 }

@@ -83,8 +83,11 @@ export function GlassIconBtn({
 }) {
   return (
     <button
+      className="tm-icon-btn"
       title={title}
+      aria-label={title}
       onClick={onClick}
+      disabled={!onClick}
       style={{
         width: size,
         height: size,
@@ -155,7 +158,9 @@ export function Btn({
   const h = size === 'lg' ? 56 : size === 'sm' ? 38 : 48;
   return (
     <button
+      className="tm-btn"
       onClick={onClick}
+      disabled={!onClick}
       style={{
         height: h,
         padding: size === 'sm' ? '0 16px' : '0 24px',

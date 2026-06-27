@@ -46,13 +46,13 @@ export function MobileNav({
       {ITEMS.map((it) => {
         const on = active === it.id;
         return (
-          <button key={it.id} title={it.label} onClick={() => onNav(it.id)} style={cell(on)}>
+          <button className="tm-icon-btn" key={it.id} title={it.label} onClick={() => onNav(it.id)} style={cell(on)}>
             <Icon name={it.icon} size={24} fill={on} />
             {it.label}
           </button>
         );
       })}
-      <button title="Account" onClick={onAccount} style={cell(active === 'account')}>
+      <button className="tm-icon-btn" title="Account" onClick={onAccount} style={cell(active === 'account')}>
         {signedIn ? (
           <Cookie size={24} fill="var(--primary)">
             <span style={{ font: '800 11px/1 var(--font-sans)', color: 'var(--on-primary)' }}>{avatar}</span>

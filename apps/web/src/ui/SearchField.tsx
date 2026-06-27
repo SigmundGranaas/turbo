@@ -34,7 +34,7 @@ export function SearchField({
       style={{ height: 56, width, padding: '0 8px 0 16px', display: 'flex', alignItems: 'center', gap: 10 }}
     >
       <Icon name={leading} size={22} color="var(--on-surface-variant)" />
-      <input
+      <input className="tm-field"
         value={value ?? ''}
         onChange={(e) => onChange?.(e.target.value)}
         onFocus={onFocus}

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createTrack, deleteTrack, listTracks, updateTrack, type Track, type TrackChanges, type TrackInput } from './api';
+import { useToast } from '../../store/toast';
 
 const KEY = ['tracks'];
 
@@ -44,5 +45,6 @@ export function useDeleteTrack() {
     onSuccess: (_res, t) => {
       qc.setQueryData<Track[]>(KEY, (old) => (old ?? []).filter((x) => x.id !== t.id));
     },
+    onError: () => useToast.getState().show('Couldn’t delete the track.'),
   });
 }

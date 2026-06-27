@@ -51,3 +51,44 @@ html, body, #root {
 .map-error-title { font: var(--type-title-large); color: var(--on-surface); }
 .map-error-body { font: var(--type-body-medium); color: var(--on-surface-variant); }
 .booting { color: var(--on-surface-variant); font: var(--type-body-medium); }
+
+/* ── Interaction layer ──────────────────────────────────────────────────────
+   The ui kit is inline-styled, so pseudo-states (hover/press/focus/disabled)
+   can't live on the element — they live here. Components opt in via a class;
+   this is the single place to tune the whole app's tactile feel. We use
+   transform/filter/outline (NOT background) so we never fight the components'
+   inline colours; `outline`+disabled `cursor` use !important only to beat the
+   inline `outline:none`/`cursor:pointer`. */
+.tm-btn, .tm-icon-btn {
+  transition: transform .12s var(--ease-out), filter .18s var(--ease-out),
+              background .18s var(--ease-out), box-shadow .18s var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tm-btn:hover:not(:disabled), .tm-icon-btn:hover:not(:disabled) { filter: brightness(1.05); }
+  .tm-btn:active:not(:disabled) { transform: scale(.975); }
+  .tm-icon-btn:active:not(:disabled) { transform: scale(.9); }
+}
+.tm-btn:disabled, .tm-icon-btn:disabled { opacity: .42 !important; cursor: not-allowed !important; filter: none; }
+.tm-btn:focus-visible, .tm-icon-btn:focus-visible {
+  outline: 2px solid var(--primary) !important;
+  outline-offset: 2px;
+}
+/* Fields: ring the whole field box (works for a bare input pill and for a
+   filled-field container with an inner input). */
+.tm-field:focus-within {
+  outline: 2px solid var(--primary) !important;
+  outline-offset: 2px;
+}
+
+/* Panels / sheets / popovers / toasts enter with a small slide+fade rather than
+   popping in. */
+@media (prefers-reduced-motion: no-preference) {
+  .tm-panel-desktop { animation: tm-slide-right .26s var(--ease-out) both; }
+  .tm-panel-mobile  { animation: tm-slide-up .26s var(--ease-out) both; }
+  .tm-pop           { animation: tm-pop-in .16s var(--ease-out) both; }
+  .tm-toast         { animation: tm-slide-up .22s var(--ease-out) both; }
+}
+@keyframes tm-slide-right { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+@keyframes tm-slide-up    { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+@keyframes tm-pop-in      { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }

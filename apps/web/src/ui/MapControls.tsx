@@ -64,7 +64,7 @@ export function MapRail({
 
 function ThreeDToggle({ is3d, onClick }: { is3d: boolean; onClick?: () => void }) {
   return (
-    <button
+    <button className="tm-icon-btn"
       title="2D / 3D"
       onClick={onClick}
       style={{
@@ -109,7 +109,7 @@ function CompassBtn({ getBearing, active, onClick }: { getBearing?: () => number
     return () => cancelAnimationFrame(raf);
   }, [getBearing]);
   return (
-    <button
+    <button className="tm-icon-btn"
       title="Compass · reset north"
       onClick={onClick}
       style={{

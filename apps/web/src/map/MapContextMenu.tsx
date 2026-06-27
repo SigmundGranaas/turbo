@@ -100,10 +100,11 @@ export function MapContextMenu({
   const temp = wxQ.data ? `${Math.round(wxQ.data.now.tempC)}°` : wxQ.isLoading ? '…' : '—';
 
   return (
-    <div ref={ref} style={{ position: 'absolute', left, top, width: W, zIndex: 30 }}>
+    <div ref={ref} className="tm-pop" style={{ position: 'absolute', left, top, width: W, zIndex: 30 }}>
       <Glass dark={dark} level="panel" radius={20} style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
         {/* mini-weather header → full forecast */}
         <button
+          className="tm-btn"
           onClick={act(() => onForecast(placeLabel))}
           style={{
             display: 'flex',
@@ -139,6 +140,7 @@ export function MapContextMenu({
         {actions.map((a) => (
           <button
             key={a.key}
+            className="tm-btn"
             onClick={a.run}
             style={{
               display: 'flex',

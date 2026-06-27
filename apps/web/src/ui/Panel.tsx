@@ -43,10 +43,13 @@ export function SidePanel({
           {headerExtra}
           {onClose && (
             <button
+              className="tm-icon-btn"
               onClick={onClose}
+              title="Close"
+              aria-label="Close"
               style={{
-                width: 38,
-                height: 38,
+                width: 40,
+                height: 40,
                 borderRadius: 9999,
                 border: 'none',
                 cursor: 'pointer',
@@ -121,6 +124,7 @@ export function Chip2({
   const fg = selected ? 'var(--on-secondary-container)' : 'var(--on-surface-variant)';
   return (
     <button
+      className="tm-btn"
       onClick={onClick}
       style={{
         height: 34,
@@ -148,7 +152,9 @@ export function Chip2({
 export function GlassIconBtnSolid({ icon, onClick, title }: { icon: string; onClick?: () => void; title?: string }) {
   return (
     <button
+      className="tm-icon-btn"
       title={title}
+      aria-label={title}
       onClick={onClick}
       style={{
         width: 48,
@@ -186,6 +192,7 @@ export function Tabs({
         return (
           <button
             key={it.label}
+            className="tm-btn"
             onClick={() => onPick(i)}
             style={{
               flex: 1,
@@ -240,6 +247,7 @@ export function FilledField({
   };
   return (
     <div
+      className="tm-field"
       style={{
         background: 'var(--surface-container-high)',
         borderRadius: '12px 12px 0 0',

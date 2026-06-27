@@ -47,7 +47,7 @@ export function NavRail({
       {NAV_ITEMS.map((it) => {
         const sel = it.id === active;
         return (
-          <button
+          <button className="tm-icon-btn"
             key={it.id}
             title={it.label}
             onClick={() => onNav?.(it.id)}
@@ -93,7 +93,7 @@ export function NavRail({
         );
       })}
       <div style={{ flex: 1 }} />
-      <button onClick={onAccount} title="Account" style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer' }}>
+      <button className="tm-icon-btn" onClick={onAccount} title="Account" style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer' }}>
         {signedIn ? (
           <Cookie size={40} lobes={7} fill="var(--tertiary-container)">
             <span style={{ font: '700 15px/1 var(--font-sans)', color: 'var(--on-tertiary-container)' }}>{avatar}</span>

@@ -5,6 +5,7 @@ import { useSession } from '../api/auth';
 import { createShareLink, redeemLink, shareUrl } from '../api/sharing';
 import { useUiStore } from '../store/uiStore';
 import { usePaths } from '../store/pathsStore';
+import { useToast } from '../store/toast';
 import { searchPlaces, type PlaceHit } from '../api/places';
 import { parseCoord } from '../geo';
 import { MapSurface } from '../map-engine';
@@ -64,7 +65,7 @@ export function MapScreen() {
   const [ready, setReady] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PlaceHit[]>([]);
-  const [toast, setToast] = useState<string | null>(null);
+  const toast = useToast((s) => s.message);
   const [ctxMenu, setCtxMenu] = useState<ContextMenuTarget | null>(null);
   const [shareToken] = useState(() => new URLSearchParams(window.location.search).get('share'));
   const mapRef = useRef<TurboMap | null>(null);
@@ -96,10 +97,7 @@ export function MapScreen() {
     setResults([]);
   };
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    window.setTimeout(() => setToast((t) => (t === msg ? null : t)), 2600);
-  };
+  const showToast = (msg: string) => useToast.getState().show(msg);
 
   const shareResource = async (id: string) => {
     try {
@@ -171,6 +169,26 @@ export function MapScreen() {
     if (dark) root.setAttribute('data-theme', 'dark');
     else root.removeAttribute('data-theme');
   }, [dark]);
+
+  // Escape dismisses the topmost overlay: the point menu first, otherwise the
+  // open side panel (+ its tool state). Standard overlay convention.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (ctxMenu) {
+        setCtxMenu(null);
+        return;
+      }
+      if (activePanel === null && !useRouting.getState().active) return;
+      useRouting.getState().close();
+      useConditionsPanel.getState().close();
+      useSelection.getState().clear();
+      usePaths.getState().reset();
+      usePanelHost.getState().close();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ctxMenu, activePanel]);
 
   // Desktop: reserve the side panel's width as a right viewport inset so the
   // map renders/centres in the visible band left of the panel (the focus point
@@ -316,6 +334,7 @@ export function MapScreen() {
           usePaths.getState().openDetail(t.id);
           usePanelHost.getState().open('saved');
         },
+        onError: () => showToast('Couldn’t save the route. Sign in and try again.'),
       },
     );
   };
@@ -460,6 +479,7 @@ export function MapScreen() {
       {/* search results dropdown */}
       {results.length > 0 && query.trim().length >= 2 && (
         <div
+          className="tm-pop"
           style={{
             position: 'absolute',
             top: isMobile ? 58 : 62,
@@ -594,9 +614,11 @@ export function MapScreen() {
       {panelShown && (
         <div
           ref={sheetRef}
+          key={activePanel ?? 'panel'}
+          className={isMobile ? 'tm-panel-mobile' : 'tm-panel-desktop'}
           style={
             isMobile
-              ? { position: 'absolute', left: 8, right: 8, bottom: 8, height: dragH != null ? `${dragH}px` : DETENTS[detent], zIndex: 11 }
+              ? { position: 'absolute', left: 8, right: 8, bottom: 'calc(8px + env(safe-area-inset-bottom))', height: dragH != null ? `${dragH}px` : DETENTS[detent], zIndex: 11 }
               : { position: 'absolute', top: 16, right: 16, bottom: 16, width: 384, zIndex: 11 }
           }
         >
@@ -728,22 +750,20 @@ export function MapScreen() {
       )}
 
       {toast && (
-        <div
-          style={{
-            position: 'absolute',
-            bottom: 24,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 40,
-            background: 'var(--inverse-surface)',
-            color: 'var(--surface)',
-            padding: '12px 20px',
-            borderRadius: 9999,
-            font: '500 14px/1 var(--font-sans)',
-            boxShadow: 'var(--elevation-3)',
-          }}
-        >
-          {toast}
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 24, zIndex: 40, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+          <div
+            className="tm-toast"
+            style={{
+              background: 'var(--inverse-surface)',
+              color: 'var(--surface)',
+              padding: '12px 20px',
+              borderRadius: 9999,
+              font: '500 14px/1 var(--font-sans)',
+              boxShadow: 'var(--elevation-3)',
+            }}
+          >
+            {toast}
+          </div>
         </div>
       )}
 
