@@ -9,32 +9,52 @@ interface PendingTile {
   y: number;
 }
 
+/** Per-tile-kind concurrency lanes. The DEM ("terrain") server is much slower
+ *  than the imagery CDN (~1.5 s vs ~0.2 s/tile) and 3D needs the DEM for the
+ *  relief, so it gets its own lanes and isn't starved when the fast imagery
+ *  floods the queue. Different hosts → independent connection pools. */
+const LANES: Record<TileKind, number> = { terrain: 12, raster: 16, vector: 8, hillshade: 4 };
+
+/** Static tiles worth a read-through cache (immutable: elevation + topo). */
+const CACHEABLE = new Set<TileKind>(['terrain', 'raster']);
+const TILE_CACHE = 'turbo-tiles-v1';
+
 /** Drives the host side of the engine's host-driven tile IO: read
- *  `pending_tiles()`, fetch each missing tile via `fetch()`, and push the bytes
- *  back through the matching `ingest_*`. The browser analogue of the Kotlin
- *  `launchTileFetch` reconciler — concurrency-capped, dedup'd by in-flight key.
+ *  `pending_tiles()` (already globally ordered near/in-front first by the
+ *  engine), fetch each missing tile, and push the bytes back through the
+ *  matching `ingest_*`.
  *
- *  Stateless on disk for now (online-first); a Cache/IndexedDB read-through
- *  layer slots in here in the offline phase without touching the engine. */
+ *  Three behaviours make 3D loading feel responsive:
+ *  - **Preemption**: each pump, in-flight tiles the engine no longer wants
+ *    (e.g. after a zoom/pan) are ABORTED, freeing lanes for the new near tiles
+ *    instead of waiting behind stale far work.
+ *  - **Per-kind lanes**: the slow DEM gets a reserved budget so the fast
+ *    imagery can't starve it.
+ *  - **Cache read-through** (Cache API): immutable tiles (DEM/topo) are served
+ *    from cache on revisit — instant, and no repeat hits on the rate-limited
+ *    DEM server. */
 export class TileLoader {
-  private inflight = new Set<string>();
+  private inflight = new Map<string, { ctrl: AbortController; kind: TileKind }>();
+  private cache: Promise<Cache | null>;
   stored = 0;
   failed = 0;
 
   constructor(
     private readonly map: TurboMap,
     private templates: Templates,
-    private readonly maxConcurrent = 24,
-  ) {}
+  ) {
+    this.cache =
+      typeof caches !== 'undefined'
+        ? caches.open(TILE_CACHE).catch(() => null)
+        : Promise.resolve(null);
+  }
 
-  /** Swap the URL templates (e.g. on a base-layer change). Subsequent
-   *  `pending_tiles()` for `raster/basemap` then fetch the new source. */
   setTemplates(t: Templates): void {
     this.templates = t;
   }
 
-  /** Kick off fetches for tiles the engine wants and isn't already loading.
-   *  Cheap to call every frame — it no-ops once everything is in flight. */
+  /** Kick off fetches for tiles the engine wants and isn't already loading,
+   *  and cancel in-flight tiles it no longer wants. Cheap to call every frame. */
   pump(): void {
     let pending: PendingTile[];
     try {
@@ -42,42 +62,75 @@ export class TileLoader {
     } catch {
       return;
     }
+    const key = (t: PendingTile) => `${t.kind}/${t.layer}/${t.z}/${t.x}/${t.y}`;
+
+    // Preempt: abort in-flight tiles the engine no longer wants. After a zoom
+    // or pan the desired set changes; without this the lanes stay full of stale
+    // far tiles and the new near ones wait behind them.
+    const wanted = new Set(pending.map(key));
+    for (const [k, v] of this.inflight) {
+      if (!wanted.has(k)) {
+        v.ctrl.abort();
+        this.inflight.delete(k);
+      }
+    }
+
+    // Fill lanes per kind, in the engine's near/in-front-first order.
+    const used: Record<string, number> = {};
+    for (const [, v] of this.inflight) used[v.kind] = (used[v.kind] || 0) + 1;
     for (const t of pending) {
-      if (this.inflight.size >= this.maxConcurrent) break;
-      const key = `${t.kind}/${t.layer}/${t.z}/${t.x}/${t.y}`;
-      if (this.inflight.has(key)) continue;
+      const cap = LANES[t.kind] ?? 8;
+      if ((used[t.kind] || 0) >= cap) continue;
+      const k = key(t);
+      if (this.inflight.has(k)) continue;
       const template = this.templates[t.kind]?.[t.layer];
       if (!template) continue;
-      this.inflight.add(key);
-      void this.fetchOne(t, tileUrl(template, t.z, t.x, t.y), key);
+      const ctrl = new AbortController();
+      this.inflight.set(k, { ctrl, kind: t.kind });
+      used[t.kind] = (used[t.kind] || 0) + 1;
+      void this.fetchOne(t, tileUrl(template, t.z, t.x, t.y), k, ctrl.signal);
     }
   }
 
-  private async fetchOne(t: PendingTile, url: string, key: string): Promise<void> {
+  private ingest(t: PendingTile, bytes: Uint8Array): void {
+    switch (t.kind) {
+      case 'raster':
+      case 'hillshade':
+        this.map.ingest_raster_tile(t.layer, t.z, t.x, t.y, bytes);
+        break;
+      case 'terrain':
+        this.map.ingest_terrain_tile(t.z, t.x, t.y, bytes);
+        break;
+      case 'vector':
+        this.map.ingest_vector_tile(t.layer, t.z, t.x, t.y, bytes);
+        break;
+    }
+    this.stored++;
+  }
+
+  private async fetchOne(t: PendingTile, url: string, key: string, signal: AbortSignal): Promise<void> {
+    const cacheable = CACHEABLE.has(t.kind);
     try {
-      const res = await fetch(url);
-      // 204/404 = the server has no tile here (e.g. ocean, out of coverage).
-      // That's "absent", not a failure — leave it; don't retry-storm.
+      const cache = cacheable ? await this.cache : null;
+      // Cache-first for immutable tiles → instant on revisit, no DEM 429s.
+      if (cache) {
+        const hit = await cache.match(url);
+        if (hit) {
+          this.ingest(t, new Uint8Array(await hit.arrayBuffer()));
+          return;
+        }
+      }
+      const res = await fetch(url, { signal });
+      // 204/404 = no tile here (ocean, out of coverage). Absent, not a failure.
       if (!res.ok) {
         this.failed++;
         return;
       }
-      const bytes = new Uint8Array(await res.arrayBuffer());
-      switch (t.kind) {
-        case 'raster':
-        case 'hillshade':
-          this.map.ingest_raster_tile(t.layer, t.z, t.x, t.y, bytes);
-          break;
-        case 'terrain':
-          this.map.ingest_terrain_tile(t.z, t.x, t.y, bytes);
-          break;
-        case 'vector':
-          this.map.ingest_vector_tile(t.layer, t.z, t.x, t.y, bytes);
-          break;
-      }
-      this.stored++;
-    } catch {
-      this.failed++;
+      if (cache) void cache.put(url, res.clone()).catch(() => {});
+      this.ingest(t, new Uint8Array(await res.arrayBuffer()));
+    } catch (e) {
+      // Aborted (preempted) fetches are expected, not failures.
+      if (!(e instanceof DOMException && e.name === 'AbortError')) this.failed++;
     } finally {
       this.inflight.delete(key);
     }

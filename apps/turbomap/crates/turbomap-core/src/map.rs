@@ -1039,13 +1039,19 @@ impl Map {
             halo,
             options.encoding,
         );
-        let scene = Scene::with_margin(
+        let mut scene = Scene::with_margin(
             self.cam.camera,
             self.viewport_px,
             source.min_zoom(),
             source.max_zoom(),
             self.options.prefetch_margin_px,
         );
+        // Coarsen the DEM LOD relative to the imagery: relief geometry reads
+        // fine at a larger on-screen tile target, and the DEM tile server is the
+        // slow one — a coarser target cuts the per-view DEM request count
+        // (~1.5× target ⇒ roughly half the DEM tiles) so near relief streams in
+        // far sooner. Imagery keeps the sharp default.
+        scene.set_sse_target_px(crate::scene::TERRAIN_LOD_SSE_TARGET_PX);
         self.terrain = Some(Terrain::new(source, cache, scene, options));
     }
 
@@ -1743,23 +1749,26 @@ impl Map {
     /// layer id so the host can route `ingest_raster`/`ingest_vector_mesh`
     /// back correctly.
     pub fn pending_tiles(&self) -> Vec<PendingTile> {
-        let mut out = Vec::new();
+        // Merge EVERY layer's pending tiles into one list tagged with its
+        // streaming tier + distance-to-eye, then sort GLOBALLY. Per-layer the
+        // lists were already (tier, distance)-ordered, but emitting them
+        // layer-by-layer meant the host fetched every tile of one source (the
+        // fast imagery) before any of the next (the slow DEM the 3D relief
+        // needs) — so near relief loaded last. A global sort interleaves them:
+        // the Overview floor first (anti-flicker), then the nearest, in-front
+        // tile of ANY layer first. (The desktop host already re-sorted like
+        // this; now the engine does it for every host.)
+        let mut tagged: Vec<(PendingTile, crate::scene::TileTier, f32)> = Vec::new();
         for l in self.layers.iter() {
             match l {
                 LayerEntry::Raster(r) if r.visible => {
-                    for tile in r.scene.pending_tiles() {
-                        out.push(PendingTile::Raster {
-                            layer_id: r.id.clone(),
-                            tile,
-                        });
+                    for (tile, tier, d) in r.scene.pending_prioritized() {
+                        tagged.push((PendingTile::Raster { layer_id: r.id.clone(), tile }, tier, d));
                     }
                 }
                 LayerEntry::Vector(v) if v.visible => {
-                    for tile in v.scene.pending_tiles() {
-                        out.push(PendingTile::Vector {
-                            layer_id: v.id.clone(),
-                            tile,
-                        });
+                    for (tile, tier, d) in v.scene.pending_prioritized() {
+                        tagged.push((PendingTile::Vector { layer_id: v.id.clone(), tile }, tier, d));
                     }
                 }
                 // Hillshade no longer fetches its own DEM tiles —
@@ -1769,11 +1778,15 @@ impl Map {
             }
         }
         if let Some(t) = self.terrain.as_ref() {
-            for tile in t.scene.pending_tiles() {
-                out.push(PendingTile::Terrain { tile });
+            for (tile, tier, d) in t.scene.pending_prioritized() {
+                tagged.push((PendingTile::Terrain { tile }, tier, d));
             }
         }
-        out
+        tagged.sort_by(|(_, ta, da), (_, tb, db)| {
+            ta.cmp(tb)
+                .then(da.partial_cmp(db).unwrap_or(std::cmp::Ordering::Equal))
+        });
+        tagged.into_iter().map(|(p, _, _)| p).collect()
     }
 
     fn first_visible_layer_index(&self) -> Option<usize> {

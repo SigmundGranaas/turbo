@@ -40,6 +40,13 @@ const LOD_PITCH_DEG: f64 = 1.0;
 /// Tunable on device (Phase 5).
 const LOD_SSE_TARGET_PX: f64 = 320.0;
 
+/// Coarser LOD target for the DEM/terrain scene (imagery keeps the 320 px
+/// default). Relief geometry reads fine at a larger on-screen tile, and the DEM
+/// server is the slow one — ~1.5× the target roughly halves the DEM tiles per
+/// 3D view, so near relief streams in far sooner. Tune for the relief/cost
+/// trade (lower = sharper relief + more slow DEM requests).
+pub const TERRAIN_LOD_SSE_TARGET_PX: f64 = 480.0;
+
 /// Where a tile sits in the core's streaming lifecycle, *relative to the
 /// current camera*. The core owns this wanted↔resident classification; the
 /// host owns fetch *transport* (in-flight HTTP, decode queue, backoff), which a
@@ -119,6 +126,11 @@ pub struct Scene {
     /// because the callers hold `&Scene`. Always fresh: a moved camera changes
     /// the key, so the next query misses and recomputes (no explicit invalidation).
     visible_memo: RefCell<Option<(VisibleKey, Vec<TileId>)>>,
+    /// Target on-screen tile edge (px) the 3D LOD refines toward. Larger =
+    /// coarser = FEWER tiles requested. Defaults to [`LOD_SSE_TARGET_PX`]; the
+    /// DEM/terrain scene runs a coarser target than the imagery (relief geometry
+    /// needs less resolution than texture, and the DEM tile server is slow).
+    sse_target_px: f64,
 }
 
 impl Scene {
@@ -142,11 +154,19 @@ impl Scene {
             prefetch_margin_px,
             animation: None,
             visible_memo: RefCell::new(None),
+            sse_target_px: LOD_SSE_TARGET_PX,
         }
     }
 
     pub fn camera(&self) -> Camera {
         self.camera
+    }
+
+    /// Coarsen (or sharpen) the 3D LOD: the target on-screen tile edge in px.
+    /// Larger ⇒ fewer, coarser tiles. The terrain/DEM scene sets this above the
+    /// imagery default so the slow DEM requests far fewer tiles per view.
+    pub fn set_sse_target_px(&mut self, px: f64) {
+        self.sse_target_px = px.max(1.0);
     }
 
     /// Snap directly to `camera`. Cancels any in-flight animation — direct
@@ -249,7 +269,7 @@ impl Scene {
     /// to plain tile ids. The coarse far leaves double as the overview backdrop.
     fn lod_tiles(&self) -> Vec<TileId> {
         let vp = (self.viewport_px.0 as f64, self.viewport_px.1 as f64);
-        crate::lod::select(&self.camera, vp, self.min_zoom, self.max_zoom, LOD_SSE_TARGET_PX)
+        crate::lod::select(&self.camera, vp, self.min_zoom, self.max_zoom, self.sse_target_px)
             .into_iter()
             .map(|t| t.id)
             .collect()
@@ -381,6 +401,25 @@ impl Scene {
             })
         });
         pend.into_iter().map(|(t, _)| t).collect()
+    }
+
+    /// Pending (not-yet-ingested) desired tiles tagged with their streaming
+    /// [`TileTier`] and a priority distance: the squared horizontal distance
+    /// from the tile centre to the camera EYE (not the look-at centre), so the
+    /// tiles CLOSEST TO / IN FRONT OF the viewer sort first. Unsorted here — the
+    /// host ([`crate::map::Map::pending_tiles`]) merges this across ALL layers
+    /// and sorts once by `(tier, distance)`, so the nearest in-front tile of any
+    /// layer (e.g. the slow DEM the 3D relief needs) leads — instead of every
+    /// tile of one layer before any of the next.
+    pub fn pending_prioritized(&self) -> Vec<(TileId, TileTier, f32)> {
+        let centre = self.camera.center.to_world();
+        let eye_off = self.camera.eye_offset_world(self.viewport_px);
+        let eye = WorldPoint::new(centre.x + eye_off[0] as f64, centre.y + eye_off[1] as f64);
+        self.desired_tagged()
+            .into_iter()
+            .filter(|(t, _)| !self.ingested.contains(t))
+            .map(|(t, tier)| (t, tier, tile_centre_sq_distance(t, eye) as f32))
+            .collect()
     }
 
     /// Mark a tile as available to the renderer.
