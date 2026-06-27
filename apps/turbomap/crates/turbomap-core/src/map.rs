@@ -1641,8 +1641,18 @@ impl Map {
         let ppw = self.cam.camera.pixels_per_world_unit().max(1e-9);
         let min_step = (1.0 / ppw) as f32; // ~1 px floor so it never stalls
         let mut s = 0.0f32;
-        for _ in 0..96 {
-            let advance = (g0 / dz * 0.8).max(min_step);
+        for _ in 0..512 {
+            // Cone-bounded sphere trace. The bare `gap/dz` stride is only safe if
+            // the surface can't rise faster than the ray descends — FALSE for a
+            // mountain rising toward the camera: over the low ground in front of a
+            // peak the gap is huge, so an unbounded stride leaps clean over the
+            // near face and the trace then "hits" the valley/terrain BEHIND it.
+            // Cap each stride to ~3% of the distance already travelled (a cone
+            // march): tiny near the camera so a near ridge is sampled, growing
+            // with distance so the horizon is still reached in a bounded step
+            // count. This is what makes a click land on the FIRST surface.
+            let cap = (s * 0.03).max(min_step);
+            let advance = (g0 / dz * 0.8).clamp(min_step, cap);
             let s_next = s + advance;
             let g = gap(s_next);
             if g <= 0.0 {

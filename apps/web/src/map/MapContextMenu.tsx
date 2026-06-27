@@ -61,24 +61,17 @@ export function MapContextMenu({
   const coordLabel = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   const placeLabel = nameQ.data || coordLabel;
 
-  // Dismiss on outside pointer-down (which also covers a map pan starting) + Esc.
+  // Dismiss on Escape only. A click on the MAP is handled by the host's tap
+  // handler (first click closes the open popup, never opens a new one) — having
+  // the menu ALSO self-close on outside-pointerdown raced that: pointerdown
+  // nulled the menu, then the tap-on-release saw nothing open and opened a fresh
+  // one. So outside-click dismissal lives in one place (the host), not here.
   useEffect(() => {
-    const onDoc = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    // defer so the opening press itself doesn't immediately close it
-    const t = setTimeout(() => {
-      document.addEventListener('pointerdown', onDoc, true);
-      document.addEventListener('keydown', onKey);
-    }, 0);
-    return () => {
-      clearTimeout(t);
-      document.removeEventListener('pointerdown', onDoc, true);
-      document.removeEventListener('keydown', onKey);
-    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
   const act = (fn: () => void) => () => {

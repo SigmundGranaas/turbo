@@ -69,6 +69,14 @@ export function MapScreen() {
   const [ctxMenu, setCtxMenu] = useState<ContextMenuTarget | null>(null);
   const [shareToken] = useState(() => new URLSearchParams(window.location.search).get('share'));
   const mapRef = useRef<TurboMap | null>(null);
+  // Initial camera: restore the last saved pose so a reload returns to the same
+  // view (lat/lng/zoom seed `create`; pitch/bearing applied in onReady). Read
+  // once at mount; `undefined` (first-ever load) → MapSurface's default, then
+  // onReady flies to the user's location.
+  const [initialCamera] = useState(() => {
+    const c = useUiStore.getState().camera;
+    return c ? { lat: c.lat, lng: c.lng, zoom: c.zoom } : undefined;
+  });
 
   // Search: debounced place-name lookup (tileserver anchors) + "lat, lng"
   // coordinate parse. Results render in a dropdown under the search field;
@@ -203,7 +211,9 @@ export function MapScreen() {
   useEffect(() => {
     const m = mapRef.current;
     if (!m) return;
-    m.set_viewport_inset_right(!isMobile && panelShown ? 400 : 0);
+    // Panel is width 384 at right:84 → reserve 84+384 so the focus centres in
+    // the visible band left of the panel.
+    m.set_viewport_inset_right(!isMobile && panelShown ? 468 : 0);
   }, [panelShown, isMobile]);
 
   // Redeem a ?share=<token> link on open. Requires sign-in (the grant is
@@ -254,6 +264,45 @@ export function MapScreen() {
   const onReady = useCallback((m: TurboMap) => {
     mapRef.current = m;
     setReady(true);
+    const saved = useUiStore.getState().camera;
+    if (saved) {
+      // Restore the full pose — `create` only used lat/lng/zoom. If it was a 3D
+      // view, flip threeD on so the terrain scene loads to match the pitch.
+      m.set_camera(saved.lat, saved.lng, saved.zoom, saved.pitch, saved.bearing);
+      if (saved.pitch > 0 && !useUiStore.getState().threeD) useUiStore.getState().setThreeD(true);
+    } else if ('geolocation' in navigator) {
+      // First-ever load: ease to the user's location (stays at the default if
+      // permission is denied / unavailable).
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          m.ease_to(pos.coords.latitude, pos.coords.longitude, 14, 0, 1000);
+          useUiStore.getState().setFollowing(true);
+        },
+        () => {},
+        { enableHighAccuracy: true, timeout: 8000 },
+      );
+    }
+  }, []);
+
+  // Persist the camera so a reload restores the view (throttled poll + on tab
+  // hide). Reads the live engine pose; only writes when the map exists.
+  useEffect(() => {
+    const save = () => {
+      const m = mapRef.current;
+      if (!m) return;
+      try {
+        const c = JSON.parse(m.camera_json()) as Cam;
+        useUiStore.getState().setCamera({ lat: c.lat, lng: c.lng, zoom: c.zoom, bearing: c.bearing, pitch: c.pitch });
+      } catch {
+        /* ignore */
+      }
+    };
+    const id = setInterval(save, 1500);
+    window.addEventListener('pagehide', save);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('pagehide', save);
+    };
   }, []);
 
   const cam = (): Cam | null => {
@@ -407,7 +456,13 @@ export function MapScreen() {
       return;
     }
     if (pointerType === 'mouse') {
-      dismissPanels();
+      // First click on the map closes whatever popup/panel is open — and opens
+      // nothing. Only when nothing is open does a click open the point menu.
+      if (ctxMenu || usePanelHost.getState().active) {
+        setCtxMenu(null);
+        dismissPanels();
+        return;
+      }
       openContextMenu(x, y);
       return;
     }
@@ -458,11 +513,11 @@ export function MapScreen() {
       <MapSurface
         base={base}
         threeD={threeD}
+        camera={initialCamera}
         onReady={onReady}
         onEnter3d={() => useUiStore.getState().setThreeD(true)}
         onTap={onMapTap}
         onLongPress={onMapLongPress}
-        onOrbit={(a) => useMapPoints.getState().setOrbit(a)}
       />
       <RouteController />
       <MapPointMarkers />
@@ -551,10 +606,10 @@ export function MapScreen() {
       <div
         style={{
           position: 'absolute',
-          // On desktop, slide left of the side panel when one is open so the
-          // controls stay tappable instead of hiding behind it (panel is 384 +
-          // 16 right inset). Mobile hides the cluster under a sheet instead.
-          right: !isMobile && panelShown ? 412 : 16,
+          // Action buttons stay pinned to the right edge; the side panel sits to
+          // their LEFT (panel right:84), so they never overlap. Mobile hides the
+          // cluster under a sheet instead.
+          right: 16,
           // lift above the mobile bottom nav so the zoom buttons aren't covered
           bottom: isMobile ? 80 : 16,
           zIndex: 10,
@@ -645,7 +700,7 @@ export function MapScreen() {
           style={
             isMobile
               ? { position: 'absolute', left: 8, right: 8, bottom: 'calc(8px + env(safe-area-inset-bottom))', height: dragH != null ? `${dragH}px` : DETENTS[detent], zIndex: 11 }
-              : { position: 'absolute', top: 16, right: 16, bottom: 16, width: 384, zIndex: 11 }
+              : { position: 'absolute', top: 16, right: 84, bottom: 16, width: 384, zIndex: 11 }
           }
         >
           {isMobile && (

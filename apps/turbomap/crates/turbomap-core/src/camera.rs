@@ -812,9 +812,17 @@ impl Camera {
         // is pixel-equivalent.
         if self.pitch_deg == 0.0 && self.bearing_deg == 0.0 {
             let ppw = self.pixels_per_world_unit();
+            // Invert the SAME inset-shifted projection `pixel_to_world` uses — the
+            // principal point is offset by inset/2 when a panel reserves viewport
+            // edge. Omitting the inset terms here left a residual `inset/2 / ppw`
+            // that changes every zoom step (ppw changes with zoom) → the centre
+            // drifts horizontally on each wheel tick while a side panel is open
+            // (the "zoom pans sideways at the speed of light" bug).
             self.center = WorldPoint::new(
-                focus_world_before.x - (focus_px.0 - viewport_px.0 * 0.5) / ppw,
-                focus_world_before.y - (focus_px.1 - viewport_px.1 * 0.5) / ppw,
+                focus_world_before.x
+                    - (focus_px.0 - viewport_px.0 * 0.5 + self.viewport_inset_right_px * 0.5) / ppw,
+                focus_world_before.y
+                    - (focus_px.1 - viewport_px.1 * 0.5 + self.viewport_inset_px * 0.5) / ppw,
             )
             .to_lat_lng();
         } else {
@@ -1064,6 +1072,7 @@ mod tests {
             pitch_deg: f64::NAN,
             bearing_deg: f64::NEG_INFINITY,
             viewport_inset_px: f64::NAN,
+            viewport_inset_right_px: f64::INFINITY,
             zoom_bounds: ZoomBounds::DEFAULT,
         };
         let c = bad.sanitized();
@@ -1107,6 +1116,7 @@ mod tests {
                 pitch_deg: f64::from_bits(next()),
                 bearing_deg: f64::from_bits(next()),
                 viewport_inset_px: f64::from_bits(next()),
+                viewport_inset_right_px: f64::from_bits(next()),
                 zoom_bounds: ZoomBounds::DEFAULT,
             }
             .sanitized();
