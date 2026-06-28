@@ -233,77 +233,76 @@ impl RenderFrame {
     }
 }
 
-/// Max strength of the far-distance atmospheric coloration, gated by PITCH.
-///
-/// The shader keys the effect on HORIZONTAL distance from the camera centre
-/// (onset ~50 km), so ground near/below the camera is never coloured regardless
-/// of zoom. This gate adds the "only when gazing toward the horizon" rule: it's
-/// 0 when looking down (you're inspecting the ground, not the far distance) and
-/// ramps to `HAZE_MAX` as the camera tilts up toward the horizon. The value is
-/// the uniform `haze_density` the shader multiplies the distance term by; 0
-/// turns the whole effect off (top-down / 2D).
+/// 0..1 gate for the aerial-perspective effect, fed to the shader as
+/// `haze_density`. The real strength + distance/altitude falloff is the
+/// optical-depth integral in the shader (`apply_aerial`); this only fades the
+/// effect out on the near-flat 2D map (no 3D depth to colour). The physics
+/// alone already keeps near/down sightlines clear (short path through thin air),
+/// so this is a soft 2D→3D fade, not a strength knob.
 fn aerial_haze_density(pitch_deg: f64) -> f32 {
-    // Coloured, not fogged: a low cap so distant ridges take the sky's hue
-    // without being erased.
-    const HAZE_MAX: f32 = 0.55;
-    // Off below 30° (looking down), full by ~62° (gazing to the horizon).
-    let t = (((pitch_deg - 30.0) / 32.0) as f32).clamp(0.0, 1.0);
-    let gate = t * t * (3.0 - 2.0 * t); // smoothstep
-    HAZE_MAX * gate
+    let t = (((pitch_deg - 2.0) / 12.0) as f32).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t) // smoothstep: 0 at ≤2°, 1 by ~14°
 }
 
 #[cfg(test)]
 mod tests {
-    //! Atmospheric-coloration invariants. The shader keys the effect on
-    //! HORIZONTAL distance from the camera centre (onset ~50 km), so these test
-    //! the CPU PITCH gate (`aerial_haze_density`) and reproduce the shader's
-    //! distance ramp to assert: looking down → none; near/below the camera →
-    //! none at any zoom; only the far (≥~50 km) field, when gazing toward the
-    //! horizon, takes a (capped, never-whiteout) amount. Colour can't be judged
-    //! headlessly (see `turbomap-harness-pale-basemap`).
+    //! Aerial-perspective invariants. The look is the OPTICAL-DEPTH integral in
+    //! the shader; here we (a) test the CPU 2D→3D gate and (b) reproduce the
+    //! shader's optical-depth math to assert the PHYSICS: haze stacks along a
+    //! long low-altitude sightline, a short/down look stays clear, and a higher
+    //! (thinner-air) eye hazes less than a low one for the same far target.
+    //! Colour can't be judged headlessly (see `turbomap-harness-pale-basemap`).
 
     use super::aerial_haze_density;
 
-    // Mirror of the shader's `apply_aerial` distance ramp (metres).
-    const HAZE_ONSET_M: f32 = 45_000.0;
-    const HAZE_RANGE_M: f32 = 120_000.0;
-    fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
-        let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
-        t * t * (3.0 - 2.0 * t)
+    #[test]
+    fn gate_off_in_2d_and_on_in_3d() {
+        assert_eq!(aerial_haze_density(0.0), 0.0, "flat 2D map carries no haze");
+        assert_eq!(aerial_haze_density(2.0), 0.0, "≤2° still flat");
+        assert!(aerial_haze_density(8.0) > 0.0 && aerial_haze_density(8.0) < 1.0, "fades in");
+        assert!((aerial_haze_density(20.0) - 1.0).abs() < 1e-6, "full once tilted into 3D");
     }
-    /// Final coloration amount the shader applies at `horiz_m` metres outward,
-    /// for a camera at `pitch_deg`.
-    fn amount(horiz_m: f32, pitch_deg: f64) -> f32 {
-        let strength = aerial_haze_density(pitch_deg);
-        smoothstep(HAZE_ONSET_M, HAZE_ONSET_M + HAZE_RANGE_M, horiz_m) * strength
+
+    // --- Mirror of the shader's `apply_aerial` optical depth (metres) ---------
+    const SCALE_H_M: f32 = 8000.0;
+    const BETA_PER_M: f32 = 8.0e-6;
+    /// Haze fraction for an eye at altitude `z_eye_m` looking at a fragment at
+    /// altitude `z_frag_m`, `l_m` metres away along the sightline.
+    fn haze(z_eye_m: f32, z_frag_m: f32, l_m: f32) -> f32 {
+        let dz = z_frag_m - z_eye_m;
+        let column = if dz.abs() < 1e-6 {
+            l_m * (-z_eye_m / SCALE_H_M).exp()
+        } else {
+            l_m * SCALE_H_M * ((-z_eye_m / SCALE_H_M).exp() - (-z_frag_m / SCALE_H_M).exp()) / dz
+        };
+        1.0 - (-(BETA_PER_M * column.max(0.0))).exp()
     }
 
     #[test]
-    fn no_coloration_when_looking_down() {
-        // Top-down / shallow tilt: the pitch gate is fully closed, so even the
-        // far field carries nothing — you're inspecting the ground, not the sky.
-        for pitch in [0.0_f64, 15.0, 30.0] {
-            assert_eq!(aerial_haze_density(pitch), 0.0, "gate must be shut at {pitch}°");
-            assert_eq!(amount(200_000.0, pitch), 0.0, "no coloration at {pitch}° even 200 km out");
-        }
+    fn haze_stacks_along_a_low_horizontal_sightline() {
+        // Hiker-altitude eye looking across at the same height: haze grows with
+        // distance (the "stacks when looking over at the same low height" case).
+        let near = haze(300.0, 300.0, 5_000.0);
+        let mid = haze(300.0, 300.0, 30_000.0);
+        let far = haze(300.0, 300.0, 80_000.0);
+        assert!(near < 0.10, "5 km is fairly clear (got {near:.3})");
+        assert!(mid > near && far > mid, "haze accumulates with distance");
+        assert!(far > 0.30, "80 km across low air reads clearly hazy (got {far:.3})");
     }
 
     #[test]
-    fn near_and_mid_field_never_coloured_even_gazing_to_horizon() {
-        // At a strong horizon-gazing tilt, ground near/below the camera and out
-        // to tens of km stays fully crisp — the onset is ~50 km.
-        for horiz_m in [0.0_f32, 5_000.0, 30_000.0, 45_000.0] {
-            assert_eq!(amount(horiz_m, 75.0), 0.0, "{horiz_m} m out must stay crisp (onset 50 km)");
-        }
+    fn short_downward_look_stays_clear() {
+        // Eye 1.5 km up looking ~straight down at near ground: short path → clear.
+        assert!(haze(1_500.0, 0.0, 1_600.0) < 0.05, "looking down is near-crisp");
     }
 
     #[test]
-    fn far_field_takes_a_capped_coloration_only_at_high_pitch() {
-        // Beyond the onset, gazing to the horizon, the far field is coloured —
-        // but capped well below 1 (coloration, not a whiteout) and monotonic.
-        let near = amount(60_000.0, 75.0);
-        let far = amount(120_000.0, 75.0);
-        assert!(far > near && near > 0.0, "coloration grows past 50 km ({near:.3} → {far:.3})");
-        assert!(far <= 0.55 + 1e-6, "capped at HAZE_MAX, never a full whiteout (got {far:.3})");
+    fn higher_thinner_air_eye_hazes_less_for_same_far_target() {
+        // Same far ground point; a high-altitude eye sees it through more thin
+        // air (and the dense layer is a smaller fraction of the path) → less haze
+        // than a low-altitude eye. This is why zoomed-out top-down stops washing.
+        let low_eye = haze(500.0, 0.0, 60_000.0);
+        let high_eye = haze(40_000.0, 0.0, 70_000.0);
+        assert!(high_eye < low_eye, "thin-air eye hazes less ({high_eye:.3} < {low_eye:.3})");
     }
 }
