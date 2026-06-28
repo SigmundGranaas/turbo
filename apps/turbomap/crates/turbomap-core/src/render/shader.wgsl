@@ -369,48 +369,41 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     return out;
 }
 
-// Physically-based aerial perspective: the OPTICAL DEPTH along the eye→fragment
-// sightline through an exponential atmosphere (air density ρ ∝ e^(−h/H), scale
-// height H). Haze = 1 − e^(−τ), τ = β·∫ρ ds along the ray. This is the real
-// phenomenon, NOT a radial mask:
-//   • A long, near-horizontal sightline at LOW altitude crosses a thick column
-//     of dense air → haze stacks with distance (distant ridges dissolve).
-//   • A short look straight down, or a view from high altitude through thin air,
-//     accumulates little → near/below ground and zoomed-out top-down stay clear.
-// `globals.haze_density` is a 0..1 gate that only fades the effect out on the
-// near-flat 2D map. `globals.haze_color` is a bluish sky tint (warming toward a
-// low sun via the glow term + the atmosphere model).
-const ATMOS_SCALE_H_M: f32 = 8000.0;    // atmospheric scale height (~8 km)
-const ATMOS_BETA_PER_M: f32 = 8.0e-6;   // sea-level extinction coefficient, per metre
+// Zoom-RELATIVE aerial perspective (a 3D-map depth cue), NOT absolute physics:
+// the camera "altitude" is a zoom artifact, not a real position, so absolute
+// optical depth draws a nadir circle and tints the foreground. Instead the
+// fragment depth = eye->fragment distance NORMALISED by the camera altitude, so
+// it is zoom-INVARIANT ("distant" scales with how far out you are). Properties:
+//   * The foreground you are looking at (depth < HAZE_START) is ALWAYS crisp --
+//     close objects never pick up colour, at any zoom.
+//   * Only the far field (depth >> the look distance) takes the sky's colour.
+//   * globals.haze_density is the PITCH gate: 0 looking down / top-down (no haze,
+//     no nadir circle), ramping in only when gazing toward the horizon.
+// globals.haze_color is a bluish sky tint, warming toward a low sun.
+//
+// Depth t is in units of camera altitude: t~1 is one altitude away (~ the
+// look-at point when tilted), the foreground is t<1, the far field t>>1.
+const HAZE_START: f32 = 2.5;   // below this (x altitude) -> fully crisp
+const HAZE_END: f32 = 14.0;    // by this -> full coloration
+const HAZE_MAX: f32 = 0.7;     // cap (coloration, never a whiteout)
 fn apply_aerial(rgb: vec3<f32>, world_xy: vec2<f32>, world_z: f32) -> vec3<f32> {
-    let gate = globals.haze_density;          // 0..1, fades the effect out in 2D
+    let gate = globals.haze_density;              // pitch gate (0 looking down / 2D)
     if (gate <= 0.0) {
         return rgb;
     }
-    let m2w = max(globals.meters_to_world, 1.0e-12);
-    let h = ATMOS_SCALE_H_M * m2w;            // scale height in world-z units
-    let z_eye = globals.eye_world.z;          // eye altitude above sea (world units)
-    let z_frag = world_z;                     // fragment (terrain) altitude
-    let l = length(vec3<f32>(world_xy, world_z) - globals.eye_world); // sightline length
-    // Air column along the ray = ∫ e^(−z/H) ds. Altitude is linear in s, so
-    //   ∫₀ᴸ e^(−z(s)/H) ds = L·H·(e^(−z_eye/H) − e^(−z_frag/H)) / (z_frag − z_eye)
-    // (→ L·e^(−z/H) for a horizontal ray). Result in world-length units.
-    let dz = z_frag - z_eye;
-    var column: f32;
-    if (abs(dz) < 1.0e-9) {
-        column = l * exp(-z_eye / h);
-    } else {
-        column = l * h * (exp(-z_eye / h) - exp(-z_frag / h)) / dz;
+    let alt = max(globals.eye_world.z, 1.0e-9);   // camera altitude (world units)
+    let l = length(vec3<f32>(world_xy, world_z) - globals.eye_world);
+    let t = l / alt;                              // relative depth (zoom-invariant)
+    let amt = gate * smoothstep(HAZE_START, HAZE_END, t) * HAZE_MAX;
+    if (amt <= 0.0) {
+        return rgb;
     }
-    // τ = β[/m] · column[m]; column is world-length → /m2w to metres.
-    let tau = (ATMOS_BETA_PER_M / m2w) * max(column, 0.0) * gate;
-    let haze = 1.0 - exp(-tau);
     let low_sun = 1.0 - smoothstep(0.10, 0.45, globals.sun_dir.z);
     let view_dir = normalize(world_xy - globals.eye_world.xy);
     let sun_align = dot(view_dir, normalize(globals.sun_dir.xy + vec2<f32>(1.0e-6)));
     let glow = pow(max(sun_align, 0.0), 4.0) * low_sun;
     let tint = mix(globals.haze_color, globals.light_color, glow * 0.6);
-    return mix(rgb, tint, min(haze, 0.88));
+    return mix(rgb, tint, amt);
 }
 
 @fragment
