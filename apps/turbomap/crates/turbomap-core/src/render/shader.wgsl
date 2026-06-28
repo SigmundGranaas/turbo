@@ -360,35 +360,49 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
         out.ao = 1.0;
     }
 
-    // Aerial perspective: extinction over the TRUE distance from the camera
-    // eye to this vertex (both in the relative-to-centre frame). Using the
-    // eye — not the look-at point — keeps the near ground clear at grazing
-    // pitch instead of washing the whole frame to the horizon colour.
-    // `haze_density` is a per-world-unit coefficient (physical per-metre,
-    // converted CPU-side) gated by a pitch ramp, so it's 0 on the flat 2D map.
-    let dist = length(vec3<f32>(world, world_z) - globals.eye_world);
-    out.haze = 1.0 - exp(-dist * globals.haze_density);
+    // Atmospheric distance coloration is computed per-fragment from the
+    // horizontal distance (`world_xy`) — see `apply_aerial`. `out.haze` is unused
+    // now; kept at 0 so the varying layout is unchanged.
+    out.haze = 0.0;
     out.world_xy = world;
     out.world_z = world_z;
     return out;
 }
 
-// Aerial perspective (distance haze): fade `rgb` toward the atmosphere colour
-// by the per-vertex `haze_amt` (= `1 - exp(-eye_dist·density)`). Physically the
-// in-scattered air light grows with distance; the tint glows WARM toward a low
-// sun (forward in-scatter) and stays cool away from it. Squaring keeps the NEAR
-// field crisp (the density is km-scaled, so near ground already has a tiny
-// haze_amt; squaring drops it further) while the far field saturates (capped
-// below 1 so the horizon never fully whites out). Applied in 3D regardless of
-// sun-shadow mode — atmosphere is always present.
-fn apply_aerial(rgb: vec3<f32>, haze_amt: f32, world_xy: vec2<f32>) -> vec3<f32> {
+// Atmospheric coloration of FAR terrain (aerial perspective). Keyed on the
+// HORIZONTAL distance from the camera centre — `world_xy` is camera-relative, so
+// `length(world_xy)` is the ground distance outward from the point under the
+// view, in world units. Eye height / zoom distance has NO effect: ground near or
+// below the camera is always at ~0 horizontal distance → crisp. Only terrain far
+// out toward the horizon (onset ~50 km) takes on the sky's colour, and only a
+// gentle amount — this COLOURS the distance, it doesn't fog it out.
+//
+// `globals.haze_density` carries the CPU-side pitch gate × max strength (0 when
+// looking down / 2D), so the whole effect is off unless the camera is gazing
+// toward the horizon. `globals.haze_color` is fed a bluish sky tint CPU-side; it
+// glows warm toward a low sun (forward in-scatter).
+// A LONG, gentle ramp so the coloration eases in rather than appearing as a
+// band: just perceptible by ~50 km, building over the next ~120 km. (smoothstep
+// has zero slope at both ends, so the onset is soft, not a hard edge.)
+const HAZE_ONSET_M: f32 = 45000.0;   // ramp foot (barely perceptible)
+const HAZE_RANGE_M: f32 = 120000.0;  // builds to full over the next ~120 km
+fn apply_aerial(rgb: vec3<f32>, world_xy: vec2<f32>) -> vec3<f32> {
+    let strength = globals.haze_density;
+    if (strength <= 0.0) {
+        return rgb;
+    }
+    let horiz_m = length(world_xy) / max(globals.meters_to_world, 1.0e-12);
+    let dist_t = smoothstep(HAZE_ONSET_M, HAZE_ONSET_M + HAZE_RANGE_M, horiz_m);
+    let amt = dist_t * strength;
+    if (amt <= 0.0) {
+        return rgb;
+    }
     let low_sun = 1.0 - smoothstep(0.10, 0.45, globals.sun_dir.z);
     let view_dir = normalize(world_xy - globals.eye_world.xy);
     let sun_align = dot(view_dir, normalize(globals.sun_dir.xy + vec2<f32>(1.0e-6)));
     let glow = pow(max(sun_align, 0.0), 4.0) * low_sun;
-    let haze_tint = mix(globals.haze_color, globals.light_color, glow * 0.7);
-    let aerial = min(haze_amt * haze_amt, 0.82);
-    return mix(rgb, haze_tint, aerial);
+    let tint = mix(globals.haze_color, globals.light_color, glow * 0.6);
+    return mix(rgb, tint, amt);
 }
 
 @fragment
@@ -400,10 +414,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // gated — it's an always-on depth cue in 3D. `in.haze` is 0 on the flat 2D
     // map (density is pitch-gated), so untilted views stay untouched.
     if (globals.terrain_lit < 0.5) {
-        var rgb = s.rgb;
-        if (in.haze > 0.0) {
-            rgb = apply_aerial(rgb, in.haze, in.world_xy);
-        }
+        let rgb = apply_aerial(s.rgb, in.world_xy);
         return vec4<f32>(rgb, s.a * in.alpha);
     }
 
@@ -543,10 +554,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let mist_color = mix(globals.haze_color, vec3<f32>(1.0), 0.35 * globals.ambient);
     rgb = mix(rgb, mist_color, fog_amt);
 
-    // Aerial perspective: the main distance haze (see `apply_aerial`). Same
-    // call the non-lit 3D path uses, so haze is identical with or without sun
-    // shading.
-    rgb = apply_aerial(rgb, in.haze, in.world_xy);
+    // Atmospheric coloration of the far distance (see `apply_aerial`). Same call
+    // the non-lit 3D path uses, so it's identical with or without sun shading.
+    rgb = apply_aerial(rgb, in.world_xy);
 
     return vec4<f32>(rgb, s.a * in.alpha);
 }
