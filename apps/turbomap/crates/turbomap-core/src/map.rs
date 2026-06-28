@@ -1434,7 +1434,56 @@ impl Map {
         self.set_camera(c);
     }
 
+    /// The camera after a *terrain-anchored* zoom by `factor` about `focus_px`:
+    /// the SURFACE point under the cursor stays put (3D), instead of the flat
+    /// sea-level point that [`Camera::zoomed_around`] re-pins. Without this,
+    /// zooming over a mountainside kept the *downhill* z=0 point under the
+    /// cursor, so the view slid up/down the slope and the centre drifted until
+    /// the eye sank into the relief — the radiating-mesh blowup. `None` to fall
+    /// back to the flat zoom (2D, no terrain, or the ray missed the surface
+    /// before/after). Raycasts a candidate camera in place (direct field write,
+    /// no scene-sync) then restores the live camera, so it's side-effect-free.
+    fn terrain_anchored_zoom_target(&mut self, factor: f64, focus_px: (f64, f64)) -> Option<Camera> {
+        if self.terrain.is_none()
+            || self.cam.camera.pitch_deg == 0.0
+            || !factor.is_finite()
+            || factor <= 0.0
+        {
+            return None;
+        }
+        let before = self.screen_to_ground_lng_lat(focus_px);
+        if !before.hit_terrain {
+            return None;
+        }
+        let target = before.lng_lat.to_world();
+        let original = self.cam.camera;
+        // Candidate: zoom only, centre unchanged. We only raycast against it.
+        let mut cand = original;
+        cand.zoom = self.zoom_bounds().clamp(original.zoom + factor.log2());
+        self.cam.camera = cand;
+        let after = self.screen_to_ground_lng_lat(focus_px);
+        let result = if after.hit_terrain {
+            // Shift the centre so the original surface point lands back under
+            // the focus pixel (same algebra as the flat re-pin, on the relief).
+            let a = after.lng_lat.to_world();
+            let centre = cand.center.to_world();
+            let mut c = cand;
+            c.center =
+                WorldPoint::new(centre.x + (target.x - a.x), centre.y + (target.y - a.y)).to_lat_lng();
+            c
+        } else {
+            // Grazing / over-horizon after zoom: keep the zoom, skip the re-pin.
+            cand
+        };
+        self.cam.camera = original; // restore; caller applies `result`
+        Some(result)
+    }
+
     pub fn zoom_around(&mut self, factor: f64, focus_px: (f64, f64)) {
+        if let Some(target) = self.terrain_anchored_zoom_target(factor, focus_px) {
+            self.set_camera(target);
+            return;
+        }
         let (w, h) = self.viewport_px;
         let mut c = self.cam.camera;
         c.zoom_around(factor, focus_px, (w as f64, h as f64));
@@ -1497,10 +1546,15 @@ impl Map {
     /// same target [`Camera::zoom_around`] would snap to.
     pub fn zoom_around_animated(&mut self, factor: f64, focus_px: (f64, f64), duration: Duration) {
         let (w, h) = self.viewport_px;
+        // Terrain-anchored target in 3D (double-tap zooms toward the surface
+        // point, not the flat one); flat fallback otherwise.
         let target = self
-            .cam
-            .camera
-            .zoomed_around(factor, focus_px, (w as f64, h as f64));
+            .terrain_anchored_zoom_target(factor, focus_px)
+            .unwrap_or_else(|| {
+                self.cam
+                    .camera
+                    .zoomed_around(factor, focus_px, (w as f64, h as f64))
+            });
         self.ease_to(target, duration);
     }
 
