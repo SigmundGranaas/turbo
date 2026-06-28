@@ -23,6 +23,8 @@ interface UiState {
   threeD: boolean;
   layers: boolean;
   following: boolean;
+  /** Far-distance atmospheric haze in 3D (persisted). Off by default. */
+  distanceHaze: boolean;
   /** Last camera pose (persisted) — restored on the next load. */
   camera?: SavedCamera;
   setTheme: (t: ThemeMode) => void;
@@ -31,6 +33,7 @@ interface UiState {
   setThreeD: (v: boolean) => void;
   setLayers: (v: boolean) => void;
   setFollowing: (v: boolean) => void;
+  setDistanceHaze: (v: boolean) => void;
   setCamera: (c: SavedCamera) => void;
 }
 
@@ -43,17 +46,25 @@ export const useUiStore = create<UiState>()(
       threeD: false,
       layers: false,
       following: false,
+      distanceHaze: false,
       setTheme: (theme) => set({ theme }),
       setUnits: (units) => set({ units }),
       setBaseLayer: (baseLayer) => set({ baseLayer }),
       setThreeD: (threeD) => set({ threeD }),
       setLayers: (layers) => set({ layers }),
       setFollowing: (following) => set({ following }),
+      setDistanceHaze: (distanceHaze) => set({ distanceHaze }),
       setCamera: (camera) => set({ camera }),
     }),
     {
       name: 'turbo-ui',
-      partialize: (s) => ({ theme: s.theme, units: s.units, baseLayer: s.baseLayer, camera: s.camera }),
+      partialize: (s) => ({
+        theme: s.theme,
+        units: s.units,
+        baseLayer: s.baseLayer,
+        distanceHaze: s.distanceHaze,
+        camera: s.camera,
+      }),
     },
   ),
 );

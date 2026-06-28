@@ -572,6 +572,12 @@ impl TurbomapEngine {
         self.map.set_terrain_lit(lit);
     }
 
+    /// Toggle far-distance atmospheric coloration (aerial perspective).
+    /// See [`turbomap_core::Map::set_aerial_haze`].
+    pub fn set_aerial_haze(&mut self, on: bool) {
+        self.map.set_aerial_haze(on);
+    }
+
     /// Set (or clear, when `points` is empty) a route/track polyline drawn as a
     /// raised 3D tube. `points` are lng/lat; `radius_m` is the tube radius in
     /// metres. See [`turbomap_core::Map::set_route_tube`].

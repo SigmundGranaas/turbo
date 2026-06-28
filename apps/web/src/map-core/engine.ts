@@ -43,4 +43,7 @@ export interface MapEngine {
    *  relief (no darkening, no per-fragment shading) — used for plain 3D; `true`
    *  for sun mode. No effect in 2D. */
   set_terrain_lit(lit: boolean): void;
+  /** Toggle far-distance atmospheric haze (aerial perspective) in 3D. Off keeps
+   *  the map crisp at every angle/zoom. No effect in 2D. */
+  set_aerial_haze(on: boolean): void;
 }

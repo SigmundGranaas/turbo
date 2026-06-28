@@ -19,6 +19,7 @@ export function AccountSettingsPanel({ dark, onClose }: { dark: boolean; onClose
   const profile = useQuery({ queryKey: ['profile'], queryFn: getProfile, enabled: Boolean(session.data), staleTime: 60_000 });
   const theme = useUiStore((s) => s.theme);
   const units = useUiStore((s) => s.units);
+  const distanceHaze = useUiStore((s) => s.distanceHaze);
 
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
@@ -117,6 +118,17 @@ export function AccountSettingsPanel({ dark, onClose }: { dark: boolean; onClose
           active={units === 'metric' ? 0 : 1}
           onPick={(i) => useUiStore.getState().setUnits((i === 0 ? 'metric' : 'imperial') as Units)}
         />
+
+        <Eyebrow style={{ margin: '20px 0 10px' }}>3D map</Eyebrow>
+        <Tabs
+          items={[{ label: 'Off' }, { label: 'On' }]}
+          active={distanceHaze ? 1 : 0}
+          onPick={(i) => useUiStore.getState().setDistanceHaze(i === 1)}
+        />
+        <div style={{ margin: '8px 2px 0', font: '400 12px/17px var(--font-sans)', color: 'var(--on-surface-variant)' }}>
+          Distance haze — distant terrain takes on a faint atmospheric colour when
+          tilted toward the horizon.
+        </div>
 
         <Eyebrow style={{ margin: '24px 0 8px' }}>About</Eyebrow>
         <div style={{ font: '400 13px/19px var(--font-sans)', color: 'var(--on-surface-variant)' }}>

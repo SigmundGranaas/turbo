@@ -225,6 +225,13 @@ export function MapScreen() {
     mapRef.current?.set_terrain_lit(sun.on);
   }, [sun.on, ready]);
 
+  // Far-distance atmospheric haze (aerial perspective) — opt-in via Settings,
+  // off by default. No-op in 2D (no DEM); re-applied when toggled or on boot.
+  const distanceHaze = useUiStore((s) => s.distanceHaze);
+  useEffect(() => {
+    mapRef.current?.set_aerial_haze(distanceHaze);
+  }, [distanceHaze, ready]);
+
   // Redeem a ?share=<token> link on open. Requires sign-in (the grant is
   // materialised for the current user), so prompt the account panel if needed;
   // once signed in, redeem → the resource flows in via sync → open it.

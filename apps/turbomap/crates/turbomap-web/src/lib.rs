@@ -440,6 +440,14 @@ impl TurboMap {
         self.engine.set_terrain_lit(lit);
     }
 
+    /// Toggle far-distance atmospheric coloration (aerial perspective). `true` =
+    /// distant terrain takes the sky's hue when tilted toward the horizon;
+    /// `false` = crisp at every angle. The web ties this to a "Distance haze"
+    /// setting (off by default).
+    pub fn set_aerial_haze(&mut self, on: bool) {
+        self.engine.set_aerial_haze(on);
+    }
+
     /// Basemap brightness gain for the 3D sun-lit terrain (1.0 = unchanged).
     /// The web host raises it for dark imagery (satellite) so it reads under the
     /// same lighting that suits bright topo. No effect on the flat 2D map.

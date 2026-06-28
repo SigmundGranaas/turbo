@@ -700,6 +700,11 @@ pub struct Map {
     /// (no shading/shadows/haze) so 2D→3D doesn't darken. Set via
     /// [`set_terrain_lit`]; hosts tie it to "sun mode".
     terrain_lit: bool,
+    /// Apply far-distance atmospheric coloration (aerial perspective) in 3D.
+    /// `true` (default) keeps the established look; `false` forces the haze
+    /// gate to 0 so the map renders crisp at every angle. Set via
+    /// [`set_aerial_haze`]; the web ties it to a "Distance haze" setting.
+    aerial_haze: bool,
 }
 
 /// Route/track 3D-tube state. Each entry is a polyline + style; the combined
@@ -844,6 +849,7 @@ impl Map {
             start: Instant::now(),
             basemap_gain: 1.0,
             terrain_lit: true,
+            aerial_haze: true,
         })
     }
 
@@ -1126,6 +1132,13 @@ impl Map {
     /// path. No effect on the flat 2D map (no DEM).
     pub fn set_terrain_lit(&mut self, lit: bool) {
         self.terrain_lit = lit;
+    }
+
+    /// Toggle far-distance atmospheric coloration (aerial perspective). `true`
+    /// (default) keeps the look; `false` forces the haze gate to 0 so the map is
+    /// crisp at every angle/zoom. The web ties this to a "Distance haze" setting.
+    pub fn set_aerial_haze(&mut self, on: bool) {
+        self.aerial_haze = on;
     }
 
     pub fn set_terrain_shadows(&mut self, strength: f32) {
@@ -2478,6 +2491,10 @@ impl Map {
         // satellite). Only takes effect on the 3D sun-lit path (gated in raster).
         frame.raster_terrain_cfg.basemap_gain = self.basemap_gain;
         frame.raster_terrain_cfg.lit = self.terrain_lit;
+        // Host "Distance haze" toggle: 0 the gate so aerial perspective is off.
+        if !self.aerial_haze {
+            frame.raster_terrain_cfg.haze_density = 0.0;
+        }
         // Terrain relief field: assemble the camera-centred cross-tile
         // heightfield whenever we have 3D terrain — it drives BOTH cast shadows
         // (per-fragment march, gated by `shadow_strength`) and the world-locked
