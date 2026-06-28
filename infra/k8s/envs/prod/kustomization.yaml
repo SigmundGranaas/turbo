@@ -43,7 +43,7 @@ images:
     newTag: latest
   - name: turbo-web
     newName: ghcr.io/sigmundgranaas/turbo-web
-    newTag: "5af3a2c747d69d89d966120da5a6a0602c2d037c"
+    newTag: "13bce5fa24671ffb6564ce4b214bb62a9b117b68"
   - name: turbo-tileserver
     newName: ghcr.io/sigmundgranaas/turbo-tileserver
     # Immutable, git-traceable deploy tag (a commit SHA). Bump this MANUALLY to
