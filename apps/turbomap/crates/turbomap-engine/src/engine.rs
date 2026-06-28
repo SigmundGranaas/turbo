@@ -726,11 +726,15 @@ impl MapEngine for TurbomapEngine {
     }
 
     fn project(&self, geo: LatLng) -> Option<ScreenPoint> {
-        let (x, y) = self.map.lng_lat_to_screen(CoreLatLng {
-            lng: geo.lng,
-            lat: geo.lat,
-        });
-        Some(ScreenPoint { x, y })
+        // `None` for behind-camera / non-finite points so overlays hide them
+        // instead of snapping to the centre fallback (pinned dot / radiating
+        // route lines). `try_lng_lat_to_screen` does the cull.
+        self.map
+            .try_lng_lat_to_screen(CoreLatLng {
+                lng: geo.lng,
+                lat: geo.lat,
+            })
+            .map(|(x, y)| ScreenPoint { x, y })
     }
 
     fn unproject(&self, screen: ScreenPoint) -> Option<LatLng> {

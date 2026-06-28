@@ -1468,12 +1468,27 @@ impl Map {
     }
 
     /// Tilt by `delta_deg` about `focus_px`, keeping that pixel anchored.
+    ///
+    /// The delta is clamped to the terrain pitch limit BEFORE the focus re-pin
+    /// inside [`Camera::pitched_around`]. This makes a down-tilt stop dead at
+    /// the limit: otherwise `pitched_around` re-pins for the requested pitch and
+    /// the later [`clamp_pitch_above_terrain`] lowers the pitch *without*
+    /// re-pinning, leaving the centre shifted for a pitch that no longer applies
+    /// — so each frame at the limit slid the camera away from the pivot at speed
+    /// ("runaway tilt").
     pub fn pitch_around(&mut self, delta_deg: f64, focus_px: (f64, f64)) {
         let (w, h) = self.viewport_px;
+        let cur = self.cam.camera.pitch_deg;
+        let mut target = cur + delta_deg;
+        if let Some(pitch_max) = self.terrain_pitch_max() {
+            target = target.min(pitch_max);
+        }
+        // Global [0, MAX_PITCH] is still enforced inside `pitched_around`.
+        let eff_delta = target - cur;
         let c = self
             .cam
             .camera
-            .pitched_around(delta_deg, focus_px, (w as f64, h as f64));
+            .pitched_around(eff_delta, focus_px, (w as f64, h as f64));
         self.set_camera(c);
     }
 
@@ -1537,14 +1552,18 @@ impl Map {
     /// `alt·cos(p)`. Sampling terrain only at the centre (the old behaviour)
     /// misses a ridge the eye swings over — so we sample the whole centre→eye
     /// segment and clear the HIGHEST relief under it.
-    fn clamp_pitch_above_terrain(&mut self) {
-        if self.terrain.is_none() {
-            return;
-        }
+    /// The largest pitch (degrees) that keeps the eye a clearance above the
+    /// relief along the centre→eye segment, or `None` when there's nothing to
+    /// clear (no terrain, DEM not resident, sea level, degenerate altitude).
+    /// See [`clamp_pitch_above_terrain`] for the geometry; this is the pure
+    /// limit so the tilt gesture can clamp its *delta* against it (keeping the
+    /// focus re-pin honest) instead of only post-clamping after the re-pin.
+    fn terrain_pitch_max(&self) -> Option<f64> {
+        self.terrain.as_ref()?;
         let vp = self.viewport_px;
         let alt = self.cam.camera.altitude_world(vp) as f64;
         if alt <= 1e-9 {
-            return;
+            return None;
         }
         let center = self.cam.camera.center.to_world();
         let pitch = self.cam.camera.pitch_deg.to_radians();
@@ -1562,7 +1581,7 @@ impl Map {
             terrain_z = terrain_z.max(self.ground_world_z(p));
         }
         if terrain_z <= 0.0 {
-            return; // sea level / DEM not resident yet → nothing to clear
+            return None; // sea level / DEM not resident yet → nothing to clear
         }
         // Require eye_z = alt·cos(pitch) ≥ terrain_z + clearance.
         let clearance = 0.20 * alt as f32;
@@ -1570,11 +1589,16 @@ impl Map {
         // Guard the acos domain: a non-finite ratio (e.g. terrain_z/alt NaN)
         // would make pitch NaN → NaN view matrix → GPU hang. Skip if so.
         if !cos_max.is_finite() {
-            return;
+            return None;
         }
-        let pitch_max = cos_max.acos().to_degrees().max(0.0);
-        if self.cam.camera.pitch_deg > pitch_max {
-            self.cam.camera.pitch_deg = pitch_max;
+        Some(cos_max.acos().to_degrees().max(0.0))
+    }
+
+    fn clamp_pitch_above_terrain(&mut self) {
+        if let Some(pitch_max) = self.terrain_pitch_max() {
+            if self.cam.camera.pitch_deg > pitch_max {
+                self.cam.camera.pitch_deg = pitch_max;
+            }
         }
     }
 
@@ -1720,25 +1744,38 @@ impl Map {
         flat()
     }
 
-    pub fn lng_lat_to_screen(&self, lng_lat: LatLng) -> (f64, f64) {
+    /// Geo → screen pixel, or `None` when the point can't be projected to a
+    /// usable pixel: it's behind the camera (`clip.w <= 0`, where the
+    /// projection flips/explodes) or the result is non-finite. Overlays (the
+    /// user-location dot, the route line, waypoint handles) MUST hide such
+    /// points — projecting them to the centre fallback below is what pinned the
+    /// blue dot to screen-centre and made route lines radiate from the middle.
+    ///
+    /// When 3D terrain is loaded, lifts the point onto the surface so
+    /// markers/waypoints/photo-pins sit *on* the relief, not on the flat z=0
+    /// plane (which makes them float or sink under tilt). `ground_world_z` is
+    /// the same displaced-z the terrain mesh uses, so they land exactly where
+    /// the ground is drawn.
+    pub fn try_lng_lat_to_screen(&self, lng_lat: LatLng) -> Option<(f64, f64)> {
         let world = lng_lat.to_world();
         let (w, h) = self.viewport_px;
-        let centre = (w as f64 * 0.5, h as f64 * 0.5);
-        // When 3D terrain is loaded, lift the point onto the surface so
-        // markers/waypoints/photo-pins sit *on* the relief, not on the
-        // flat z=0 plane (which makes them float or sink under tilt).
-        // `ground_world_z` is the same displaced-z the terrain mesh uses,
-        // so they land exactly where the ground is drawn.
+        let vp = (w as f64, h as f64);
         let proj = if self.terrain.is_some() {
-            self.cam.camera
-                .world_to_screen_z(world, self.ground_world_z(world), (w as f64, h as f64))
+            self.cam.camera.world_to_screen_z(world, self.ground_world_z(world), vp)
         } else {
-            // Fall back to the camera centre for off-screen / behind-camera
-            // points so callers (e.g. hit-test on markers) get a deterministic
-            // value rather than panicking. The cull happens upstream.
-            self.cam.camera.world_to_screen(world, (w as f64, h as f64))
-        };
-        proj.unwrap_or(centre)
+            self.cam.camera.world_to_screen(world, vp)
+        }?;
+        (proj.0.is_finite() && proj.1.is_finite()).then_some(proj)
+    }
+
+    /// Geo → screen pixel with a deterministic centre fallback for
+    /// off-screen / behind-camera points, so callers that need a value rather
+    /// than an `Option` (the marker hit-test) never panic. Visibility-sensitive
+    /// callers (overlays) want [`try_lng_lat_to_screen`] instead.
+    pub fn lng_lat_to_screen(&self, lng_lat: LatLng) -> (f64, f64) {
+        let (w, h) = self.viewport_px;
+        let centre = (w as f64 * 0.5, h as f64 * 0.5);
+        self.try_lng_lat_to_screen(lng_lat).unwrap_or(centre)
     }
 
     /// World-space displaced height (z) of the ground at `world`, matching
