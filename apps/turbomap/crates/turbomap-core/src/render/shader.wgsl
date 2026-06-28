@@ -373,13 +373,38 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     return out;
 }
 
+// Aerial perspective (distance haze): fade `rgb` toward the atmosphere colour
+// by the per-vertex `haze_amt` (= `1 - exp(-eye_dist·density)`). Physically the
+// in-scattered air light grows with distance; the tint glows WARM toward a low
+// sun (forward in-scatter) and stays cool away from it. Squaring keeps the NEAR
+// field crisp (the density is km-scaled, so near ground already has a tiny
+// haze_amt; squaring drops it further) while the far field saturates (capped
+// below 1 so the horizon never fully whites out). Applied in 3D regardless of
+// sun-shadow mode — atmosphere is always present.
+fn apply_aerial(rgb: vec3<f32>, haze_amt: f32, world_xy: vec2<f32>) -> vec3<f32> {
+    let low_sun = 1.0 - smoothstep(0.10, 0.45, globals.sun_dir.z);
+    let view_dir = normalize(world_xy - globals.eye_world.xy);
+    let sun_align = dot(view_dir, normalize(globals.sun_dir.xy + vec2<f32>(1.0e-6)));
+    let glow = pow(max(sun_align, 0.0), 4.0) * low_sun;
+    let haze_tint = mix(globals.haze_color, globals.light_color, glow * 0.7);
+    let aerial = min(haze_amt * haze_amt, 0.82);
+    return mix(rgb, haze_tint, aerial);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let s = textureSample(tile_tex, tile_sampler, in.tex_uv);
 
-    // Flat 2D era (no terrain): straight texture, no lighting/haze.
+    // Sun-shadow relief shading is gated to "sun mode" (terrain_lit) so the plain
+    // 2D→3D switch doesn't darken the scene. Atmospheric distance haze is NOT
+    // gated — it's an always-on depth cue in 3D. `in.haze` is 0 on the flat 2D
+    // map (density is pitch-gated), so untilted views stay untouched.
     if (globals.terrain_lit < 0.5) {
-        return vec4<f32>(s.rgb, s.a * in.alpha);
+        var rgb = s.rgb;
+        if (in.haze > 0.0) {
+            rgb = apply_aerial(rgb, in.haze, in.world_xy);
+        }
+        return vec4<f32>(rgb, s.a * in.alpha);
     }
 
     // Lambertian relief shading. The ambient floor keeps shadowed
@@ -490,9 +515,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let base_rgb = s.rgb * globals.basemap_gain;
     var rgb = base_rgb * (ambient_amt * sky_fill + direct_amt * globals.light_color);
 
-    // Low-sun factor (1 near the horizon → 0 high up): drives the warm haze glow.
-    let low_sun = 1.0 - smoothstep(0.10, 0.45, globals.sun_dir.z);
-
     let zscale = max(globals.meters_to_world * globals.exaggeration, 1.0e-9);
     let elev_m = in.world_z / zscale;
 
@@ -521,23 +543,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let mist_color = mix(globals.haze_color, vec3<f32>(1.0), 0.35 * globals.ambient);
     rgb = mix(rgb, mist_color, fog_amt);
 
-    // --- Aerial perspective: the main distance haze (smooth, uniform) ----
-    // Fade distant relief toward the atmosphere colour over the true eye→fragment
-    // distance. Uniform with distance (that's what aerial haze is); glows WARM
-    // toward a low sun (in-scatter), cool away from it. Capped below 1 so the
-    // farthest ground never fully whites out.
-    let view_dir = normalize(in.world_xy - globals.eye_world.xy);
-    let sun_xy = globals.sun_dir.xy;
-    let sun_align = dot(view_dir, normalize(sun_xy + vec2<f32>(1.0e-6)));
-    let glow = pow(max(sun_align, 0.0), 4.0) * low_sun;
-    let haze_tint = mix(globals.haze_color, globals.light_color, glow * 0.7);
-    // Square the distance term so the NEAR field stays clear and haze builds only
-    // with real distance. The raw `1 - exp(-dist·density)` already floors the
-    // nearest ground at ~8%, so tilting in lifted a uniform veil onto even the
-    // ground right below the camera; squaring drops that near value to ~0.6% while
-    // leaving the far field (raw ≈ 0.95 → 0.90) almost untouched.
-    let aerial = min(in.haze * in.haze, 0.82);
-    rgb = mix(rgb, haze_tint, aerial);
+    // Aerial perspective: the main distance haze (see `apply_aerial`). Same
+    // call the non-lit 3D path uses, so haze is identical with or without sun
+    // shading.
+    rgb = apply_aerial(rgb, in.haze, in.world_xy);
 
     return vec4<f32>(rgb, s.a * in.alpha);
 }
