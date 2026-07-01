@@ -42,10 +42,17 @@ public sealed class SearchService
                 Kind = r.Kind,
                 DistanceM = r.DistanceM,
                 // place-core composes the subtitle (human label + kommune +
-                // trimmed fylke) from these raw fields — one formatter shared
-                // with the offline bundle engine.
+                // trimmed fylke) from these raw fields for toponyms — one
+                // formatter shared with the offline bundle engine.
                 Kommune = r.KommuneName,
                 Fylke = r.FylkeName,
+                // Fallback for rows without kommune/fylke (area results — parks/
+                // kommuner, whose Kind is already a human label like
+                // "Nasjonalpark"): the core uses this only when kommune and fylke
+                // are both absent, so toponyms still get the label-mapped subtitle.
+                Description = string.Join(", ",
+                    new[] { r.Kind, r.KommuneName, r.FylkeName }
+                        .Where(s => !string.IsNullOrEmpty(s))),
             })
             .ToList();
 
