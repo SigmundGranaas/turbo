@@ -27,8 +27,14 @@ public static class PlacesModule
     {
         var connectionString = ResolveConnectionString(configuration);
 
+        // Prominence prior for retrieval ordering, derived once from the same
+        // place-core ruleset the native reranker uses — so the DB and the core
+        // agree on what "prominent" means (a `by` beats an `annenKulturdetalj`).
+        var ruleset = new RulesetProvider();
+
         // Stateless services over a read-only dataset: singletons, no scopes.
-        services.AddSingleton<IPlaceStore>(_ => new PgPlaceStore(connectionString));
+        services.AddSingleton<IPlaceStore>(_ =>
+            new PgPlaceStore(connectionString, ruleset.KindBonusMeters, ruleset.DefaultBonusMeters));
         services.AddSingleton<ReverseGeocodeService>();
         services.AddSingleton<SearchService>();
 

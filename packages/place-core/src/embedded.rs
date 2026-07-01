@@ -109,25 +109,17 @@ impl Bundle {
             ))
         })?;
 
+        // Pass raw kommune/fylke through; `forward_search` composes the subtitle
+        // (human label + trimmed fylke) so online and offline format identically.
         let candidates: Vec<SearchCandidate> = rows
             .filter_map(Result::ok)
-            .map(|(name, kind, kommune, fylke)| {
-                let description = [Some(kind.clone()), kommune, fylke]
-                    .into_iter()
-                    .flatten()
-                    .filter(|s| !s.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                SearchCandidate {
-                    name,
-                    kind,
-                    distance_m: None,
-                    description: if description.is_empty() {
-                        None
-                    } else {
-                        Some(description)
-                    },
-                }
+            .map(|(name, kind, kommune, fylke)| SearchCandidate {
+                name,
+                kind,
+                distance_m: None,
+                kommune,
+                fylke,
+                description: None,
             })
             .collect();
 

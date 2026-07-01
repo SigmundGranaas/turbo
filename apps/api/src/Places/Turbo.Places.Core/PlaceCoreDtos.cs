@@ -49,6 +49,10 @@ public sealed class SearchCandidateDto
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("kind")] public string Kind { get; set; } = "";
     [JsonPropertyName("distance_m")] public double? DistanceM { get; set; }
+    // Raw kommune/fylke so place-core composes the subtitle (human label +
+    // trimmed fylke) in one place shared with the offline engine.
+    [JsonPropertyName("kommune")] public string? Kommune { get; set; }
+    [JsonPropertyName("fylke")] public string? Fylke { get; set; }
     [JsonPropertyName("description")] public string? Description { get; set; }
 }
 

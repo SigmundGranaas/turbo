@@ -172,7 +172,18 @@ pub struct SearchCandidate {
     /// proximity bias for this candidate (ties fall back to input order).
     #[serde(default)]
     pub distance_m: Option<f64>,
-    /// Platform-composed subtitle, passed through unchanged.
+    /// Municipality (`kommunenavn`). When set (with `fylke`), the core composes
+    /// the subtitle from `label_for(kind)` + kommune + trimmed fylke, so labels
+    /// and formatting live in one place shared with the offline engine.
+    #[serde(default)]
+    pub kommune: Option<String>,
+    /// County (`fylkesnavn`); trilingual names are trimmed to the first form
+    /// ("Troms - Romsa - Tromssa" → "Troms") when composing the subtitle.
+    #[serde(default)]
+    pub fylke: Option<String>,
+    /// Pre-composed subtitle fallback for callers that carry no kommune/fylke
+    /// (e.g. local markers). Used verbatim only when `kommune` and `fylke` are
+    /// both absent.
     #[serde(default)]
     pub description: Option<String>,
 }

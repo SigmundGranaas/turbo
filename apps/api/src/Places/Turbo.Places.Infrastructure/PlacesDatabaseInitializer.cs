@@ -1,4 +1,5 @@
 using Npgsql;
+using Turboapi.Places.Core;
 
 namespace Turboapi.Places.Infrastructure;
 
@@ -15,7 +16,12 @@ public static class PlacesDatabaseInitializer
     public static async Task InitializeAsync(string connectionString, CancellationToken ct = default)
     {
         await EnsureDatabaseExistsAsync(connectionString, ct);
-        await new PgPlaceStore(connectionString).EnsureSchemaAsync(ct);
+        // Build the store WITH the ruleset-derived prominence map so
+        // EnsureSchemaAsync populates places.kind_prominence — the DB-side
+        // retrieval prior is inert if this table is left empty.
+        var ruleset = new RulesetProvider();
+        await new PgPlaceStore(connectionString, ruleset.KindBonusMeters, ruleset.DefaultBonusMeters)
+            .EnsureSchemaAsync(ct);
     }
 
     private static async Task EnsureDatabaseExistsAsync(string connectionString, CancellationToken ct)

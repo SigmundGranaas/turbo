@@ -41,11 +41,11 @@ public sealed class SearchService
                 Name = r.Name,
                 Kind = r.Kind,
                 DistanceM = r.DistanceM,
-                // Same subtitle the live Stedsnavn backend composed:
-                // "navneobjekttype, kommune, fylke".
-                Description = string.Join(", ",
-                    new[] { r.Kind, r.KommuneName, r.FylkeName }
-                        .Where(s => !string.IsNullOrEmpty(s))),
+                // place-core composes the subtitle (human label + kommune +
+                // trimmed fylke) from these raw fields — one formatter shared
+                // with the offline bundle engine.
+                Kommune = r.KommuneName,
+                Fylke = r.FylkeName,
             })
             .ToList();
 

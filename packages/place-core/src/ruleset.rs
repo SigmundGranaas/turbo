@@ -45,6 +45,30 @@ pub struct Ruleset {
     pub icon_map: BTreeMap<String, String>,
     /// Icon for kinds absent from [`Ruleset::icon_map`].
     pub icon_default: String,
+    /// Forward-search prominence prior per lowercased `navneobjekttype` (higher =
+    /// more important — a `by` beats an `annenKulturdetalj` of the same match
+    /// class). Multiplied by [`Ruleset::prominence_weight`] into a metres-of-
+    /// head-start the ranker subtracts from a candidate's distance, so it decides
+    /// order when distances are absent (no map centre) or comparable, while a
+    /// clearly nearer feature still wins. Defaulted (empty) so pre-prominence
+    /// bundles keep their old behaviour.
+    #[serde(default)]
+    pub kind_prominence: BTreeMap<String, f64>,
+    /// Prominence for kinds absent from [`Ruleset::kind_prominence`].
+    #[serde(default)]
+    pub prominence_default: f64,
+    /// Metres-of-head-start per unit of prominence (0 disables the prior).
+    #[serde(default)]
+    pub prominence_weight: f64,
+    /// Human-readable subtitle label per lowercased `navneobjekttype`
+    /// (`annenKulturdetalj` → "Kulturminne"). Absent kinds fall back to
+    /// [`Ruleset::label_default`] if set, else the raw code.
+    #[serde(default)]
+    pub label_map: BTreeMap<String, String>,
+    /// Fallback subtitle label for kinds absent from [`Ruleset::label_map`]
+    /// (empty → use the raw kind code).
+    #[serde(default)]
+    pub label_default: String,
 }
 
 impl Ruleset {
@@ -66,6 +90,33 @@ impl Ruleset {
     pub fn name_allowed(&self, name: &str) -> bool {
         let trimmed = name.trim();
         !trimmed.is_empty() && !self.name_rejections.contains(&trimmed.to_lowercase())
+    }
+
+    /// Metres-of-head-start the ranker subtracts from a candidate's distance,
+    /// from its `kind`'s prominence × [`Ruleset::prominence_weight`]. `kind` is
+    /// matched case-insensitively; absent kinds use [`Ruleset::prominence_default`].
+    pub fn prominence_bonus_m(&self, kind: &str) -> f64 {
+        let k = kind.to_lowercase();
+        let p = self
+            .kind_prominence
+            .get(&k)
+            .copied()
+            .unwrap_or(self.prominence_default);
+        p * self.prominence_weight
+    }
+
+    /// The human-readable subtitle label for a `kind` (case-insensitive), from
+    /// [`Ruleset::label_map`]; falls back to [`Ruleset::label_default`] when set,
+    /// else the raw `kind` unchanged (never loses information).
+    pub fn label_for(&self, kind: &str) -> String {
+        let k = kind.to_lowercase();
+        if let Some(label) = self.label_map.get(&k) {
+            return label.clone();
+        }
+        if !self.label_default.is_empty() {
+            return self.label_default.clone();
+        }
+        kind.to_string()
     }
 
     /// Whether `kind` (already lowercased) belongs to `group`, with `"any"`

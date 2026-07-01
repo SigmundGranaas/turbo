@@ -1,3 +1,4 @@
+using System.Text;
 using Npgsql;
 using Turboapi.Places.Core;
 
@@ -23,8 +24,46 @@ public sealed class PgPlaceStore : IPlaceStore
     private const double FuzzySimilarityThreshold = 0.45;
 
     private readonly string _connectionString;
+    private readonly IReadOnlyDictionary<string, double> _kindBonusMeters;
+    private readonly double _defaultBonusMeters;
 
-    public PgPlaceStore(string connectionString) => _connectionString = connectionString;
+    /// <param name="kindBonusMeters">Lowercased feature-type → metres-of-
+    /// head-start prominence bonus, derived from the place-core ruleset. Blends
+    /// into retrieval ordering so a prominent kind (a <c>by</c>) enters the
+    /// candidate set ahead of obscure toponyms with the same prefix — the final
+    /// rank is still place-core's. Null/empty disables the DB-side prior (ordering
+    /// falls back to distance + name length), keeping existing tests unchanged.</param>
+    public PgPlaceStore(
+        string connectionString,
+        IReadOnlyDictionary<string, double>? kindBonusMeters = null,
+        double defaultBonusMeters = 0.0)
+    {
+        _connectionString = connectionString;
+        _kindBonusMeters = kindBonusMeters ?? new Dictionary<string, double>();
+        _defaultBonusMeters = defaultBonusMeters;
+    }
+
+    /// <summary>Diacritic-folded ASCII form (æ→ae, ø→o, å→a, ä→a, ö→o) for the
+    /// fallback prefix arm. Kept byte-identical to the SQL <c>replace</c> chain in
+    /// <see cref="EnsureSchemaAsync"/> that backfills <c>name_ascii</c>, so the
+    /// stored column and the query fold agree.</summary>
+    internal static string FoldAscii(string fold)
+    {
+        var sb = new StringBuilder(fold.Length);
+        foreach (var ch in fold)
+        {
+            sb.Append(ch switch
+            {
+                'æ' => "ae",
+                'ø' => "o",
+                'å' => "a",
+                'ä' => "a",
+                'ö' => "o",
+                _ => ch.ToString(),
+            });
+        }
+        return sb.ToString();
+    }
 
     public async Task EnsureSchemaAsync(CancellationToken ct = default)
     {
@@ -41,6 +80,7 @@ public sealed class PgPlaceStore : IPlaceStore
                 feature_type    text NOT NULL,
                 primary_name    text NOT NULL,
                 name_fold       text NOT NULL,
+                name_ascii      text,
                 status          text NOT NULL DEFAULT 'aktiv',
                 geom            geometry(Point,4326) NOT NULL,
                 centroid        geography(Point,4326) NOT NULL,
@@ -55,6 +95,14 @@ public sealed class PgPlaceStore : IPlaceStore
             ALTER TABLE places.places ADD COLUMN IF NOT EXISTS elevation_m  double precision;
             ALTER TABLE places.places ADD COLUMN IF NOT EXISTS kommune_name text;
             ALTER TABLE places.places ADD COLUMN IF NOT EXISTS fylke_name   text;
+            -- Diacritic-folded ASCII name for the fallback prefix arm (an ASCII
+            -- query "alesund" should still find "Ålesund"). Populated by ingest
+            -- (PgPlaceStore.FoldAscii); deliberately NOT backfilled here — a
+            -- ~1M-row UPDATE at boot would spike WAL/bloat and block the startup
+            -- probe on the small node. The fallback is simply dormant for rows
+            -- from before this deploy until the next ingest rewrites them; the
+            -- diacritic-preserving prefix + trigram arms cover them meanwhile.
+            ALTER TABLE places.places ADD COLUMN IF NOT EXISTS name_ascii   text;
             CREATE INDEX IF NOT EXISTS places_centroid_gist ON places.places USING gist (centroid);
             CREATE INDEX IF NOT EXISTS places_geom_gist     ON places.places USING gist (geom);
             CREATE INDEX IF NOT EXISTS places_name_trgm     ON places.places USING gin (name_fold gin_trgm_ops);
@@ -63,6 +111,16 @@ public sealed class PgPlaceStore : IPlaceStore
             -- thousands — so prefix gets its own cheap index; see SearchAsync).
             CREATE INDEX IF NOT EXISTS places_name_prefix
                 ON places.places (name_fold text_pattern_ops);
+            CREATE INDEX IF NOT EXISTS places_name_ascii_prefix
+                ON places.places (name_ascii text_pattern_ops);
+            -- Prominence prior for retrieval ordering: lowercased feature_type →
+            -- metres-of-head-start. Populated from the place-core ruleset after
+            -- this DDL (see EnsureSchemaAsync), so it is a single source of truth
+            -- shared with the native reranker.
+            CREATE TABLE IF NOT EXISTS places.kind_prominence (
+                kind    text PRIMARY KEY,
+                bonus_m double precision NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS places.areas (
                 source          text NOT NULL,
                 source_id       text NOT NULL,
@@ -94,6 +152,36 @@ public sealed class PgPlaceStore : IPlaceStore
                 ON places.areas_staging (source, source_id);
             """;
         await cmd.ExecuteNonQueryAsync(ct);
+
+        // Repopulate the prominence lookup from the ruleset-derived map (a truncate
+        // + reinsert so a ruleset change is picked up on the next boot). Tiny table
+        // (~tens of rows); keyed by lowercased feature_type to match the join.
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await using (var clear = conn.CreateCommand())
+        {
+            clear.Transaction = tx;
+            clear.CommandText = "TRUNCATE places.kind_prominence;";
+            await clear.ExecuteNonQueryAsync(ct);
+        }
+        if (_kindBonusMeters.Count > 0)
+        {
+            await using var ins = conn.CreateCommand();
+            ins.Transaction = tx;
+            ins.CommandText = """
+                INSERT INTO places.kind_prominence (kind, bonus_m) VALUES (@k, @b)
+                ON CONFLICT (kind) DO UPDATE SET bonus_m = EXCLUDED.bonus_m;
+                """;
+            var pk = ins.Parameters.Add("k", NpgsqlTypes.NpgsqlDbType.Text);
+            var pb = ins.Parameters.Add("b", NpgsqlTypes.NpgsqlDbType.Double);
+            await ins.PrepareAsync(ct);
+            foreach (var (kind, bonus) in _kindBonusMeters)
+            {
+                pk.Value = kind.ToLowerInvariant();
+                pb.Value = bonus;
+                await ins.ExecuteNonQueryAsync(ct);
+            }
+        }
+        await tx.CommitAsync(ct);
     }
 
     /// <summary>
@@ -242,38 +330,69 @@ public sealed class PgPlaceStore : IPlaceStore
         // when there are already `limit` prefix matches no fuzzy match can reach
         // the shown results — the trigram % arm would be pure waste. Prefix is a
         // cheap btree range scan (vs. % scanning thousands of common-stem rows),
-        // proximity-ordered so "the Storvatnet near me" is among the slots.
-        var rows = await PrefixSearchAsync(conn, fold, nearLat, nearLng, limit, ct);
+        // ordered by (distance − prominence) so "the Storvatnet near me" AND a
+        // prominent city (a `by` beating an obscure toponym of the same prefix)
+        // are among the slots even when there are thousands of prefix matches.
+        var rows = await PrefixLikeSearchAsync(
+            conn, "name_fold", EscapeLike(fold) + "%", excludeFoldPrefix: null,
+            nearLat, nearLng, limit, ct);
 
         // Trigram fuzzy only to fill remaining slots (typo tolerance), with a
         // raised similarity threshold so a generic stem can't scan thousands.
         if (rows.Count < limit)
             rows.AddRange(await FuzzySearchAsync(conn, fold, nearLat, nearLng, limit - rows.Count, ct));
 
+        // Diacritic-insensitive fallback: an ASCII query ("alesund") should still
+        // find the diacritic name ("Ålesund"). name_fold deliberately keeps æ/ø/å
+        // for precision, so this is a *secondary* prefix arm over name_ascii,
+        // excluding rows the primary fold arm already returned. Only when slots
+        // remain — the common all-latin query fills from the primary arm first.
+        if (rows.Count < limit)
+        {
+            var asciiFold = FoldAscii(fold);
+            rows.AddRange(await PrefixLikeSearchAsync(
+                conn, "name_ascii", EscapeLike(asciiFold) + "%",
+                excludeFoldPrefix: EscapeLike(fold) + "%",
+                nearLat, nearLng, limit - rows.Count, ct));
+        }
+
         rows.AddRange(await SearchAreasAsync(conn, fold, nearLat, nearLng, limit, ct));
         return rows;
     }
 
-    /// <summary>Prefix match (btree <c>text_pattern_ops</c>), proximity-ordered
-    /// when a centre is given; shorter names first otherwise (closer to the
-    /// query). Retrieval only — place-core re-ranks.</summary>
-    private async Task<List<SearchRow>> PrefixSearchAsync(
-        NpgsqlConnection conn, string fold, double? nearLat, double? nearLng, int limit, CancellationToken ct)
+    /// <summary>Prefix match (btree <c>text_pattern_ops</c>) over
+    /// <paramref name="column"/> (<c>name_fold</c> or <c>name_ascii</c>), ordered
+    /// by <c>(distance − prominence-bonus)</c> so both the nearby feature and a
+    /// prominent kind survive the retrieval cap. <paramref name="excludeFoldPrefix"/>
+    /// (the ASCII arm) drops rows the fold arm already returned. Retrieval only —
+    /// place-core re-ranks.</summary>
+    private async Task<List<SearchRow>> PrefixLikeSearchAsync(
+        NpgsqlConnection conn, string column, string likeValue, string? excludeFoldPrefix,
+        double? nearLat, double? nearLng, int limit, CancellationToken ct)
     {
+        var exclude = excludeFoldPrefix is null ? "" : "AND p.name_fold NOT LIKE @exclude";
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            SELECT primary_name, feature_type,
-                   ST_Y(geom) AS lat, ST_X(geom) AS lng,
-                   kommune_name, fylke_name,
-                   CASE WHEN @hasNear
-                        THEN ST_Distance(centroid, ST_SetSRID(ST_MakePoint(@nlng, @nlat), 4326)::geography)
-                   END AS d
-            FROM places.places
-            WHERE name_fold LIKE @prefix
-            ORDER BY d ASC NULLS LAST, length(name_fold) ASC
+        cmd.CommandText = $"""
+            SELECT name, feature_type, lat, lng, kommune_name, fylke_name, d FROM (
+                SELECT p.primary_name AS name, p.feature_type,
+                       ST_Y(p.geom) AS lat, ST_X(p.geom) AS lng,
+                       p.kommune_name, p.fylke_name,
+                       CASE WHEN @hasNear
+                            THEN ST_Distance(p.centroid, ST_SetSRID(ST_MakePoint(@nlng, @nlat), 4326)::geography)
+                       END AS d,
+                       COALESCE(kp.bonus_m, @defBonus) AS bonus,
+                       char_length(p.name_fold) AS nlen
+                FROM places.places p
+                LEFT JOIN places.kind_prominence kp ON kp.kind = lower(p.feature_type)
+                WHERE p.{column} LIKE @like {exclude}
+            ) t
+            ORDER BY (COALESCE(d, 0.0) - bonus) ASC, nlen ASC
             LIMIT @limit;
             """;
-        cmd.Parameters.AddWithValue("prefix", EscapeLike(fold) + "%");
+        cmd.Parameters.AddWithValue("like", likeValue);
+        if (excludeFoldPrefix is not null)
+            cmd.Parameters.AddWithValue("exclude", excludeFoldPrefix);
+        cmd.Parameters.AddWithValue("defBonus", _defaultBonusMeters);
         cmd.Parameters.AddWithValue("hasNear", nearLat.HasValue && nearLng.HasValue);
         cmd.Parameters.AddWithValue("nlat", nearLat ?? 0.0);
         cmd.Parameters.AddWithValue("nlng", nearLng ?? 0.0);
@@ -459,10 +578,10 @@ public sealed class PgPlaceStore : IPlaceStore
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = $"""
             INSERT INTO {table}
-                (source, source_id, feature_type, primary_name, name_fold, status, geom, centroid,
+                (source, source_id, feature_type, primary_name, name_fold, name_ascii, status, geom, centroid,
                  elevation_m, kommune_name, fylke_name, dataset_version)
             VALUES
-                (@source, @sid, @ft, @name, @fold, @status,
+                (@source, @sid, @ft, @name, @fold, @ascii, @status,
                  ST_SetSRID(ST_MakePoint(@lng, @lat), 4326),
                  ST_SetSRID(ST_MakePoint(@lng, @lat), 4326)::geography,
                  @elev, @kommune, @fylke, @ver)
@@ -470,6 +589,7 @@ public sealed class PgPlaceStore : IPlaceStore
                 feature_type    = EXCLUDED.feature_type,
                 primary_name    = EXCLUDED.primary_name,
                 name_fold       = EXCLUDED.name_fold,
+                name_ascii      = EXCLUDED.name_ascii,
                 status          = EXCLUDED.status,
                 geom            = EXCLUDED.geom,
                 centroid        = EXCLUDED.centroid,
@@ -484,6 +604,7 @@ public sealed class PgPlaceStore : IPlaceStore
         var pFt = cmd.Parameters.Add("ft", NpgsqlTypes.NpgsqlDbType.Text);
         var pName = cmd.Parameters.Add("name", NpgsqlTypes.NpgsqlDbType.Text);
         var pFold = cmd.Parameters.Add("fold", NpgsqlTypes.NpgsqlDbType.Text);
+        var pAscii = cmd.Parameters.Add("ascii", NpgsqlTypes.NpgsqlDbType.Text);
         var pStatus = cmd.Parameters.Add("status", NpgsqlTypes.NpgsqlDbType.Text);
         var pLng = cmd.Parameters.Add("lng", NpgsqlTypes.NpgsqlDbType.Double);
         var pLat = cmd.Parameters.Add("lat", NpgsqlTypes.NpgsqlDbType.Double);
@@ -500,7 +621,9 @@ public sealed class PgPlaceStore : IPlaceStore
             pSid.Value = p.SourceId;
             pFt.Value = p.FeatureType;
             pName.Value = p.PrimaryName;
-            pFold.Value = p.PrimaryName.ToLowerInvariant();
+            var fold = p.PrimaryName.ToLowerInvariant();
+            pFold.Value = fold;
+            pAscii.Value = FoldAscii(fold);
             pStatus.Value = p.Status;
             pLng.Value = p.Lng;
             pLat.Value = p.Lat;
