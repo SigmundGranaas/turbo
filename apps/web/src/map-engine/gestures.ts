@@ -26,25 +26,27 @@ const ORBIT_ARM = 3; // px before a mouse orbit/tilt engages (so a bare click do
 const LONG_PRESS_MS = 500;
 const DOUBLE_MS = 300;
 const DOUBLE_DIST = 30;
-const TWO_FINGER_DECIDE = 12; // px of finger travel before pitch-vs-transform is latched
-const ROTATE_DEADZONE_DEG = 8; // twist before rotation engages (kills jitter on a straight pinch)
-const PITCH_K = 0.4; // deg of pitch per CSS px of 2-finger vertical drag
 const FLING_MIN = 80; // px/s release speed below which we don't fling
 const BEARING_PER_PX = 0.45; // mouse-orbit horizontal sensitivity
 const PITCH_PER_PX = 0.4; // mouse-orbit vertical sensitivity
+// Two-finger orbit sensitivities in 3D — match the Android app (0.3 deg/px), so
+// the touch feel is identical across web and Android.
+const TOUCH_BEARING_PER_PX = 0.3;
+const TOUCH_PITCH_PER_PX = 0.3;
 
 const isTouch = (t: string) => t === 'touch' || t === 'pen';
-const norm180 = (deg: number) => ((((deg + 180) % 360) + 360) % 360) - 180;
 
 /** Attach all map gestures to `canvas`. Returns a `dispose()` that removes every
  *  listener + timer. One unified Pointer-Events state machine handles mouse +
  *  touch + pen; `wheel`/`dblclick`/`keydown` cover desktop affordances.
  *
- *  Touch model: 1 finger pans (inertial fling on release); 2 fingers are an
- *  exact similarity transform (pan + zoom + rotate about the centroid) UNLESS
- *  the gesture is a parallel vertical drag, which tilts (pitch). Long-press adds
- *  a marker; double-tap zooms. Mouse: drag pans, wheel/double-click zoom,
- *  right-drag or Ctrl/⌘-drag orbits + tilts. */
+ *  Touch model (identical to the Android app): 1 finger pans (inertial fling on
+ *  release) in BOTH 2D and 3D; 2 fingers always zoom about the centroid, and the
+ *  centroid's drag does the second axis — in 2D it pans, in 3D it ORBITS
+ *  (horizontal → bearing, vertical → pitch) and never pans. Finger twist is
+ *  ignored in both modes. Long-press adds a marker; double-tap zooms. Mouse
+ *  (desktop only): drag pans, wheel/double-click zoom, right-drag or Ctrl/⌘-drag
+ *  orbits + tilts. */
 export function attachMapGestures(
   canvas: HTMLCanvasElement,
   dpr: number,
@@ -87,23 +89,13 @@ export function attachMapGestures(
   let orbitStartY = 0;
   let orbitArmed = false;
 
-  // --- two-finger gesture ---
-  type TwoMode = 'none' | 'undecided' | 'transform' | 'pitch';
-  let twoMode: TwoMode = 'none';
+  // --- two-finger gesture (Android parity: 2D → pan+zoom, 3D → orbit+zoom;
+  //     finger twist ignored in both modes) ---
+  let twoIs3d = false; // 3D sampled once at gesture start so the grammar is stable
   let snapAx = 0; // rolling previous frame (for incremental deltas)
   let snapAy = 0;
   let snapBx = 0;
   let snapBy = 0;
-  let startAx = 0; // fixed gesture start (for cumulative classify travel)
-  let startAy = 0;
-  let startBx = 0;
-  let startBy = 0;
-  let startDist = 0;
-  let startAng = 0;
-  let startCx = 0;
-  let startCy = 0;
-  let rotateArmed = false;
-  let rotateAcc = 0;
   let pinchZoom = 0; // cumulative zoom levels, for zoom-fling
   let pinchV: { t: number; z: number }[] = [];
 
@@ -133,14 +125,9 @@ export function attachMapGestures(
     consumed = true; // the touch became a gesture, not a tap
     const [a, b] = sortedTwo();
     snapAx = a.x; snapAy = a.y; snapBx = b.x; snapBy = b.y;
-    startAx = a.x; startAy = a.y; startBx = b.x; startBy = b.y;
-    startDist = Math.hypot(a.x - b.x, a.y - b.y);
-    startAng = Math.atan2(a.y - b.y, a.x - b.x);
-    startCx = (a.x + b.x) / 2;
-    startCy = (a.y + b.y) / 2;
-    twoMode = 'undecided';
-    rotateArmed = false;
-    rotateAcc = 0;
+    // Sample the mode once: like Android, a mid-gesture 2D↔3D flip can't change
+    // whether the two-finger drag pans (2D) or orbits (3D).
+    twoIs3d = cb.is3d();
     pinchZoom = 0;
     pinchV = [{ t: now(), z: 0 }];
   };
@@ -240,57 +227,30 @@ export function attachMapGestures(
     const cx = (a.x + b.x) / 2;
     const cy = (a.y + b.y) / 2;
     const dist = Math.hypot(a.x - b.x, a.y - b.y);
-    const ang = Math.atan2(a.y - b.y, a.x - b.x);
+    const prevCx = (snapAx + snapBx) / 2;
+    const prevCy = (snapAy + snapBy) / 2;
+    const prevDist = Math.hypot(snapAx - snapBx, snapAy - snapBy);
 
-    // Classify pitch vs transform once the fingers have travelled enough from
-    // the gesture START (cumulative, not per-frame). Until then we still apply
-    // pan+zoom (always wanted) so the gesture is responsive — only rotate/pitch
-    // wait for the verdict.
-    if (twoMode === 'undecided') {
-      // Require BOTH fingers to have moved (min, not max) so the classification
-      // sees the true centroid — pointermove events arrive one finger at a time.
-      const travel = Math.min(
-        Math.hypot(a.x - startAx, a.y - startAy),
-        Math.hypot(b.x - startBx, b.y - startBy),
-      );
-      if (travel >= TWO_FINGER_DECIDE) {
-        const scaleChange = Math.abs(Math.log2(dist / (startDist || 1)));
-        const rotChange = Math.abs(norm180(((ang - startAng) * 180) / Math.PI));
-        const dCx = Math.abs(cx - startCx);
-        const dCy = Math.abs(cy - startCy);
-        const parallelVertical =
-          dCy > 10 && dCy > dCx * 1.5 && scaleChange < 0.12 && rotChange < 12;
-        twoMode = parallelVertical ? 'pitch' : 'transform';
-      }
+    // Zoom about the moving two-finger centroid — always, in both modes.
+    if (prevDist > 0 && dist > 0) {
+      const factor = dist / prevDist;
+      map.zoom_around(factor, ...focusPx(cx, cy));
+      pinchZoom += Math.log2(factor);
+      pinchV.push({ t: now(), z: pinchZoom });
+      if (pinchV.length > 8) pinchV.shift();
     }
 
-    if (twoMode === 'pitch') {
-      const dCy = cy - (snapAy + snapBy) / 2;
-      map.orbit_around(0, -dCy * PITCH_K, ...focusPx(cx, cy));
+    // The centroid's translation drives the second axis (finger TWIST is ignored
+    // in both modes — Android parity). 2D: the drag pans. 3D: the drag ORBITS —
+    // horizontal → bearing, vertical → pitch — and never pans (orbit_around
+    // re-pins the centroid pixel so the map doesn't drift).
+    const dCx = cx - prevCx;
+    const dCy = cy - prevCy;
+    if (twoIs3d) {
+      map.orbit_around(dCx * TOUCH_BEARING_PER_PX, -dCy * TOUCH_PITCH_PER_PX, ...focusPx(cx, cy));
       reportOrbit(map, ...focusPx(cx, cy));
     } else {
-      // Exact 2-point similarity about the moving centroid: translate, scale,
-      // then rotate (past a deadzone) — keeps both fingers glued.
-      const prevCx = (snapAx + snapBx) / 2;
-      const prevCy = (snapAy + snapBy) / 2;
-      map.pan_by_pixels((cx - prevCx) * dpr, (cy - prevCy) * dpr);
-      const prevDist = Math.hypot(snapAx - snapBx, snapAy - snapBy);
-      if (prevDist > 0 && dist > 0) {
-        const factor = dist / prevDist;
-        map.zoom_around(factor, ...focusPx(cx, cy));
-        pinchZoom += Math.log2(factor);
-        pinchV.push({ t: now(), z: pinchZoom });
-        if (pinchV.length > 8) pinchV.shift();
-      }
-      // Rotate only once we've committed to a transform (not while undecided,
-      // so a nascent pitch gesture isn't twisted), and past a twist deadzone.
-      if (twoMode === 'transform') {
-        const prevAng = Math.atan2(snapAy - snapBy, snapAx - snapBx);
-        const dDeg = norm180(((ang - prevAng) * 180) / Math.PI);
-        rotateAcc += dDeg;
-        if (!rotateArmed && Math.abs(rotateAcc) > ROTATE_DEADZONE_DEG) rotateArmed = true;
-        if (rotateArmed) map.orbit_around(dDeg, 0, ...focusPx(cx, cy));
-      }
+      map.pan_by_pixels(dCx * dpr, dCy * dpr);
     }
     snapAx = a.x; snapAy = a.y; snapBx = b.x; snapBy = b.y;
   };
@@ -335,13 +295,13 @@ export function attachMapGestures(
       const aSample = pinchV[i];
       const dt = last && aSample ? last.t - aSample.t : 0;
       const zv = dt > 0 ? ((last.z - aSample.z) / dt) * 1000 : 0;
-      if (twoMode === 'transform' && two && Math.abs(zv) > 0.3) {
+      // Zoom-fling from the pinch velocity, in both 2D and 3D (Android parity).
+      if (two && Math.abs(zv) > 0.3) {
         const cx = (two[0].x + two[1].x) / 2;
         const cy = (two[0].y + two[1].y) / 2;
         map.zoom_fling(zv, ...focusPx(cx, cy));
       }
-      cb.onOrbit?.(null); // drop the orbit pin if this was a tilt gesture
-      twoMode = 'none';
+      cb.onOrbit?.(null); // drop the orbit pin if this was a 3D orbit gesture
       // A finger remains → reset it as a fresh pan baseline (no tap, gesture
       // already happened).
       if (pointers.size === 1) {
