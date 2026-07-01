@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Turbo.Host.Modulith;
 using Turbo.Hosting.Postgres;
 using Turbo.Messaging.InProcess;
@@ -22,6 +23,26 @@ using Turboapi.Activities.XcSki;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
+
+// Cap the Npgsql pool size on every module connection string. Each module owns
+// its own database (a distinct connection string) and Npgsql defaults to 100
+// connections per string, so the modulith would otherwise open up to
+// 100 × module-count against a single CNPG instance whose max_connections is
+// 100 — connection exhaustion on the small single node. DB_MAX_POOL_SIZE tunes
+// the per-module ceiling (default 15); an explicit "Maximum Pool Size" in a
+// connection string always wins. Applied here at the composition root so every
+// module reads the capped value via GetConnectionString.
+var maxPoolSize = builder.Configuration.GetValue<int?>("DB_MAX_POOL_SIZE") ?? 15;
+var cappedConnStrings = builder.Configuration.GetSection("ConnectionStrings")
+    .GetChildren()
+    .Where(c => !string.IsNullOrWhiteSpace(c.Value))
+    .ToDictionary(
+        c => $"ConnectionStrings:{c.Key}",
+        c => (string?)NpgsqlPoolSizing.WithMaxPoolSize(c.Value, maxPoolSize));
+if (cappedConnStrings.Count > 0)
+{
+    builder.Configuration.AddInMemoryCollection(cappedConnStrings);
+}
 
 builder.Services.AddEndpointsApiExplorer();
 

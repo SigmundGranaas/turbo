@@ -47,6 +47,16 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: ASPNETCORE_ENVIRONMENT
+            # Workstation GC + memory-conserving collection: lower baseline RSS
+            # in this 512Mi container than the default Server GC (see modulith.yaml).
+            - name: DOTNET_gcServer
+              value: "0"
+            - name: DOTNET_GCConserveMemory
+              value: "5"
+            # Npgsql pool ceiling (see Program.cs): leaves headroom on the
+            # turbo-db CNPG instance shared with the modulith (max_connections 100).
+            - name: DB_MAX_POOL_SIZE
+              value: "15"
             - name: ConnectionStrings__Places
               valueFrom: { secretKeyRef: { name: db-secrets, key: connectionstring-places } }
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

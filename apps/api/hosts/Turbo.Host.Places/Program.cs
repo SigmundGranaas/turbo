@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+using Turbo.Hosting.Postgres;
 using Turboapi.Places;
 using Turboapi.Places.Core;
 
@@ -7,6 +9,23 @@ using Turboapi.Places.Core;
 // by the module (AddPlacesModule), so this host just activates the middleware.
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
+
+// Cap the Npgsql pool size on the Places connection string. Places shares the
+// turbo-db CNPG instance (max_connections 100) with the modulith, and Npgsql
+// defaults to 100 connections per string — so leave headroom rather than let a
+// single read service claim the whole server. DB_MAX_POOL_SIZE tunes the
+// ceiling (default 15); an explicit "Maximum Pool Size" in the string wins.
+var maxPoolSize = builder.Configuration.GetValue<int?>("DB_MAX_POOL_SIZE") ?? 15;
+var cappedConnStrings = builder.Configuration.GetSection("ConnectionStrings")
+    .GetChildren()
+    .Where(c => !string.IsNullOrWhiteSpace(c.Value))
+    .ToDictionary(
+        c => $"ConnectionStrings:{c.Key}",
+        c => (string?)NpgsqlPoolSizing.WithMaxPoolSize(c.Value, maxPoolSize));
+if (cappedConnStrings.Count > 0)
+{
+    builder.Configuration.AddInMemoryCollection(cappedConnStrings);
+}
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddPlacesModule(builder.Configuration);

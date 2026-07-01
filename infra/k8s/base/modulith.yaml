@@ -51,6 +51,19 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: ASPNETCORE_ENVIRONMENT
+            # GC tuning for a small (1 CPU / 1Gi) container. Server GC keeps a
+            # per-core heap and is memory-hungry at this size; Workstation GC has
+            # a single, smaller heap and lower baseline RSS. GCConserveMemory (0-9)
+            # trades a little throughput to release memory back to the OS sooner —
+            # right for a quota-tight single node, wrong for a throughput box.
+            - name: DOTNET_gcServer
+              value: "0"
+            - name: DOTNET_GCConserveMemory
+              value: "5"
+            # Per-module Npgsql pool ceiling (see Program.cs). Keeps 6 module DBs
+            # well under the CNPG max_connections: 100 on the shared instance.
+            - name: DB_MAX_POOL_SIZE
+              value: "15"
             # Per-module connection strings -> single shared-db, one database per module
             - name: ConnectionStrings__Auth
               valueFrom: { secretKeyRef: { name: db-secrets, key: connectionstring-auth } }
