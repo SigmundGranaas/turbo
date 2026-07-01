@@ -174,10 +174,20 @@ public class PlacesController : ControllerBase
     private static bool InNorway(double lat, double lng) =>
         lat is >= MinLat and <= MaxLat && lng is >= MinLng and <= MaxLng;
 
-    /// <summary>Stamps the dataset-version ETag on the response and answers
-    /// whether the client's If-None-Match already matches it.</summary>
+    /// <summary>Stamps the dataset-version ETag + a public Cache-Control on the
+    /// response, and answers whether the client's If-None-Match already matches
+    /// it. Search/reverse are deterministic per dataset version (which only
+    /// changes on the weekly ingestion run), so they're safe to cache publicly:
+    /// a short <c>max-age</c> keeps autocomplete snappy at the CDN edge, and the
+    /// long <c>stale-while-revalidate</c> lets the edge serve instantly while it
+    /// refreshes in the background. The ETag still enables a cheap 304 revalidate
+    /// once max-age lapses, so a mid-week edit is picked up within the window.</summary>
     private async Task<bool> NotModifiedAsync(CancellationToken ct)
     {
+        // Cacheable regardless of whether a dataset version is resolvable — the
+        // ranking is a pure function of the query + (currently loaded) data.
+        Response.Headers.CacheControl = "public, max-age=300, stale-while-revalidate=86400";
+
         var version = await _version.GetActiveVersionAsync(ct);
         if (version is null) return false;
         var etag = $"\"{version}\"";
