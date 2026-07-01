@@ -266,36 +266,54 @@ mod tests {
         assert!((aerial_haze_density(60.0) - 1.0).abs() < 1e-6, "full when gazing to the horizon");
     }
 
-    // --- Mirror of the shader's relative-depth ramp ---------------------------
-    const HAZE_START: f32 = 2.5;
-    const HAZE_END: f32 = 14.0;
-    const HAZE_MAX: f32 = 0.7;
-    fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
-        let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
-        t * t * (3.0 - 2.0 * t)
-    }
-    /// Coloration amount for a fragment `l_m` away from an eye at altitude
-    /// `alt_m`, at `pitch_deg`. Depth is normalised by altitude (zoom-relative).
-    fn amount(l_m: f32, alt_m: f32, pitch_deg: f64) -> f32 {
-        let t = l_m / alt_m;
-        aerial_haze_density(pitch_deg) * smoothstep(HAZE_START, HAZE_END, t) * HAZE_MAX
+    // --- Mirror of the shader's exponential-height-fog optical depth ----------
+    // (see `apply_aerial`). Scale-invariant in the height unit, so we work in
+    // metres: eye altitude `cz_m`, fragment elevation `pz_m`, ray length `l_m`.
+    const HAZE_SCALE_HEIGHT_M: f32 = 1200.0;
+    const HAZE_SIGMA: f32 = 0.13;
+    const HAZE_MAX: f32 = 0.72;
+    /// Coloration amount for a fragment at elevation `pz_m`, a straight-line
+    /// `l_m` from an eye at altitude `cz_m`, gazing at `pitch_deg`. Integrates
+    /// exp(-h/H) along the eye→fragment ray (analytic) → tau → 1-exp(-tau).
+    fn amount(l_m: f32, cz_m: f32, pz_m: f32, pitch_deg: f64) -> f32 {
+        let k = 1.0 / HAZE_SCALE_HEIGHT_M;
+        let pz = pz_m.max(0.0);
+        let ec = (-cz_m * k).exp();
+        let ep = (-pz * k).exp();
+        let dz = pz - cz_m;
+        let tau = if dz.abs() > 1.0 { HAZE_SIGMA * l_m * (ec - ep) / dz } else { HAZE_SIGMA * l_m * k * ec };
+        aerial_haze_density(pitch_deg) * (1.0 - (-tau.max(0.0)).exp()) * HAZE_MAX
     }
 
     #[test]
     fn foreground_is_crisp_and_far_field_colours_when_tilted() {
-        // Gazing to the horizon: near ground (≈ the camera's own altitude away)
-        // is crisp; the far field (many altitudes out) colours.
-        let alt = 3_000.0;
-        assert!(amount(1.5 * alt, alt, 70.0) < 0.02, "foreground stays crisp");
-        assert!(amount(12.0 * alt, alt, 70.0) > 0.3, "far field colours");
+        // Gazing to the horizon from a 2 km eye over sea-level ground: the near
+        // foreground (short ray) stays crisp; the distant low horizon colours.
+        let cz = 2_000.0;
+        assert!(amount(2_500.0, cz, 300.0, 70.0) < 0.15, "near foreground stays crisp");
+        assert!(amount(60_000.0, cz, 0.0, 70.0) > 0.35, "far low horizon colours");
     }
 
     #[test]
-    fn effect_is_zoom_relative() {
-        // The SAME framing at 10× altitude with 10× distances looks identical —
-        // "distant" scales with zoom, so close objects never wash out when you
-        // zoom out and tilt.
-        let close = (amount(4.0 * 1_000.0, 1_000.0, 70.0), amount(4.0 * 30_000.0, 30_000.0, 70.0));
-        assert!((close.0 - close.1).abs() < 1e-6, "depth haze is zoom-invariant");
+    fn valleys_haze_more_than_peaks_at_equal_distance() {
+        // The volumetric core: at the SAME range, a valley floor sits deep in the
+        // haze band and colours strongly; a peak climbs out of it (its ray spends
+        // less length in dense air) and reads clearer. This is what makes it an
+        // environmental volume, not a flat depth veil.
+        let cz = 2_000.0;
+        let l = 40_000.0;
+        let valley = amount(l, cz, 0.0, 70.0);
+        let peak = amount(l, cz, 1_600.0, 70.0);
+        assert!(valley > 0.4, "distant valley floor colours strongly");
+        assert!(peak < valley * 0.85, "a peak at the same range reads clearer than the valley");
+    }
+
+    #[test]
+    fn from_high_above_the_band_the_scene_is_mostly_clear() {
+        // Zoomed way out (eye far above the haze band): looking down/across, most
+        // of the scene is clear because the ray runs through thin high air — only
+        // grazing rays to the distant low horizon accumulate. No nadir whiteout.
+        let cz = 40_000.0; // well above H
+        assert!(amount(30_000.0, cz, 1_500.0, 70.0) < 0.15, "mid-field terrain from high up stays clear");
     }
 }

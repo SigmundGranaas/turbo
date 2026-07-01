@@ -369,32 +369,48 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     return out;
 }
 
-// Zoom-RELATIVE aerial perspective (a 3D-map depth cue), NOT absolute physics:
-// the camera "altitude" is a zoom artifact, not a real position, so absolute
-// optical depth draws a nadir circle and tints the foreground. Instead the
-// fragment depth = eye->fragment distance NORMALISED by the camera altitude, so
-// it is zoom-INVARIANT ("distant" scales with how far out you are). Properties:
-//   * The foreground you are looking at (depth < HAZE_START) is ALWAYS crisp --
-//     close objects never pick up colour, at any zoom.
-//   * Only the far field (depth >> the look distance) takes the sky's colour.
-//   * globals.haze_density is the PITCH gate: 0 looking down / top-down (no haze,
-//     no nadir circle), ramping in only when gazing toward the horizon.
-// globals.haze_color is a bluish sky tint, warming toward a low sun.
-//
-// Depth t is in units of camera altitude: t~1 is one altitude away (~ the
-// look-at point when tilted), the foreground is t<1, the far field t>>1.
-const HAZE_START: f32 = 2.5;   // below this (x altitude) -> fully crisp
-const HAZE_END: f32 = 14.0;    // by this -> full coloration
-const HAZE_MAX: f32 = 0.7;     // cap (coloration, never a whiteout)
+// Volumetric aerial perspective -- analytic EXPONENTIAL HEIGHT FOG (the
+// Wenzel/Frostbite closed form), not a screen-space depth veil. The haze is a
+// physical low-lying band whose density decays exponentially with altitude
+// (scale height HAZE_SCALE_HEIGHT_M). We integrate that density along the whole
+// eye->fragment ray to get an optical depth tau, then coloration = 1-exp(-tau).
+// Why this reads as a VOLUME the terrain sits inside, not a filter:
+//   * A grazing ray skimming a low valley/fjord stays in the dense band for its
+//     whole length -> large tau -> strong haze.
+//   * A ray to a peak climbs out of the band -> small tau -> the mountain stands
+//     clear of the valley haze behind/below it. (Valleys > peaks, as expected.)
+//   * The foreground (short ray) accumulates little -> always crisp.
+//   * From high above (zoomed way out) the camera sits ABOVE the band, so
+//     exp(-eye_z/H) ~ 0 and only the distant low horizon hazes -- no nadir veil.
+//   * globals.haze_density is the PITCH gate: 0 looking straight down / on the
+//     flat 2D map, ramping in only when gazing toward the horizon.
+// The analytic integral of exp(-h/H) from eye to fragment along a straight ray:
+//   tau = SIGMA * L * (exp(-cz/H) - exp(-pz/H)) / (pz - cz)     [limit: SIGMA*L/H*exp(-cz/H)]
+// where cz/pz are eye/fragment altitudes and L the ray length; H cancels the
+// vertical exaggeration (both cz and H carry zscale), so the band is true metres.
+const HAZE_SCALE_HEIGHT_M: f32 = 1200.0; // e-folding altitude of the haze band
+const HAZE_SIGMA: f32 = 0.13;            // extinction per (ray-length / rise) unit -- clear mountain air
+const HAZE_MAX: f32 = 0.72;              // cap (coloration, never a whiteout)
 fn apply_aerial(rgb: vec3<f32>, world_xy: vec2<f32>, world_z: f32) -> vec3<f32> {
     let gate = globals.haze_density;              // pitch gate (0 looking down / 2D)
     if (gate <= 0.0) {
         return rgb;
     }
-    let alt = max(globals.eye_world.z, 1.0e-9);   // camera altitude (world units)
+    let zscale = globals.meters_to_world * globals.exaggeration;
+    let k = 1.0 / max(HAZE_SCALE_HEIGHT_M * zscale, 1.0e-9); // 1/H in world units
+    let cz = globals.eye_world.z;                 // eye altitude (world units)
+    let pz = max(world_z, 0.0);                    // fragment altitude (clamp curvature droop)
     let l = length(vec3<f32>(world_xy, world_z) - globals.eye_world);
-    let t = l / alt;                              // relative depth (zoom-invariant)
-    let amt = gate * smoothstep(HAZE_START, HAZE_END, t) * HAZE_MAX;
+    let ec = exp(-cz * k);
+    let ep = exp(-pz * k);
+    let dz = pz - cz;
+    var tau: f32;
+    if (abs(dz) > 1.0) {
+        tau = HAZE_SIGMA * l * (ec - ep) / dz;
+    } else {
+        tau = HAZE_SIGMA * l * k * ec;             // pz ~= cz: density ~ constant over the ray
+    }
+    let amt = gate * (1.0 - exp(-max(tau, 0.0))) * HAZE_MAX;
     if (amt <= 0.0) {
         return rgb;
     }
