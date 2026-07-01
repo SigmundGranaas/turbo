@@ -137,6 +137,15 @@ spec:
             # owned Cloudflare zone; turkart.no was never ours).
             - name: PUBLIC_BASE_URL
               value: "https://kart-api.sandring.no/tiles"
+            # Dataset-version cache-buster. style.json / TileJSON append this as
+            # `?v=<tag>` on the basemap + DEM tile URLs, and the basemap tile
+            # response is then served `Cache-Control: immutable` — so the CDN can
+            # cache tiles forever and a rebuild just bumps this tag (new URL space,
+            # old edge entries orphan, NO purge needed). BUMP THIS on every N50
+            # basemap re-provision (unset = versioning off, tiles fall back to the
+            # 1-day revalidating policy).
+            - name: TILESERVER_DATA_VERSION
+              value: "n50-2026.06"
             # --- Self-provisioning (Geonorge N50) ---------------------------
             # Where the ingest pipeline unzips/restores the downloaded
             # PostGIS dumps. Must be writable + sized (see the `incoming`

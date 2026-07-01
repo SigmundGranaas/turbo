@@ -7,7 +7,7 @@
 //! client-side, so the same tiles back any number of map styles.
 
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::{Path, RawQuery, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::Response;
 use axum::Json;
@@ -20,6 +20,10 @@ use crate::state::ApiState;
 pub async fn tile(
     State(state): State<ApiState>,
     Path((z, x, y_ext)): Path<(u8, u32, String)>,
+    // Present only to read the `?v=<version>` cache-buster the style/TileJSON
+    // emit — the tile bytes don't depend on it. When a request carries a version
+    // the URL is version-pinned, so the response is safe to cache `immutable`.
+    RawQuery(query): RawQuery,
 ) -> Result<Response, ApiError> {
     // Axum captures `:y.mvt` as one segment; strip the extension ourselves.
     let y_str = y_ext
@@ -63,11 +67,22 @@ pub async fn tile(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/vnd.mapbox-vector-tile"),
     );
-    // Long-lived + revalidate: basemap data changes on rebuild cadence, and
-    // the edge cache keys on the URL. (Versioned URLs land with the R2 tier.)
+    // If the URL is version-pinned (`?v=<tag>`), it's safe to cache forever: a
+    // rebuild bumps TILESERVER_DATA_VERSION → a new URL space → this entry
+    // orphans, no purge needed. Unversioned requests (e.g. a client hitting the
+    // raw path) keep the shorter revalidating policy so they still pick up a
+    // rebuild within a day.
+    let versioned = query
+        .as_deref()
+        .is_some_and(|q| q.split('&').any(|kv| kv == "v" || kv.starts_with("v=")));
+    let cache_control = if versioned {
+        "public, max-age=31536000, immutable"
+    } else {
+        "public, max-age=86400, stale-while-revalidate=604800"
+    };
     headers.insert(
         header::CACHE_CONTROL,
-        HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=604800"),
+        HeaderValue::from_static(cache_control),
     );
     Ok(resp)
 }
@@ -117,7 +132,7 @@ pub async fn describe(State(state): State<ApiState>) -> Json<Value> {
         "attribution": "© Kartverket",
         "minzoom": min,
         "maxzoom": max,
-        "tiles": [format!("{}/v1/basemap/{{z}}/{{x}}/{{y}}.mvt", state.public_base_url)],
+        "tiles": [format!("{}/v1/basemap/{{z}}/{{x}}/{{y}}.mvt{}", state.public_base_url, state.version_query())],
         "vector_layers": layers,
     }))
 }
@@ -136,7 +151,13 @@ const EMBEDDED_STYLE: &str = include_str!("../../../../styles/n50-topo.json");
 pub async fn style(State(state): State<ApiState>) -> Response {
     let text = std::fs::read_to_string("styles/n50-topo.json")
         .unwrap_or_else(|_| EMBEDDED_STYLE.to_string());
-    let body = text.replace("{BASE_URL}", &state.public_base_url);
+    // {BASE_URL} → public origin; {V} → the ?v=<tag> cache-buster (or "" when
+    // TILESERVER_DATA_VERSION is unset). {V} sits only on the basemap/DEM tile
+    // templates (path ends in .mvt/.png → trailing query is safe); the sprite URL
+    // deliberately has no {V} (clients append .json/.png after it).
+    let body = text
+        .replace("{BASE_URL}", &state.public_base_url)
+        .replace("{V}", &state.version_query());
     Response::builder()
         .status(StatusCode::OK)
         .header(
@@ -189,16 +210,28 @@ mod tests {
     }
 
     /// The tile URL template must carry the {BASE_URL} placeholder (resolved
-    /// at serve time) and the z/x/y slots the clients interpolate.
+    /// at serve time), the z/x/y slots the clients interpolate, and the {V}
+    /// cache-buster token (resolved to `?v=<tag>` or ""). Losing {V} silently
+    /// disables the immutable-versioned edge caching.
     #[test]
     fn style_tiles_template_has_placeholders() {
         let style: serde_json::Value = serde_json::from_str(EMBEDDED_STYLE).unwrap();
         let tiles = style["sources"]["n50"]["tiles"][0].as_str().unwrap();
-        for needle in ["{BASE_URL}", "{z}", "{x}", "{y}"] {
+        for needle in ["{BASE_URL}", "{z}", "{x}", "{y}", "{V}"] {
             assert!(
                 tiles.contains(needle),
                 "tiles template missing {needle}: {tiles}"
             );
         }
+        // {V} must sit at the END (a trailing ?v= query), never mid-path where it
+        // would corrupt the tile path. The sprite URL must stay {V}-free.
+        assert!(
+            tiles.trim_end().ends_with("{V}"),
+            "{{V}} must be the trailing cache-buster: {tiles}"
+        );
+        assert!(
+            !style["sprite"].as_str().unwrap_or("").contains("{V}"),
+            "sprite URL must not carry {{V}} (clients append .json/.png after it)"
+        );
     }
 }

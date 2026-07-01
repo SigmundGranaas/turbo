@@ -9,7 +9,7 @@
     "n50": {
       "type": "vector",
       "tiles": [
-        "{BASE_URL}/v1/basemap/{z}/{x}/{y}.mvt"
+        "{BASE_URL}/v1/basemap/{z}/{x}/{y}.mvt{V}"
       ],
       "minzoom": 4,
       "maxzoom": 16,
@@ -20,7 +20,7 @@
       "encoding": "mapbox",
       "tileSize": 256,
       "tiles": [
-        "{BASE_URL}/v1/dem/rgb/{z}/{x}/{y}.png"
+        "{BASE_URL}/v1/dem/rgb/{z}/{x}/{y}.png{V}"
       ],
       "minzoom": 0,
       "maxzoom": 13,

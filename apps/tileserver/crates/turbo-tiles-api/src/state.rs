@@ -25,6 +25,13 @@ pub struct ApiState {
     pub db: DbPool,
     pub auth: AuthState,
     pub public_base_url: Arc<String>,
+    /// Opaque dataset-version tag (`TILESERVER_DATA_VERSION`, e.g. `n50-2026.06`).
+    /// When set, it's appended as a `?v=<tag>` cache-buster on the self-referenced
+    /// basemap/DEM tile URLs (see `version_query`) so a rebuild that bumps the tag
+    /// changes the URL space — the edge caches those tiles `immutable` and old
+    /// entries simply orphan, no CDN purge needed. Empty = feature off (URLs stay
+    /// unversioned and keep the shorter revalidating cache policy).
+    pub data_version: Arc<String>,
     pub dem: Option<Arc<turbo_tiles_elev::Dem>>,
     pub mask: Option<Arc<turbo_tiles_mask::Mask>>,
     pub graph: Option<Arc<turbo_tiles_graph::Graph>>,
@@ -101,6 +108,7 @@ impl ApiState {
             db,
             auth: AuthState(Arc::new(auth)),
             public_base_url: Arc::new(public_base_url),
+            data_version: Arc::new(std::env::var("TILESERVER_DATA_VERSION").unwrap_or_default()),
             dem: None,
             mask: None,
             graph: None,
@@ -118,6 +126,19 @@ impl ApiState {
             mvt_tiles: crate::mvt_tile_cache::MvtTileCache::from_env(),
             raster_tiles: crate::mvt_tile_cache::MvtTileCache::png_from_env(),
             basemap_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    /// The `?v=<tag>` cache-buster to append to self-referenced tile URLs, or an
+    /// empty string when `TILESERVER_DATA_VERSION` is unset. Appended to the
+    /// basemap/DEM tile templates (their paths end in `.mvt`/`.png`, so a trailing
+    /// query is safe — unlike the sprite URL, which clients extend with
+    /// `.json`/`.png` and must stay query-free).
+    pub fn version_query(&self) -> String {
+        if self.data_version.is_empty() {
+            String::new()
+        } else {
+            format!("?v={}", self.data_version)
         }
     }
 
