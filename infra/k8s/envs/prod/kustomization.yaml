@@ -40,7 +40,7 @@ images:
     # Pinned to a git-traceable sha (was `latest`): a mutable tag never changes
     # the rendered manifest, so ArgoCD wouldn't sync a new build. Bump to a green
     # 0.0.0-<sha7> and push, like the modulith.
-    newTag: "0.0.0-716a02f"
+    newTag: "0.0.0-db729b6"
   - name: turbo-places-ingest
     newName: ghcr.io/sigmundgranaas/turbo-places-ingest
     newTag: latest
