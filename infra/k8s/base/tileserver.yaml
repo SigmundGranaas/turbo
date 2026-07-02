@@ -308,8 +308,11 @@ spec:
               # attractor (route-fidelity feature, corpus +3.4 quality
               # points) holds ~500Mi of real heap — an rtree over the
               # full Norway sti network decimated at 100 m.
-              # Bump (with the quota + node RAM) if big routes get OOMKilled.
-              memory: "2Gi"
+              # 1536Mi (was 2Gi): measured steady RSS ~870Mi (DEM mmap is
+              # evictable page cache, not heap), so 1.5Gi is ~1.7× peak — enough
+              # burst for the sti rtree + solve corridors while freeing namespace
+              # quota for the ingest CronJobs. Bump back if big routes get OOMKilled.
+              memory: "1536Mi"
               # Raised 2→4 cores (a ceiling; requests stay 250m so scheduling is
               # unchanged). The DEM RGB render is CPU-bound (~234 ms/tile); a
               # higher ceiling + matching DEM_RENDER_CONCURRENCY (8) ~doubles cold

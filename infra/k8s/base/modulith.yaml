@@ -152,7 +152,10 @@ spec:
               memory: "256Mi"
               cpu: "100m"
             limits:
-              memory: "1Gi"
+              # 640Mi (was 1Gi): steady RSS is ~150Mi (Workstation GC), so this is
+              # a generous burst ceiling that frees namespace quota for the ingest
+              # CronJobs. Bump back if a burst OOMKills.
+              memory: "640Mi"
               cpu: "1000m"
 ---
 apiVersion: v1
