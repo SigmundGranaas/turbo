@@ -377,6 +377,9 @@ mod tests {
     #[test]
     fn metadata_version_is_none_when_absent_or_blank() {
         assert_eq!(parse_metadata_version(&json!({})), None);
-        assert_eq!(parse_metadata_version(&json!({ "DateUpdated": "  " })), None);
+        assert_eq!(
+            parse_metadata_version(&json!({ "DateUpdated": "  " })),
+            None
+        );
     }
 }

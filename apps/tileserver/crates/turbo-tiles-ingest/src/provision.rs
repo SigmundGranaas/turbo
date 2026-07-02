@@ -224,16 +224,14 @@ async fn existing_provision(pool: &DbPool) -> Result<Option<ProvisionState>, Job
     )
     .fetch_optional(pool)
     .await?;
-    Ok(
-        row.map(
-            |(area, row_count, source_version, source_metadata_version)| ProvisionState {
-                area,
-                row_count,
-                source_version,
-                source_metadata_version,
-            },
-        ),
-    )
+    Ok(row.map(
+        |(area, row_count, source_version, source_metadata_version)| ProvisionState {
+            area,
+            row_count,
+            source_version,
+            source_metadata_version,
+        },
+    ))
 }
 
 /// The currently-provisioned area, if any — used by the boot refresh
@@ -427,9 +425,19 @@ mod tests {
             "same area + same DateUpdated → skip download"
         );
         // Kartverket republished (newer date) → download.
-        assert!(!should_skip_metadata(Some(&prev), &area("national"), "2026-06-28", false));
+        assert!(!should_skip_metadata(
+            Some(&prev),
+            &area("national"),
+            "2026-06-28",
+            false
+        ));
         // force always downloads.
-        assert!(!should_skip_metadata(Some(&prev), &area("national"), "2026-06-15", true));
+        assert!(!should_skip_metadata(
+            Some(&prev),
+            &area("national"),
+            "2026-06-15",
+            true
+        ));
     }
 
     #[test]
@@ -445,6 +453,11 @@ mod tests {
         );
         // Row written before the metadata marker existed → do one full run.
         let no_marker = state_meta("0000", None);
-        assert!(!should_skip_metadata(Some(&no_marker), &area("national"), "2026-06-15", false));
+        assert!(!should_skip_metadata(
+            Some(&no_marker),
+            &area("national"),
+            "2026-06-15",
+            false
+        ));
     }
 }
