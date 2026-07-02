@@ -142,6 +142,20 @@ public sealed class PgPlaceStore : IPlaceStore
             );
             ALTER TABLE places.dataset ADD COLUMN IF NOT EXISTS source_version text;
             CREATE INDEX IF NOT EXISTS dataset_active ON places.dataset (status, published_at DESC);
+            -- Ingest-run ledger (shared shape with the tileserver's ingest_job):
+            -- one queryable record of every ingest attempt, its outcome, and
+            -- staleness. Written by the ingest CronJob, read by /ingest/runs.
+            CREATE TABLE IF NOT EXISTS places.ingest_run (
+                run_id         uuid PRIMARY KEY,
+                source         text NOT NULL,
+                status         text NOT NULL,   -- running | success | skipped_unchanged | failed
+                started_at     timestamptz NOT NULL DEFAULT now(),
+                finished_at    timestamptz,
+                source_version text,
+                rows_written   bigint NOT NULL DEFAULT 0,
+                error_text     text
+            );
+            CREATE INDEX IF NOT EXISTS ingest_run_recent ON places.ingest_run (started_at DESC);
             -- Staging mirrors live columns; only a unique index for ON CONFLICT
             -- (no GIST/GIN — they'd just slow the bulk load). A national dataset
             -- lands here, then SwapAsync replaces live atomically (sweeping
@@ -623,6 +637,72 @@ public sealed class PgPlaceStore : IPlaceStore
         cmd.Parameters.AddWithValue("sv", (object?)sourceVersion ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
         await tx.CommitAsync(ct);
+    }
+
+    public async Task<Guid> BeginIngestRunAsync(string source, CancellationToken ct = default)
+    {
+        var runId = Guid.NewGuid();
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO places.ingest_run (run_id, source, status, started_at)
+            VALUES (@id, @src, 'running', now());
+            """;
+        cmd.Parameters.AddWithValue("id", runId);
+        cmd.Parameters.AddWithValue("src", source);
+        await cmd.ExecuteNonQueryAsync(ct);
+        return runId;
+    }
+
+    public async Task CompleteIngestRunAsync(
+        Guid runId, string status, string? sourceVersion, long rowsWritten, string? error,
+        CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE places.ingest_run
+               SET status = @status, finished_at = now(), source_version = @sv,
+                   rows_written = @rows, error_text = @err
+             WHERE run_id = @id;
+            """;
+        cmd.Parameters.AddWithValue("id", runId);
+        cmd.Parameters.AddWithValue("status", status);
+        cmd.Parameters.AddWithValue("sv", (object?)sourceVersion ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("rows", rowsWritten);
+        cmd.Parameters.AddWithValue("err", (object?)error ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<IngestRun>> RecentIngestRunsAsync(int limit, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT run_id, source, status, started_at, finished_at, source_version, rows_written, error_text
+            FROM places.ingest_run
+            ORDER BY started_at DESC
+            LIMIT @limit;
+            """;
+        cmd.Parameters.AddWithValue("limit", limit);
+        var runs = new List<IngestRun>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            runs.Add(new IngestRun(
+                RunId: reader.GetGuid(0),
+                Source: reader.GetString(1),
+                Status: reader.GetString(2),
+                StartedAt: reader.GetFieldValue<DateTimeOffset>(3),
+                FinishedAt: reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
+                SourceVersion: reader.IsDBNull(5) ? null : reader.GetString(5),
+                RowsWritten: reader.GetInt64(6),
+                Error: reader.IsDBNull(7) ? null : reader.GetString(7)));
+        }
+        return runs;
     }
 
     private static string EscapeLike(string s) =>

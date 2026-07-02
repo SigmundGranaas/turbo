@@ -52,4 +52,19 @@ public interface IPlaceStore
     /// step; decoupled from row content so reads flip exactly once.</summary>
     Task PublishDatasetVersionAsync(
         string version, string? sourceVersion = null, CancellationToken ct = default);
+
+    /// <summary>Open an ingest-run ledger row (<c>running</c>) for
+    /// <paramref name="source"/> and return its id. The shared run-tracking shape
+    /// (mirrors the tileserver's ingest_job): one queryable place for ingest
+    /// history, status, and staleness.</summary>
+    Task<Guid> BeginIngestRunAsync(string source, CancellationToken ct = default);
+
+    /// <summary>Close the ingest-run row: final status, upstream marker, rows
+    /// written, and an optional error message.</summary>
+    Task CompleteIngestRunAsync(
+        Guid runId, string status, string? sourceVersion, long rowsWritten, string? error,
+        CancellationToken ct = default);
+
+    /// <summary>Most-recent ingest runs, newest first (the /ingest/runs surface).</summary>
+    Task<IReadOnlyList<IngestRun>> RecentIngestRunsAsync(int limit, CancellationToken ct = default);
 }

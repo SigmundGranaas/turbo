@@ -147,14 +147,16 @@ Stops the weekly full re-ingest when SSR is unchanged.
 - Deploy path: `turbo-places` image only (see [[places-search-quality]] for the
   build/pin flow).
 
-### Phase 2 — Places run ledger + OTel
-- Add `ingest.run` table (same shape as tileserver) + write a row per run
-  (`running` → `success|skipped_unchanged|failed`).
-- Emit OTel metrics to Alloy (the modulith already ships OTel→Alloy):
-  `ingest_run_total{source,status}`, `ingest_last_success_timestamp{source}`,
-  `ingest_rows_written{source}`, `ingest_duration_seconds{source}`.
+### Phase 2 — Places run ledger + query endpoint  ✅ (ledger); OTel → Phase 5
+- Add `places.ingest_run` table (tileserver `ingest_job` shape) + write a row per
+  run (`running` → `success|skipped_unchanged|failed`), from `BulkSsrDemo`.
 - Expose `GET /api/places/ingest/runs` (mirror tileserver's
   `/api/ingest/jobs`, `admin/routes/ingest.rs:173`).
+- **OTel emission deferred to Phase 5:** the standalone Places host wires no
+  OpenTelemetry SDK today (only the modulith does). Rather than add the SDK to a
+  512Mi service for one gauge, Phase 5 wires OTel once and publishes the ingest
+  gauges (`ingest_last_success_timestamp{source}`, …) by reading this ledger — a
+  long-lived-service observable gauge, not export from the short-lived CronJob.
 
 ### Phase 3 — tileserver reads the shared catalog + emits the same metrics
 - Replace hardcoded source consts (`geonorge.rs:22/35`, `fkb_wfs.rs:54`,

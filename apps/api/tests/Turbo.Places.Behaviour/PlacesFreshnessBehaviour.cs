@@ -63,4 +63,26 @@ public class PlacesSourceVersionRoundTrip : IClassFixture<PlacesDbFixture>
         (await store.GetActiveSourceVersionAsync()).Should().Be("2026-07-10T00:00:00");
         (await store.GetActiveDatasetVersionAsync()).Should().Be("bulk-ssr-2");
     }
+
+    [Fact]
+    public async Task Ingest_run_ledger_records_status_and_lists_newest_first()
+    {
+        var store = _fixture.Store;
+
+        var r1 = await store.BeginIngestRunAsync("ssr");
+        (await store.RecentIngestRunsAsync(10)).Should().ContainSingle(r => r.RunId == r1)
+            .Which.Status.Should().Be("running");
+
+        await store.CompleteIngestRunAsync(r1, "success", "2026-06-27T00:00:00", 1_058_762, null);
+        var afterFirst = (await store.RecentIngestRunsAsync(10)).Single(r => r.RunId == r1);
+        afterFirst.Status.Should().Be("success");
+        afterFirst.SourceVersion.Should().Be("2026-06-27T00:00:00");
+        afterFirst.RowsWritten.Should().Be(1_058_762);
+        afterFirst.FinishedAt.Should().NotBeNull();
+
+        // A later, skipped run must sort ahead of the earlier one.
+        var r2 = await store.BeginIngestRunAsync("ssr");
+        await store.CompleteIngestRunAsync(r2, "skipped_unchanged", "2026-06-27T00:00:00", 0, null);
+        (await store.RecentIngestRunsAsync(10))[0].RunId.Should().Be(r2, "newest first");
+    }
 }

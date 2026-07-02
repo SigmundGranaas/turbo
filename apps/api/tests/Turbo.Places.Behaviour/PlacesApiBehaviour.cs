@@ -162,6 +162,20 @@ public class PlacesApiBehaviour : IClassFixture<PlacesHostFixture>
     }
 
     [Fact]
+    public async Task Ingest_runs_endpoint_serves_the_ledger()
+    {
+        var client = _fixture.CreateClient();
+        var resp = await client.GetAsync("/api/places/ingest/runs?limit=5");
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        // The fixture seeds no ingest runs, but the endpoint must exist and
+        // return the well-formed envelope (empty runs array).
+        body.TryGetProperty("runs", out var runs).Should().BeTrue();
+        runs.ValueKind.Should().Be(JsonValueKind.Array);
+    }
+
+    [Fact]
     public async Task Health_reports_dataset_counts_and_version()
     {
         var client = _fixture.CreateClient();

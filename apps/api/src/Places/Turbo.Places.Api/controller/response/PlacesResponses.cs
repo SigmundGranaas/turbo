@@ -24,4 +24,16 @@ public sealed record SearchResponse(IReadOnlyList<SearchHitResponse> Items);
 
 public sealed record PlacesHealthResponse(long Places, long Areas, string? DatasetVersion, string Attribution);
 
+/// <summary>One ingest-run ledger entry for the ops surface.</summary>
+public sealed record IngestRunResponse(
+    string Source,
+    string Status,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? FinishedAt,
+    string? SourceVersion,
+    long RowsWritten,
+    string? Error);
+
+public sealed record IngestRunsResponse(IReadOnlyList<IngestRunResponse> Runs);
+
 public sealed record ErrorResponse(string Code, string Detail);

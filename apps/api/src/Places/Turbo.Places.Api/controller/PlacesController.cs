@@ -171,6 +171,24 @@ public class PlacesController : ControllerBase
         return Ok(new PlacesHealthResponse(places, areas, version, Attribution));
     }
 
+    /// <summary>GET /api/places/ingest/runs?limit= — recent ingest-run history
+    /// (newest first): status, timing, upstream version, rows, and any error. The
+    /// operational surface for "did the weekly ingest run / skip / fail", mirrors
+    /// the tileserver's /api/ingest/jobs. Ops data over public reference data — no
+    /// user state — so it rides the same anonymous+rate-limited surface as
+    /// /health; not cached (freshness matters here).</summary>
+    [HttpGet("ingest/runs")]
+    public async Task<ActionResult<IngestRunsResponse>> IngestRuns(
+        [FromQuery] int limit = 20, CancellationToken ct = default)
+    {
+        limit = Math.Clamp(limit, 1, 100);
+        var runs = await _store.RecentIngestRunsAsync(limit, ct);
+        return Ok(new IngestRunsResponse(runs
+            .Select(r => new IngestRunResponse(
+                r.Source, r.Status, r.StartedAt, r.FinishedAt, r.SourceVersion, r.RowsWritten, r.Error))
+            .ToList()));
+    }
+
     private static bool InNorway(double lat, double lng) =>
         lat is >= MinLat and <= MaxLat && lng is >= MinLng and <= MaxLng;
 

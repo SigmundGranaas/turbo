@@ -31,47 +31,62 @@ public static class BulkSsrDemo
         var client = new GeonorgeClient(http);
         var ingestor = new BulkPlaceIngestor(client);
 
-        // Freshness pre-check: a small metadata GET yields SSR's upstream
-        // DateUpdated. If it matches the active dataset's stored source_version we
-        // skip the whole order + ~3 GB download — the point is to not pull data
-        // from Kartverket that we already have. PLACES_INGEST_FORCE=1 overrides.
-        var force = Environment.GetEnvironmentVariable("PLACES_INGEST_FORCE") is "1" or "true";
-        var upstreamVersion = await client.GetDatasetVersionAsync(StedsnavnUuid);
-        var activeVersion = await store.GetActiveSourceVersionAsync();
-        if (!force && upstreamVersion is not null && upstreamVersion == activeVersion)
+        // One ledger row per run (running → skipped_unchanged | success | failed):
+        // the shared ingest-run tracking surfaced at /api/places/ingest/runs.
+        var runId = await store.BeginIngestRunAsync("ssr");
+        string? upstreamVersion = null;
+        try
         {
-            Console.WriteLine($"SSR unchanged (source_version={upstreamVersion}); skipping order + download.");
+            // Freshness pre-check: a small metadata GET yields SSR's upstream
+            // DateUpdated. If it matches the active dataset's stored source_version
+            // we skip the whole order + ~3 GB download — the point is to not pull
+            // data from Kartverket that we already have. PLACES_INGEST_FORCE=1 forces.
+            var force = Environment.GetEnvironmentVariable("PLACES_INGEST_FORCE") is "1" or "true";
+            upstreamVersion = await client.GetDatasetVersionAsync(StedsnavnUuid);
+            var activeVersion = await store.GetActiveSourceVersionAsync();
+            if (!force && upstreamVersion is not null && upstreamVersion == activeVersion)
+            {
+                Console.WriteLine($"SSR unchanged (source_version={upstreamVersion}); skipping order + download.");
+                await store.CompleteIngestRunAsync(runId, "skipped_unchanged", upstreamVersion, 0, null);
+                return 0;
+            }
+            Console.WriteLine(upstreamVersion is null
+                ? "upstream SSR version unavailable — ingesting (no freshness skip)"
+                : $"SSR source_version {activeVersion ?? "(none)"} -> {upstreamVersion}; ingesting");
+
+            var version = "bulk-ssr-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
+            var workDir = Path.Combine(Path.GetTempPath(), "turbo-ssr-" + Guid.NewGuid().ToString("n"));
+
+            Console.WriteLine($"== bulk-ssr: {areaName} ({areaType} {areaCode}) GML from Geonorge ==");
+            var area = new GeonorgeArea(areaType, areaName, areaCode);
+
+            var staged = await ingestor.StageAsync(store, StedsnavnUuid, area, Utm33, "ssr", version, workDir);
+            Console.WriteLine($"staged {staged} place(s)");
+            if (staged == 0)
+            {
+                Console.WriteLine("nothing staged — aborting");
+                await store.CompleteIngestRunAsync(runId, "failed", upstreamVersion, 0, "nothing staged");
+                return 1;
+            }
+
+            await store.SwapAsync(version, sourceVersion: upstreamVersion);
+            Console.WriteLine($"swapped to {version} (active, source_version={upstreamVersion ?? "(none)"})");
+            await store.CompleteIngestRunAsync(runId, "success", upstreamVersion, staged, null);
+
+            // Sjunkhatten / Bodø — toponym density check on freshly bulk-loaded data.
+            var reverse = new ReverseGeocodeService(store);
+            var d = await reverse.DescribeAsync(67.2800, 14.4050);
+            Console.WriteLine(d is null
+                ? "reverse @ Bodø area -> (no result)"
+                : $"reverse @ Bodø area -> \"{d.Title}\" ({d.Qualifier}) [bulk SSR]");
+
+            try { Directory.Delete(workDir, recursive: true); } catch { /* best effort */ }
             return 0;
         }
-        Console.WriteLine(upstreamVersion is null
-            ? "upstream SSR version unavailable — ingesting (no freshness skip)"
-            : $"SSR source_version {activeVersion ?? "(none)"} -> {upstreamVersion}; ingesting");
-
-        var version = "bulk-ssr-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
-        var workDir = Path.Combine(Path.GetTempPath(), "turbo-ssr-" + Guid.NewGuid().ToString("n"));
-
-        Console.WriteLine($"== bulk-ssr: {areaName} ({areaType} {areaCode}) GML from Geonorge ==");
-        var area = new GeonorgeArea(areaType, areaName, areaCode);
-
-        var staged = await ingestor.StageAsync(store, StedsnavnUuid, area, Utm33, "ssr", version, workDir);
-        Console.WriteLine($"staged {staged} place(s)");
-        if (staged == 0)
+        catch (Exception ex)
         {
-            Console.WriteLine("nothing staged — aborting");
-            return 1;
+            await store.CompleteIngestRunAsync(runId, "failed", upstreamVersion, 0, ex.Message);
+            throw;
         }
-
-        await store.SwapAsync(version, sourceVersion: upstreamVersion);
-        Console.WriteLine($"swapped to {version} (active, source_version={upstreamVersion ?? "(none)"})");
-
-        // Sjunkhatten / Bodø — toponym density check on freshly bulk-loaded data.
-        var reverse = new ReverseGeocodeService(store);
-        var d = await reverse.DescribeAsync(67.2800, 14.4050);
-        Console.WriteLine(d is null
-            ? "reverse @ Bodø area -> (no result)"
-            : $"reverse @ Bodø area -> \"{d.Title}\" ({d.Qualifier}) [bulk SSR]");
-
-        try { Directory.Delete(workDir, recursive: true); } catch { /* best effort */ }
-        return staged > 0 ? 0 : 1;
     }
 }

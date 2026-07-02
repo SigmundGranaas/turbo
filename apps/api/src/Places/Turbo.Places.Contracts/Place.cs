@@ -71,3 +71,16 @@ public sealed record SearchRow(
     string? KommuneName,
     string? FylkeName,
     double? DistanceM);
+
+/// <summary>One ingestion-run ledger entry — the shared shape for tracking data
+/// ingests (mirrors the tileserver's <c>paths.ingest_job</c>). Status is
+/// <c>running</c> | <c>success</c> | <c>skipped_unchanged</c> | <c>failed</c>.</summary>
+public sealed record IngestRun(
+    Guid RunId,
+    string Source,
+    string Status,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? FinishedAt,
+    string? SourceVersion,
+    long RowsWritten,
+    string? Error);
