@@ -54,4 +54,4 @@ images:
     # and push to main — ArgoCD auto-syncs the rollout. (The old CI auto-pin step
     # was removed: branch protection rejected the bot's push, so it always went
     # red.) Don't hand-edit back to `latest` — a mutable tag never triggers sync.
-    newTag: "06733f9fa7311f4fef5f2e40d2be8af56064c301"
+    newTag: "4b21df891baf0544bfb7d12843e60801e16921ab"
