@@ -72,12 +72,18 @@ spec:
                   mountPath: /etc/turbo/ingest
                   readOnly: true
               resources:
+                # Right-sized to the tight namespace quota (8Gi/8-CPU limits cap,
+                # ~7Gi/7-CPU committed by steady services). This is the ingest CLI
+                # + a psql restore subprocess, NOT the serving tileserver — the
+                # heavy restore/upsert work runs in the tiles-db Postgres pod, so
+                # the CLI itself is light. A 2Gi/2-CPU ask didn't fit and the Job
+                # sat FailedCreate ("exceeded quota").
                 requests:
-                  memory: "512Mi"
-                  cpu: "250m"
+                  memory: "384Mi"
+                  cpu: "200m"
                 limits:
-                  memory: "2Gi"
-                  cpu: "2000m"
+                  memory: "1Gi"
+                  cpu: "1000m"
           volumes:
             - name: tmp
               emptyDir:
