@@ -61,9 +61,16 @@ spec:
                 # GML download + extract land here (Path.GetTempPath honours TMPDIR).
                 - name: TMPDIR
                   value: /work
+                # Shared ingestion catalog (SSR metadata UUID); falls back to the
+                # compiled-in default if the mount is absent.
+                - name: INGEST_CATALOG_PATH
+                  value: "/etc/turbo/ingest/catalog.toml"
               volumeMounts:
                 - name: work
                   mountPath: /work
+                - name: ingest-catalog
+                  mountPath: /etc/turbo/ingest
+                  readOnly: true
               resources:
                 requests:
                   memory: "512Mi"
@@ -75,3 +82,6 @@ spec:
             - name: work
               emptyDir:
                 sizeLimit: 6Gi      # national GML extract (~3GB) + zip + headroom
+            - name: ingest-catalog
+              configMap:
+                name: ingest-catalog

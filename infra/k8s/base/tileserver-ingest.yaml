@@ -1,0 +1,90 @@
+# tileserver ingest CronJob — the scheduled N50 re-provision, replacing the
+# tileserver pod's in-process refresh loop (TILESERVER_PROVISION_REFRESH_SECS).
+# Uniform with turbo-places-ingest: k8s owns the schedule, gives run history +
+# retries, and the serving pod no longer carries a background provisioner. Runs
+# `tileserver ingest --job provision-n50 --area national`, which is idempotent
+# (content-hash `should_skip`) — an unchanged N50 dump is a no-op. Boot-provision
+# (TILESERVER_PROVISION_ON_BOOT) stays on the Deployment as empty-DB self-heal.
+#
+# Created SUSPENDED: the first cutover trigger one Job manually
+# (`kubectl -n turbo-prod create job --from=cronjob/turbo-tileserver-ingest <name>`)
+# and confirm it provisions, THEN unsuspend + drop the refresh-loop env.
+#
+# Schedule from the shared catalog's n50 cadence (monthly): 1st of month 03:00.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: turbo-tileserver-ingest
+  labels:
+    app: turbo-tileserver-ingest
+spec:
+  schedule: "0 3 1 * *"
+  suspend: true                 # cutover: verify one manual run, then unsuspend
+  concurrencyPolicy: Forbid     # a provision restore is exclusive; never overlap
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      # The national restore + upserts peg CPU for ~10-15 min; give the whole
+      # job a generous ceiling and don't retry a partial restore blindly.
+      activeDeadlineSeconds: 21600   # 6h
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532          # matches the tileserver chiseled image
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          imagePullSecrets:
+            - name: ghcr-auth
+          containers:
+            - name: ingest
+              image: turbo-tileserver  # tag set per-env via kustomize images:
+              args: ["ingest", "--job", "provision-n50", "--area", "national"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              env:
+                - name: RUST_LOG
+                  value: "info,sqlx=warn"
+                # CNPG-published tiles-db app URI (same as the serving pod).
+                - name: DATABASE_URL
+                  valueFrom: { secretKeyRef: { name: tiles-db-app, key: uri } }
+                # Writable scratch for the Geonorge download + unzipped dump.
+                - name: TILESERVER_INCOMING_DIR
+                  value: "/var/lib/tileserver/incoming"
+                # Shared ingestion catalog (N50 metadata UUID); falls back to the
+                # compiled-in default if the mount is missing.
+                - name: INGEST_CATALOG_PATH
+                  value: "/etc/turbo/ingest/catalog.toml"
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: incoming
+                  mountPath: /var/lib/tileserver/incoming
+                - name: ingest-catalog
+                  mountPath: /etc/turbo/ingest
+                  readOnly: true
+              resources:
+                requests:
+                  memory: "512Mi"
+                  cpu: "250m"
+                limits:
+                  memory: "2Gi"
+                  cpu: "2000m"
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 2Gi
+            - name: incoming
+              emptyDir:
+                sizeLimit: 30Gi      # national zip ~5-7Gi, unzips to ~20Gi
+            - name: ingest-catalog
+              configMap:
+                name: ingest-catalog

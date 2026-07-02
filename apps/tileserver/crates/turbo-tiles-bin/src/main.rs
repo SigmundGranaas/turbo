@@ -147,6 +147,47 @@ enum Command {
     },
 }
 
+/// One entry in the shared ingestion catalog (`infra/k8s/base/ingest/catalog.toml`),
+/// mounted read-only via the `ingest-catalog` ConfigMap. We only read the N50
+/// metadata UUID here; everything else is documentary or Places-owned.
+#[derive(serde::Deserialize)]
+struct CatalogSource {
+    id: String,
+    metadata_uuid: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct IngestCatalog {
+    #[serde(default)]
+    source: Vec<CatalogSource>,
+}
+
+/// Load the shared ingestion catalog (if mounted) and point the N50 dataset at
+/// its metadata UUID. Best-effort: a missing/unparseable catalog leaves the
+/// compiled-in default in place, so this never breaks a deploy. Path override
+/// via `INGEST_CATALOG_PATH`.
+fn load_ingest_catalog() {
+    let path = std::env::var("INGEST_CATALOG_PATH")
+        .unwrap_or_else(|_| "/etc/turbo/ingest/catalog.toml".to_string());
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return; // not mounted (dev/CI) — keep compiled-in defaults
+    };
+    match toml::from_str::<IngestCatalog>(&raw) {
+        Ok(cat) => {
+            if let Some(uuid) = cat
+                .source
+                .iter()
+                .find(|s| s.id == "n50")
+                .and_then(|s| s.metadata_uuid.clone())
+            {
+                turbo_tiles_ingest::geonorge::set_n50_metadata_uuid(&uuid);
+                tracing::info!(%uuid, "ingest catalog: N50 metadata UUID set from {path}");
+            }
+        }
+        Err(e) => tracing::warn!("ingest catalog at {path} is unparseable ({e}); using defaults"),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Held for the whole process; dumps the heap profile on drop.
@@ -154,6 +195,7 @@ async fn main() -> Result<()> {
     let _dhat = dhat::Profiler::new_heap();
 
     init_tracing();
+    load_ingest_catalog();
     let cli = Cli::parse();
 
     match cli.command {

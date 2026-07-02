@@ -17,6 +17,18 @@ resources:
   # ── Routing (tileserver) — LIVE ──────────────────────────────────────
   - tiles-db.yaml      # CNPG Postgres (PostGIS) for the tiles DB
   - tileserver.yaml    # tileserver Deployment/Service/Ingress + artifacts PVC
+  - tileserver-ingest.yaml  # CronJob: scheduled N50 re-provision (suspended until cutover)
+
+# Shared ingestion source catalog → ConfigMap, mounted read-only into the
+# tileserver, its ingest CronJob, and the places ingest CronJob at
+# /etc/turbo/ingest/catalog.toml. Stable name (no hash) so the volume ref is
+# simple; consumers read it at startup with a fallback to compiled-in defaults.
+configMapGenerator:
+  - name: ingest-catalog
+    files:
+      - ingest/catalog.toml
+generatorOptions:
+  disableNameSuffixHash: true
 
 labels:
   - pairs:

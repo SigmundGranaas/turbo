@@ -1,0 +1,67 @@
+# Shared ingestion source catalog — the single declarative registry of external
+# data sources both backends ingest. See docs/architecture/2026-07-shared-
+# ingestion-infrastructure.md. Consumed at runtime by:
+#   - turbo-places ingest (.NET): reads its `owner = "places"` entry (SSR uuid /
+#     format / srs), with a fallback to compiled-in constants if absent.
+#   - turbo-tileserver (Rust): reads its `owner = "tileserver"` entries (N50 uuid)
+#     with a fallback to compiled-in constants if absent.
+# Mounted read-only into both workloads via the `ingest-catalog` ConfigMap
+# (kustomize configMapGenerator) at /etc/turbo/ingest/catalog.toml.
+#
+# `cadence` is documentary + drives the ingest CronJob schedules and the
+# (out-of-band) staleness-alert thresholds — NOT a scheduler itself (k8s owns
+# timing). Change a source here + redeploy; it is the reviewed source of truth.
+
+[[source]]
+id            = "ssr"
+owner         = "places"
+kind          = "geonorge-order"
+metadata_uuid = "30caed2f-454e-44be-b5cc-26bb5c0110ca"
+format        = "GML"
+srs           = "EPSG:25833"
+area          = "landsdekkende"
+cadence       = "weekly"          # CronJob: Sun 04:00 (see places-ingest.yaml)
+license       = "© Kartverket / Miljødirektoratet (NLOD)"
+
+[[source]]
+id            = "n50"
+owner         = "tileserver"
+kind          = "geonorge-order"
+metadata_uuid = "ea192681-d039-42ec-b1bc-f3ce04c189ac"
+format        = "PostGIS"
+srs           = "EPSG:25833"
+area          = "national"
+cadence       = "monthly"         # CronJob: 1st of month 03:00 (tileserver-ingest.yaml)
+license       = "© Kartverket (NLOD)"
+
+# --- Documented but not (yet) runtime-read; manually triggered today. Listed so
+# --- the registry is complete and staleness can be reasoned about per source.
+[[source]]
+id       = "turrutebasen"
+owner    = "tileserver"
+kind     = "pgdump-file"          # Nasjonal Turbase dump, restored via turbase-restore
+cadence  = "adhoc"
+license  = "© DNT / Nasjonal Turbase"
+
+[[source]]
+id       = "dnt-cabins"
+owner    = "tileserver"
+kind     = "http-json"
+endpoint = "https://nasjonalturbase.no/api/legacy/cabins"
+cadence  = "adhoc"
+license  = "© DNT"
+
+[[source]]
+id       = "fkb-sti"
+owner    = "tileserver"
+kind     = "wfs"
+endpoint = "https://wms.geonorge.no/skwms1/wms.traktorveg_skogsbilveger"
+cadence  = "adhoc"
+license  = "© Kartverket (NLOD)"
+
+[[source]]
+id       = "dtm10"
+owner    = "tileserver"
+kind     = "kartverket-raster"
+cadence  = "adhoc"
+license  = "© Kartverket (NLOD)"

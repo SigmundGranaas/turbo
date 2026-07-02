@@ -31,6 +31,12 @@ public static class BulkSsrDemo
         var client = new GeonorgeClient(http);
         var ingestor = new BulkPlaceIngestor(client);
 
+        // SSR dataset UUID from the shared ingestion catalog if mounted, else the
+        // compiled-in default — the catalog is the single source of truth both
+        // backends read (see infra/k8s/base/ingest/catalog.toml).
+        var uuid = SourceCatalog.TryReadValue("ssr", "metadata_uuid") ?? StedsnavnUuid;
+        if (uuid != StedsnavnUuid) Console.WriteLine($"SSR metadata UUID from catalog: {uuid}");
+
         // One ledger row per run (running → skipped_unchanged | success | failed):
         // the shared ingest-run tracking surfaced at /api/places/ingest/runs.
         var runId = await store.BeginIngestRunAsync("ssr");
@@ -42,7 +48,7 @@ public static class BulkSsrDemo
             // we skip the whole order + ~3 GB download — the point is to not pull
             // data from Kartverket that we already have. PLACES_INGEST_FORCE=1 forces.
             var force = Environment.GetEnvironmentVariable("PLACES_INGEST_FORCE") is "1" or "true";
-            upstreamVersion = await client.GetDatasetVersionAsync(StedsnavnUuid);
+            upstreamVersion = await client.GetDatasetVersionAsync(uuid);
             var activeVersion = await store.GetActiveSourceVersionAsync();
             if (!force && upstreamVersion is not null && upstreamVersion == activeVersion)
             {
@@ -60,7 +66,7 @@ public static class BulkSsrDemo
             Console.WriteLine($"== bulk-ssr: {areaName} ({areaType} {areaCode}) GML from Geonorge ==");
             var area = new GeonorgeArea(areaType, areaName, areaCode);
 
-            var staged = await ingestor.StageAsync(store, StedsnavnUuid, area, Utm33, "ssr", version, workDir);
+            var staged = await ingestor.StageAsync(store, uuid, area, Utm33, "ssr", version, workDir);
             Console.WriteLine($"staged {staged} place(s)");
             if (staged == 0)
             {

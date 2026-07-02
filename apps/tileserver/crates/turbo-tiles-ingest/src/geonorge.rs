@@ -21,6 +21,25 @@ use crate::job::JobError;
 
 const API: &str = "https://nedlasting.geonorge.no/api";
 
+/// Compiled-in default N50 metadata UUID — the fallback when the shared
+/// ingestion catalog isn't mounted/parseable.
+const N50_DEFAULT_UUID: &str = "ea192681-d039-42ec-b1bc-f3ce04c189ac";
+
+/// Process-global override for the N50 metadata UUID, set once at startup from
+/// the shared catalog (`set_n50_metadata_uuid`). Unset → the compiled-in
+/// default, so behaviour is unchanged when the catalog is absent.
+static N50_UUID_OVERRIDE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Point the N50 dataset at a catalog-sourced metadata UUID. Idempotent-ish:
+/// only the first call wins (startup), later calls are ignored. No-op for an
+/// empty/blank value so a malformed catalog can't blank the UUID.
+pub fn set_n50_metadata_uuid(uuid: impl Into<String>) {
+    let uuid = uuid.into();
+    if !uuid.trim().is_empty() {
+        let _ = N50_UUID_OVERRIDE.set(uuid);
+    }
+}
+
 /// A downloadable Kartverket dataset. Adding Turrutebasen / DTM later is a
 /// new variant, not a new module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,9 +49,12 @@ pub enum Dataset {
 }
 
 impl Dataset {
-    pub fn metadata_uuid(self) -> &'static str {
+    pub fn metadata_uuid(self) -> String {
         match self {
-            Dataset::N50 => "ea192681-d039-42ec-b1bc-f3ce04c189ac",
+            Dataset::N50 => N50_UUID_OVERRIDE
+                .get()
+                .cloned()
+                .unwrap_or_else(|| N50_DEFAULT_UUID.to_string()),
         }
     }
     pub fn label(self) -> &'static str {
@@ -256,7 +278,7 @@ mod tests {
     fn order_body_targets_n50_postgis_25833() {
         let body = build_order_body(Dataset::N50, &Area::parse("03").unwrap());
         let line = &body["orderLines"][0];
-        assert_eq!(line["metadataUuid"], Dataset::N50.metadata_uuid());
+        assert_eq!(line["metadataUuid"], Dataset::N50.metadata_uuid().as_str());
         assert_eq!(line["areas"][0]["code"], "03");
         assert_eq!(line["areas"][0]["type"], "fylke");
         assert_eq!(line["formats"][0]["name"], "PostGIS");

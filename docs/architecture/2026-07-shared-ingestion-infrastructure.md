@@ -35,7 +35,7 @@ merging the two databases; changing the artifact-bake pipeline
 
 ## The shared contract (four pieces)
 
-### 1. Source catalog manifest — `infra/ingest/catalog.toml`
+### 1. Source catalog manifest — `infra/k8s/base/ingest/catalog.toml`
 One declarative file, one schema, each service reads the entries it owns.
 Externalizes today's hardcoded UUIDs/endpoints/format/projection/cadence.
 
@@ -128,7 +128,7 @@ Both services expose the same trait/interface conceptually:
 ## Per-phase delivery (each independently shippable)
 
 ### Phase 0 — Contract spec (no behaviour change)
-- Write `infra/ingest/catalog.toml` encoding today's sources (SSR, N50,
+- Write `infra/k8s/base/ingest/catalog.toml` encoding today's sources (SSR, N50,
   turrutebasen, dnt-cabins, fkb-sti, dtm10).
 - Document the `ingest.run` schema + OTel metric names in this doc's appendix.
 - No code wired yet — this is the shared vocabulary both phases below target.
@@ -176,6 +176,20 @@ Stops the weekly full re-ingest when SSR is unchanged.
   cadence_seconds(source)` → alert. Cadence per source from the catalog.
 - One Grafana "Ingest" dashboard: last run, status, rows, staleness per source,
   across both services.
+
+> **Infra reality (2026-07 investigation):** the prod alert/observability config
+> is NOT in this repo — prod ships to `alloy.observability.svc` (Alloy/Grafana
+> managed out-of-band); `infra/observability/*.yml` is only the local dev stack.
+> Neither the tileserver nor the Places host exports metrics today. So the
+> alert *rule* is authored out-of-band, not here. **Phase 2 already makes it
+> feasible without new metrics:** an external synthetic/uptime check can
+> `GET /api/places/ingest/runs?limit=1` and alert when the newest run is
+> `failed`, or `finished_at` is older than the source cadence. The tileserver's
+> `GET /api/ingest/jobs` gives the same for its sources. Concrete predicate to
+> add out-of-band: alert if `now() - runs[0].finishedAt > cadence(source)` OR
+> `runs[0].status == "failed"`. The OTel-gauge path (in-service metric export)
+> is only needed if you want Prometheus-native alerting instead of a synthetic
+> check — a larger lift (add OTel SDK + scrape) deferred until warranted.
 
 ## Verification strategy
 - **Unit:** freshness skip logic in both languages (unchanged → skip; changed →

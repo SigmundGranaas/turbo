@@ -111,6 +111,10 @@ spec:
               value: "info,tower_http=warn,sqlx=warn"
             - name: TILESERVER_ARTIFACT_DIR
               value: "/artifacts"
+            # Shared ingestion catalog (N50 metadata UUID); read at startup with
+            # a fallback to the compiled-in default if the mount is absent.
+            - name: INGEST_CATALOG_PATH
+              value: "/etc/turbo/ingest/catalog.toml"
             # Migrations build the DB graph-routing / tile schema. They
             # CREATE EXTENSION IF NOT EXISTS {postgis,pgrouting,postgis_raster,
             # pg_trgm}; the untrusted ones are pre-created by CNPG (the
@@ -315,6 +319,9 @@ spec:
             - name: artifacts
               mountPath: /artifacts
               readOnly: true
+            - name: ingest-catalog
+              mountPath: /etc/turbo/ingest
+              readOnly: true
             - name: tmp
               mountPath: /tmp
             # Writable scratch for Geonorge downloads + unzipped PostGIS
@@ -346,6 +353,9 @@ spec:
         - name: artifacts
           persistentVolumeClaim:
             claimName: tileserver-artifacts
+        - name: ingest-catalog
+          configMap:
+            name: ingest-catalog
         - name: tmp
           emptyDir:
             sizeLimit: 2Gi

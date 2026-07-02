@@ -36,6 +36,45 @@ public class PlacesFreshnessParsing
     {
         GeonorgeClient.ParseDatasetVersion("""{ "Title": "Stedsnavn" }""").Should().BeNull();
     }
+
+    // Mirrors infra/k8s/base/ingest/catalog.toml's shape: array-of-tables, some entries
+    // (documentary ones) without metadata_uuid.
+    private const string Catalog = """
+        [[source]]
+        id            = "ssr"
+        owner         = "places"
+        metadata_uuid = "30caed2f-454e-44be-b5cc-26bb5c0110ca"
+        format        = "GML"
+
+        [[source]]
+        id            = "n50"
+        owner         = "tileserver"
+        metadata_uuid = "ea192681-d039-42ec-b1bc-f3ce04c189ac"
+
+        [[source]]
+        id       = "dnt-cabins"
+        owner    = "tileserver"
+        endpoint = "https://nasjonalturbase.no/api/legacy/cabins"
+        """;
+
+    [Fact]
+    public void Catalog_reader_finds_a_source_field_by_id()
+    {
+        SourceCatalog.TryGetValue(Catalog, "ssr", "metadata_uuid")
+            .Should().Be("30caed2f-454e-44be-b5cc-26bb5c0110ca");
+        SourceCatalog.TryGetValue(Catalog, "ssr", "format").Should().Be("GML");
+        // A different owner's entry is reachable by id too (one shared catalog).
+        SourceCatalog.TryGetValue(Catalog, "n50", "metadata_uuid")
+            .Should().Be("ea192681-d039-42ec-b1bc-f3ce04c189ac");
+    }
+
+    [Fact]
+    public void Catalog_reader_returns_null_for_missing_id_or_key()
+    {
+        SourceCatalog.TryGetValue(Catalog, "nope", "metadata_uuid").Should().BeNull();
+        // Entry present but without the key (dnt-cabins has no metadata_uuid).
+        SourceCatalog.TryGetValue(Catalog, "dnt-cabins", "metadata_uuid").Should().BeNull();
+    }
 }
 
 /// <summary>Store round-trip for the <c>source_version</c> provenance column the
