@@ -41,17 +41,51 @@ pub async fn provision_n50(pool: &DbPool, area: &str, force: bool) -> Result<Job
         force,
     )?;
 
+    // 0a. Pre-download freshness gate. A cheap Kartkatalog metadata GET tells
+    //     us Geonorge's published data date without ordering/downloading. When
+    //     it matches the last run's marker for this area, the whole 5-7 GiB
+    //     download + ~20 GiB unzip is a no-op — so skip before touching disk.
+    //     A metadata failure is non-fatal: we log and fall through to the
+    //     download, which the content-hash skip below still guards.
+    let meta_version = match geonorge::fetch_metadata_version(Dataset::N50).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, "provision: metadata freshness check failed — proceeding to download");
+            None
+        }
+    };
+    if let Some(ref mv) = meta_version {
+        if should_skip_metadata(prev.as_ref(), &area, mv, force) {
+            let rows = prev.as_ref().map(|p| p.row_count).unwrap_or(0);
+            tracing::info!(
+                area = %area.0,
+                meta_version = %mv,
+                rows,
+                "provision: source metadata unchanged since last run — skipping download entirely"
+            );
+            return Ok(JobOutcome {
+                rows_in: rows,
+                rows_upserted: rows,
+            });
+        }
+    }
+
     // 1. Download the dump and unzip to the SQL file.
     tracing::info!(area = %area.0, force, "provision: fetching N50 dump");
     let zip = geonorge::fetch(Dataset::N50, &area, &dest).await?;
     let sql = pgdump_load::unzip_dump(&zip).await?;
     let version = hash_file(&sql)?;
 
-    // 1a. Freshness skip: same area, same content hash, not forced → the
-    //     restore + upserts + refresh would be a no-op, so return early.
-    //     (Download is the cheap part; restore/upserts are the minutes.)
+    // 1a. Content-hash skip: same area, same content hash, not forced → the
+    //     restore + upserts + refresh would be a no-op. Still stamp the fresh
+    //     metadata marker so the next run can skip at the cheaper pre-download
+    //     gate above (metadata moved but content didn't — a rare Kartverket
+    //     re-publish of identical data).
     if should_skip(prev.as_ref(), &area, &version, force) {
-        let rows = prev.map(|p| p.row_count).unwrap_or(0);
+        let rows = prev.as_ref().map(|p| p.row_count).unwrap_or(0);
+        if meta_version.is_some() {
+            record_provision(pool, &area.0, rows, &version, meta_version.as_deref()).await?;
+        }
         tracing::info!(
             area = %area.0,
             version = %short(&version),
@@ -96,9 +130,10 @@ pub async fn provision_n50(pool: &DbPool, area: &str, force: bool) -> Result<Job
     // 4. Rebuild the low-zoom overview matviews from the fresh base tables.
     refresh_overviews(pool).await?;
 
-    // Record area + row count + content hash so the next run can guard
-    // against a shrinking replacement AND skip when the source is unchanged.
-    record_provision(pool, &area.0, total, &version).await?;
+    // Record area + row count + content hash + metadata marker so the next run
+    // can guard against a shrinking replacement AND skip when the source is
+    // unchanged — at the cheap pre-download gate when the marker is present.
+    record_provision(pool, &area.0, total, &version, meta_version.as_deref()).await?;
 
     tracing::info!(area = %area.0, total_rows = total, "provision: N50 complete");
     Ok(JobOutcome {
@@ -174,21 +209,31 @@ fn guard_replacement(
 pub struct ProvisionState {
     pub area: String,
     pub row_count: i64,
+    /// SHA-256 of the last restored dump — guards the restore (post-download).
     pub source_version: Option<String>,
+    /// Geonorge's published data date (`DateUpdated`) at the last run — the
+    /// cheap pre-download freshness marker.
+    pub source_metadata_version: Option<String>,
 }
 
 /// The last successful provision, if any.
 async fn existing_provision(pool: &DbPool) -> Result<Option<ProvisionState>, JobError> {
-    let row: Option<(String, i64, Option<String>)> = sqlx::query_as(
-        "SELECT area, row_count, source_version FROM paths.provision_state WHERE singleton",
+    let row: Option<(String, i64, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT area, row_count, source_version, source_metadata_version \
+         FROM paths.provision_state WHERE singleton",
     )
     .fetch_optional(pool)
     .await?;
-    Ok(row.map(|(area, row_count, source_version)| ProvisionState {
-        area,
-        row_count,
-        source_version,
-    }))
+    Ok(
+        row.map(
+            |(area, row_count, source_version, source_metadata_version)| ProvisionState {
+                area,
+                row_count,
+                source_version,
+                source_metadata_version,
+            },
+        ),
+    )
 }
 
 /// The currently-provisioned area, if any — used by the boot refresh
@@ -197,23 +242,29 @@ pub async fn provisioned_area(pool: &DbPool) -> Result<Option<String>, JobError>
     Ok(existing_provision(pool).await?.map(|p| p.area))
 }
 
-/// Upsert the singleton provision-state row.
+/// Upsert the singleton provision-state row. `meta_version` is the Geonorge
+/// `DateUpdated` marker (None when the metadata check was unavailable this run).
 async fn record_provision(
     pool: &DbPool,
     area: &str,
     rows: i64,
     version: &str,
+    meta_version: Option<&str>,
 ) -> Result<(), JobError> {
     sqlx::query(
-        "INSERT INTO paths.provision_state (singleton, area, row_count, source_version, provisioned_at) \
-         VALUES (true, $1, $2, $3, now()) \
+        "INSERT INTO paths.provision_state \
+             (singleton, area, row_count, source_version, source_metadata_version, provisioned_at) \
+         VALUES (true, $1, $2, $3, $4, now()) \
          ON CONFLICT (singleton) DO UPDATE \
            SET area = EXCLUDED.area, row_count = EXCLUDED.row_count, \
-               source_version = EXCLUDED.source_version, provisioned_at = EXCLUDED.provisioned_at",
+               source_version = EXCLUDED.source_version, \
+               source_metadata_version = EXCLUDED.source_metadata_version, \
+               provisioned_at = EXCLUDED.provisioned_at",
     )
     .bind(area)
     .bind(rows)
     .bind(version)
+    .bind(meta_version)
     .execute(pool)
     .await?;
     Ok(())
@@ -234,6 +285,27 @@ fn should_skip(
         prev,
         Some(ProvisionState { area, source_version: Some(v), .. })
             if *area == requested.0 && v == version
+    )
+}
+
+/// Skip the *download itself* iff the prior run covered the same area and
+/// Geonorge's published data date (`DateUpdated`) is unchanged, and we're not
+/// forcing. This is the cheap pre-download gate — it avoids the 5-7 GiB
+/// download + ~20 GiB unzip that the content-hash `should_skip` can only cut
+/// short *after* paying that disk cost. Pure for unit testing.
+fn should_skip_metadata(
+    prev: Option<&ProvisionState>,
+    requested: &Area,
+    meta_version: &str,
+    force: bool,
+) -> bool {
+    if force {
+        return false;
+    }
+    matches!(
+        prev,
+        Some(ProvisionState { area, source_metadata_version: Some(v), .. })
+            if *area == requested.0 && v == meta_version
     )
 }
 
@@ -296,6 +368,16 @@ mod tests {
             area: area.into(),
             row_count: 100,
             source_version: ver.map(String::from),
+            source_metadata_version: None,
+        }
+    }
+
+    fn state_meta(area: &str, meta: Option<&str>) -> ProvisionState {
+        ProvisionState {
+            area: area.into(),
+            row_count: 100,
+            source_version: Some("hash".into()),
+            source_metadata_version: meta.map(String::from),
         }
     }
 
@@ -335,5 +417,34 @@ mod tests {
     #[test]
     fn national_replacing_a_county_is_allowed_an_upgrade() {
         assert!(guard_replacement(Some(("03".into(), 28_000)), &area("national"), false).is_ok());
+    }
+
+    #[test]
+    fn pre_download_skips_when_metadata_date_unchanged() {
+        let prev = state_meta("0000", Some("2026-06-15"));
+        assert!(
+            should_skip_metadata(Some(&prev), &area("national"), "2026-06-15", false),
+            "same area + same DateUpdated → skip download"
+        );
+        // Kartverket republished (newer date) → download.
+        assert!(!should_skip_metadata(Some(&prev), &area("national"), "2026-06-28", false));
+        // force always downloads.
+        assert!(!should_skip_metadata(Some(&prev), &area("national"), "2026-06-15", true));
+    }
+
+    #[test]
+    fn pre_download_never_skips_across_areas_fresh_db_or_unknown_marker() {
+        let nat = state_meta("0000", Some("2026-06-15"));
+        assert!(
+            !should_skip_metadata(Some(&nat), &area("03"), "2026-06-15", false),
+            "area change → never skip"
+        );
+        assert!(
+            !should_skip_metadata(None, &area("national"), "2026-06-15", false),
+            "fresh db → never skip"
+        );
+        // Row written before the metadata marker existed → do one full run.
+        let no_marker = state_meta("0000", None);
+        assert!(!should_skip_metadata(Some(&no_marker), &area("national"), "2026-06-15", false));
     }
 }

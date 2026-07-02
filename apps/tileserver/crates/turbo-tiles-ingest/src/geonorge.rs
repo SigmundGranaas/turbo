@@ -253,6 +253,62 @@ pub async fn fetch(dataset: Dataset, area: &Area, dest_dir: &Path) -> Result<Pat
     Ok(dest)
 }
 
+/// Kartkatalog metadata API — the cheap way to learn a dataset's published
+/// data date without ordering/downloading anything. `GET {META}/{uuid}`
+/// returns JSON whose `DateUpdated` is the date the *data* last changed.
+const META: &str = "https://kartkatalog.geonorge.no/api/getdata";
+
+/// Fetch the dataset's current published version marker (its `DateUpdated`)
+/// from the Kartkatalog metadata endpoint. This is a single small JSON GET —
+/// no order, no download — so a scheduled provision can compare it against the
+/// last run's stored marker and skip the 5-7 GiB download entirely when the
+/// source is unchanged.
+///
+/// Returns `Ok(None)` when the field is missing/blank so a metadata-shape
+/// change degrades to "unknown → download" rather than an error; network/HTTP
+/// failures surface as `Err` so the caller can log and fall through to the
+/// (still content-hash-guarded) download path.
+pub async fn fetch_metadata_version(dataset: Dataset) -> Result<Option<String>, JobError> {
+    let uuid = dataset.metadata_uuid();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .user_agent(concat!("turbo-tileserver/", env!("CARGO_PKG_VERSION")))
+        .tls_built_in_native_certs(true)
+        .build()
+        .map_err(|e| JobError::Fetch(format!("build metadata client: {e}")))?;
+    let resp: Value = client
+        .get(format!("{META}/{uuid}"))
+        .send()
+        .await
+        .map_err(|e| JobError::Fetch(format!("metadata request: {e}")))?
+        .error_for_status()
+        .map_err(|e| JobError::Fetch(format!("metadata rejected: {e}")))?
+        .json()
+        .await
+        .map_err(|e| JobError::Fetch(format!("metadata not JSON: {e}")))?;
+    Ok(parse_metadata_version(&resp))
+}
+
+/// Extract the published data date from a Kartkatalog metadata response.
+/// Prefers `DateUpdated` (the DATA date) over `DateMetadataUpdated` (which
+/// bumps on catalog edits that don't change the data). Pure → unit-testable.
+fn parse_metadata_version(resp: &Value) -> Option<String> {
+    for key in [
+        "DateUpdated",
+        "dateUpdated",
+        "DateMetadataUpdated",
+        "dateMetadataUpdated",
+    ] {
+        if let Some(s) = resp.get(key).and_then(|v| v.as_str()) {
+            let s = s.trim();
+            if !s.is_empty() {
+                return Some(s.to_string());
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,5 +357,26 @@ mod tests {
         assert!(files[0].ready);
         assert!(!files[1].ready);
         assert!(files[0].name.ends_with(".zip"));
+    }
+
+    #[test]
+    fn metadata_version_prefers_dateupdated() {
+        let resp = json!({
+            "DateUpdated": "2026-06-15",
+            "DateMetadataUpdated": "2026-06-28"
+        });
+        assert_eq!(parse_metadata_version(&resp).as_deref(), Some("2026-06-15"));
+    }
+
+    #[test]
+    fn metadata_version_falls_back_to_metadata_date() {
+        let resp = json!({ "DateMetadataUpdated": "2026-06-28" });
+        assert_eq!(parse_metadata_version(&resp).as_deref(), Some("2026-06-28"));
+    }
+
+    #[test]
+    fn metadata_version_is_none_when_absent_or_blank() {
+        assert_eq!(parse_metadata_version(&json!({})), None);
+        assert_eq!(parse_metadata_version(&json!({ "DateUpdated": "  " })), None);
     }
 }

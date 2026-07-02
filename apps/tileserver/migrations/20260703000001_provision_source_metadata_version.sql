@@ -1,0 +1,11 @@
+-- Pre-download freshness marker for provisioning. `source_metadata_version`
+-- is Geonorge's published data date (`DateUpdated`) for the N50 dataset,
+-- fetched from the cheap kartkatalog metadata endpoint BEFORE any download.
+-- A scheduled or repeat `provision-n50` first compares this marker; when it's
+-- unchanged the whole 5-7 GiB download + ~20 GiB unzip is skipped entirely,
+-- so a monthly cadence only touches disk when Kartverket actually republished.
+-- (The existing `source_version` content hash still guards the restore for the
+-- rarer case where metadata moved but content didn't.) NULL for rows written
+-- before this column existed → the next run does one full provision, which
+-- then stamps the marker so subsequent runs can pre-skip.
+ALTER TABLE paths.provision_state ADD COLUMN IF NOT EXISTS source_metadata_version text;
