@@ -23,6 +23,13 @@ public sealed class GeonorgeClient
 {
     public const string OrderEndpoint = "https://nedlasting.geonorge.no/api/order";
 
+    /// <summary>Kartkatalog metadata endpoint — a small JSON GET (no order, no
+    /// download) that carries the dataset's <c>DateUpdated</c> (the data-update
+    /// date, distinct from <c>DateMetadataUpdated</c>). Used as a cheap
+    /// pre-download freshness marker so an unchanged dataset is never re-ordered
+    /// or re-downloaded.</summary>
+    public const string MetadataEndpoint = "https://kartkatalog.geonorge.no/api/getdata/";
+
     private static readonly JsonSerializerOptions CamelCase = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -71,6 +78,42 @@ public sealed class GeonorgeClient
             files.Add(new GeonorgeFile(name, url, status));
         }
         return files;
+    }
+
+    /// <summary>Parse the dataset's data-update marker (<c>DateUpdated</c>) from a
+    /// Kartkatalog metadata JSON body. Falls back to <c>DateMetadataUpdated</c>
+    /// only if the data date is absent; returns null when neither is present.</summary>
+    public static string? ParseDatasetVersion(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        foreach (var key in new[] { "DateUpdated", "DateMetadataUpdated" })
+        {
+            if (root.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String)
+            {
+                var s = v.GetString();
+                if (!string.IsNullOrWhiteSpace(s)) return s;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Cheap pre-download freshness marker for a dataset: its
+    /// <c>DateUpdated</c> from Kartkatalog metadata (a small JSON GET — no order,
+    /// no bulk download). Returns null if the metadata can't be fetched/parsed, so
+    /// the caller falls back to ingesting rather than skipping.</summary>
+    public async Task<string?> GetDatasetVersionAsync(string metadataUuid, CancellationToken ct = default)
+    {
+        try
+        {
+            using var resp = await _http.GetAsync(MetadataEndpoint + metadataUuid, ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            return ParseDatasetVersion(await resp.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>POST an order and return its ready files.</summary>

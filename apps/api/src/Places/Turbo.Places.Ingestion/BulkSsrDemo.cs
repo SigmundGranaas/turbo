@@ -28,7 +28,24 @@ public static class BulkSsrDemo
 
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("turbo-places-ingest/0.1 (+https://github.com/sigmundgranaas/turbo)");
-        var ingestor = new BulkPlaceIngestor(new GeonorgeClient(http));
+        var client = new GeonorgeClient(http);
+        var ingestor = new BulkPlaceIngestor(client);
+
+        // Freshness pre-check: a small metadata GET yields SSR's upstream
+        // DateUpdated. If it matches the active dataset's stored source_version we
+        // skip the whole order + ~3 GB download — the point is to not pull data
+        // from Kartverket that we already have. PLACES_INGEST_FORCE=1 overrides.
+        var force = Environment.GetEnvironmentVariable("PLACES_INGEST_FORCE") is "1" or "true";
+        var upstreamVersion = await client.GetDatasetVersionAsync(StedsnavnUuid);
+        var activeVersion = await store.GetActiveSourceVersionAsync();
+        if (!force && upstreamVersion is not null && upstreamVersion == activeVersion)
+        {
+            Console.WriteLine($"SSR unchanged (source_version={upstreamVersion}); skipping order + download.");
+            return 0;
+        }
+        Console.WriteLine(upstreamVersion is null
+            ? "upstream SSR version unavailable — ingesting (no freshness skip)"
+            : $"SSR source_version {activeVersion ?? "(none)"} -> {upstreamVersion}; ingesting");
 
         var version = "bulk-ssr-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
         var workDir = Path.Combine(Path.GetTempPath(), "turbo-ssr-" + Guid.NewGuid().ToString("n"));
@@ -44,8 +61,8 @@ public static class BulkSsrDemo
             return 1;
         }
 
-        await store.SwapAsync(version);
-        Console.WriteLine($"swapped to {version} (active)");
+        await store.SwapAsync(version, sourceVersion: upstreamVersion);
+        Console.WriteLine($"swapped to {version} (active, source_version={upstreamVersion ?? "(none)"})");
 
         // Sjunkhatten / Bodø — toponym density check on freshly bulk-loaded data.
         var reverse = new ReverseGeocodeService(store);

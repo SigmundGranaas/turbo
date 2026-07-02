@@ -40,8 +40,16 @@ public interface IPlaceStore
     /// (a cheap 1-row read — the ETag source). <c>null</c> before first publish.</summary>
     Task<string?> GetActiveDatasetVersionAsync(CancellationToken ct = default);
 
+    /// <summary>The active dataset's upstream freshness marker (Geonorge
+    /// <c>DateUpdated</c>), or <c>null</c> if none recorded. The ingest compares
+    /// it against the live upstream marker to skip an unchanged re-ingest before
+    /// ordering or downloading.</summary>
+    Task<string?> GetActiveSourceVersionAsync(CancellationToken ct = default);
+
     /// <summary>Mark <paramref name="version"/> the sole active publication
-    /// (prior active → superseded), atomically. The ingestion swap's promote
+    /// (prior active → superseded), atomically, recording its
+    /// <paramref name="sourceVersion"/> provenance. The ingestion swap's promote
     /// step; decoupled from row content so reads flip exactly once.</summary>
-    Task PublishDatasetVersionAsync(string version, CancellationToken ct = default);
+    Task PublishDatasetVersionAsync(
+        string version, string? sourceVersion = null, CancellationToken ct = default);
 }

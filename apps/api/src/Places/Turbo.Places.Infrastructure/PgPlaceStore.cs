@@ -135,16 +135,26 @@ public sealed class PgPlaceStore : IPlaceStore
             CREATE INDEX IF NOT EXISTS areas_geom_gist ON places.areas USING gist (geom);
             CREATE INDEX IF NOT EXISTS areas_type      ON places.areas (area_type);
             CREATE TABLE IF NOT EXISTS places.dataset (
-                version      text PRIMARY KEY,
-                status       text NOT NULL,           -- 'active' | 'superseded'
-                published_at timestamptz NOT NULL DEFAULT now()
+                version        text PRIMARY KEY,
+                status         text NOT NULL,           -- 'active' | 'superseded'
+                published_at   timestamptz NOT NULL DEFAULT now(),
+                source_version text                     -- upstream freshness marker (Geonorge DateUpdated)
             );
+            ALTER TABLE places.dataset ADD COLUMN IF NOT EXISTS source_version text;
             CREATE INDEX IF NOT EXISTS dataset_active ON places.dataset (status, published_at DESC);
             -- Staging mirrors live columns; only a unique index for ON CONFLICT
             -- (no GIST/GIN — they'd just slow the bulk load). A national dataset
             -- lands here, then SwapAsync replaces live atomically (sweeping
             -- features absent from the new version).
             CREATE TABLE IF NOT EXISTS places.places_staging (LIKE places.places INCLUDING DEFAULTS);
+            -- LIKE only copies columns at creation time, so a staging table from
+            -- an earlier schema won't have columns added to places.places since.
+            -- Keep it in lock-step (the ingest inserts name_ascii; SwapAsync moves
+            -- rows staging→live by explicit column list, name-matched).
+            ALTER TABLE places.places_staging ADD COLUMN IF NOT EXISTS name_ascii   text;
+            ALTER TABLE places.places_staging ADD COLUMN IF NOT EXISTS elevation_m  double precision;
+            ALTER TABLE places.places_staging ADD COLUMN IF NOT EXISTS kommune_name text;
+            ALTER TABLE places.places_staging ADD COLUMN IF NOT EXISTS fylke_name   text;
             CREATE UNIQUE INDEX IF NOT EXISTS places_staging_pk
                 ON places.places_staging (source, source_id);
             CREATE TABLE IF NOT EXISTS places.areas_staging (LIKE places.areas INCLUDING DEFAULTS);
@@ -192,7 +202,7 @@ public sealed class PgPlaceStore : IPlaceStore
     /// serving the prior version under MVCC, with no blocking and no partial
     /// reads, until the commit flips everything at once.
     /// </summary>
-    public async Task SwapAsync(string version, CancellationToken ct = default)
+    public async Task SwapAsync(string version, string? sourceVersion = null, CancellationToken ct = default)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -203,21 +213,32 @@ public sealed class PgPlaceStore : IPlaceStore
         // it a generous bound rather than 0 (unlimited), so a genuinely stuck
         // swap still fails instead of hanging forever.
         cmd.CommandTimeout = SwapCommandTimeoutSeconds;
+        // Explicit column lists (name-matched, not SELECT *): staging columns are
+        // ALTER-appended over time, so positional SELECT * would misalign once
+        // live and staging diverge in physical order.
         cmd.CommandText = """
             DELETE FROM places.places;
             INSERT INTO places.places
-                SELECT * FROM places.places_staging WHERE dataset_version = @v;
+                (source, source_id, feature_type, primary_name, name_fold, name_ascii, status,
+                 geom, centroid, elevation_m, kommune_name, fylke_name, dataset_version, updated_at)
+            SELECT source, source_id, feature_type, primary_name, name_fold, name_ascii, status,
+                   geom, centroid, elevation_m, kommune_name, fylke_name, dataset_version, updated_at
+            FROM places.places_staging WHERE dataset_version = @v;
             DELETE FROM places.areas;
             INSERT INTO places.areas
-                SELECT * FROM places.areas_staging WHERE dataset_version = @v;
+                (source, source_id, area_type, name, kind, geom, dataset_version, updated_at)
+            SELECT source, source_id, area_type, name, kind, geom, dataset_version, updated_at
+            FROM places.areas_staging WHERE dataset_version = @v;
             DELETE FROM places.places_staging WHERE dataset_version = @v;
             DELETE FROM places.areas_staging  WHERE dataset_version = @v;
             UPDATE places.dataset SET status = 'superseded' WHERE status = 'active';
-            INSERT INTO places.dataset (version, status, published_at)
-            VALUES (@v, 'active', now())
-            ON CONFLICT (version) DO UPDATE SET status = 'active', published_at = now();
+            INSERT INTO places.dataset (version, status, published_at, source_version)
+            VALUES (@v, 'active', now(), @sv)
+            ON CONFLICT (version) DO UPDATE SET
+                status = 'active', published_at = now(), source_version = EXCLUDED.source_version;
             """;
         cmd.Parameters.AddWithValue("v", version);
+        cmd.Parameters.AddWithValue("sv", (object?)sourceVersion ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
         await tx.CommitAsync(ct);
     }
@@ -568,7 +589,24 @@ public sealed class PgPlaceStore : IPlaceStore
         return await cmd.ExecuteScalarAsync(ct) as string;
     }
 
-    public async Task PublishDatasetVersionAsync(string version, CancellationToken ct = default)
+    /// <summary>The upstream freshness marker of the active dataset (Geonorge
+    /// <c>DateUpdated</c>), or null if none is published/recorded. The ingest
+    /// compares this against the live upstream marker to skip an unchanged
+    /// re-ingest before ordering or downloading anything.</summary>
+    public async Task<string?> GetActiveSourceVersionAsync(CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT source_version FROM places.dataset WHERE status = 'active'
+            ORDER BY published_at DESC LIMIT 1;
+            """;
+        return await cmd.ExecuteScalarAsync(ct) as string;
+    }
+
+    public async Task PublishDatasetVersionAsync(
+        string version, string? sourceVersion = null, CancellationToken ct = default)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -576,11 +614,13 @@ public sealed class PgPlaceStore : IPlaceStore
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             UPDATE places.dataset SET status = 'superseded' WHERE status = 'active';
-            INSERT INTO places.dataset (version, status, published_at)
-            VALUES (@v, 'active', now())
-            ON CONFLICT (version) DO UPDATE SET status = 'active', published_at = now();
+            INSERT INTO places.dataset (version, status, published_at, source_version)
+            VALUES (@v, 'active', now(), @sv)
+            ON CONFLICT (version) DO UPDATE SET
+                status = 'active', published_at = now(), source_version = EXCLUDED.source_version;
             """;
         cmd.Parameters.AddWithValue("v", version);
+        cmd.Parameters.AddWithValue("sv", (object?)sourceVersion ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
         await tx.CommitAsync(ct);
     }
