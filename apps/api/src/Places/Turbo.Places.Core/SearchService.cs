@@ -18,6 +18,11 @@ public sealed record PlaceSearchResult(
 /// </summary>
 public sealed class SearchService
 {
+    /// <summary>Shortest query we run. A 1-char prefix matches hundreds of
+    /// thousands of rows — a multi-second scan+sort for no useful autocomplete —
+    /// so it's rejected before it reaches the store.</summary>
+    public const int MinQueryLength = 2;
+
     private readonly IPlaceStore _store;
     private readonly int _retrievalLimit;
 
@@ -30,7 +35,8 @@ public sealed class SearchService
     public async Task<IReadOnlyList<PlaceSearchResult>> SearchAsync(
         string query, double? nearLat, double? nearLng, int limit, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(query)) return Array.Empty<PlaceSearchResult>();
+        if (string.IsNullOrWhiteSpace(query) || query.Trim().Length < MinQueryLength)
+            return Array.Empty<PlaceSearchResult>();
 
         var rows = await _store.SearchAsync(query, nearLat, nearLng, _retrievalLimit, ct);
         if (rows.Count == 0) return Array.Empty<PlaceSearchResult>();

@@ -361,44 +361,74 @@ public sealed class PgPlaceStore : IPlaceStore
     }
 
     /// <summary>Prefix match (btree <c>text_pattern_ops</c>) over
-    /// <paramref name="column"/> (<c>name_fold</c> or <c>name_ascii</c>), ordered
-    /// by <c>(distance − prominence-bonus)</c> so both the nearby feature and a
-    /// prominent kind survive the retrieval cap. <paramref name="excludeFoldPrefix"/>
-    /// (the ASCII arm) drops rows the fold arm already returned. Retrieval only —
-    /// place-core re-ranks.</summary>
+    /// <paramref name="column"/> (<c>name_fold</c> or <c>name_ascii</c>), bounded
+    /// two ways so a broad prefix can't run a multi-second scan:
+    /// <list type="bullet">
+    /// <item>With a map centre — nearest-first via the GiST KNN operator
+    /// (<c>centroid &lt;-&gt; point</c>), which walks the index in distance order
+    /// and stops at <c>LIMIT</c>, rather than computing <c>ST_Distance</c> for
+    /// every match and sorting (the old "stor @centre" tail). Proximity dominates
+    /// with a centre; place-core still applies the prominence prior to the
+    /// returned nearby set.</item>
+    /// <item>Without a centre — ordered by prominence then shorter names, over a
+    /// hard candidate cap so the sort is bounded even for a huge prefix. So a
+    /// prominent city (a <c>by</c>) still beats obscure same-prefix toponyms.</item>
+    /// </list>
+    /// <paramref name="excludeFoldPrefix"/> (the ASCII arm) drops rows the fold arm
+    /// already returned. Retrieval only — place-core re-ranks.</summary>
     private async Task<List<SearchRow>> PrefixLikeSearchAsync(
         NpgsqlConnection conn, string column, string likeValue, string? excludeFoldPrefix,
         double? nearLat, double? nearLng, int limit, CancellationToken ct)
     {
         var exclude = excludeFoldPrefix is null ? "" : "AND p.name_fold NOT LIKE @exclude";
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"""
-            SELECT name, feature_type, lat, lng, kommune_name, fylke_name, d FROM (
-                SELECT p.primary_name AS name, p.feature_type,
+        if (nearLat.HasValue && nearLng.HasValue)
+        {
+            cmd.CommandText = $"""
+                SELECT p.primary_name, p.feature_type,
                        ST_Y(p.geom) AS lat, ST_X(p.geom) AS lng,
                        p.kommune_name, p.fylke_name,
-                       CASE WHEN @hasNear
-                            THEN ST_Distance(p.centroid, ST_SetSRID(ST_MakePoint(@nlng, @nlat), 4326)::geography)
-                       END AS d,
-                       COALESCE(kp.bonus_m, @defBonus) AS bonus,
-                       char_length(p.name_fold) AS nlen
+                       ST_Distance(p.centroid, ST_SetSRID(ST_MakePoint(@nlng, @nlat), 4326)::geography) AS d
                 FROM places.places p
-                LEFT JOIN places.kind_prominence kp ON kp.kind = lower(p.feature_type)
                 WHERE p.{column} LIKE @like {exclude}
-            ) t
-            ORDER BY (COALESCE(d, 0.0) - bonus) ASC, nlen ASC
-            LIMIT @limit;
-            """;
+                ORDER BY p.centroid <-> ST_SetSRID(ST_MakePoint(@nlng, @nlat), 4326)::geography
+                LIMIT @limit;
+                """;
+            cmd.Parameters.AddWithValue("nlat", nearLat.Value);
+            cmd.Parameters.AddWithValue("nlng", nearLng.Value);
+        }
+        else
+        {
+            cmd.CommandText = $"""
+                SELECT name, feature_type, lat, lng, kommune_name, fylke_name,
+                       NULL::double precision AS d FROM (
+                    SELECT p.primary_name AS name, p.feature_type,
+                           ST_Y(p.geom) AS lat, ST_X(p.geom) AS lng,
+                           p.kommune_name, p.fylke_name,
+                           COALESCE(kp.bonus_m, @defBonus) AS bonus,
+                           char_length(p.name_fold) AS nlen
+                    FROM places.places p
+                    LEFT JOIN places.kind_prominence kp ON kp.kind = lower(p.feature_type)
+                    WHERE p.{column} LIKE @like {exclude}
+                    LIMIT @cap
+                ) t
+                ORDER BY bonus DESC, nlen ASC
+                LIMIT @limit;
+                """;
+            cmd.Parameters.AddWithValue("defBonus", _defaultBonusMeters);
+            cmd.Parameters.AddWithValue("cap", NoCentreCandidateCap);
+        }
         cmd.Parameters.AddWithValue("like", likeValue);
         if (excludeFoldPrefix is not null)
             cmd.Parameters.AddWithValue("exclude", excludeFoldPrefix);
-        cmd.Parameters.AddWithValue("defBonus", _defaultBonusMeters);
-        cmd.Parameters.AddWithValue("hasNear", nearLat.HasValue && nearLng.HasValue);
-        cmd.Parameters.AddWithValue("nlat", nearLat ?? 0.0);
-        cmd.Parameters.AddWithValue("nlng", nearLng ?? 0.0);
         cmd.Parameters.AddWithValue("limit", limit);
         return await ReadPlaceRowsAsync(cmd, ct);
     }
+
+    /// <summary>How many prefix matches the no-centre arm ranks by prominence. A
+    /// hard cap bounds the sort for a broad prefix; well above the retrieval
+    /// limit so it doesn't distort ordering for realistic prefixes.</summary>
+    private const int NoCentreCandidateCap = 2000;
 
     /// <summary>Trigram-similarity fallback for typos. Raises the trigram
     /// threshold (SET LOCAL, scoped to a transaction so it can't leak onto the
