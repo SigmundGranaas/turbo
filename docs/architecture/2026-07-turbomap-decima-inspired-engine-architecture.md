@@ -8,6 +8,12 @@ kept), `2026-06-turbomap-tile-pipeline-plan.md` (absorbed: its Slices 1–4 beco
 Phase 1 here), `2026-06-terrain-lod-horizon-shadows.md`,
 `2026-06-tile-lod-retention-and-crossfade.md`, `2026-06-tile-data-architecture.md`.
 
+**Revision 2026-07-03 (same day):** after the owner's representation-independence
+challenge — *"are we modeling the engine around PNG/DEM/XYZ tiles just because
+that's what we fetch today? What if we move solely to geometry?"* — Part III
+was reworked around a generalized chunk-tree + codec model and a `Surface`
+ground authority. The binding outcomes are in **Part 0 — Decision record**.
+
 **Thesis:** turbomap has strong *pieces* — a clean contract, a real Scene IR,
 best-in-class headless testing — but no *architecture between the pieces*. The
 frame is a hand-written procedure, subsystems grow as ad-hoc methods that bypass
@@ -17,6 +23,34 @@ Guerrilla's **Decima** engine is formalized: a small number of named subsystems
 with explicit contracts, one streaming system with priorities and budgets, one
 environment model every system samples, and observability as a requirement of
 being a subsystem — so each part can be evaluated, debugged, and extended alone.
+
+---
+
+## Part 0 — Decision record (owner interview, 2026-07-03)
+
+The representation-independence review asked whether the design was limited by
+the current implementation: DEM and topo raster tiles were chosen for
+*availability*, not as the model — the engine must not be shaped to think in
+those formats. The forks were resolved in a structured interview; these
+decisions bind the rest of the document.
+
+| # | Decision | Choice |
+| --- | --- | --- |
+| D1 | World model | **2.5D single-valued surface + discrete 3D objects.** The ground is always `z = f(x,y)` — an invariant, not a storage format. Discrete 3D content (buildings, placed models) sits *on* it. Full-3D fused scenes (caves, overhangs, photogrammetry-as-ground) are out of scope. |
+| D2 | Spatial address | **Generalized chunk tree.** Every streamable dataset is a tree of chunks: bounding volume + geometric error (meters) + refine mode (Replace/Add), payload opaque — the 3D Tiles model. The Web-Mercator XYZ pyramid is implicit instance #1, computed not stored. |
+| D3 | 3D Tiles interop | **Consume-only, milestoned.** The internal tree must map a 3D Tiles tileset losslessly from day one; the actual `tileset.json` + glTF codec is a later, gated milestone validated against one real Norwegian dataset. The tileserver is *not* committed to producing 3D Tiles. |
+| D4 | Coordinate frame | **Normalized Mercator `[0,1]` + RTC stays the internal world.** Codecs reproject (ECEF/UTM/anything) into chunk-local Mercator at decode time. Globe rendering, if it comes, is a camera/projection mode — never a world-frame change. |
+| D5 | Format seam | **Hybrid: engine codec registry + raw-representation ingest.** Hosts deliver opaque bytes; engine codecs (own worker pool) decode into a closed representation set. A documented raw path lets hosts with native decoders — and test harnesses — hand ready representations directly. |
+| D6 | Ground conformance | **Surface seam now, composited ground material later.** `Surface` becomes the ground authority; `HeightfieldSurface` keeps today's per-pipeline displacement as its private implementation. Material compositing arrives scoped to `MeshSurface`, if adopted. |
+| D7 | Terrain roadmap | **Terrain-RGB ships; tileserver TIN experiment.** Once the Surface seam exists, the tileserver emits TIN mesh tiles from the Kartverket DEMs it already ingests, for a test region; `MeshSurface` renders behind a flag; goldens + sim decide on data, not vibes. |
+| D8 | 3D content horizon | **All four classes plausible within ~2 years:** extruded footprints (have), terrain-as-mesh, municipal 3D buildings, small placed glTF models (huts, towers, 3D POIs). Mesh machinery is core, milestoned. |
+| D9 | Sequencing | **Types first, seams staged** *(defaulted — owner: no preference)*: Phase 1 streaming is built on `ChunkKey`/error types from day one; the Surface seam lands with the frame-graph phase; TIN / 3D Tiles / glTF are gated milestones after. |
+| D10 | Vector styling locus | **Client-styled, geometry-capable** *(defaulted)*: MVT + client tessellation stays primary (style flexibility, one offline bundle serves all themes); server-baked geometry basemap layers remain expressible as *just another codec* emitting mesh chunks, adoptable per-layer if profiling demands. |
+| D11 | 3D building styling | **Stylized geometry** *(defaulted)*: consume geometry only; materialize with the map palette + the shared environment lighting (the Google-Maps look). glTF codec v1 skips materials/textures; photoreal is a later codec capability if a product case appears. |
+| D12 | Shadow strategy | **Hybrid** *(defaulted)*: terrain self-shadowing/AO stay heightfield-analytic — any `Surface` can answer height-grid queries (the 2.5D invariant), so the tuned analytic look survives mesh terrain. A compact sun-space shadow-map pass covers discrete 3D objects; the single Environment sun keeps the two coherent. |
+
+Decisions marked *(defaulted)* take the recommended option after the owner
+expressed no preference; each is cheap to revisit before its phase begins.
 
 ---
 
@@ -232,38 +266,91 @@ rewrite.
    └────────────────────────────────────────────────────────────────────────┘
 ```
 
-### III.1 — S1: World Data Layers (Decima D1 applied to data)
+### III.1 — S1: World Data (Decima D1) — representation-agnostic by construction
 
-**Concept.** Everything the engine consumes is a **`WorldLayer`**: a typed,
-pyramid-addressed dataset. Basemap vectors (MVT), raster imagery, DEM, radar
-frames, water masks, landcover — one vocabulary, regardless of transport.
+**The audit that reshaped this section.** The first draft of this design named
+wire formats in its core type (`LayerDataKind: VectorMvt | RasterRgba |
+DemHeight`) — repeating the over-fitting already in the code (`TileId{z,x,y}`
+in 269 places across 30 files; the terrain-RGB decode formula compiled into
+`shader.wgsl:212`). DEM and topo tiles were chosen because they are what is
+widely *available*, not because they are the *model*. If a better world
+representation appears, we switch — so no knowledge of "tiles of PNG" may
+survive past a decode boundary. S1 is therefore three planes.
+
+**a) Acquisition plane — the chunk tree (format-blind).**
+Everything the engine consumes is a **`WorldLayer`**: a typed dataset whose
+content is a **tree of chunks** (the 3D Tiles model — D2):
 
 ```rust
 /// The typed catalog entry — the map's ".core object".
 struct WorldLayerDef {
-    id: WorldLayerId,                    // stable, host-visible
-    kind: LayerDataKind,                 // VectorMvt | RasterRgba | DemHeight | Field2D { … }
-    pyramid: PyramidSpec,                // zoom range, tile size, halo, extent
-    providers: Vec<ProviderRef>,         // ordered: first hit wins (III.1.b)
-    residency: ResidencyClass,           // e.g. Ground | Detail | Simulation
+    id: WorldLayerId,                 // stable, host-visible
+    tree: TreeShape,                  // how chunks are addressed (below)
+    providers: Vec<ProviderRef>,      // ordered chain: first hit wins (III.1.c)
+    residency: ResidencyClass,        // budget pool: Ground | Detail | Simulation
+}
+
+struct ChunkKey { layer: WorldLayerId, node: NodeId }   // opaque — NOT (z,x,y)
+struct ChunkMeta {
+    bounds: BoundingVolume,     // region (2D pyramids) or box (3D content)
+    geometric_error_m: f32,     // error if THIS chunk renders instead of its children
+    refine: Refine,             // Replace | Add
+}
+enum TreeShape {
+    ImplicitQuadtree(PyramidSpec),  // instance #1: today's XYZ — NodeId computed, never fetched
+    Explicit,                       // instance #2 (milestoned): fetched tree pages (tileset.json)
 }
 ```
 
-**Why.** Today "sources" exist per Scene layer with the DEM special-cased as a
-`Map`-level singleton, radar frames arriving through a bespoke ingest call, and
-the same `(z,x,y)` addressing re-derived in four places. Making `WorldLayer`
-the *only* way data enters the engine gives us Decima's D1 payoffs: one loader
-path, one residency/budget accountant, one addressing scheme, computable
-prefetch — and every future dataset (snow cover, avalanche zones, sea state)
-arrives without new plumbing.
+Streaming (S2) sees only `ChunkKey + ChunkMeta + bytes`; its priority math
+needs nothing but bounds and error. **Tree expansion is itself a streaming
+operation** — explicit trees page their children in under the same priorities
+and budgets as payloads. `TileId` survives only as the internal coordinate
+math of `ImplicitQuadtree`, not as the engine's vocabulary. A 3D Tiles tileset
+maps onto this losslessly (D3); so does an octree, a quadtree of TIN terrain,
+or today's basemap pyramid.
 
-**b) The provider chain — remote streaming + bundled baseline, one mechanism.**
-Each `WorldLayer` resolves tiles through an *ordered chain*:
+**b) Interpretation plane — the codec registry (where formats go to die, D5).**
+A codec turns a chunk's payload bytes into exactly one member of a **closed set
+of internal representations** — the only things renderer subsystems may consume:
+
+```
+PNG / JPEG / WebP ──┐                          ┌─ Texture2D    (imagery)
+terrain-RGB ────────┤                          ├─ HeightField  (elevation grids)
+MVT ────────────────┤    codec registry       ├─ FeatureSet   (styled → meshes by engine)
+quantized-mesh ─────┤──  (engine worker  ────►├─ MeshChunk    (terrain TIN, buildings)
+glTF (milestoned) ──┤     pool)                ├─ Field2D      (radar, wind, sea state)
+tileset.json ───────┤                          ├─ InstanceSet  (placed models — D8/D11)
+(anything future) ──┘                          └─ TreePage     (explicit-tree expansion)
+```
+
+- Adding a format = registering a codec. Nothing in streaming, caching, or
+  rendering moves.
+- **Reprojection happens inside the codec** (D4): ECEF/UTM/whatever lands as
+  chunk-local normalized Mercator; nothing downstream may assume a source CRS.
+- **The terrain-RGB decode leaves WGSL**: heights arrive as height data
+  (`R16`/`R32` texture or mesh); `DemEncoding` becomes a codec parameter, not
+  a shader branch. Same for `RasterFormat` — pipelines see `Texture2D`, period.
+- **Raw ingest escape hatch** (D5): `ingest_representation(key, Representation)`
+  lets hosts with native decoders (iOS ImageIO, Android hardware) and test
+  harnesses inject representations directly, bypassing codecs but nothing else.
+- `FeatureSet` is a *resident* representation: a style change re-tessellates
+  from memory without refetching bytes (today's style-epoch mesh cache, made
+  explicit). Client styling stays primary (D10) — and a server that ships
+  pre-baked styled geometry is *just another codec* emitting `MeshChunk`, so
+  "moving solely to geometry" for any layer is a data decision, not an engine
+  change. **That sentence is the test this section had to pass.**
+
+**c) The provider chain — remote streaming + bundled baseline, one mechanism.**
+Each `WorldLayer` resolves chunk bytes through an *ordered chain*:
 
 ```
 MemoryCache → DiskCache (one impl, bounded LRU) → BundledArchive (PMTiles file)
-            → Remote (HTTP XYZ | PMTiles range | host-provided)
+            → Remote (HTTP XYZ | PMTiles range | explicit-tree | host-provided)
 ```
+
+(PMTiles is the *archive format for pyramid-shaped layers* — a packaging
+choice the chunk tree deliberately does not care about.)
 
 - This is where the orphaned `turbomap-tiles-pmtiles` reader finally plugs in:
   a bundled Norway-baseline `.pmtiles` (basemap + coarse DEM, e.g. z0–z10)
@@ -277,15 +364,56 @@ MemoryCache → DiskCache (one impl, bounded LRU) → BundledArchive (PMTiles fi
   diffable and conformance-testable like everything else.
 - Add brotli support to the PMTiles reader (real planet archives use it).
 
-**c) Baseline datasets policy.** Bundle: coarse basemap pyramid, coarse DEM,
+**d) Baseline datasets policy.** Bundle: coarse basemap pyramid, coarse DEM,
 font faces, sprite sheet. Stream: everything at detail zooms, radar/weather
 (inherently live), satellite. The chain makes this a packaging decision, not
 an architecture decision — exactly the property we want.
+
+**e) The Surface — the ground authority (D1/D6).**
+One abstraction owns "what is the ground," because the current answer — every
+ground pipeline samples the DEM texture and displaces itself in its own vertex
+shader — is the deepest representation leak in the engine (it works *only*
+because terrain happens to be a texture):
+
+```rust
+trait Surface {
+    // Queries — the 2.5D invariant: ground is single-valued, z = f(x,y).
+    fn elevation_at(&self, w: WorldPoint) -> f32;
+    fn normal_at(&self, w: WorldPoint) -> Vec3;
+    fn height_grid(&self, region: Bounds, dim: u32) -> HeightGrid; // feeds analytic shadows/AO
+    // Rendering — how ground geometry is provided / how content conforms.
+    fn ground_binding(&self) -> GroundBinding;  // Heightfield{tex} | Mesh{chunk set}
+}
+```
+
+- **`HeightfieldSurface`** (today) keeps per-pipeline vertex displacement as
+  its *private implementation detail* — introducing the seam changes zero
+  pixels; the seam itself is what gets tested.
+- **`MeshSurface`** (the D7 TIN experiment) provides real ground geometry;
+  ground-conforming content then composites as material on that geometry
+  rather than displacing itself — the composited-ground-material rework is
+  scoped to *this implementation*, not smeared across every pipeline.
+- The analytic lighting suite (cast-shadow horizon march, AO bake),
+  hit-testing, route/marker draping, and camera-ground logic (pitch clamp,
+  horizon math) consume **Surface queries only**. Because `height_grid()`
+  exists on *any* Surface, the tuned analytic terrain look survives a move to
+  mesh terrain (D12) — and discrete 3D objects (buildings, placed models) get
+  their own compact sun-space shadow-map pass, kept coherent with the analytic
+  terrain shadows by the one Environment sun (S4).
+- Answering the owner's question directly — *"what if we move solely to
+  geometry, how does it affect our pipelines?"* — with this seam: swap the
+  Surface implementation and the terrain/DEM codec; basemap texturing, vector
+  conformance, shadows, AO, hit-testing, and camera logic follow automatically
+  because none of them ever knew the ground was a texture.
 
 ### III.2 — S2: The Streaming System (Decima D2 — the heart of this design)
 
 One subsystem owns **all** movement of data toward the GPU. It absorbs the
 tile-pipeline plan's Slices 2–4 and generalizes them beyond basemap tiles.
+Per D2/D9 it is keyed on `ChunkKey + ChunkMeta` from day one — it never sees
+formats or `(z,x,y)`; where "tile" appears below, read "chunk of any tree
+shape," and note that expanding an explicit tree's pages is scheduled under
+the same lifecycle, priorities, and budgets as payload fetches.
 
 **a) The lifecycle is one type** (single source of truth, replacing ~6 sets):
 
@@ -310,9 +438,11 @@ across layers:
 
 ```rust
 struct Priority(u32);  // ordered; decomposable for inspection
-// f(tier          — Overview ≺ VisibleNear ≺ VisibleFar ≺ DemForVisible ≺ Prefetch,
-//   sse_benefit   — screen-space-error reduction if this tile lands (S6),
-//   motion        — dot(camera_velocity, dir_to_tile): prefetch WHERE WE'RE HEADING,
+// f(tier          — Overview ≺ VisibleNear ≺ VisibleFar ≺ SurfaceForVisible ≺ Prefetch,
+//   sse_benefit   — screen-space-error reduction if this chunk lands, computed
+//                   from ChunkMeta.geometric_error_m + bounds (S6) — the SAME
+//                   number for a raster tile, a TIN chunk, or a building tileset,
+//   motion        — dot(camera_velocity, dir_to_chunk): prefetch WHERE WE'RE HEADING,
 //   layer_class   — ground data before decoration)
 ```
 
@@ -445,6 +575,10 @@ trait LodPolicy {
 }
 ```
 
+- The stored per-chunk property is **geometric error in meters** (the 3D Tiles
+  currency, D2/D3); the runtime metric is **screen-space error in pixels** —
+  which is exactly what `lod.rs` already computes, so this is a renaming plus
+  a per-chunk field, not a rewrite.
 - Basemap keeps `lod.rs::select`; DEM keeps its coarser target — but both are
   now *instances of one concept* with per-subsystem targets and caps, and the
   streaming priority's `sse_benefit` term (III.2.b) reads the same numbers.
@@ -516,6 +650,12 @@ capture to one schema. **Gate:** baselines recorded; every later phase must
 move these numbers or not regress them.
 
 ### Phase 1 — Streaming System (S2 + the S1 provider chain) — *highest value/risk ratio*
+Built on the general types from day one (D9): `ChunkKey`/`ChunkMeta` +
+geometric-error priorities + the codec registry, with `ImplicitQuadtree` +
+PNG/terrain-RGB/MVT codecs as instance #1 of each — nothing in the lifecycle,
+plan protocol, or caches names a format or `(z,x,y)`. Design-validate the
+chunk tree against the 3D Tiles spec on paper (can a real tileset map in
+losslessly?) before freezing the types.
 1. `ResourcePhase` table replaces the scattered sets (Slice 2), property tests
    for the three invariants.
 2. Priority tiers + explainable score (Slice 3); `StreamingPlan` with
@@ -539,14 +679,18 @@ diffing, field-source updates, cross-track ordering.
 **Gates:** conformance green on both engines; `inspect` shows the whole engine
 state from the Scene alone; goldens unchanged (pure refactor of config flow).
 
-### Phase 3 — Frame Graph (S3) + subsystem registry (S7)
+### Phase 3 — Frame Graph (S3) + subsystem registry (S7) + Surface seam (D6)
 Introduce `PassDesc`/`RenderContribution`; port existing passes 1:1 (goldens
 prove pixel-equivalence, exactly like the single-pass refactor); collapse
 pipeline ownership; per-pass timestamps + debug-view registry; migrate `Map`
 fields into registered subsystems. Make `Layer::Custom` real via phase-bound
-contributions.
+contributions. **Extract the Surface seam**: `HeightfieldSurface` wraps
+today's displacement unchanged; the analytic shadow/AO suite, hit-testing,
+draping, and camera-ground logic move to Surface queries; the DEM decode
+leaves WGSL (heights upload as height data via the codec plane).
 **Gates:** all goldens byte/perceptually stable; a demo custom layer runs on
-desktop+web from one Rust impl; pass-level timings appear in `stats_json`.
+desktop+web from one Rust impl; pass-level timings appear in `stats_json`;
+grep-gate: no `DemEncoding`/`RasterFormat` reference outside the codec plane.
 
 ### Phase 4 — Environment + first simulation consumers (S4/S5)
 `Environment` value + `FieldSet`; sky/haze/shadows/hillshade sample it;
@@ -562,6 +706,18 @@ writing a field, a ground contribution sampling `Environment`), snow line,
 vegetation density — each a new `Subsystem` + `WorldLayer`s, no core edits.
 This phase existing *without touching Parts I–III* is the success criterion of
 the whole architecture.
+
+### Milestones behind gates (D3/D7/D8/D11/D12 — schedule when their gate opens)
+- **M-TIN (after Phase 3):** tileserver emits TIN mesh tiles from its
+  Kartverket DEMs for one test region; `MeshSurface` renders them behind a
+  flag; goldens + sim compare fidelity/perf/bandwidth vs `HeightfieldSurface`.
+  Adoption is a data-driven decision.
+- **M-MODELS (after Phase 3/4):** geometry-only glTF codec + `InstanceSet`
+  placement for small placed models (huts, towers, 3D POIs), stylized with the
+  map palette (D11); the compact object shadow-map pass lands here (D12).
+- **M-3DTILES (after M-MODELS):** `tileset.json` explicit-tree codec +
+  streamed mesh tilesets, validated against one real Norwegian 3D-bygg
+  dataset, styled per D11. This is the consume-only interop milestone (D3).
 
 ---
 
@@ -581,6 +737,15 @@ the whole architecture.
    same pixels, on every platform.
 9. **Every subsystem reports:** budgets, inspect JSON, ≥1 debug view, ≥1
    golden, ≥1 sim gate — enforced by a registry-driven meta-test.
+10. **No format past the codec:** nothing downstream of the interpretation
+    plane (pipelines, WGSL, caches, streaming, hit-testing) may reference a
+    wire format or a source CRS. (Grep-enforceable.)
+11. **Closed representation set:** renderer subsystems consume only
+    `{Texture2D, HeightField, MeshChunk, FeatureSet, Field2D, InstanceSet}`;
+    adding a member is an architecture decision, not a convenience.
+12. **2.5D surface invariant:** the ground is single-valued; every `Surface`
+    implementation answers elevation/normal/height-grid queries, whatever its
+    internal representation.
 
 ## Part VII — Risks
 
@@ -592,6 +757,8 @@ the whole architecture.
 | Bundled baseline bloats app size | Size budget in CI for the artifact; coarse-zoom-only baseline (z≤10 Norway ≈ tens of MB); detail always streams. |
 | Sim determinism vs floating point across platforms | Fields computed in f32 with defined order; goldens per-backend with perceptual tolerance (existing golden discipline). |
 | Scope: six subsystems at once | Strict phase ordering; every phase independently shippable and valuable (Phase 1 alone fixes the worst UX pain). |
+| Chunk tree over-generalizes before a second tree shape exists | Phase 1 design-validates the types against the 3D Tiles spec on paper; the first explicit-tree codec ships only behind M-3DTILES with a real dataset. |
+| Surface seam stays single-implementation (untested abstraction) | M-TIN is scheduled specifically to give the seam its second implementation early; until then the seam's contract is exercised by the analytic suite + hit-testing moving onto its queries. |
 
 ## Part VIII — Recommended first artifact
 
