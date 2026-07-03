@@ -51,13 +51,27 @@ pub fn world_tile(z: u8, x: u32, y: u32) -> Vec<u8> {
     // basemap's density, not a sparse statistical accident.
     let feature_spacing = 2f64.powi(-LEVELS[1].1);
 
+    // Per-zoom data selection for the AREA features, like the roads below
+    // (and like a real basemap): lakes/parks live on the minor lattice, so a
+    // low-zoom tile spans millions of cells — a real tiler generalizes those
+    // away rather than shipping millions of subpixel polygons (an ungated z1
+    // tile tessellated to a >256 MiB vertex buffer). Emit them only while a
+    // cell is at least 1/64 of the tile across (≥ ~4 px at 256 px tiles).
+    let area_features_included = feature_spacing >= span / 64.0;
+
     let mut water = TileEncoder::new().layer("water", EXTENT as u32);
     let lake_half = feature_spacing * 0.30;
     // Lakes fill the midpoints of cells where (i+j) is even.
-    let i0 = ((bx0 - lake_half) / feature_spacing).floor() as i64;
-    let i1 = ((bx1 + lake_half) / feature_spacing).ceil() as i64;
-    let j0 = ((by0 - lake_half) / feature_spacing).floor() as i64;
-    let j1 = ((by1 + lake_half) / feature_spacing).ceil() as i64;
+    let (i0, i1, j0, j1) = if area_features_included {
+        (
+            ((bx0 - lake_half) / feature_spacing).floor() as i64,
+            ((bx1 + lake_half) / feature_spacing).ceil() as i64,
+            ((by0 - lake_half) / feature_spacing).floor() as i64,
+            ((by1 + lake_half) / feature_spacing).ceil() as i64,
+        )
+    } else {
+        (0, -1, 0, -1) // empty ranges — the layer is generalized out
+    };
     for i in i0..=i1 {
         for j in j0..=j1 {
             if (i + j).rem_euclid(2) != 0 {
@@ -87,10 +101,17 @@ pub fn world_tile(z: u8, x: u32, y: u32) -> Vec<u8> {
     // class so the map reads as land use, not just roads on blank ground.
     let mut landuse = tile.layer("landuse", EXTENT as u32);
     let park_half = feature_spacing * 0.34;
-    let i0 = ((bx0 - park_half) / feature_spacing).floor() as i64;
-    let i1 = ((bx1 + park_half) / feature_spacing).ceil() as i64;
-    let j0 = ((by0 - park_half) / feature_spacing).floor() as i64;
-    let j1 = ((by1 + park_half) / feature_spacing).ceil() as i64;
+    // Same per-zoom selection as the lakes above.
+    let (i0, i1, j0, j1) = if area_features_included {
+        (
+            ((bx0 - park_half) / feature_spacing).floor() as i64,
+            ((bx1 + park_half) / feature_spacing).ceil() as i64,
+            ((by0 - park_half) / feature_spacing).floor() as i64,
+            ((by1 + park_half) / feature_spacing).ceil() as i64,
+        )
+    } else {
+        (0, -1, 0, -1)
+    };
     for i in i0..=i1 {
         for j in j0..=j1 {
             // Odd cells (the non-lake ones), thinned to ~a third by a
