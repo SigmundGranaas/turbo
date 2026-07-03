@@ -223,34 +223,69 @@ pub async fn fetch(dataset: Dataset, area: &Area, dest_dir: &Path) -> Result<Pat
         .ok_or_else(|| JobError::Fetch("order produced no .zip file".into()))?;
     let dest = dest_dir.join(&file.name);
 
-    tracing::info!(url = %file.download_url, dest = %dest.display(), "geonorge: downloading");
+    // Download the multi-GiB zip with a bounded retry. The national dump
+    // streams for minutes and Geonorge's edge occasionally drops the body
+    // mid-transfer ("error decoding response body"); a job-level retry would
+    // re-place + re-queue the whole order (minutes), so retry the download
+    // itself. Each attempt truncates `dest` and re-GETs the resolved URL.
+    const MAX_ATTEMPTS: u32 = 4;
+    let mut last_err = String::new();
+    for attempt in 1..=MAX_ATTEMPTS {
+        match download_to(&client, &file.download_url, &dest).await {
+            Ok(total) => {
+                tracing::info!(dest = %dest.display(), bytes = total, attempt, "geonorge: download complete");
+                return Ok(dest);
+            }
+            Err(e) => {
+                last_err = e;
+                tracing::warn!(
+                    attempt,
+                    max = MAX_ATTEMPTS,
+                    error = %last_err,
+                    "geonorge: download failed; retrying after backoff"
+                );
+                if attempt < MAX_ATTEMPTS {
+                    // Linear backoff: 10s, 20s, 30s.
+                    tokio::time::sleep(Duration::from_secs(10 * attempt as u64)).await;
+                }
+            }
+        }
+    }
+    Err(JobError::Fetch(format!(
+        "download failed after {MAX_ATTEMPTS} attempts: {last_err}"
+    )))
+}
+
+/// Stream one URL to `dest` (truncating). Returns bytes written. Errors are
+/// returned as strings so the caller can retry the whole transfer.
+async fn download_to(client: &reqwest::Client, url: &str, dest: &Path) -> Result<u64, String> {
+    tracing::info!(url = %url, dest = %dest.display(), "geonorge: downloading");
     let mut resp = client
-        .get(&file.download_url)
+        .get(url)
         .send()
         .await
-        .map_err(|e| JobError::Fetch(format!("download request: {e}")))?
+        .map_err(|e| format!("download request: {e}"))?
         .error_for_status()
-        .map_err(|e| JobError::Fetch(format!("download rejected: {e}")))?;
+        .map_err(|e| format!("download rejected: {e}"))?;
 
-    let mut out = tokio::fs::File::create(&dest)
+    let mut out = tokio::fs::File::create(dest)
         .await
-        .map_err(|e| JobError::Fetch(format!("create {}: {e}", dest.display())))?;
+        .map_err(|e| format!("create {}: {e}", dest.display()))?;
     let mut total: u64 = 0;
     while let Some(chunk) = resp
         .chunk()
         .await
-        .map_err(|e| JobError::Fetch(format!("download stream: {e}")))?
+        .map_err(|e| format!("download stream: {e}"))?
     {
         total += chunk.len() as u64;
         out.write_all(&chunk)
             .await
-            .map_err(|e| JobError::Fetch(format!("write {}: {e}", dest.display())))?;
+            .map_err(|e| format!("write {}: {e}", dest.display()))?;
     }
     out.flush()
         .await
-        .map_err(|e| JobError::Fetch(format!("flush {}: {e}", dest.display())))?;
-    tracing::info!(dest = %dest.display(), bytes = total, "geonorge: download complete");
-    Ok(dest)
+        .map_err(|e| format!("flush {}: {e}", dest.display()))?;
+    Ok(total)
 }
 
 /// Kartkatalog metadata API — the cheap way to learn a dataset's published
