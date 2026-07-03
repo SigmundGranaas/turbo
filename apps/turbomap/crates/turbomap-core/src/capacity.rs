@@ -73,9 +73,10 @@ mod tests {
     use super::*;
 
     #[test]
+    // Constant on purpose: this is the compile-time capacity proof surfaced
+    // as a runtime test so a failure prints the actual numbers.
+    #[allow(clippy::assertions_on_constants)]
     fn the_desired_ceiling_fits_the_cache_with_headroom() {
-        // The same relationship the compile-time assertion guards, surfaced as a
-        // readable runtime check with the actual numbers in the failure message.
         assert!(
             MAX_DESIRED_TILES * 2 <= CACHE_TILE_FLOOR,
             "max desired {MAX_DESIRED_TILES} tiles needs ≥{} cache slots (2× headroom); \
