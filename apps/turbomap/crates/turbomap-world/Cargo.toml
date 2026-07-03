@@ -1,0 +1,17 @@
+[package]
+name = "turbomap-world"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The engine's representation-agnostic world-data model: chunk trees (bounding volume + geometric error + refine, payload opaque), the resource lifecycle table, and the streaming vocabulary. GPU-free, IO-free — the whole streaming brain runs under plain `cargo test`."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

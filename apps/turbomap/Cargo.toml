@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/turbomap-world",
     "crates/turbomap-core",
     "crates/turbomap-mvt",
     "crates/turbomap-style-maplibre",

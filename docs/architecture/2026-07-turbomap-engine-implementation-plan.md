@@ -434,3 +434,26 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
      the new render is visibly cleaner (proper water bodies, lit/shadow walls).
   Sim `ONSCREEN_*` constants now equal the authored palette (the seam and the
   re-baselining tool stay — this failure mode can't be reintroduced silently).
+- _2026-07-03_: **B1 landed** — the `turbomap-world` crate (GPU-free,
+  IO-free, clock-free). `ChunkKey`/`NodeId`/`ChunkMeta` (region/box/sphere
+  bounds, geometric error in meters, Replace/Add refine);
+  `TreeShape::ImplicitQuadtree(PyramidSpec)` as instance #1 with `QuadKey`
+  node packing, Mercator regions, and the standard ground-resolution error
+  table (z0/256px ≈ 156 543 m, halving per level — unit-pinned); the
+  `Lifecycle` table (Desired/Fetching/Decoding/Resident/Retained) with
+  transitions as fallible methods (`WrongPhase`/`StaleRequest`/
+  `DesiredSetFull`), `RequestId`-scoped attempts, the eviction-re-pends
+  coherence law as a transition, and the plan views
+  (`pending`/`cancelable`/`eviction_candidates`/`histogram`). Property
+  gates: deterministic LCG fuzz holds `wanted-missing ≤ capacity`,
+  histogram-total, and request-carrying invariants over any op sequence,
+  and replays identically. **D3 design gate passed:** a real-shaped
+  `tileset.json` fixture (mixed region/box/sphere volumes, refine
+  inheritance incl. an ADD override, non-quadtree branching,
+  content-less interior nodes, per-node error) maps losslessly onto the
+  types (`tests/threedtiles_mapping.rs` is the future codec's executable
+  spec). Pure addition: nothing references the crate yet; core adopts
+  the keys in B2/B3. Deviation from the plan sketch: `tile.rs` was NOT
+  moved out of core (it leans on core's `geo`); `QuadKey` mirrors its
+  semantics self-contained, and the field-for-field bridge happens at B3
+  where that churn is already budgeted.
