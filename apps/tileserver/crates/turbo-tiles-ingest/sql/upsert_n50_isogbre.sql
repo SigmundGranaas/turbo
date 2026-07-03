@@ -5,7 +5,7 @@ DELETE FROM terrain.glacier_polygon WHERE source = 'n50';
 
 INSERT INTO terrain.glacier_polygon (geom, name, source, attrs)
 SELECT
-    ST_Multi(ST_CollectionExtract(ST_MakeValid(s.omrade), 3)),
+    ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_CurveToLine(s.omrade)), 3)),
     NULL::text,
     'n50',
     jsonb_build_object('objtype', s.objtype)

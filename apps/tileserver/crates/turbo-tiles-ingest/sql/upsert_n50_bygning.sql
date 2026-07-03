@@ -13,7 +13,7 @@ DELETE FROM terrain.building_polygon WHERE source = 'n50';
 
 INSERT INTO terrain.building_polygon (geom, building_type, name, source, attrs)
 SELECT
-    ST_Multi(ST_CollectionExtract(ST_MakeValid(s.omrade), 3)),
+    ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_CurveToLine(s.omrade)), 3)),
     NULLIF(s.bygningstype, ''),
     NULLIF(s.navn, ''),
     'n50',
@@ -25,4 +25,4 @@ FROM n50_staging.bygning_omrade s
 WHERE s.omrade IS NOT NULL
   AND NOT ST_IsEmpty(s.omrade)
   -- Drop degenerate slivers that survive MakeValid as empty collections.
-  AND NOT ST_IsEmpty(ST_CollectionExtract(ST_MakeValid(s.omrade), 3));
+  AND NOT ST_IsEmpty(ST_CollectionExtract(ST_MakeValid(ST_CurveToLine(s.omrade)), 3));

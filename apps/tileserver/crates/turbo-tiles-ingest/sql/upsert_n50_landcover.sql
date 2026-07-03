@@ -14,7 +14,7 @@ DELETE FROM terrain.landcover_patch WHERE source = 'n50';
 
 INSERT INTO terrain.landcover_patch (geom, class, source, attrs)
 SELECT
-    ST_Multi(ST_CollectionExtract(ST_MakeValid(omrade), 3)),
+    ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_CurveToLine(omrade)), 3)),
     'forest',
     'n50',
     jsonb_build_object('source_table', 'skog', 'objtype', objtype)
@@ -23,7 +23,7 @@ WHERE omrade IS NOT NULL AND NOT ST_IsEmpty(omrade);
 
 INSERT INTO terrain.landcover_patch (geom, class, source, attrs)
 SELECT
-    ST_Multi(ST_CollectionExtract(ST_MakeValid(omrade), 3)),
+    ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_CurveToLine(omrade)), 3)),
     'wetland',
     'n50',
     jsonb_build_object('source_table', 'myr', 'objtype', objtype)
@@ -32,7 +32,7 @@ WHERE omrade IS NOT NULL AND NOT ST_IsEmpty(omrade);
 
 INSERT INTO terrain.landcover_patch (geom, class, source, attrs)
 SELECT
-    ST_Multi(ST_CollectionExtract(ST_MakeValid(omrade), 3)),
+    ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_CurveToLine(omrade)), 3)),
     'open',
     'n50',
     jsonb_build_object('source_table', 'apentomrade', 'objtype', objtype)
@@ -41,7 +41,7 @@ WHERE omrade IS NOT NULL AND NOT ST_IsEmpty(omrade);
 
 INSERT INTO terrain.landcover_patch (geom, class, source, attrs)
 SELECT
-    ST_Multi(ST_CollectionExtract(ST_MakeValid(omrade), 3)),
+    ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_CurveToLine(omrade)), 3)),
     'open',
     'n50',
     jsonb_build_object('source_table', 'dyrketmark', 'objtype', objtype)

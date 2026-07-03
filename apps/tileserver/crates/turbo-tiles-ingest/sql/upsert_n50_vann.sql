@@ -40,7 +40,7 @@ SELECT
     'n50',
     jsonb_build_object('vatnlopenummer', s.vatnlopenummer, 'objtype', s.objtype)
 FROM n50_staging.innsjo s,
-     LATERAL ST_Subdivide(ST_CollectionExtract(ST_MakeValid(s.omrade), 3), 256) AS chunk
+     LATERAL ST_Subdivide(ST_CollectionExtract(ST_MakeValid(ST_CurveToLine(s.omrade)), 3), 256) AS chunk
 WHERE s.omrade IS NOT NULL AND NOT ST_IsEmpty(s.omrade);
 
 -- Regulated lakes / reservoirs — just as impassable as natural lakes.
@@ -57,7 +57,7 @@ SELECT
         'lavesteregulertevannstand', s.lavesteregulertevannstand
     )
 FROM n50_staging.innsjoregulert s,
-     LATERAL ST_Subdivide(ST_CollectionExtract(ST_MakeValid(s.omrade), 3), 256) AS chunk
+     LATERAL ST_Subdivide(ST_CollectionExtract(ST_MakeValid(ST_CurveToLine(s.omrade)), 3), 256) AS chunk
 WHERE s.omrade IS NOT NULL AND NOT ST_IsEmpty(s.omrade);
 
 -- River-area polygons (`elv`) — rivers wide enough that N50 maps them as
@@ -73,7 +73,7 @@ SELECT
     'n50',
     jsonb_build_object('objtype', s.objtype)
 FROM n50_staging.elv s,
-     LATERAL ST_Subdivide(ST_CollectionExtract(ST_MakeValid(s.omrade), 3), 256) AS chunk
+     LATERAL ST_Subdivide(ST_CollectionExtract(ST_MakeValid(ST_CurveToLine(s.omrade)), 3), 256) AS chunk
 WHERE s.omrade IS NOT NULL AND NOT ST_IsEmpty(s.omrade);
 
 -- Intermittent / dry-fall freshwater (`ferskvanntorrfall`) — riverbeds and
@@ -88,7 +88,7 @@ SELECT
     'n50',
     jsonb_build_object('objtype', s.objtype)
 FROM n50_staging.ferskvanntorrfall s,
-     LATERAL ST_Subdivide(ST_CollectionExtract(ST_MakeValid(s.omrade), 3), 256) AS chunk
+     LATERAL ST_Subdivide(ST_CollectionExtract(ST_MakeValid(ST_CurveToLine(s.omrade)), 3), 256) AS chunk
 WHERE s.omrade IS NOT NULL AND NOT ST_IsEmpty(s.omrade);
 
 INSERT INTO terrain.water_polygon (geom, name, kind, source, attrs)
@@ -99,5 +99,5 @@ SELECT
     'n50',
     jsonb_build_object('objtype', s.objtype)
 FROM n50_staging.havflate s,
-     LATERAL ST_Subdivide(ST_CollectionExtract(ST_MakeValid(s.omrade), 3), 256) AS chunk
+     LATERAL ST_Subdivide(ST_CollectionExtract(ST_MakeValid(ST_CurveToLine(s.omrade)), 3), 256) AS chunk
 WHERE s.omrade IS NOT NULL AND NOT ST_IsEmpty(s.omrade);
