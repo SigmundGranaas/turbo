@@ -382,3 +382,21 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
 ## 10. Progress log
 
 - _2026-07-03_: Plan authored against the architecture doc + Decision Record.
+- _2026-07-03_: **A1 (delta) landed.** The FFI `FrameTrace`/`stats_json` +
+  scenario CSV already implemented the old Slice-1 schema; what was missing
+  was the lifecycle histogram. Added `TileHistogram`
+  (desired/pending/resident/retained + pending-per-tier) computed per
+  `Scene` (`scene.rs::phase_histogram`), summed across layers + terrain into
+  `FrameMetrics::tiles` (`map.rs::tile_histogram`), published in the device
+  `stats_json` (`desired`/`retained`/`pend_overview`/`pend_visible`/
+  `pend_prefetch` keys — schema-gate test extended), in the scenario CSV
+  columns, and in the sim's `FrameStats`/`PerfSummary`
+  (`desired_max`/`retained_max`).
+  **Recorded baseline** (llvmpipe, `frame_cost_stays_within_budget`,
+  z12 pan session, 3-frame latency): frames 46, cpu p50/p95/max
+  0.30/0.40/0.54 ms, worst_blank 0.019 %, tiles 228, **desired_max 126,
+  retained_max 252** — the eviction-candidate pressure is now a number.
+  Execution note (the standing rule): the sim gates SKIP silently without a
+  wgpu adapter — always run them with `REQUIRE_GPU=1` (this session: installed
+  `mesa-vulkan-drivers` + `protobuf-compiler` in the dev container first, and
+  the first "green" run was a vacuous skip until the adapter existed).

@@ -274,6 +274,12 @@ pub struct FrameStats {
     pub diff_frac: f64,
     /// Render CPU time reported by the engine, milliseconds.
     pub cpu_ms: f64,
+    /// Engine tile-lifecycle counts this frame (summed across layers +
+    /// terrain): the want-list size, and residents no longer wanted (the
+    /// eviction candidates). Thrash shows up as `retained` churning while
+    /// `desired` is stable — countable now instead of inferred (slice A1).
+    pub desired: usize,
+    pub retained: usize,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -418,7 +424,9 @@ impl Sim {
             Some(prev) => diff_fraction(prev, &img, 8),
             None => 1.0,
         };
-        let cpu_ms = self.engine.last_frame_metrics().cpu_time.as_secs_f64() * 1000.0;
+        let m = self.engine.last_frame_metrics();
+        let cpu_ms = m.cpu_time.as_secs_f64() * 1000.0;
+        let (desired, retained) = (m.tiles.desired, m.tiles.retained);
         self.stats.push(FrameStats {
             frame: self.frame,
             animating,
@@ -428,6 +436,8 @@ impl Sim {
             blank_frac,
             diff_frac,
             cpu_ms,
+            desired,
+            retained,
         });
         self.prev = self.last.replace(img);
         self.stats.last().expect("just pushed")

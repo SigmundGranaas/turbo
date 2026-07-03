@@ -1333,7 +1333,7 @@ fn main() {
     {
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
         let mut csv = String::from(
-            "idx,label,pitch,cpu_ms,prepare_ms,pass_ms,clouds_ms,shadow_ms,gpu_ms,visible_layers,draw_calls,tiles_drawn,resident,bytes,evictions,hits,misses,frame_dropped\n",
+            "idx,label,pitch,cpu_ms,prepare_ms,pass_ms,clouds_ms,shadow_ms,gpu_ms,visible_layers,draw_calls,tiles_drawn,resident,desired,retained,pend_overview,pend_visible,pend_prefetch,bytes,evictions,hits,misses,frame_dropped\n",
         );
         for (i, (label, pitch, m)) in profiles.iter().enumerate() {
             let resident: usize = m.layers.iter().map(|l| l.cache.entries).sum();
@@ -1342,11 +1342,14 @@ fn main() {
             let hits: u64 = m.layers.iter().map(|l| l.cache.hits).sum();
             let misses: u64 = m.layers.iter().map(|l| l.cache.misses).sum();
             let gpu = m.gpu_time.map(|g| format!("{:.3}", ms(g))).unwrap_or_default();
+            let t = m.tiles;
             csv.push_str(&format!(
-                "{i},{label},{pitch:.0},{:.3},{:.3},{:.3},{:.3},{:.3},{gpu},{},{},{},{resident},{bytes},{evictions},{hits},{misses},{}\n",
+                "{i},{label},{pitch:.0},{:.3},{:.3},{:.3},{:.3},{:.3},{gpu},{},{},{},{resident},{},{},{},{},{},{bytes},{evictions},{hits},{misses},{}\n",
                 ms(m.cpu_time), ms(m.phases.prepare), ms(m.phases.pass), ms(m.phases.clouds),
                 ms(m.phases.shadow_assemble),
-                m.visible_layers, m.draw_calls, m.tiles_drawn, m.frame_dropped,
+                m.visible_layers, m.draw_calls, m.tiles_drawn,
+                t.desired, t.retained, t.pending_overview, t.pending_visible, t.pending_prefetch,
+                m.frame_dropped,
             ));
         }
         let path = format!("{}/profile.csv", cli.out_dir);

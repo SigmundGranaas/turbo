@@ -101,6 +101,40 @@ impl TileTier {
     }
 }
 
+/// Per-frame tile-lifecycle histogram: how many tiles sit in each
+/// [`TilePhase`], with the pending count split by [`TileTier`]. One scene
+/// produces one histogram; [`crate::map::Map`] sums them across layers +
+/// terrain into `FrameMetrics::tiles`, so the trace can answer "is anything
+/// starving / thrashing?" with counts instead of guesses (plan slice A1).
+/// Additive on purpose — aggregation across scenes is plain field-wise `+`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TileHistogram {
+    /// Wanted this frame (`desired_tagged` set) = `pending + resident`.
+    pub desired: usize,
+    /// Wanted but not resident — what the host still has to deliver.
+    pub pending: usize,
+    /// Wanted and drawable now.
+    pub resident: usize,
+    /// Resident but no longer wanted — the cache's eviction candidates.
+    pub retained: usize,
+    /// `pending`, split by why the tile is wanted (fetch order).
+    pub pending_overview: usize,
+    pub pending_visible: usize,
+    pub pending_prefetch: usize,
+}
+
+impl std::ops::AddAssign for TileHistogram {
+    fn add_assign(&mut self, o: Self) {
+        self.desired += o.desired;
+        self.pending += o.pending;
+        self.resident += o.resident;
+        self.retained += o.retained;
+        self.pending_overview += o.pending_overview;
+        self.pending_visible += o.pending_visible;
+        self.pending_prefetch += o.pending_prefetch;
+    }
+}
+
 /// Memo key for [`Scene::visible_tiles`] — the bit-exact inputs the LOD
 /// selection depends on (camera pose + viewport + zoom bounds). Identical key ⇒
 /// identical visible set, so the cached result can be reused.
@@ -390,6 +424,31 @@ impl Scene {
             }
         }
         out
+    }
+
+    /// One-pass lifecycle histogram over this scene's tiles — the trace's
+    /// counting view of [`Self::tile_phases`] (same classification, no
+    /// per-tile `Vec`). `desired == pending + resident` by construction.
+    pub fn phase_histogram(&self) -> TileHistogram {
+        let mut h = TileHistogram::default();
+        let tagged = self.desired_tagged();
+        let mut wanted: HashSet<TileId> = HashSet::with_capacity(tagged.len());
+        for (t, tier) in tagged {
+            wanted.insert(t);
+            h.desired += 1;
+            if self.ingested.contains(&t) {
+                h.resident += 1;
+            } else {
+                h.pending += 1;
+                match tier {
+                    TileTier::Overview => h.pending_overview += 1,
+                    TileTier::Visible => h.pending_visible += 1,
+                    TileTier::Prefetch => h.pending_prefetch += 1,
+                }
+            }
+        }
+        h.retained = self.ingested.iter().filter(|t| !wanted.contains(t)).count();
+        h
     }
 
     /// Desired tiles that have not yet been ingested ([`TilePhase::Pending`]),

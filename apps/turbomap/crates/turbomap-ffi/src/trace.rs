@@ -39,6 +39,16 @@ pub(crate) struct FrameTrace {
     pub backlog: usize,
     pub ingested: u32,
     pub frame_dropped: bool,
+    // Lifecycle histogram (engine-side truth, summed across layers + terrain):
+    // desired = engine-pending + resident; retained = eviction candidates;
+    // engine-pending split by tier. `pending` above stays the FFI-live fetch
+    // queue; `pend_*` here is the engine's want-list — comparing the two is
+    // exactly how starvation vs transport-lag is told apart.
+    pub desired: usize,
+    pub retained: usize,
+    pub pend_overview: usize,
+    pub pend_visible: usize,
+    pub pend_prefetch: usize,
     // Cache health.
     pub bytes: usize,
     pub budget: usize,
@@ -61,10 +71,14 @@ impl FrameTrace {
              \"pass_ms\":{:.3},\"clouds_ms\":{:.3},\"gpu_ms\":{gpu},\"ingest_ms\":{:.3},\
              \"render_ms\":{:.3},\"visible_layers\":{},\"draw_calls\":{},\"tiles_drawn\":{},\
              \"resident\":{},\"tiles\":{},\"pending\":{},\"backlog\":{},\"ingested\":{},\
+             \"desired\":{},\"retained\":{},\"pend_overview\":{},\"pend_visible\":{},\
+             \"pend_prefetch\":{},\
              \"frame_dropped\":{},\"bytes\":{},\"budget\":{},\"evictions\":{},\"hits\":{},\"misses\":{}}}",
             self.frame, self.gap_ms, self.cpu_ms, self.prepare_ms, self.pass_ms, self.clouds_ms,
             self.ingest_ms, self.render_ms, self.visible_layers, self.draw_calls, self.tiles_drawn,
             self.resident, self.resident, self.pending, self.backlog, self.ingested,
+            self.desired, self.retained, self.pend_overview, self.pend_visible,
+            self.pend_prefetch,
             self.frame_dropped, self.bytes, self.budget, self.evictions, self.hits, self.misses,
         )
     }
@@ -87,6 +101,11 @@ pub(crate) fn frame_trace(engine: &TurbomapEngine, live: FrameTrace) -> FrameTra
         tiles_drawn: m.tiles_drawn,
         resident: m.layers.iter().map(|l| l.cache.entries).sum(),
         frame_dropped: m.frame_dropped,
+        desired: m.tiles.desired,
+        retained: m.tiles.retained,
+        pend_overview: m.tiles.pending_overview,
+        pend_visible: m.tiles.pending_visible,
+        pend_prefetch: m.tiles.pending_prefetch,
         bytes: m.layers.iter().map(|l| l.cache.bytes_used).sum(),
         budget: m.layers.iter().map(|l| l.cache.budget_bytes).max().unwrap_or(0),
         evictions: m.layers.iter().map(|l| l.cache.evictions).sum(),
@@ -131,6 +150,11 @@ mod tests {
             backlog: 12,
             ingested: 5,
             frame_dropped: false,
+            desired: 471,
+            retained: 41,
+            pend_overview: 1,
+            pend_visible: 20,
+            pend_prefetch: 10,
             bytes: 1024,
             budget: 2048,
             evictions: 9,
@@ -142,6 +166,9 @@ mod tests {
             "\"frame\":7", "\"gap_ms\":18.25", "\"prepare_ms\":3.300", "\"pass_ms\":0.200",
             "\"draw_calls\":7", "\"tiles_drawn\":440", "\"pending\":31", "\"backlog\":12",
             "\"ingested\":5", "\"frame_dropped\":false", "\"gpu_ms\":null",
+            // lifecycle histogram (A1): engine want-list + eviction candidates.
+            "\"desired\":471", "\"retained\":41", "\"pend_overview\":1",
+            "\"pend_visible\":20", "\"pend_prefetch\":10",
             // legacy keys preserved; `tiles` mirrors `resident`.
             "\"resident\":512", "\"tiles\":512", "\"bytes\":1024", "\"budget\":2048",
             "\"evictions\":9", "\"hits\":100", "\"misses\":20",

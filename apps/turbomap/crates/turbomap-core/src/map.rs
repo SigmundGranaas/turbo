@@ -2842,6 +2842,7 @@ impl Map {
             visible_layers: prepared_layers.len(),
             draw_calls,
             tiles_drawn,
+            tiles: self.tile_histogram(),
             layers: self
                 .layers
                 .iter()
@@ -2888,6 +2889,28 @@ impl Map {
     /// (one-frame delay because the readback is async).
     pub fn last_frame_metrics(&self) -> &FrameMetrics {
         &self.last_frame_metrics
+    }
+
+    /// Tile-lifecycle histogram summed across every layer's scene plus the
+    /// terrain scene — the whole map's streaming state in one additive value
+    /// (see [`crate::scene::TileHistogram`]). Each scene classifies against
+    /// the same camera (`sync_scenes` keeps them coherent), so the sum is the
+    /// per-frame truth the trace records.
+    fn tile_histogram(&self) -> crate::scene::TileHistogram {
+        let mut h = crate::scene::TileHistogram::default();
+        for l in self.layers.iter() {
+            match l {
+                LayerEntry::Raster(r) => h += r.scene.phase_histogram(),
+                LayerEntry::Vector(v) => h += v.scene.phase_histogram(),
+                // Hillshade owns no scene/cache — it reads the shared terrain,
+                // which is counted once below.
+                LayerEntry::Hillshade(_) => {}
+            }
+        }
+        if let Some(t) = &self.terrain {
+            h += t.scene.phase_histogram();
+        }
+        h
     }
 
     /// Call this **after** `queue.submit(...)` of the frame's encoder.
@@ -2968,6 +2991,11 @@ pub struct FrameMetrics {
     pub visible_layers: usize,
     pub draw_calls: usize,
     pub tiles_drawn: usize,
+    /// Tile-lifecycle histogram summed across every layer scene + terrain —
+    /// desired/pending/resident/retained, pending split by tier. The trace's
+    /// "is streaming healthy?" counters (plan slice A1). Zero on dropped
+    /// frames (the finite gate bails before scenes are consulted).
+    pub tiles: crate::scene::TileHistogram,
     pub layers: Vec<LayerMetrics>,
 }
 
