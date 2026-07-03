@@ -494,3 +494,19 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   unbounded during dual-write; the governor activates when the table
   becomes the source of truth. Next: B3.2 — `StreamingPlan { start,
   cancel }` derived from the table, `pending_tiles` becomes its shim.
+- _2026-07-03_: **B3.2 landed — the StreamingPlan.**
+  `Map::streaming_plan(max_start)` returns `{ start: Vec<FetchRequest
+  { RequestId, PendingTile }>, cancel: Vec<RequestId> }`: starts are
+  priority-ordered, budget-truncated, and minted through the table's
+  `fetch_started` (a live attempt is never handed out twice); cancels
+  are the stale in-flight list — the verb the pull-only contract never
+  had. Completion is implicit through the existing `ingest_*` calls;
+  `fetch_failed`/`fetch_cancelled` report the other outcomes (world
+  gains `cancelled` + `key_of_request`). `pending_tiles()` is now the
+  documented start-only shim over the same `plan_selection`. The
+  agreement gate was generalized for live plans (scenes' `pending` ==
+  table's Desired+Fetching+Decoding minus stale). Gate:
+  `tests/streaming_plan.rs` walks start → deliver → fail-repend →
+  move-away-cancel → acknowledge with agreement asserted at every step;
+  engine + sim suites green. Next: B3.3 — FFI/web hosts consume the
+  plan (AbortController on web); Kotlin reconciler shrinks.

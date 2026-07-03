@@ -3901,6 +3901,7 @@ dependencies = [
  "turbomap-mvt",
  "turbomap-scene",
  "turbomap-tiles-pmtiles",
+ "turbomap-world",
  "web-time",
  "wgpu",
 ]

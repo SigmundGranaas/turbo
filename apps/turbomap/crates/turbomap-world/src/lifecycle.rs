@@ -384,6 +384,42 @@ impl Lifecycle {
         self.entries.retain(|k, _| k.layer != layer);
     }
 
+    /// The chunk a live fetch attempt belongs to. Linear scan — the table is
+    /// a few hundred entries and this runs on host-reported completions, not
+    /// per chunk per frame.
+    pub fn key_of_request(&self, request: RequestId) -> Option<ChunkKey> {
+        self.entries
+            .iter()
+            .find(|(_, e)| e.request == Some(request))
+            .map(|(k, _)| *k)
+    }
+
+    /// The host honoured a cancellation (or abandoned the fetch for its own
+    /// reasons). Stale attempts are forgotten — the chunk was unwanted;
+    /// still-wanted attempts return to `Desired` so the next plan can
+    /// restart them.
+    pub fn cancelled(&mut self, key: ChunkKey, request: RequestId) -> Result<(), LifecycleError> {
+        let e = self.entries.get_mut(&key).ok_or(LifecycleError::UnknownChunk)?;
+        if e.request != Some(request) {
+            return Err(LifecycleError::StaleRequest);
+        }
+        match e.phase {
+            Phase::Fetching | Phase::Decoding => {
+                if e.stale {
+                    self.entries.remove(&key);
+                } else {
+                    e.phase = Phase::Desired;
+                    e.request = None;
+                }
+                Ok(())
+            }
+            actual => Err(LifecycleError::WrongPhase {
+                op: "cancelled",
+                actual,
+            }),
+        }
+    }
+
     /// Total resident + retained payload bytes — the VRAM-ledger view.
     pub fn resident_bytes(&self) -> u64 {
         self.entries
@@ -561,6 +597,29 @@ mod tests {
         assert_eq!(t.delivered_unrequested(key(3), 16, 2), Phase::Retained);
         assert!(t.cancelable().is_empty(), "delivery clears the cancel entry");
         assert_eq!(t.resident_bytes(), 64 + 32 + 16);
+    }
+
+    #[test]
+    fn cancelled_forgets_stale_attempts_and_re_pends_wanted_ones() {
+        let mut t = Lifecycle::with_capacity(8);
+        // Stale attempt (unwanted mid-flight): cancellation forgets it.
+        t.want(key(1), 1, 0).unwrap();
+        let r1 = t.fetch_started(key(1)).unwrap();
+        t.unwant(key(1)).unwrap();
+        assert_eq!(t.key_of_request(r1), Some(key(1)));
+        t.cancelled(key(1), r1).unwrap();
+        assert_eq!(t.phase_of(key(1)), None);
+        assert!(t.cancelable().is_empty());
+        // Still-wanted attempt: host abandoned it → back to Desired.
+        t.want(key(2), 1, 1).unwrap();
+        let r2 = t.fetch_started(key(2)).unwrap();
+        t.cancelled(key(2), r2).unwrap();
+        assert_eq!(t.phase_of(key(2)), Some(Phase::Desired));
+        // A RequestId that isn't the entry's live attempt is refused.
+        assert_eq!(
+            t.cancelled(key(2), RequestId(999)),
+            Err(LifecycleError::StaleRequest)
+        );
     }
 
     #[test]

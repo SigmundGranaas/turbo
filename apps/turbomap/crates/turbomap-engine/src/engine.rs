@@ -691,6 +691,25 @@ impl TurbomapEngine {
         self.map.lifecycle_agreement()
     }
 
+    /// One streaming step for plan-driven hosts: fetches to start (each with
+    /// a `RequestId`) and in-flight attempts to cancel. Deliveries complete
+    /// through the existing `ingest_*`; failures/cancellations report back
+    /// via [`Self::fetch_failed`] / [`Self::fetch_cancelled`]. The legacy
+    /// `pending_tiles`/`ingest_*` pull-push remains as the start-only shim.
+    pub fn streaming_plan(&mut self, max_start: usize) -> turbomap_core::map::StreamingPlan {
+        self.map.streaming_plan(max_start)
+    }
+
+    /// Report a plan-issued fetch attempt as failed (re-pends if wanted).
+    pub fn fetch_failed(&mut self, request: turbomap_world::RequestId) {
+        self.map.fetch_failed(request);
+    }
+
+    /// Report a `cancel` entry as honoured.
+    pub fn fetch_cancelled(&mut self, request: turbomap_world::RequestId) {
+        self.map.fetch_cancelled(request);
+    }
+
     /// Layer ids the backend skipped at the last apply.
     pub fn unsupported_layers(&self) -> &[String] {
         &self.unsupported

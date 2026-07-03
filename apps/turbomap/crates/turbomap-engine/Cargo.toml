@@ -17,6 +17,7 @@ gpu-tests = []
 
 [dependencies]
 turbomap-core = { path = "../turbomap-core" }
+turbomap-world = { path = "../turbomap-world" }
 turbomap-scene = { path = "../turbomap-scene" }
 wgpu.workspace = true
 # jpeg on top of the workspace's png: external basemaps (Google satellite,

@@ -244,6 +244,28 @@ impl Default for MapOptions {
 /// heightmap by every ground-plane pipeline. The host fetches it the
 /// same way as a raster source (PNG bytes) and pushes back via
 /// `ingest_terrain_tile`.
+/// One fetch a plan-driven host should start: the transport payload plus the
+/// attempt's identity ([`turbomap_world::RequestId`]) that deliveries,
+/// failures, and cancellations are keyed by.
+#[derive(Debug, Clone)]
+pub struct FetchRequest {
+    pub id: turbomap_world::RequestId,
+    pub fetch: PendingTile,
+}
+
+/// One streaming step (plan slice B3.2): what to start, what to abort. See
+/// [`Map::streaming_plan`].
+#[derive(Debug, Clone, Default)]
+pub struct StreamingPlan {
+    /// Priority-ordered, budget-truncated fetches to begin.
+    pub start: Vec<FetchRequest>,
+    /// Live attempts the camera moved away from — abort the transport and
+    /// report [`Map::fetch_cancelled`]. The verb the pull-only contract
+    /// never had: without it, a fast pan leaves stale fetches decoding to
+    /// completion while the new viewport waits behind them.
+    pub cancel: Vec<turbomap_world::RequestId>,
+}
+
 #[derive(Debug, Clone)]
 pub enum PendingTile {
     Raster {
@@ -1265,19 +1287,25 @@ impl Map {
     /// behavioural sweep. `fetching`/`decoding` are structurally zero until
     /// the plan boundary goes live in B3.2+.
     pub fn lifecycle_agreement(&self) -> Result<(), String> {
-        let table = self.lifecycle.borrow().histogram();
+        let lc = self.lifecycle.borrow();
+        let table = lc.histogram();
+        // Stale in-flight attempts (awaiting cancellation) are unwanted on
+        // the table's side but invisible to the scenes — exclude them, then
+        // wanted-missing must match: the scenes' `pending` counts every
+        // wanted-not-resident tile, which the table splits across
+        // Desired/Fetching/Decoding once a plan host is live.
+        let stale = lc.cancelable().len();
         let scenes = self.tile_histogram();
-        let ok = table.desired == scenes.pending
+        let wanted_missing = table.desired + table.fetching + table.decoding - stale;
+        let ok = wanted_missing == scenes.pending
             && table.resident == scenes.resident
-            && table.retained == scenes.retained
-            && table.fetching == 0
-            && table.decoding == 0;
+            && table.retained == scenes.retained;
         if ok {
             Ok(())
         } else {
             Err(format!(
-                "lifecycle table diverged from scene bookkeeping: table {table:?} vs scenes \
-                 pending={} resident={} retained={}",
+                "lifecycle table diverged from scene bookkeeping: table {table:?} \
+                 (stale in-flight {stale}) vs scenes pending={} resident={} retained={}",
                 scenes.pending, scenes.resident, scenes.retained
             ))
         }
@@ -1978,10 +2006,69 @@ impl Map {
 
     // ---- tile orchestration --------------------------------------------
 
-    /// Aggregate pending tiles across all layers. Each entry carries the
-    /// layer id so the host can route `ingest_raster`/`ingest_vector_mesh`
-    /// back correctly.
+    /// Aggregate pending tiles across all layers, in priority order. Each
+    /// entry carries the layer id so the host can route
+    /// `ingest_raster`/`ingest_vector_mesh` back correctly.
+    ///
+    /// **Legacy shim** (plan slice B3.2): the start-only projection of
+    /// [`Map::streaming_plan`], for hosts that fetch on their own initiative
+    /// and cannot yet cancel. New hosts should consume the plan: it
+    /// additionally tracks each fetch attempt (`RequestId`) and names the
+    /// in-flight work the camera has moved away from.
     pub fn pending_tiles(&self) -> Vec<PendingTile> {
+        self.plan_selection().into_iter().map(|(p, _)| p).collect()
+    }
+
+    /// One streaming step for plan-driven hosts: the fetches to `start`
+    /// (priority-ordered, truncated to `max_start`, each with a minted
+    /// [`turbomap_world::RequestId`]) and the in-flight attempts to `cancel`
+    /// (the camera moved away — the transport should abort them and report
+    /// [`Map::fetch_cancelled`]). Deliveries go through the existing
+    /// `ingest_*` calls (which complete the attempt); failures through
+    /// [`Map::fetch_failed`].
+    pub fn streaming_plan(&mut self, max_start: usize) -> StreamingPlan {
+        let selection = self.plan_selection();
+        let mut lc = self.lifecycle.borrow_mut();
+        let mut start = Vec::new();
+        for (p, _) in selection {
+            if start.len() >= max_start {
+                break;
+            }
+            let key = self.world_key_of_pending(&p);
+            // Only chunks with no live attempt start a new one; the rest of
+            // the selection is already in flight.
+            if lc.phase_of(key) == Some(turbomap_world::Phase::Desired) {
+                if let Ok(id) = lc.fetch_started(key) {
+                    start.push(FetchRequest { id, fetch: p });
+                }
+            }
+        }
+        let cancel = lc.cancelable().into_iter().map(|(_, id)| id).collect();
+        StreamingPlan { start, cancel }
+    }
+
+    /// A plan-issued fetch attempt failed (network error, decode error). The
+    /// chunk re-pends if still wanted; retry pacing stays host policy for
+    /// now (B4 moves it behind the budgets).
+    pub fn fetch_failed(&mut self, request: turbomap_world::RequestId) {
+        let mut lc = self.lifecycle.borrow_mut();
+        if let Some(key) = lc.key_of_request(request) {
+            let _ = lc.failed(key, request);
+        }
+    }
+
+    /// The host honoured a `cancel` entry (or abandoned an attempt).
+    pub fn fetch_cancelled(&mut self, request: turbomap_world::RequestId) {
+        let mut lc = self.lifecycle.borrow_mut();
+        if let Some(key) = lc.key_of_request(request) {
+            let _ = lc.cancelled(key, request);
+        }
+    }
+
+    /// The shared selection behind [`Map::pending_tiles`] and
+    /// [`Map::streaming_plan`]: score, order, and dual-write-sync the
+    /// lifecycle table.
+    fn plan_selection(&self) -> Vec<(PendingTile, turbomap_world::Priority)> {
         // Merge EVERY layer's pending tiles into one list tagged with its
         // streaming tier + distance-to-eye, then sort GLOBALLY. Per-layer the
         // lists were already (tier, distance)-ordered, but emitting them
@@ -2110,7 +2197,7 @@ impl Map {
             lc.retain_wanted(|k| wanted.contains(&k));
         }
 
-        scored.into_iter().map(|(p, _)| p).collect()
+        scored
     }
 
     fn world_key_of_pending(&self, p: &PendingTile) -> turbomap_world::ChunkKey {
