@@ -51,18 +51,21 @@ pub struct PgDumpRestoreResult {
     pub rows_restored: i64,
 }
 
-/// Restore a pg_dump SQL file into Postgres, then rename the
-/// discovered schema to the configured canonical name.
+/// Restore a Kartverket pg_dump into Postgres, then rename the discovered
+/// schema to the configured canonical name. Accepts either the raw Geonorge
+/// `.zip` (streamed `unzip -p | psql` so the multi-GiB uncompressed `.sql` is
+/// never materialised on disk — the national N50 dump doesn't fit the node's
+/// ephemeral scratch) or a bare `.sql` (operator-provided).
 pub async fn restore(
     pool: &DbPool,
-    sql_path: PathBuf,
+    archive_path: PathBuf,
     config: PgDumpConfig,
     force: bool,
 ) -> Result<PgDumpRestoreResult, JobError> {
-    if !sql_path.exists() {
+    if !archive_path.exists() {
         return Err(JobError::Fetch(format!(
             "dump file not found: {}",
-            sql_path.display()
+            archive_path.display()
         )));
     }
 
@@ -118,32 +121,13 @@ pub async fn restore(
         .await?;
     }
 
-    // 3. Restore via psql. `-v ON_ERROR_STOP=1` so a malformed dump
-    // fails fast; `-q` to silence the per-statement chatter (Kartverket
-    // dumps have hundreds of thousands of COPY statements).
-    let database_url =
-        std::env::var("DATABASE_URL").map_err(|_| JobError::Fetch("DATABASE_URL unset".into()))?;
-    let file_str = sql_path
-        .to_str()
-        .ok_or_else(|| JobError::Fetch("non-UTF8 path".into()))?;
-    tracing::info!(file = %sql_path.display(), "pgdump-load: starting psql restore (may take a while)");
-    let status = Command::new("psql")
-        .arg(&database_url)
-        .arg("-v")
-        .arg("ON_ERROR_STOP=1")
-        .arg("-q")
-        .arg("-f")
-        .arg(file_str)
-        .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
-        .status()
-        .await
-        .map_err(|e| JobError::Fetch(format!("spawn psql: {e}")))?;
-    if !status.success() {
-        return Err(JobError::Fetch(format!(
-            "psql exited with {status} while restoring {}",
-            sql_path.display()
-        )));
+    // 3. Restore via psql. A `.zip` streams `unzip -p | psql` so the
+    //    uncompressed dump (national N50 is ~30 GiB) is never written to
+    //    disk — it wouldn't fit the node's ephemeral scratch. A bare `.sql`
+    //    restores directly with `-f`.
+    match archive_path.extension().and_then(|s| s.to_str()) {
+        Some("zip") => restore_streamed_from_zip(&archive_path).await?,
+        _ => restore_from_sql_file(&archive_path).await?,
     }
 
     // 4. Discover the newly-created schema and rename to canonical.
@@ -181,6 +165,131 @@ pub async fn restore(
         source_schema,
         rows_restored: n,
     })
+}
+
+/// `psql -f <file>` restore. `-v ON_ERROR_STOP=1` fails fast on a malformed
+/// dump; `-q` silences the per-COPY chatter (Kartverket dumps have hundreds of
+/// thousands of statements).
+async fn restore_from_sql_file(sql_path: &std::path::Path) -> Result<(), JobError> {
+    let database_url =
+        std::env::var("DATABASE_URL").map_err(|_| JobError::Fetch("DATABASE_URL unset".into()))?;
+    let file_str = sql_path
+        .to_str()
+        .ok_or_else(|| JobError::Fetch("non-UTF8 path".into()))?;
+    tracing::info!(file = %sql_path.display(), "pgdump-load: starting psql restore (may take a while)");
+    let status = Command::new("psql")
+        .arg(&database_url)
+        .arg("-v")
+        .arg("ON_ERROR_STOP=1")
+        .arg("-q")
+        .arg("-f")
+        .arg(file_str)
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .status()
+        .await
+        .map_err(|e| JobError::Fetch(format!("spawn psql: {e}")))?;
+    if !status.success() {
+        return Err(JobError::Fetch(format!(
+            "psql exited with {status} while restoring {}",
+            sql_path.display()
+        )));
+    }
+    Ok(())
+}
+
+/// Stream a zipped pg_dump straight into psql: `unzip -p <zip> <entry>` piped
+/// into `psql -f -`. The uncompressed `.sql` never touches disk, so a dump far
+/// larger than the node's ephemeral scratch restores fine (peak disk = the zip
+/// we already downloaded, not the ~30 GiB expansion).
+async fn restore_streamed_from_zip(zip_path: &std::path::Path) -> Result<(), JobError> {
+    // Name the .sql entry explicitly: `unzip -p <zip>` with no member would
+    // concatenate every file in the archive (Kartverket zips carry sidecar
+    // files alongside the dump), corrupting the stream.
+    let listing = Command::new("unzip")
+        .arg("-Z1")
+        .arg(zip_path)
+        .stderr(Stdio::inherit())
+        .output()
+        .await
+        .map_err(|e| JobError::Fetch(format!("spawn unzip -Z1: {e}")))?;
+    if !listing.status.success() {
+        return Err(JobError::Fetch(format!(
+            "unzip -Z1 failed listing {}",
+            zip_path.display()
+        )));
+    }
+    let entry = sql_entry_in_zip(&String::from_utf8_lossy(&listing.stdout))
+        .ok_or_else(|| JobError::Fetch(format!("no .sql entry inside {}", zip_path.display())))?;
+
+    let database_url =
+        std::env::var("DATABASE_URL").map_err(|_| JobError::Fetch("DATABASE_URL unset".into()))?;
+    tracing::info!(
+        zip = %zip_path.display(),
+        entry = %entry,
+        "pgdump-load: streaming unzip -> psql restore (no temp .sql; may take a while)"
+    );
+
+    let mut unzip = Command::new("unzip")
+        .arg("-p")
+        .arg(zip_path)
+        .arg(&entry)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|e| JobError::Fetch(format!("spawn unzip -p: {e}")))?;
+    let unzip_stdout: Stdio = unzip
+        .stdout
+        .take()
+        .ok_or_else(|| JobError::Fetch("unzip -p produced no stdout".into()))?
+        .try_into()
+        .map_err(|e| JobError::Fetch(format!("unzip stdout -> stdio: {e}")))?;
+
+    let mut psql = Command::new("psql")
+        .arg(&database_url)
+        .arg("-v")
+        .arg("ON_ERROR_STOP=1")
+        .arg("-q")
+        .arg("-f")
+        .arg("-") // read the dump from stdin (the unzip pipe)
+        .stdin(unzip_stdout)
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|e| JobError::Fetch(format!("spawn psql: {e}")))?;
+
+    // Wait on the consumer (psql) first, then reap the producer (unzip).
+    let psql_status = psql
+        .wait()
+        .await
+        .map_err(|e| JobError::Fetch(format!("wait psql: {e}")))?;
+    let unzip_status = unzip
+        .wait()
+        .await
+        .map_err(|e| JobError::Fetch(format!("wait unzip: {e}")))?;
+    if !psql_status.success() {
+        return Err(JobError::Fetch(format!(
+            "psql exited with {psql_status} while restoring {}",
+            zip_path.display()
+        )));
+    }
+    if !unzip_status.success() {
+        return Err(JobError::Fetch(format!(
+            "unzip -p exited with {unzip_status} streaming {}",
+            zip_path.display()
+        )));
+    }
+    Ok(())
+}
+
+/// Pick the `.sql` entry from an `unzip -Z1` listing (one archive path per
+/// line). Pure for unit testing.
+fn sql_entry_in_zip(listing: &str) -> Option<String> {
+    listing
+        .lines()
+        .map(|l| l.trim())
+        .find(|l| l.to_ascii_lowercase().ends_with(".sql"))
+        .map(|l| l.to_string())
 }
 
 /// Convenience for jobs that just want the outcome shape.
@@ -299,6 +408,24 @@ mod tests {
         // double quote, we mustn't enable SQL injection.
         assert_eq!(quote_ident("plain"), "\"plain\"");
         assert_eq!(quote_ident("with\"quote"), "\"with\"\"quote\"");
+    }
+
+    #[test]
+    fn sql_entry_in_zip_picks_the_dump() {
+        // A Kartverket zip listing: the .sql dump plus sidecar files.
+        let listing = "Basisdata_0000_Norge_25833_N50Kartdata_PostGIS/\n\
+                       Basisdata_0000_Norge_25833_N50Kartdata_PostGIS/readme.txt\n\
+                       Basisdata_0000_Norge_25833_N50Kartdata_PostGIS/dump.SQL\n";
+        assert_eq!(
+            sql_entry_in_zip(listing).as_deref(),
+            Some("Basisdata_0000_Norge_25833_N50Kartdata_PostGIS/dump.SQL"),
+            "picks the .sql (case-insensitive) even with sidecar files"
+        );
+    }
+
+    #[test]
+    fn sql_entry_in_zip_none_when_absent() {
+        assert_eq!(sql_entry_in_zip("readme.txt\ndata.gpkg\n"), None);
     }
 
     #[test]

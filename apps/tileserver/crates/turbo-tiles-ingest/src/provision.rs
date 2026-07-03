@@ -13,7 +13,6 @@ use turbo_tiles_db::DbPool;
 
 use crate::geonorge::{self, Area, Dataset};
 use crate::job::{JobError, JobOutcome};
-use crate::pgdump_load;
 use crate::{incoming_dir, n50};
 
 /// Run the full N50 provisioning chain for an area (county code or
@@ -70,11 +69,14 @@ pub async fn provision_n50(pool: &DbPool, area: &str, force: bool) -> Result<Job
         }
     }
 
-    // 1. Download the dump and unzip to the SQL file.
+    // 1. Download the dump (a .zip). We do NOT unzip it to disk: the restore
+    //    streams `unzip -p | psql`, and the national uncompressed .sql (~30
+    //    GiB) doesn't fit the node's ephemeral scratch. The content hash is
+    //    taken over the downloaded zip — a cheap change-detector; the metadata
+    //    gate above is the primary freshness signal.
     tracing::info!(area = %area.0, force, "provision: fetching N50 dump");
     let zip = geonorge::fetch(Dataset::N50, &area, &dest).await?;
-    let sql = pgdump_load::unzip_dump(&zip).await?;
-    let version = hash_file(&sql)?;
+    let version = hash_file(&zip)?;
 
     // 1a. Content-hash skip: same area, same content hash, not forced → the
     //     restore + upserts + refresh would be a no-op. Still stamp the fresh
@@ -98,11 +100,10 @@ pub async fn provision_n50(pool: &DbPool, area: &str, force: bool) -> Result<Job
         });
     }
 
-    // 2. Restore into n50_staging (idempotent unless force). Passing the
-    //    already-unzipped .sql avoids a second unzip (unzip_dump passes
-    //    .sql through unchanged).
-    tracing::info!(sql = %sql.display(), version = %short(&version), "provision: restoring dump");
-    n50::restore(pool, sql, force).await?;
+    // 2. Restore into n50_staging (idempotent unless force). n50::restore
+    //    streams the zip through `unzip -p | psql` — no temp .sql on disk.
+    tracing::info!(zip = %zip.display(), version = %short(&version), "provision: restoring dump");
+    n50::restore(pool, zip, force).await?;
 
     // 3. Canonical upserts, in dependency-free order. Each writes one
     //    terrain.*/paths.*/anchors.* table and is independently re-runnable.

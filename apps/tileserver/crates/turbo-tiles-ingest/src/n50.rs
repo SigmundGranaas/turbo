@@ -29,8 +29,9 @@ const CONFIG: PgDumpConfig = PgDumpConfig {
 };
 
 pub async fn restore(pool: &DbPool, file: PathBuf, force: bool) -> Result<JobOutcome, JobError> {
-    let sql = pgdump_load::unzip_dump(&file).await?;
-    let result = pgdump_load::restore(pool, sql, CONFIG, force).await?;
+    // Pass the raw archive straight through — restore() streams `.zip` via
+    // `unzip -p | psql` so the ~30 GiB uncompressed dump is never written.
+    let result = pgdump_load::restore(pool, file, CONFIG, force).await?;
     Ok(pgdump_load::outcome_from_result(result))
 }
 
