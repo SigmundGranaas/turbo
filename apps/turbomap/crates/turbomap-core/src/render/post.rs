@@ -9,7 +9,7 @@
 //!   2. blur_h   — separable Gaussian, horizontal:  `bloom_a` → `bloom_b`.
 //!   3. blur_v   — separable Gaussian, vertical:    `bloom_b` → `bloom_a`.
 //!   4. tonemap  — scene + upsampled bloom, ACES filmic: `hdr_resolve` +
-//!                 `bloom_a` → the surface.
+//!      `bloom_a` → the surface.
 //!
 //! Bind groups are rebuilt per frame from the (resize-recreated) target views;
 //! they're trivially cheap and it keeps the post-process stateless w.r.t. size.

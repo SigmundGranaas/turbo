@@ -61,16 +61,26 @@ fn cold_load_paints_every_subsystem() {
     assert!(settled.is_some(), "cold load must settle, stats: {:?}", sim.stats.last());
 
     let img = sim.last.as_ref().expect("a rendered frame");
-    let land = fraction_near(img, session::LAND_SRGB, 8);
-    let water = fraction_near(img, session::WATER_SRGB, 10);
+    // Screen-space assertions compare against the ONSCREEN_* constants — the
+    // authored palette after the HDR post pipeline (see their doc comment in
+    // `session.rs`). Water has no stable exact on-screen colour (small share,
+    // AA-blended lake edges), so it uses a blue-dominance heuristic like
+    // landuse's green one: tonemapped water ≈ (171,196,209), blue leads red
+    // by ~38 while every other palette entry is near-neutral (Δ ≤ 4).
+    let land = fraction_near(img, session::ONSCREEN_LAND_SRGB, 8);
+    let water = img
+        .pixels()
+        .filter(|p| p.0[2] > p.0[0].saturating_add(20) && p.0[2] > 150)
+        .count() as f64
+        / (img.width() * img.height()) as f64;
     let landuse = img
         .pixels()
         .filter(|p| p.0[1] > p.0[0] && p.0[1] > p.0[2] && p.0[1] > 150)
         .count() as f64
         / (img.width() * img.height()) as f64;
-    let road_white = fraction_near(img, session::ROAD_INNER_SRGB, 10);
-    let road_major = fraction_near(img, session::ROAD_MAJOR_SRGB, 14);
-    let blank = fraction_near(img, session::CLEAR_SRGB, 6);
+    let road_white = fraction_near(img, session::ONSCREEN_ROAD_INNER_SRGB, 10);
+    let road_major = fraction_near(img, session::ONSCREEN_ROAD_MAJOR_SRGB, 14);
+    let blank = fraction_near(img, session::ONSCREEN_CLEAR_SRGB, 6);
 
     assert!(land > 0.25, "land raster should dominate, got {land:.3}");
     assert!(water > 0.005, "lakes should be visible, got {water:.4}");

@@ -47,6 +47,22 @@ pub const ROAD_MAJOR_SRGB: [u8; 3] = [247, 220, 150];
 pub const LABEL_SRGB: [u8; 3] = [70, 74, 84];
 pub const HALO_SRGB: [u8; 3] = [248, 248, 250];
 
+// What those authored colours actually look like ON SCREEN: the frame runs
+// through the HDR post pipeline (bloom + ACES filmic tonemap,
+// `render/post.rs`), which compresses the whole palette (255-white lands at
+// ~223). Screen-space assertions must compare against these, NOT the authored
+// constants — comparing against authored values silently defanged every
+// blank-map gate when the tonemap landed (nothing on screen matched the
+// authored clear, so `blank_frac` was 0 forever and the gates could not fail).
+//
+// Baselined EMPIRICALLY with the inspection tool (the same discipline as
+// goldens — regenerate on intentional post-pipeline changes):
+//   cargo run -p turbomap-sim --example coldload_dump --release
+pub const ONSCREEN_CLEAR_SRGB: [u8; 3] = [177, 177, 174];
+pub const ONSCREEN_LAND_SRGB: [u8; 3] = [219, 218, 215];
+pub const ONSCREEN_ROAD_INNER_SRGB: [u8; 3] = [223, 223, 223];
+pub const ONSCREEN_ROAD_MAJOR_SRGB: [u8; 3] = [221, 210, 161];
+
 /// A width-by-road-class paint: `cases` give (kind → px), `default` the
 /// fallback px. Drives the data-driven width hierarchy.
 fn road_width_by_class(cases: &[(&str, f32)], default: f32) -> Paint<f32> {
@@ -419,7 +435,7 @@ impl Sim {
         });
         self.engine.after_submit();
 
-        let blank_frac = fraction_near(&img, CLEAR_SRGB, 6);
+        let blank_frac = fraction_near(&img, ONSCREEN_CLEAR_SRGB, 6);
         let diff_frac = match &self.prev {
             Some(prev) => diff_fraction(prev, &img, 8),
             None => 1.0,
