@@ -478,3 +478,19 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   green post-change. Note: the "time-to-first-full-viewport improves"
   gate needs motion + a live host — measured on-device with B3's plan
   boundary; the sim's stationary cold load is the parity case by design.
+- _2026-07-03_: **B3.1 landed — dual-write.** The `Lifecycle` table now
+  shadows the legacy per-scene bookkeeping inside `Map`: the want-set
+  syncs against every layer's + terrain's desired set on each
+  `pending_tiles()` (visibility-independent, matching the A1 histogram's
+  universe), deliveries mirror through `delivered_unrequested` (the
+  documented legacy-shim transition B3.4 deletes), cache evictions
+  through `evicted()`, and layer/terrain teardown through
+  `forget_layer`. `WorldLayerId`s are minted per layer (`0` reserved for
+  terrain); `ChunkKey`s pack tiles via `QuadKey`. **The agreement gate**
+  (`Map::lifecycle_agreement`, surfaced on the engine) compares the
+  table's histogram against the scenes' phase histogram —
+  `Sim::step` asserts it on EVERY frame, so all 7 behavioural gates now
+  sweep it continuously (856 s run green). Capacity is effectively
+  unbounded during dual-write; the governor activates when the table
+  becomes the source of truth. Next: B3.2 — `StreamingPlan { start,
+  cancel }` derived from the table, `pending_tiles` becomes its shim.

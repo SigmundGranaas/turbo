@@ -323,6 +323,67 @@ impl Lifecycle {
         self.entries.get(&key).map(|e| e.phase)
     }
 
+    /// Reconcile the want-set against this frame's selection: every tracked
+    /// chunk that is currently wanted but fails `still_wanted` is
+    /// [`Self::unwant`]ed. The per-frame companion to calling
+    /// [`Self::want`] for the selected set.
+    pub fn retain_wanted(&mut self, mut still_wanted: impl FnMut(ChunkKey) -> bool) {
+        let stale: Vec<ChunkKey> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| {
+                !e.stale
+                    && matches!(
+                        e.phase,
+                        Phase::Desired | Phase::Fetching | Phase::Decoding | Phase::Resident
+                    )
+            })
+            .map(|(k, _)| *k)
+            .filter(|k| !still_wanted(*k))
+            .collect();
+        for k in stale {
+            let _ = self.unwant(k);
+        }
+    }
+
+    /// Legacy-shim delivery: a payload arrived WITHOUT a plan-issued request
+    /// (today's hosts fetch on their own initiative — the pull/push contract
+    /// predates the plan boundary). Infallible by design: whatever phase the
+    /// chunk was in, it is now resident, wanted-ness preserved (unknown
+    /// chunks land `Retained` — bytes we hold but never asked for). This
+    /// method is DELETED in slice B3.4 when `ingest` becomes
+    /// `RequestId`-keyed; nothing but the dual-write shim may call it.
+    pub fn delivered_unrequested(&mut self, key: ChunkKey, bytes: u64, frame: u64) -> Phase {
+        let e = self.entries.entry(key).or_insert(Entry {
+            phase: Phase::Retained,
+            priority: u64::MAX,
+            request: None,
+            stale: false,
+            last_touch: frame,
+            bytes: 0,
+        });
+        e.phase = match e.phase {
+            Phase::Desired | Phase::Fetching | Phase::Decoding => {
+                if e.stale {
+                    Phase::Retained
+                } else {
+                    Phase::Resident
+                }
+            }
+            keep @ (Phase::Resident | Phase::Retained) => keep,
+        };
+        e.stale = false;
+        e.request = None;
+        e.bytes = bytes;
+        e.last_touch = frame;
+        e.phase
+    }
+
+    /// Drop every chunk of `layer` — the layer was removed from the scene.
+    pub fn forget_layer(&mut self, layer: crate::chunk::WorldLayerId) {
+        self.entries.retain(|k, _| k.layer != layer);
+    }
+
     /// Total resident + retained payload bytes — the VRAM-ledger view.
     pub fn resident_bytes(&self) -> u64 {
         self.entries
@@ -463,6 +524,57 @@ mod tests {
             vec![1, 9, 5]
         );
         assert_eq!(t.pending(2).len(), 2);
+    }
+
+    #[test]
+    fn retain_wanted_unwants_exactly_the_dropped_keys() {
+        let mut t = Lifecycle::with_capacity(8);
+        t.want(key(1), 1, 0).unwrap();
+        t.want(key(2), 2, 0).unwrap();
+        let r = t.fetch_started(key(2)).unwrap();
+        t.want(key(3), 3, 0).unwrap();
+        let r3 = t.fetch_started(key(3)).unwrap();
+        t.resident(key(3), r3, 10, 1).unwrap();
+        // Keep only key(1): Desired key(2)'s fetch goes stale, Resident
+        // key(3) becomes Retained.
+        t.retain_wanted(|k| k.node.0 == 1);
+        assert_eq!(t.phase_of(key(1)), Some(Phase::Desired));
+        assert_eq!(t.cancelable(), vec![(key(2), r)]);
+        assert_eq!(t.phase_of(key(3)), Some(Phase::Retained));
+        // Idempotent: nothing further changes.
+        t.retain_wanted(|k| k.node.0 == 1);
+        assert_eq!(t.histogram().retained, 1);
+    }
+
+    #[test]
+    fn delivered_unrequested_models_the_legacy_push_paths() {
+        let mut t = Lifecycle::with_capacity(8);
+        // Wanted → Resident.
+        t.want(key(1), 1, 0).unwrap();
+        assert_eq!(t.delivered_unrequested(key(1), 64, 1), Phase::Resident);
+        // Unknown push → Retained (bytes we hold but never asked for).
+        assert_eq!(t.delivered_unrequested(key(2), 32, 1), Phase::Retained);
+        // Unwanted mid-flight → Retained, request cleared.
+        t.want(key(3), 1, 1).unwrap();
+        let _r = t.fetch_started(key(3)).unwrap();
+        t.unwant(key(3)).unwrap();
+        assert_eq!(t.delivered_unrequested(key(3), 16, 2), Phase::Retained);
+        assert!(t.cancelable().is_empty(), "delivery clears the cancel entry");
+        assert_eq!(t.resident_bytes(), 64 + 32 + 16);
+    }
+
+    #[test]
+    fn forget_layer_drops_only_that_layer() {
+        let mut t = Lifecycle::with_capacity(8);
+        t.want(key(1), 1, 0).unwrap();
+        let other = ChunkKey {
+            layer: WorldLayerId(9),
+            node: NodeId(1),
+        };
+        t.want(other, 1, 0).unwrap();
+        t.forget_layer(WorldLayerId(1));
+        assert_eq!(t.phase_of(key(1)), None);
+        assert_eq!(t.phase_of(other), Some(Phase::Desired));
     }
 
     /// The fuzz capstone (repo pattern — deterministic LCG, no proptest dep):

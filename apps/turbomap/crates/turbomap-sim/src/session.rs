@@ -442,6 +442,15 @@ impl Sim {
             Some(prev) => diff_fraction(prev, &img, 8),
             None => 1.0,
         };
+        // Slice-B3.1 dual-write gate, swept across every behavioural test:
+        // the lifecycle table and the legacy scene bookkeeping must agree on
+        // EVERY frame of every session, or the table may not become the
+        // source of truth. (pending_tiles ran during scheduling above, so
+        // the table is synced to this frame's camera.)
+        self.engine
+            .lifecycle_agreement()
+            .unwrap_or_else(|e| panic!("frame {}: {e}", self.frame));
+
         let m = self.engine.last_frame_metrics();
         let cpu_ms = m.cpu_time.as_secs_f64() * 1000.0;
         let (desired, retained) = (m.tiles.desired, m.tiles.retained);

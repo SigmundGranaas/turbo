@@ -684,6 +684,13 @@ impl TurbomapEngine {
         self.map.last_frame_metrics()
     }
 
+    /// Slice-B3.1 dual-write gate: does the lifecycle table agree with the
+    /// legacy per-scene bookkeeping? Valid right after a `pending_tiles()`;
+    /// the sim harness asserts it every frame. See `Map::lifecycle_agreement`.
+    pub fn lifecycle_agreement(&self) -> Result<(), String> {
+        self.map.lifecycle_agreement()
+    }
+
     /// Layer ids the backend skipped at the last apply.
     pub fn unsupported_layers(&self) -> &[String] {
         &self.unsupported

@@ -14,6 +14,7 @@
 //! 3. After all layer geometry, labels draw per visible vector layer.
 //! 4. Finally, markers paint on top.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use web_time::Instant;
@@ -693,6 +694,23 @@ pub struct Map {
     /// `pending_tiles` is a `&self` read on the render thread and this is
     /// its private memo, not shared state.
     last_priority_eye: std::cell::Cell<Option<WorldPoint>>,
+    /// **Slice B3.1 dual-write.** The ONE lifecycle table
+    /// ([`turbomap_world::Lifecycle`]) shadowing the legacy per-scene
+    /// `ingested` sets. Written alongside every selection (`pending_tiles`)
+    /// and ingest/eviction; [`Map::lifecycle_agreement`] proves the two
+    /// bookkeepings agree across the full sim sweep. The legacy sets are
+    /// deleted (and this becomes the source of truth feeding the
+    /// `StreamingPlan`) only after that gate has held — never before.
+    /// `RefCell`: written from the `&self` `pending_tiles` on the render
+    /// thread, same discipline as `last_priority_eye`.
+    lifecycle: std::cell::RefCell<turbomap_world::Lifecycle>,
+    /// Monotonic counter for the table's recency stamps (frame-ish; advances
+    /// per `pending_tiles` call — deterministic, no wall clock).
+    lifecycle_frame: std::cell::Cell<u64>,
+    /// Stable numeric layer ids for [`turbomap_world::ChunkKey`]s.
+    /// `WorldLayerId(0)` is reserved for the Map-level terrain source.
+    world_layer_ids: HashMap<String, turbomap_world::WorldLayerId>,
+    next_world_layer_id: u16,
     /// Basemap brightness gain for the 3D sun-lit path (1.0 = unchanged). The
     /// host raises it for dark imagery (satellite) so it reads under the same
     /// lighting that suits bright topo. Set via [`set_basemap_gain`].
@@ -850,6 +868,16 @@ impl Map {
             route_tubes: RouteTubeState::default(),
             start: Instant::now(),
             last_priority_eye: std::cell::Cell::new(None),
+            // Dual-write phase: effectively-unbounded capacity so the table
+            // observes without interfering; the real governor activates when
+            // the table becomes the source of truth (B3.4 / Slice 4).
+            lifecycle: std::cell::RefCell::new(turbomap_world::Lifecycle::with_capacity(
+                usize::MAX / 2,
+            )),
+            lifecycle_frame: std::cell::Cell::new(0),
+            world_layer_ids: HashMap::new(),
+            next_world_layer_id: 1, // 0 is the terrain reservation
+
             basemap_gain: 1.0,
             terrain_lit: true,
             aerial_haze: true,
@@ -1039,6 +1067,11 @@ impl Map {
     /// tile-edge vertices agree and the mesh doesn't crack at tile
     /// boundaries.
     pub fn set_terrain_source(&mut self, source: Arc<dyn TileSource>, options: TerrainOptions) {
+        // A fresh Terrain starts with an empty ingested set; drop the old
+        // one's chunks from the lifecycle table to match (dual-write B3.1).
+        self.lifecycle
+            .borrow_mut()
+            .forget_layer(turbomap_world::WorldLayerId(0));
         let halo = source.dem_halo_px();
         let cache = TerrainCache::new(
             self.device.clone(),
@@ -1165,6 +1198,7 @@ impl Map {
     /// tiles. Silently no-ops when no terrain source is registered
     /// (e.g. host sent us a stale tile after `clear_terrain`).
     pub fn ingest_terrain_tile(&mut self, tile: TileId, rgba: &[u8], width: u32, height: u32) {
+        let mut delivered: Option<Vec<TileId>> = None;
         if let Some(t) = self.terrain.as_mut() {
             let evicted = t.cache.ingest(tile, rgba, width, height);
             t.scene.ingest(tile);
@@ -1174,6 +1208,78 @@ impl Map {
             // New elevation data → route tubes baked before this are stale and
             // should re-drape onto the now-finer terrain.
             self.route_tubes.terrain_gen = self.route_tubes.terrain_gen.wrapping_add(1);
+            delivered = Some(evicted);
+        }
+        if let Some(evicted) = delivered {
+            self.lifecycle_delivered(None, tile, rgba.len() as u64, &evicted);
+        }
+    }
+
+    // ---- lifecycle dual-write helpers (slice B3.1) -----------------------
+
+    /// `ChunkKey` for a layer's tile. Layers not yet registered (never
+    /// `add_*_layer`ed — impossible for ingest paths) fall back to the
+    /// terrain reservation, which `debug_assert`s instead in dev.
+    fn world_key(&self, layer_id: Option<&str>, tile: TileId) -> turbomap_world::ChunkKey {
+        const TERRAIN: turbomap_world::WorldLayerId = turbomap_world::WorldLayerId(0);
+        let layer = match layer_id {
+            None => TERRAIN,
+            Some(id) => match self.world_layer_ids.get(id) {
+                Some(l) => *l,
+                None => {
+                    debug_assert!(false, "ingest for unregistered layer {id}");
+                    TERRAIN
+                }
+            },
+        };
+        turbomap_world::ChunkKey {
+            layer,
+            node: turbomap_world::QuadKey::new(tile.z, tile.x, tile.y).node_id(),
+        }
+    }
+
+    fn register_world_layer(&mut self, id: &str) {
+        if !self.world_layer_ids.contains_key(id) {
+            let l = turbomap_world::WorldLayerId(self.next_world_layer_id);
+            self.next_world_layer_id += 1;
+            self.world_layer_ids.insert(id.to_string(), l);
+        }
+    }
+
+    /// Mirror a delivered payload into the table (legacy shim path — see
+    /// `Lifecycle::delivered_unrequested`) plus any evictions the cache
+    /// reported alongside it.
+    fn lifecycle_delivered(&self, layer_id: Option<&str>, tile: TileId, bytes: u64, evicted: &[TileId]) {
+        let frame = self.lifecycle_frame.get();
+        let mut lc = self.lifecycle.borrow_mut();
+        lc.delivered_unrequested(self.world_key(layer_id, tile), bytes, frame);
+        for e in evicted {
+            let _ = lc.evicted(self.world_key(layer_id, *e));
+        }
+    }
+
+    /// The dual-write agreement gate: the lifecycle table and the legacy
+    /// per-scene bookkeeping must describe the same world. Valid immediately
+    /// after a `pending_tiles()` call (the table syncs against the camera
+    /// there); the sim harness asserts it every frame across the full
+    /// behavioural sweep. `fetching`/`decoding` are structurally zero until
+    /// the plan boundary goes live in B3.2+.
+    pub fn lifecycle_agreement(&self) -> Result<(), String> {
+        let table = self.lifecycle.borrow().histogram();
+        let scenes = self.tile_histogram();
+        let ok = table.desired == scenes.pending
+            && table.resident == scenes.resident
+            && table.retained == scenes.retained
+            && table.fetching == 0
+            && table.decoding == 0;
+        if ok {
+            Ok(())
+        } else {
+            Err(format!(
+                "lifecycle table diverged from scene bookkeeping: table {table:?} vs scenes \
+                 pending={} resident={} retained={}",
+                scenes.pending, scenes.resident, scenes.retained
+            ))
         }
     }
 
@@ -1181,6 +1287,7 @@ impl Map {
 
     pub fn add_raster_layer(&mut self, id: impl Into<String>, source: Arc<dyn TileSource>) {
         let id = id.into();
+        self.register_world_layer(&id);
         let min_zoom = source.min_zoom();
         let max_zoom = source.max_zoom();
         let pipeline = RasterPipeline::new(
@@ -1259,6 +1366,7 @@ impl Map {
         style: VectorStyle,
     ) {
         let id = id.into();
+        self.register_world_layer(&id);
         let min_zoom = source.min_zoom();
         let max_zoom = source.max_zoom();
         let pipeline = VectorPipeline::new(
@@ -1314,6 +1422,9 @@ impl Map {
     pub fn remove_layer(&mut self, id: &str) {
         // Dropping a layer can widen or narrow the source-derived lock.
         if self.layers.remove(id) {
+            if let Some(l) = self.world_layer_ids.get(id) {
+                self.lifecycle.borrow_mut().forget_layer(*l);
+            }
             self.recompute_zoom_bounds();
         }
     }
@@ -1959,7 +2070,57 @@ impl Map {
             })
             .collect();
         scored.sort_by_key(|&(_, prio)| prio);
+
+        // ---- Slice B3.1 dual-write: sync the lifecycle table -------------
+        // The table's want-set mirrors the SCENES' full desired sets (all
+        // layers with scenes + terrain, visibility-independent — the same
+        // universe `tile_histogram` counts), so `lifecycle_agreement()` can
+        // hold exactly. Priorities are refreshed from this frame's scores
+        // for the pending subset; already-resident chunks just stay wanted.
+        {
+            let frame = self.lifecycle_frame.get() + 1;
+            self.lifecycle_frame.set(frame);
+            let mut lc = self.lifecycle.borrow_mut();
+            let mut wanted: std::collections::HashSet<turbomap_world::ChunkKey> =
+                std::collections::HashSet::new();
+            let want_scene =
+                |lc: &mut turbomap_world::Lifecycle,
+                 wanted: &mut std::collections::HashSet<turbomap_world::ChunkKey>,
+                 layer_id: Option<&str>,
+                 scene: &crate::scene::Scene| {
+                    for (tile, _) in scene.desired_tagged() {
+                        let key = self.world_key(layer_id, tile);
+                        wanted.insert(key);
+                        let _ = lc.want(key, u64::MAX, frame);
+                    }
+                };
+            for l in self.layers.iter() {
+                match l {
+                    LayerEntry::Raster(r) => want_scene(&mut lc, &mut wanted, Some(&r.id), &r.scene),
+                    LayerEntry::Vector(v) => want_scene(&mut lc, &mut wanted, Some(&v.id), &v.scene),
+                    LayerEntry::Hillshade(_) => {}
+                }
+            }
+            if let Some(t) = self.terrain.as_ref() {
+                want_scene(&mut lc, &mut wanted, None, &t.scene);
+            }
+            for &(ref p, prio) in &scored {
+                let _ = lc.want(self.world_key_of_pending(p), prio.0, frame);
+            }
+            lc.retain_wanted(|k| wanted.contains(&k));
+        }
+
         scored.into_iter().map(|(p, _)| p).collect()
+    }
+
+    fn world_key_of_pending(&self, p: &PendingTile) -> turbomap_world::ChunkKey {
+        match p {
+            PendingTile::Raster { layer_id, tile } | PendingTile::Vector { layer_id, tile } => {
+                self.world_key(Some(layer_id), *tile)
+            }
+            PendingTile::Hillshade { tile, .. } => self.world_key(None, *tile),
+            PendingTile::Terrain { tile } => self.world_key(None, *tile),
+        }
     }
 
     fn first_visible_layer_index(&self) -> Option<usize> {
@@ -1975,6 +2136,7 @@ impl Map {
     }
 
     pub fn ingest_raster(&mut self, layer_id: &str, tile: TileId, rgba: &[u8], w: u32, h: u32) {
+        let mut delivered: Option<Vec<TileId>> = None;
         for l in self.layers.iter_mut() {
             if let LayerEntry::Raster(r) = l {
                 if r.id == layer_id {
@@ -1986,9 +2148,13 @@ impl Map {
                     for e in &evicted {
                         r.scene.un_ingest(e);
                     }
-                    return;
+                    delivered = Some(evicted);
+                    break;
                 }
             }
+        }
+        if let Some(evicted) = delivered {
+            self.lifecycle_delivered(Some(layer_id), tile, rgba.len() as u64, &evicted);
         }
     }
 
@@ -2002,6 +2168,7 @@ impl Map {
         icons: Vec<IconRequest>,
         interactive: Vec<InteractiveFeature>,
     ) {
+        let mut delivered: Option<Vec<TileId>> = None;
         for l in self.layers.iter_mut() {
             if let LayerEntry::Vector(v) = l {
                 if v.id == layer_id {
@@ -2011,9 +2178,15 @@ impl Map {
                     for e in &evicted {
                         v.scene.un_ingest(e);
                     }
-                    return;
+                    delivered = Some(evicted);
+                    break;
                 }
             }
+        }
+        if let Some(evicted) = delivered {
+            let bytes = (mesh.vertices.len() * std::mem::size_of::<crate::tessellate::VectorVertex>()
+                + mesh.indices.len() * 4) as u64;
+            self.lifecycle_delivered(Some(layer_id), tile, bytes, &evicted);
         }
     }
 
