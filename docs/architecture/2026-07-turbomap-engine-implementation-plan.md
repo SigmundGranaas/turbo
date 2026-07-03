@@ -400,3 +400,37 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   wgpu adapter — always run them with `REQUIRE_GPU=1` (this session: installed
   `mesa-vulkan-drivers` + `protobuf-compiler` in the dev container first, and
   the first "green" run was a vacuous skip until the adapter existed).
+- _2026-07-03_: **Harness forensics + repair.** Running the repaired gates for
+  real exposed that CI's rust lane had been dead since 2026-06-28 (clippy
+  `-D warnings` errors in `render/post.rs` + `capacity.rs`), so NO behavioural
+  gate had run for a week of heavy rendering work. Everything the dead lane
+  masked, found by running + inspecting (the `coldload_dump` tool: frame PNG,
+  colour census, per-layer cache bytes, per-gate measurements):
+  1. **Leftover HDR bloom + ACES tonemap** silently regrading the whole map
+     since the water-feature revert (goldens never re-baselined; every
+     screen-space sim assertion broken; the blank-map gates *defanged* —
+     nothing on screen matched the authored clear, so `blank_frac` was
+     0 forever and the gates could not fail). Owner decision: **complete the
+     revert** — post pipeline removed, frame resolves straight to the surface;
+     `golden_raster_parchment` passes against its untouched reference again.
+  2. **Vector water fills deleted engine-wide** by a hardcoded source-layer
+     skip in the tessellator (`86511549` — a raster-hybrid product decision
+     lodged in the wrong layer). Replaced by
+     `VectorStyle::without_water_fills()`: the app's raster-hybrid styles opt
+     out at STYLE build time; every pure-vector basemap (sim, N50, Bergen
+     fixtures) renders declared water again. `cold_load_paints_every_
+     subsystem` fully green, lakes included.
+  3. **Desktop demo defaulted to the water-only debug style** (leftover);
+     full style is the default again, `TURBO_WATER_ONLY=1` keeps the debug
+     mode.
+  4. **Camera round-trip contract violation**: `Camera::sanitized`'s
+     unconditional lng wrap cost ULPs (5.32 → 5.319999999999993), failing
+     `check_camera_roundtrips`. In-range longitudes now pass through
+     bit-exactly (unit-tested); only out-of-range values wrap.
+  5. **Two stale goldens re-baselined deliberately** (`hillshade-bergen`,
+     `omt-bergen-3d`): both predate the intentional June-25→July-1 aerial-
+     perspective/lighting series; the old `omt-bergen-3d` reference also
+     contains the water-smear artifacts of the buggy era it was captured in —
+     the new render is visibly cleaner (proper water bodies, lit/shadow walls).
+  Sim `ONSCREEN_*` constants now equal the authored palette (the seam and the
+  re-baselining tool stay — this failure mode can't be reintroduced silently).

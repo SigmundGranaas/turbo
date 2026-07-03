@@ -196,6 +196,27 @@ pub struct VectorStyle {
     pub rules: Vec<Rule>,
 }
 
+impl VectorStyle {
+    /// Strip the water-body **fill** rules (source layers `water` / `ocean` /
+    /// `water_polygons` — the OMT + VersaTiles conventions). For hosts that
+    /// layer a vector style over a raster basemap (Kartverket topo /
+    /// satellite): the raster already shows the water, and it looks better
+    /// there than a flat vector blue. This is a STYLE decision made by the
+    /// host at style build time — the renderer draws whatever fills the style
+    /// contains. (A hardcoded engine-side skip previously deleted lakes and
+    /// harbours from every pure-vector basemap; see the 2026-07 engine
+    /// implementation plan progress log.) Waterway lines, outlines and labels
+    /// on those layers are kept.
+    #[must_use]
+    pub fn without_water_fills(mut self) -> Self {
+        self.rules.retain(|r| {
+            !(matches!(r.paint, Paint::Fill { .. })
+                && matches!(r.source_layer.as_str(), "water" | "ocean" | "water_polygons"))
+        });
+        self
+    }
+}
+
 /// Configuration for a hillshade layer. The DEM source's tiles are
 /// regular raster PNG/WebP, but each pixel encodes an elevation; the
 /// pipeline decodes per fragment and derives lighting from the gradient.

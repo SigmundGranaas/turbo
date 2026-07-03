@@ -47,21 +47,23 @@ pub const ROAD_MAJOR_SRGB: [u8; 3] = [247, 220, 150];
 pub const LABEL_SRGB: [u8; 3] = [70, 74, 84];
 pub const HALO_SRGB: [u8; 3] = [248, 248, 250];
 
-// What those authored colours actually look like ON SCREEN: the frame runs
-// through the HDR post pipeline (bloom + ACES filmic tonemap,
-// `render/post.rs`), which compresses the whole palette (255-white lands at
-// ~223). Screen-space assertions must compare against these, NOT the authored
-// constants — comparing against authored values silently defanged every
-// blank-map gate when the tonemap landed (nothing on screen matched the
-// authored clear, so `blank_frac` was 0 forever and the gates could not fail).
+// What the authored colours look like ON SCREEN. Screen-space assertions
+// compare against these, never the authored constants directly: the two
+// coincide only while no post/grading pass runs. When the leftover HDR
+// bloom + ACES tonemap from the reverted water feature was silently applied
+// (June 24 → July 3), authored-vs-screen diverged and every blank-map gate
+// was defanged (nothing on screen matched the authored clear, so
+// `blank_frac` measured 0 forever and the gates could not fail). Keeping the
+// seam makes that failure mode impossible to reintroduce silently.
 //
-// Baselined EMPIRICALLY with the inspection tool (the same discipline as
-// goldens — regenerate on intentional post-pipeline changes):
+// Baseline EMPIRICALLY with the inspection tool whenever the render pipeline
+// intentionally regrades colour (same discipline as goldens):
 //   cargo run -p turbomap-sim --example coldload_dump --release
-pub const ONSCREEN_CLEAR_SRGB: [u8; 3] = [177, 177, 174];
-pub const ONSCREEN_LAND_SRGB: [u8; 3] = [219, 218, 215];
-pub const ONSCREEN_ROAD_INNER_SRGB: [u8; 3] = [223, 223, 223];
-pub const ONSCREEN_ROAD_MAJOR_SRGB: [u8; 3] = [221, 210, 161];
+pub const ONSCREEN_CLEAR_SRGB: [u8; 3] = CLEAR_SRGB;
+pub const ONSCREEN_LAND_SRGB: [u8; 3] = LAND_SRGB;
+pub const ONSCREEN_WATER_SRGB: [u8; 3] = WATER_SRGB;
+pub const ONSCREEN_ROAD_INNER_SRGB: [u8; 3] = ROAD_INNER_SRGB;
+pub const ONSCREEN_ROAD_MAJOR_SRGB: [u8; 3] = ROAD_MAJOR_SRGB;
 
 /// A width-by-road-class paint: `cases` give (kind → px), `default` the
 /// fallback px. Drives the data-driven width hierarchy.

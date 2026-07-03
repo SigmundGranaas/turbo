@@ -153,15 +153,6 @@ pub fn tile_tolerance() -> f32 {
     0.5 / 256.0
 }
 
-/// Whether an MVT source layer carries water-body polygons. Their flat fill is
-/// intentionally NOT rendered by the vector pipeline — the raster basemap
-/// (Kartverket topo / satellite) shows the water instead, which looks better
-/// than a flat vector blue. Matches OMT (`water`) + VersaTiles (`ocean` /
-/// `water_polygons`). Waterway *lines* live in other layers and still draw.
-fn is_water_source_layer(name: &str) -> bool {
-    matches!(name, "water" | "ocean" | "water_polygons")
-}
-
 /// Tessellate a tile through `style` into a single mesh in **tile-local
 /// units** (`[0, 1]` across the tile, buffer geometry slightly outside).
 /// Errors out of individual features (e.g. a degenerate polygon) are
@@ -194,11 +185,6 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
             let paint = &rule.paint;
             match paint {
                 Paint::Fill { color } => {
-                    // Water-body fills are not drawn by the vector pipeline; the
-                    // raster basemap renders the water instead.
-                    if is_water_source_layer(&layer.name) {
-                        continue;
-                    }
                     if let Geometry::Polygon(rings) = &feature.geometry {
                         let path = build_polygon_path(tile_id, extent, rings);
                         let packed = pack_color(*color);

@@ -59,11 +59,23 @@ fn main() {
     eprintln!("settled cold-load frame census:");
     census(img, 12);
 
+    // Per-layer GPU state: does each scene layer actually hold meshes/tiles?
+    // (A layer with 0 entries never tessellated anything — its content is
+    // missing BEFORE draw ordering or paint can matter.)
+    eprintln!("per-layer caches:");
+    for l in &sim.engine.last_frame_metrics().layers {
+        eprintln!(
+            "  {:<14} {:?}: entries={} bytes={}",
+            l.id, l.kind, l.cache.entries, l.cache.bytes_used
+        );
+    }
+
     // The gate's expectations, measured the way the gate measures them
     // (ONSCREEN_* = authored palette after the post pipeline; re-baseline
     // these from the census above when the post pipeline changes).
     for (name, rgb, tol) in [
         ("LAND", session::ONSCREEN_LAND_SRGB, 8u8),
+        ("WATER", session::ONSCREEN_WATER_SRGB, 10),
         ("ROAD_INNER", session::ONSCREEN_ROAD_INNER_SRGB, 10),
         ("ROAD_MAJOR", session::ONSCREEN_ROAD_MAJOR_SRGB, 14),
         ("CLEAR(blank)", session::ONSCREEN_CLEAR_SRGB, 6),

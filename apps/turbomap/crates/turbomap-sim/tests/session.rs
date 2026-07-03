@@ -61,18 +61,11 @@ fn cold_load_paints_every_subsystem() {
     assert!(settled.is_some(), "cold load must settle, stats: {:?}", sim.stats.last());
 
     let img = sim.last.as_ref().expect("a rendered frame");
-    // Screen-space assertions compare against the ONSCREEN_* constants — the
-    // authored palette after the HDR post pipeline (see their doc comment in
-    // `session.rs`). Water has no stable exact on-screen colour (small share,
-    // AA-blended lake edges), so it uses a blue-dominance heuristic like
-    // landuse's green one: tonemapped water ≈ (171,196,209), blue leads red
-    // by ~38 while every other palette entry is near-neutral (Δ ≤ 4).
+    // Screen-space assertions compare against the ONSCREEN_* constants (the
+    // authored palette as it lands on screen — see their doc comment in
+    // `session.rs`).
     let land = fraction_near(img, session::ONSCREEN_LAND_SRGB, 8);
-    let water = img
-        .pixels()
-        .filter(|p| p.0[2] > p.0[0].saturating_add(20) && p.0[2] > 150)
-        .count() as f64
-        / (img.width() * img.height()) as f64;
+    let water = fraction_near(img, session::ONSCREEN_WATER_SRGB, 10);
     let landuse = img
         .pixels()
         .filter(|p| p.0[1] > p.0[0] && p.0[1] > p.0[2] && p.0[1] > 150)

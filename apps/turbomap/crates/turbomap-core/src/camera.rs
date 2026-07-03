@@ -280,7 +280,17 @@ impl Camera {
         // [-180, 180) so an over-pan (or a wild host value) can't push world-x
         // out of f32 range.
         let lng = {
-            let l = (FiniteF64::or(self.center.lng, 0.0) + 180.0).rem_euclid(360.0) - 180.0;
+            let l0 = FiniteF64::or(self.center.lng, 0.0);
+            // In-range values pass through IDENTICALLY: the +180/−180 wrap
+            // round-trip costs ULPs (5.32 → 5.319999999999993), and the
+            // engine contract requires camera() == what set_camera() stored
+            // (`conformance::check_camera_roundtrips`). Only actually
+            // out-of-range values pay the wrap.
+            let l = if (-180.0..180.0).contains(&l0) {
+                l0
+            } else {
+                (l0 + 180.0).rem_euclid(360.0) - 180.0
+            };
             // rem_euclid keeps it in [-180, 180); guard the exact-360 edge.
             if l.is_finite() {
                 l
@@ -1092,6 +1102,22 @@ mod tests {
         assert!((s.zoom - 13.0).abs() < 1e-9);
         assert!((s.pitch_deg - 45.0).abs() < 1e-9);
         assert!((s.bearing_deg - 31.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn sanitized_preserves_in_range_longitude_bit_exactly() {
+        // The engine contract (`conformance::check_camera_roundtrips`) demands
+        // camera() == what set_camera() stored. An unconditional +180/−180
+        // wrap costs ULPs (5.32 became 5.319999999999993) — in-range values
+        // must pass through IDENTICALLY; only out-of-range values pay the wrap.
+        for lng in [5.32, -179.999, 0.0, 179.999, -0.1] {
+            let s = Camera::new(LatLng::new(60.39, lng), 11.0).sanitized();
+            assert_eq!(s.center.lng.to_bits(), lng.to_bits(), "lng {lng} drifted");
+        }
+        // Out-of-range still wraps into [-180, 180).
+        let s = Camera::new(LatLng::new(60.39, 200.0), 11.0).sanitized();
+        assert!((-180.0..180.0).contains(&s.center.lng));
+        assert!((s.center.lng - -160.0).abs() < 1e-9);
     }
 
     #[test]

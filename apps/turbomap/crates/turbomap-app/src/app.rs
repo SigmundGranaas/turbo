@@ -1137,9 +1137,9 @@ fn save_dump_to_png(
 /// for "looks like a map" — water blue, parks green, roads grey with
 /// motorways slightly emphasised, buildings light grey, boundaries dark.
 /// Water-only style for debugging the realistic-water surface in isolation:
-/// just the water-body fills (which feed the water pipeline), nothing else.
-/// Covers both schemas — OMT/kart-api "water" and VersaTiles "ocean" +
-/// "water_polygons" (see `is_water_source_layer`).
+/// just the water-body fills, nothing else. Covers both schemas —
+/// OMT/kart-api "water" and VersaTiles "ocean" + "water_polygons"
+/// (the same set `VectorStyle::without_water_fills` strips).
 fn water_only_style() -> VectorStyle {
     let water = |layer: &str| Rule {
         source_layer: layer.into(),
@@ -1392,10 +1392,11 @@ pub fn run() {
     // tileserver's served MapLibre style — the self-hosted path. Without it,
     // the VersaTiles OSM overlay + built-in demo style (the original MVP).
     let basemap_base = std::env::var("TURBO_BASEMAP_URL").ok();
-    // Default to a WATER-ONLY style so the realistic-water surface can be debugged
-    // in isolation (no roads/labels/buildings). Set TURBO_FULL_STYLE=1 for the
-    // full road/label overlay.
-    let full_style = std::env::var("TURBO_FULL_STYLE").is_ok();
+    // Full road/label overlay by default. TURBO_WATER_ONLY=1 switches to the
+    // water-fills-only debug style (isolates water rendering — kept from the
+    // water work as a debugging tool; it was briefly the DEFAULT, a leftover
+    // that shipped the demo as a nearly-empty map).
+    let full_style = std::env::var("TURBO_WATER_ONLY").is_err();
     let (vector_source, style): (Arc<dyn VectorTileSource>, VectorStyle) = match &basemap_base {
         Some(base) => {
             log::info!("vector basemap from {base}/v1/basemap (MVT)");
@@ -1408,6 +1409,10 @@ pub fn run() {
                         .expect("fetch /v1/basemap/style.json");
                 turbomap_style_maplibre::parse_style(&style_json)
                     .expect("parse served MapLibre style")
+                    // Style decision for this raster-hybrid host: the
+                    // Kartverket raster underneath shows the water; drop the
+                    // served style's flat water fills (keeps lines/labels).
+                    .without_water_fills()
             } else {
                 water_only_style()
             };
