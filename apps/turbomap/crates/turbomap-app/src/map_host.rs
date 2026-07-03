@@ -67,6 +67,9 @@ pub struct MapHost {
     /// Tiles whose last fetch failed, plus the timestamp.
     /// `tick` GCs entries older than `RETRY_BACKOFF`.
     recently_failed: HashMap<TileId, Instant>,
+    /// Plan attempt ids for spawned fetches, so worker outcomes can report
+    /// `fetch_failed` (deliveries complete implicitly through `ingest_*`).
+    attempts: HashMap<(&'static str, TileId), turbomap_core::RequestId>,
 }
 
 impl MapHost {
@@ -83,6 +86,7 @@ impl MapHost {
             dem_pump,
             inflight: HashSet::new(),
             recently_failed: HashMap::new(),
+            attempts: HashMap::new(),
         }
     }
 
@@ -138,6 +142,7 @@ impl MapHost {
                     interactive,
                 } => {
                     self.inflight.remove(&(VECTOR_LAYER_ID, id));
+                    self.attempts.remove(&(VECTOR_LAYER_ID, id));
                     self.recently_failed.remove(&id);
                     self.map.ingest_vector_mesh(
                         VECTOR_LAYER_ID,
@@ -150,6 +155,9 @@ impl MapHost {
                 }
                 VectorOutcome::Failed(id) => {
                     self.inflight.remove(&(VECTOR_LAYER_ID, id));
+                    if let Some(req) = self.attempts.remove(&(VECTOR_LAYER_ID, id)) {
+                        self.map.fetch_failed(req);
+                    }
                     self.recently_failed.insert(id, Instant::now());
                 }
             }
@@ -164,12 +172,16 @@ impl MapHost {
                     height,
                 } => {
                     self.inflight.remove(&(RASTER_LAYER_ID, id));
+                    self.attempts.remove(&(RASTER_LAYER_ID, id));
                     self.recently_failed.remove(&id);
                     self.map
                         .ingest_raster(RASTER_LAYER_ID, id, &rgba, width, height);
                 }
                 RasterOutcome::Failed(id) => {
                     self.inflight.remove(&(RASTER_LAYER_ID, id));
+                    if let Some(req) = self.attempts.remove(&(RASTER_LAYER_ID, id)) {
+                        self.map.fetch_failed(req);
+                    }
                     self.recently_failed.insert(id, Instant::now());
                 }
             }
@@ -185,11 +197,15 @@ impl MapHost {
                         height,
                     } => {
                         self.inflight.remove(&(TERRAIN_KEY, id));
+                        self.attempts.remove(&(TERRAIN_KEY, id));
                         self.recently_failed.remove(&id);
                         self.map.ingest_terrain_tile(id, &rgba, width, height);
                     }
                     RasterOutcome::Failed(id) => {
                         self.inflight.remove(&(TERRAIN_KEY, id));
+                        if let Some(req) = self.attempts.remove(&(TERRAIN_KEY, id)) {
+                            self.map.fetch_failed(req);
+                        }
                         self.recently_failed.insert(id, Instant::now());
                     }
                 }
@@ -198,72 +214,83 @@ impl MapHost {
         applied
     }
 
-    /// Spawn fetches for `Map::pending_tiles` — IN THE ENGINE'S ORDER — up
-    /// to the per-layer cap. The engine's list is already globally sorted by
-    /// the one priority score (tier, then motion-modulated eye distance;
-    /// `turbomap_world::priority`); re-sorting here by raw centre distance
-    /// used to discard the tiers, letting a near prefetch-ring tile fetch
-    /// before a farther still-missing VISIBLE tile (plan slice B2 removed
-    /// that). Tiles in the recently-failed set are skipped this tick.
+    /// Take one engine `streaming_plan` sized to the free lane capacity and
+    /// spawn its `start` fetches (already globally ordered by the one
+    /// priority score — tier, then motion-modulated eye distance). Plan
+    /// adoption (slice B3.3b): every start carries a `RequestId`; starts we
+    /// decline (lane mismatch, retry backoff) are reported cancelled so the
+    /// engine re-issues them, worker failures report `fetch_failed` so the
+    /// chunk re-pends, and `cancel` entries are acknowledged immediately —
+    /// a blocking `reqwest` fetch can't be aborted mid-flight, but the
+    /// `(layer, tile)` inflight set prevents a duplicate spawn and a late
+    /// delivery simply completes whatever attempt is current.
     pub fn dispatch_fetches(&mut self) {
-        let prioritised = self.map.pending_tiles();
-        let mut vector_in = self
-            .inflight
-            .iter()
-            .filter(|(k, _)| *k == VECTOR_LAYER_ID)
-            .count();
-        let mut raster_in = self
-            .inflight
-            .iter()
-            .filter(|(k, _)| *k == RASTER_LAYER_ID)
-            .count();
-        let mut terrain_in = self
-            .inflight
-            .iter()
-            .filter(|(k, _)| *k == TERRAIN_KEY)
-            .count();
-        for pending in prioritised {
-            match pending {
+        let free = |used: usize| MAX_INFLIGHT_PER_LAYER.saturating_sub(used);
+        let vector_used = self.inflight.iter().filter(|(k, _)| *k == VECTOR_LAYER_ID).count();
+        let raster_used = self.inflight.iter().filter(|(k, _)| *k == RASTER_LAYER_ID).count();
+        let terrain_used = self.inflight.iter().filter(|(k, _)| *k == TERRAIN_KEY).count();
+        let budget = free(vector_used) + free(raster_used) + free(terrain_used);
+        let plan = self.map.streaming_plan(budget);
+        for id in plan.cancel {
+            self.map.fetch_cancelled(id);
+        }
+        let prioritised = plan.start;
+        let mut vector_in = vector_used;
+        let mut raster_in = raster_used;
+        let mut terrain_in = terrain_used;
+        let mut declined: Vec<turbomap_core::RequestId> = Vec::new();
+        for req in prioritised {
+            let id = req.id;
+            match req.fetch {
                 PendingTile::Vector { tile, .. } => {
                     if self.recently_failed.contains_key(&tile)
                         || vector_in >= MAX_INFLIGHT_PER_LAYER
+                        || !self.inflight.insert((VECTOR_LAYER_ID, tile))
                     {
+                        declined.push(id);
                         continue;
                     }
-                    if self.inflight.insert((VECTOR_LAYER_ID, tile)) {
-                        self.vector_pump.spawn_fetch(tile);
-                        vector_in += 1;
-                    }
+                    self.attempts.insert((VECTOR_LAYER_ID, tile), id);
+                    self.vector_pump.spawn_fetch(tile);
+                    vector_in += 1;
                 }
                 PendingTile::Raster { tile, .. } => {
                     if self.recently_failed.contains_key(&tile)
                         || raster_in >= MAX_INFLIGHT_PER_LAYER
+                        || !self.inflight.insert((RASTER_LAYER_ID, tile))
                     {
+                        declined.push(id);
                         continue;
                     }
-                    if self.inflight.insert((RASTER_LAYER_ID, tile)) {
-                        self.raster_pump.spawn_fetch(tile);
-                        raster_in += 1;
-                    }
+                    self.attempts.insert((RASTER_LAYER_ID, tile), id);
+                    self.raster_pump.spawn_fetch(tile);
+                    raster_in += 1;
                 }
                 // Hillshade is fed by terrain DEM tiles, not its
-                // own pump — drop these.
-                PendingTile::Hillshade { .. } => {}
+                // own pump — decline these.
+                PendingTile::Hillshade { .. } => declined.push(id),
                 PendingTile::Terrain { tile } => {
                     let Some(dem_pump) = self.dem_pump.as_ref() else {
+                        declined.push(id);
                         continue;
                     };
                     if self.recently_failed.contains_key(&tile)
                         || terrain_in >= MAX_INFLIGHT_PER_LAYER
+                        || !self.inflight.insert((TERRAIN_KEY, tile))
                     {
+                        declined.push(id);
                         continue;
                     }
-                    if self.inflight.insert((TERRAIN_KEY, tile)) {
-                        dem_pump.spawn_fetch(tile);
-                        terrain_in += 1;
-                    }
+                    self.attempts.insert((TERRAIN_KEY, tile), id);
+                    dem_pump.spawn_fetch(tile);
+                    terrain_in += 1;
                 }
             }
+        }
+        // Declined starts (lane mismatch, backoff, unsupported kind) go back
+        // to the engine so they re-issue on a later plan.
+        for id in declined {
+            self.map.fetch_cancelled(id);
         }
     }
 

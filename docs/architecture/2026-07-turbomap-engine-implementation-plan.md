@@ -528,3 +528,19 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   clippy clean, engine plan-loop gate green. (Housekeeping: the dev
   container's 22 GB stale debug-profile artifacts were pruned to make
   room for the wasm toolchain.)
+- _2026-07-03_: **B3.3b landed — the desktop host adopts the plan.**
+  `map_host::dispatch_fetches` takes one `streaming_plan` sized to its
+  free lane capacity; declined starts (lane mismatch, retry backoff,
+  unsupported kind) report `fetch_cancelled` so the engine re-issues
+  them; worker failures report `fetch_failed` via a `(layer, tile) →
+  RequestId` attempts map; deliveries complete implicitly. Plan
+  `cancel`s are acknowledged immediately — blocking `reqwest` can't
+  abort mid-flight, but the inflight set prevents duplicate spawns and
+  a late delivery completes whatever attempt is current. Core
+  re-exports `RequestId` so hosts don't need a direct world dep.
+  **Remaining on the shim: the Kotlin/Android reconciler** — the uniffi
+  plan API is ready (`streaming_plan_json` + reports), but the
+  reconciler swap needs an Android build environment to verify, so it
+  is deferred to a session with one rather than landed blind (the
+  execution rule: nothing ships unrun). Then B3.4: legacy sets +
+  `delivered_unrequested` delete, capacity governor arms.

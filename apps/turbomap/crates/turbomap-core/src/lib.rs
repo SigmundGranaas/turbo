@@ -49,6 +49,9 @@ pub use tessellate::{
     tessellate, IconRequest, InteractiveFeature, LabelRequest, Mesh, VectorVertex,
 };
 pub use tile::{SubUv, TileId};
+// Streaming-plan attempt identity — re-exported so hosts don't need a direct
+// turbomap-world dependency to speak the plan boundary.
+pub use turbomap_world::RequestId;
 pub use vector::{
     tile_local_to_world, Feature, GeomType, Geometry, Layer as VectorTileLayer,
     Value as VectorValue, VectorTile, VectorTileSource,
