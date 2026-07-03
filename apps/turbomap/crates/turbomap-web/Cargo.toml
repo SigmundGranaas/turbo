@@ -21,6 +21,7 @@ crate-type = ["cdylib", "rlib"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 turbomap-core = { path = "../turbomap-core" }
 turbomap-engine = { path = "../turbomap-engine" }
+turbomap-world = { path = "../turbomap-world" }
 turbomap-scene = { path = "../turbomap-scene" }
 # WebGPU backend is on by default for wgpu on wasm32; "webgl" adds the WebGL2
 # fallback so a non-WebGPU browser at least attempts to run (degraded — the

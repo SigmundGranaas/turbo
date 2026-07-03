@@ -315,8 +315,34 @@ impl TurboMap {
 
     // ---- host-driven tile IO ----------------------------------------------
 
+    /// One streaming step (the plan boundary, slice B3.3), as JSON:
+    /// `{"start":[{"id","kind","layer","z","x","y"}],"cancel":[ids]}`.
+    /// Starts are priority-ordered and truncated to `max_start`; every
+    /// `cancel` id names an in-flight attempt the camera moved away from —
+    /// abort its transport and call `report_fetch_cancelled`. Deliveries
+    /// complete through the ordinary `ingest*`; failures report via
+    /// `report_fetch_failed`. A start the host declines to run must also be
+    /// reported cancelled so the engine re-issues it.
+    pub fn streaming_plan_json(&self, max_start: u32) -> String {
+        self.lock().engine.streaming_plan_json(max_start as usize)
+    }
+
+    /// Report a plan-issued fetch as failed; the chunk re-pends if wanted.
+    pub fn report_fetch_failed(&self, id: u64) {
+        self.lock().engine.fetch_failed(turbomap_world::RequestId(id));
+    }
+
+    /// Report a plan `cancel` as honoured (or a declined `start`).
+    pub fn report_fetch_cancelled(&self, id: u64) {
+        self.lock().engine.fetch_cancelled(turbomap_world::RequestId(id));
+    }
+
     /// Tiles the engine is waiting on. Fetch each host-side and push the
     /// bytes back through the matching `ingest*`.
+    ///
+    /// **Legacy shim** over `streaming_plan_json` (start list only — no
+    /// attempt tracking, no cancellation). Existing hosts keep working; new
+    /// host code should consume the plan.
     pub fn pending_tiles(&self) -> Vec<TileRequest> {
         use turbomap_core::PendingTile;
         self.lock()

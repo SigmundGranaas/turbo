@@ -198,10 +198,39 @@ impl TurboMap {
         self.engine.pump_tiles();
     }
 
+    /// One streaming step (the plan boundary, slice B3.3):
+    /// `{"start":[{"id","kind","layer","z","x","y"}],"cancel":[ids]}`.
+    /// Fetch each `start` (they are priority-ordered and budget-truncated to
+    /// `max_start`), abort the transports for every `cancel` id and report
+    /// them via [`report_fetch_cancelled`](Self::report_fetch_cancelled).
+    /// Deliveries go through the ordinary `ingest_*`; failures through
+    /// [`report_fetch_failed`](Self::report_fetch_failed). A start the host
+    /// chooses not to run (lane full) must be reported cancelled so the
+    /// engine can re-issue it.
+    pub fn streaming_plan(&mut self, max_start: u32) -> String {
+        self.engine.streaming_plan_json(max_start as usize)
+    }
+
+    /// Report a `start` the host failed (network/decode error) — the chunk
+    /// re-pends if still wanted. `id` from the plan JSON (session-scoped
+    /// counter, exact in a JS number).
+    pub fn report_fetch_failed(&mut self, id: f64) {
+        self.engine.fetch_failed(turbomap_world::RequestId(id as u64));
+    }
+
+    /// Report a `cancel` as honoured (or a `start` the host declined).
+    pub fn report_fetch_cancelled(&mut self, id: f64) {
+        self.engine.fetch_cancelled(turbomap_world::RequestId(id as u64));
+    }
+
     /// Tiles the engine is waiting on, as a JSON array of
     /// `{"kind","layer","z","x","y"}` — the host fetches each and pushes the
     /// bytes back via the matching `ingest_*`. `kind` is raster/hillshade/
     /// vector/terrain; `layer` is `__terrain` for the shared DEM.
+    ///
+    /// **Legacy shim** over [`streaming_plan`](Self::streaming_plan) (start
+    /// list only, no attempt tracking, no cancellation). Kept for hosts that
+    /// haven't adopted the plan; new code should not use it.
     pub fn pending_tiles(&self) -> String {
         let items: Vec<String> = self
             .engine

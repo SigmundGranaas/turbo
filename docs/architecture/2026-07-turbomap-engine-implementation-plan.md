@@ -510,3 +510,21 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   move-away-cancel → acknowledge with agreement asserted at every step;
   engine + sim suites green. Next: B3.3 — FFI/web hosts consume the
   plan (AbortController on web); Kotlin reconciler shrinks.
+- _2026-07-03_: **B3.3 landed — the web host is the first full plan
+  consumer.** One serializer (`engine::streaming_plan_to_json`,
+  unit-tested) feeds both bindings: wasm `streaming_plan(max_start)` +
+  `report_fetch_failed/cancelled`, and uniffi `streaming_plan_json` +
+  the same reports (u64 ids; session-scoped counters, exact in a JS
+  number). `apps/web`'s `TileLoader` now consumes the plan: sizes
+  `max_start` to its free lane capacity, aborts + acknowledges every
+  `cancel` (the client-side pending-list diffing that used to re-derive
+  this decision is deleted — the engine's table states it), declines
+  lane-mismatched starts by reporting them cancelled so they re-issue,
+  and reports failures so chunks re-pend. `pending_tiles` remains the
+  documented legacy shim on every binding — desktop and the Kotlin
+  reconciler migrate in B3.3b, then B3.4 deletes the legacy sets and
+  arms the real capacity governor. Verified: wasm target builds,
+  wasm-pack pkg regenerated, apps/web typecheck + 16 vitest green,
+  clippy clean, engine plan-loop gate green. (Housekeeping: the dev
+  container's 22 GB stale debug-profile artifacts were pruned to make
+  room for the wasm toolchain.)

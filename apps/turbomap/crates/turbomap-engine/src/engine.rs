@@ -710,6 +710,89 @@ impl TurbomapEngine {
         self.map.fetch_cancelled(request);
     }
 
+    /// [`Self::streaming_plan`] serialized for the bindings (wasm, uniffi):
+    /// `{"start":[{"id",…,"kind","layer","z","x","y"}],"cancel":[ids]}`. One
+    /// serializer so every host parses the same shape; see
+    /// [`streaming_plan_to_json`].
+    pub fn streaming_plan_json(&mut self, max_start: usize) -> String {
+        streaming_plan_to_json(&self.map.streaming_plan(max_start))
+    }
+}
+
+/// JSON for a [`StreamingPlan`](turbomap_core::map::StreamingPlan). `kind` is
+/// `raster`/`hillshade`/`vector`/`terrain`; `layer` is `__terrain` for the
+/// shared DEM (mirrors the legacy `pending_tiles` shape, plus `id`).
+/// `RequestId`s are session-scoped counters, far below 2^53, so they survive
+/// a JS `number` exactly.
+pub fn streaming_plan_to_json(plan: &turbomap_core::map::StreamingPlan) -> String {
+    use turbomap_core::map::PendingTile;
+    let start: Vec<String> = plan
+        .start
+        .iter()
+        .map(|r| {
+            let (kind, layer, t) = match &r.fetch {
+                PendingTile::Raster { layer_id, tile } => ("raster", layer_id.as_str(), tile),
+                PendingTile::Hillshade { layer_id, tile } => ("hillshade", layer_id.as_str(), tile),
+                PendingTile::Vector { layer_id, tile } => ("vector", layer_id.as_str(), tile),
+                PendingTile::Terrain { tile } => ("terrain", "__terrain", tile),
+            };
+            format!(
+                "{{\"id\":{},\"kind\":\"{kind}\",\"layer\":\"{layer}\",\"z\":{},\"x\":{},\"y\":{}}}",
+                r.id.0, t.z, t.x, t.y
+            )
+        })
+        .collect();
+    let cancel: Vec<String> = plan.cancel.iter().map(|id| id.0.to_string()).collect();
+    format!(
+        "{{\"start\":[{}],\"cancel\":[{}]}}",
+        start.join(","),
+        cancel.join(",")
+    )
+}
+
+#[cfg(test)]
+mod plan_json_tests {
+    use super::streaming_plan_to_json;
+    use turbomap_core::map::{FetchRequest, PendingTile, StreamingPlan};
+    use turbomap_core::TileId;
+    use turbomap_world::RequestId;
+
+    #[test]
+    fn plan_json_carries_ids_kinds_and_cancels() {
+        let plan = StreamingPlan {
+            start: vec![
+                FetchRequest {
+                    id: RequestId(7),
+                    fetch: PendingTile::Raster {
+                        layer_id: "base".into(),
+                        tile: TileId::new(11, 1058, 588),
+                    },
+                },
+                FetchRequest {
+                    id: RequestId(8),
+                    fetch: PendingTile::Terrain {
+                        tile: TileId::new(9, 264, 147),
+                    },
+                },
+            ],
+            cancel: vec![RequestId(3), RequestId(5)],
+        };
+        let json = streaming_plan_to_json(&plan);
+        let v: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        assert_eq!(v["start"][0]["id"], 7);
+        assert_eq!(v["start"][0]["kind"], "raster");
+        assert_eq!(v["start"][0]["layer"], "base");
+        assert_eq!(v["start"][1]["kind"], "terrain");
+        assert_eq!(v["start"][1]["layer"], "__terrain");
+        assert_eq!(v["start"][1]["x"], 264);
+        assert_eq!(v["cancel"], serde_json::json!([3, 5]));
+        // Empty plan is valid JSON too.
+        let empty = streaming_plan_to_json(&StreamingPlan::default());
+        assert_eq!(empty, "{\"start\":[],\"cancel\":[]}");
+    }
+}
+
+impl TurbomapEngine {
     /// Layer ids the backend skipped at the last apply.
     pub fn unsupported_layers(&self) -> &[String] {
         &self.unsupported

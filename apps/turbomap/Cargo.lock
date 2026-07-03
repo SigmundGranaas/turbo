@@ -3923,6 +3923,7 @@ dependencies = [
  "turbomap-core",
  "turbomap-engine",
  "turbomap-scene",
+ "turbomap-world",
  "uniffi",
  "wgpu",
 ]
@@ -4028,6 +4029,7 @@ dependencies = [
  "turbomap-core",
  "turbomap-engine",
  "turbomap-scene",
+ "turbomap-world",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
