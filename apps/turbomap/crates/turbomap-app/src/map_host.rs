@@ -198,19 +198,15 @@ impl MapHost {
         applied
     }
 
-    /// Look at `Map::pending_tiles`, prioritise by distance
-    /// to the camera centre, then spawn fetches up to the
-    /// per-layer cap. Tiles in the recently-failed set are
-    /// skipped this tick.
+    /// Spawn fetches for `Map::pending_tiles` — IN THE ENGINE'S ORDER — up
+    /// to the per-layer cap. The engine's list is already globally sorted by
+    /// the one priority score (tier, then motion-modulated eye distance;
+    /// `turbomap_world::priority`); re-sorting here by raw centre distance
+    /// used to discard the tiers, letting a near prefetch-ring tile fetch
+    /// before a farther still-missing VISIBLE tile (plan slice B2 removed
+    /// that). Tiles in the recently-failed set are skipped this tick.
     pub fn dispatch_fetches(&mut self) {
-        let pending = self.map.pending_tiles();
-        let centre = self.map.camera().center.to_world();
-        let mut prioritised: Vec<PendingTile> = pending;
-        prioritised.sort_by(|a, b| {
-            let da = tile_distance_to(a, centre);
-            let db = tile_distance_to(b, centre);
-            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        let prioritised = self.map.pending_tiles();
         let mut vector_in = self
             .inflight
             .iter()
@@ -288,20 +284,6 @@ impl MapHost {
     }
 }
 
-fn tile_distance_to(p: &PendingTile, centre: turbomap_core::WorldPoint) -> f64 {
-    let tile = match p {
-        PendingTile::Vector { tile, .. }
-        | PendingTile::Raster { tile, .. }
-        | PendingTile::Hillshade { tile, .. }
-        | PendingTile::Terrain { tile } => tile,
-    };
-    let n = (1u64 << tile.z) as f64;
-    let cx = (tile.x as f64 + 0.5) / n;
-    let cy = (tile.y as f64 + 0.5) / n;
-    let dx = cx - centre.x;
-    let dy = cy - centre.y;
-    (dx * dx + dy * dy).sqrt()
-}
 
 /// Convenience helper to construct a `MapHost` plus its pumps
 /// from a set of tile sources + a vector style. Used by

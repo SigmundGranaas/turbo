@@ -21,10 +21,12 @@
 
 pub mod chunk;
 pub mod lifecycle;
+pub mod priority;
 pub mod quadtree;
 pub mod tree;
 
 pub use chunk::{BoundingVolume, ChunkKey, ChunkMeta, NodeId, Refine, WorldLayerId};
 pub use lifecycle::{Lifecycle, LifecycleError, Phase, PhaseHistogram, RequestId};
+pub use priority::{Priority, Tier};
 pub use quadtree::QuadKey;
 pub use tree::{PyramidSpec, TreeShape};

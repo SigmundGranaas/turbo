@@ -685,6 +685,14 @@ pub struct Map {
     /// config each render to drift the procedural haze (so it "rolls in" and
     /// its patchiness moves over time). Animates while frames are produced.
     start: Instant,
+    /// Camera-eye world position at the previous `pending_tiles()` call — the
+    /// finite-difference travel direction that feeds the priority score's
+    /// motion term (stream WHERE WE'RE HEADING). `None` until the first call;
+    /// a stationary camera yields zero alignment, which is the exact parity
+    /// case with the historical `(tier, distance)` order. `Cell` because
+    /// `pending_tiles` is a `&self` read on the render thread and this is
+    /// its private memo, not shared state.
+    last_priority_eye: std::cell::Cell<Option<WorldPoint>>,
     /// Basemap brightness gain for the 3D sun-lit path (1.0 = unchanged). The
     /// host raises it for dark imagery (satellite) so it reads under the same
     /// lighting that suits bright topo. Set via [`set_basemap_gain`].
@@ -841,6 +849,7 @@ impl Map {
             sky_enabled: true,
             route_tubes: RouteTubeState::default(),
             start: Instant::now(),
+            last_priority_eye: std::cell::Cell::new(None),
             basemap_gain: 1.0,
             terrain_lit: true,
             aerial_haze: true,
@@ -1895,11 +1904,62 @@ impl Map {
                 tagged.push((PendingTile::Terrain { tile }, tier, d));
             }
         }
-        tagged.sort_by(|(_, ta, da), (_, tb, db)| {
-            ta.cmp(tb)
-                .then(da.partial_cmp(db).unwrap_or(std::cmp::Ordering::Equal))
-        });
-        tagged.into_iter().map(|(p, _, _)| p).collect()
+        // Order by the ONE explainable score (`turbomap_world::priority`,
+        // plan slice B2): tier is the law, effective distance decides within
+        // a tier, and "effective" folds in the camera's travel direction so
+        // the map streams where the user is heading. With a stationary
+        // camera the score reproduces the historical `(tier, distance²)`
+        // order exactly — pinned by `scene::tests::pending_priority_matches_
+        // the_historical_order_when_stationary`.
+        let eye = {
+            let centre = self.cam.camera.center.to_world();
+            let off = self.cam.camera.eye_offset_world(self.viewport_px);
+            WorldPoint::new(centre.x + off[0] as f64, centre.y + off[1] as f64)
+        };
+        let travel = match self.last_priority_eye.replace(Some(eye)) {
+            Some(prev) => {
+                let (dx, dy) = (eye.x - prev.x, eye.y - prev.y);
+                let len = (dx * dx + dy * dy).sqrt();
+                // Sub-nanoworld jitter is "stationary", not a direction.
+                (len > 1e-12).then(|| (dx / len, dy / len))
+            }
+            None => None,
+        };
+        let world_tier = |t: crate::scene::TileTier| match t {
+            crate::scene::TileTier::Overview => turbomap_world::Tier::Overview,
+            crate::scene::TileTier::Visible => turbomap_world::Tier::Visible,
+            crate::scene::TileTier::Prefetch => turbomap_world::Tier::Prefetch,
+        };
+        let tile_of = |p: &PendingTile| match p {
+            PendingTile::Raster { tile, .. }
+            | PendingTile::Vector { tile, .. }
+            | PendingTile::Hillshade { tile, .. }
+            | PendingTile::Terrain { tile } => *tile,
+        };
+        let mut scored: Vec<(PendingTile, turbomap_world::Priority)> = tagged
+            .into_iter()
+            .map(|(p, tier, dist_sq)| {
+                let alignment = match travel {
+                    Some((vx, vy)) => {
+                        let t = tile_of(&p);
+                        let (nw, se) = t.world_bounds();
+                        let (cx, cy) = ((nw.x + se.x) * 0.5, (nw.y + se.y) * 0.5);
+                        let (dx, dy) = (cx - eye.x, cy - eye.y);
+                        let len = (dx * dx + dy * dy).sqrt();
+                        if len > 1e-12 {
+                            ((vx * dx + vy * dy) / len) as f32
+                        } else {
+                            0.0
+                        }
+                    }
+                    None => 0.0,
+                };
+                let eff = turbomap_world::priority::effective_distance_sq(dist_sq, alignment);
+                (p, turbomap_world::priority::score(world_tier(tier), eff))
+            })
+            .collect();
+        scored.sort_by_key(|&(_, prio)| prio);
+        scored.into_iter().map(|(p, _)| p).collect()
     }
 
     fn first_visible_layer_index(&self) -> Option<usize> {

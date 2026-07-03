@@ -1039,4 +1039,41 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn pending_priority_matches_the_historical_order_when_stationary() {
+        // The slice-B2 parity gate: with zero camera velocity, the
+        // `turbomap_world` priority score must order the pending set EXACTLY
+        // like the historical `(tier, distance²)` lexicographic sort — the
+        // score is a refactor of the shipped behaviour, not a new policy,
+        // until the motion term has real velocity to act on.
+        use turbomap_world::priority::{effective_distance_sq, score};
+        for cam in camera_sweep() {
+            let scene = sweep_scene(cam);
+            let pend = scene.pending_prioritized();
+
+            let mut historical = pend.clone();
+            historical.sort_by(|(a, ta, da), (b, tb, db)| {
+                ta.cmp(tb)
+                    .then(da.partial_cmp(db).unwrap_or(std::cmp::Ordering::Equal))
+                    .then(a.cmp(b)) // total order so the oracle is unambiguous
+            });
+
+            let world_tier = |t: TileTier| match t {
+                TileTier::Overview => turbomap_world::Tier::Overview,
+                TileTier::Visible => turbomap_world::Tier::Visible,
+                TileTier::Prefetch => turbomap_world::Tier::Prefetch,
+            };
+            let mut scored = pend;
+            scored.sort_by(|(a, ta, da), (b, tb, db)| {
+                score(world_tier(*ta), effective_distance_sq(*da, 0.0))
+                    .cmp(&score(world_tier(*tb), effective_distance_sq(*db, 0.0)))
+                    .then(a.cmp(b))
+            });
+
+            let h: Vec<TileId> = historical.into_iter().map(|(t, ..)| t).collect();
+            let s: Vec<TileId> = scored.into_iter().map(|(t, ..)| t).collect();
+            assert_eq!(h, s, "score diverged from historical order @ {cam:?}");
+        }
+    }
 }

@@ -457,3 +457,24 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   moved out of core (it leans on core's `geo`); `QuadKey` mirrors its
   semantics self-contained, and the field-for-field bridge happens at B3
   where that churn is already budgeted.
+- _2026-07-03_: **B2 landed** — priority as one explainable score.
+  `turbomap_world::priority`: `Priority(u64)` packs tier (the law, 2 bits)
+  over IEEE-bit-ordered effective distance², with 30 bits reserved for the
+  S6 SSE-benefit term; `Tier` gains the reserved `SurfaceForVisible`
+  variant (activates in a later measured slice — today DEM maps to
+  `Visible` to preserve the shipped interleave). The motion term is live:
+  `Map::pending_tiles` derives the camera's travel direction (finite
+  difference of the eye between calls, `Cell`-memoized) and modulates each
+  chunk's effective distance by `dot(travel, dir_to_chunk)` up to ±30 % —
+  stream where the user is heading, never enough to cross tiers.
+  **Parity pinned twice:** a world-crate LCG fuzz orders arbitrary
+  (tier, distance) sets identically to the historical lexicographic
+  oracle, and `scene::tests::pending_priority_matches_the_historical_
+  order_when_stationary` sweeps real cameras through the live selection.
+  **Desktop host fixed:** `map_host::dispatch_fetches` consumed the
+  engine's order until now only to RE-SORT it by raw centre distance,
+  discarding tiers (a near prefetch tile could fetch before a farther
+  missing visible tile); it now spawns in engine order. All 7 sim gates
+  green post-change. Note: the "time-to-first-full-viewport improves"
+  gate needs motion + a live host — measured on-device with B3's plan
+  boundary; the sim's stationary cold load is the parity case by design.
