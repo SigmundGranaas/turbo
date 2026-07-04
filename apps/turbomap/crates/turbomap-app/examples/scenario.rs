@@ -1615,6 +1615,16 @@ fn main() {
         }
     }
 
+    // Subsystem registry snapshot (slice D2): the S7 inspect document —
+    // per-subsystem live state + budget reports — captured at session end so
+    // every run leaves an inspectable record of what the map contained.
+    {
+        let path = format!("{}/inspect.json", cli.out_dir);
+        if std::fs::write(&path, map.inspect_json()).is_ok() {
+            eprintln!("  subsystem inspect → {path}");
+        }
+    }
+
     // ---- Terrain cast-shadow proof ----------------------------------------
     // Prove cast shadows are real occlusion, not just a tint: render the SAME
     // tilted view under a low raking sun with shadows OFF then ON and require

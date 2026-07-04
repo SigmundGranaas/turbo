@@ -817,6 +817,13 @@ impl TurbomapEngine {
         self.map.last_frame_metrics()
     }
 
+    /// The subsystem registry's combined live-state snapshot (slice D2):
+    /// per-subsystem inspect JSON + budget reports, keyed by subsystem name.
+    /// Hosts dump this verbatim into their debug surfaces.
+    pub fn inspect_json(&self) -> String {
+        self.map.inspect_json()
+    }
+
     /// One streaming step for plan-driven hosts: fetches to start (each with
     /// a `RequestId`) and in-flight attempts to cancel. Deliveries complete
     /// through the existing `ingest_*`; failures/cancellations report back

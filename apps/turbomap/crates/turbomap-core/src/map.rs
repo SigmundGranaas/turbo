@@ -52,6 +52,7 @@ use crate::{
     scene::Scene,
     source::TileSource,
     style::{Color, HillshadeStyle, VectorStyle},
+    subsystem::{BudgetReport, DebugActivation, DebugViewDesc, Subsystem},
     sun::SunPosition,
     tessellate::{self, IconRequest, InteractiveFeature, LabelRequest, Mesh},
     tile::TileId,
@@ -519,45 +520,14 @@ impl LayerStack {
 
 /// The GPU rendering toolbox: the screen-space pipelines shared across all
 /// layers (text, icon, marker, sky), the frame's colour/depth attachments, the
-/// optional GPU timer, and the terrain bind-group layout + placeholder.
-///
-/// This is everything the frame pass needs that is NOT per-layer — the
-/// raster/vector/hillshade pipelines stay on their `LayerEntry`. Grouping it
-/// gives the rendering subsystem one owner instead of seven loose fields on
-/// the `Map` god-object; `Map::render` reads them as `self.renderer.*`.
+/// Frame-level render services shared by every subsystem: the MSAA
+/// attachments the single frame pass draws into, and the optional GPU
+/// timer. Everything content-shaped lives on a subsystem (slice D2) — this
+/// is the residue that is genuinely per-frame, not per-content.
 struct Renderer {
-    /// Single text pipeline, shared across all vector layers.
-    text_pipeline: TextPipeline,
-    /// Single icon/sprite pipeline, shared across all vector layers.
-    icon_pipeline: IconPipeline,
-    marker_pipeline: MarkerPipeline,
-    /// Route/track as raised 3D tubes (a single lit mesh, drawn after the ground
-    /// layers so terrain occludes it, before screen-space markers/labels).
-    route_pipeline: RoutePipeline,
-    /// Analytic atmosphere sky, drawn first in the frame pass when the camera
-    /// is tilted (so the horizon band shows behind the terrain).
-    sky_pipeline: SkyPipeline,
-    /// Sub-sea-level ground "floor" backstop, drawn after the sky and before the
-    /// terrain so streaming gaps show neutral sea-grey instead of see-through
-    /// holes; depth-writes so real terrain overdraws it. See [`crate::render::floor`].
-    floor_pipeline: FloorPipeline,
     /// Optional GPU-side frame timing — `Some` only when the device negotiated
     /// `Features::TIMESTAMP_QUERY`.
     gpu_timestamps: Option<GpuTimestamps>,
-    /// Map-level terrain bind-group layout + sampler + 1×1 placeholder bind
-    /// group. Always present so displacement-capable pipelines can be built
-    /// before any terrain source is registered — they bind the placeholder
-    /// and render flat.
-    terrain_shared: TerrainShared,
-    /// Frame-global terrain cast-shadow grid (sun-visibility texture + bind
-    /// group), bound at `@group(3)` of the raster pipeline. One per renderer,
-    /// uploaded from a CPU horizon-march when the sun/region/DEM changes. See
-    /// [`crate::render::shadow`].
-    shadow_map: ShadowMap,
-    /// Progressive, world-locked ambient-occlusion bake driven off the
-    /// `shadow_map` heightfield. Refines over a few frames, then caches (it's
-    /// sun-independent). See [`crate::render::ao`].
-    ao: AoField,
     /// The frame's MSAA colour + depth attachments, recreated together on
     /// resize. See [`FrameTargets`].
     targets: FrameTargets,
@@ -570,26 +540,349 @@ impl Renderer {
         surface_format: wgpu::TextureFormat,
         initial_size: (u32, u32),
     ) -> Self {
-        // Every pipeline draws inside the one frame pass, whose MSAA colour
-        // target matches the surface format and resolves straight to it.
-        let shadow_map = ShadowMap::new(device, queue);
-        let ao = AoField::new(device, queue.clone(), &shadow_map.height_tex_layout);
-        // Built before the struct so displacement-capable pipelines can borrow
-        // its DEM bind-group layout (group 2) for draping.
-        let terrain_shared = TerrainShared::new(device, queue);
         Self {
-            text_pipeline: TextPipeline::new(device.clone(), queue.clone(), surface_format),
-            icon_pipeline: IconPipeline::new(device.clone(), queue.clone(), surface_format),
-            marker_pipeline: MarkerPipeline::new(device.clone(), queue.clone(), surface_format),
-            route_pipeline: RoutePipeline::new(device.clone(), queue.clone(), surface_format),
-            sky_pipeline: SkyPipeline::new(device.clone(), queue.clone(), surface_format),
-            floor_pipeline: FloorPipeline::new(device.clone(), queue.clone(), surface_format),
             gpu_timestamps: GpuTimestamps::new(device, queue),
-            terrain_shared,
-            shadow_map,
-            ao,
             targets: FrameTargets::new(device, initial_size, surface_format),
         }
+    }
+}
+
+// ---- The five subsystems (slice D2) -----------------------------------
+// `Map`'s god-fields, regrouped by the domain that owns them. Each struct
+// is one subsystem: its pipelines, its state, its caches — so a subsystem
+// is evaluable (and borrowable) alone. The `Subsystem` trait impls (name /
+// budgets / inspect / debug views) live in the same file, below `Map`.
+
+/// The tile-layer stack: raster basemaps, vector overlays, hillshade — the
+/// content layers a scene declares, in paint order.
+struct BasemapSubsystem {
+    layers: LayerStack,
+}
+
+/// The 3D ground: the shared heightmap + displacement plumbing, the
+/// cast-shadow heightfield, and the world-locked AO bake.
+struct TerrainSubsystem {
+    /// The registered heightmap source + shared tile cache (`None` = 2D map).
+    data: Option<Terrain>,
+    /// Cast-shadow controls + recompute cache (strength, assembled-region
+    /// key, progressive build). See [`TerrainShadowState`].
+    shadow: TerrainShadowState,
+    /// Map-level terrain bind-group layout + sampler + 1×1 placeholder bind
+    /// group. Always present so displacement-capable pipelines can be built
+    /// before any terrain source is registered — they bind the placeholder
+    /// and render flat.
+    shared: TerrainShared,
+    /// Frame-global terrain cast-shadow grid (sun-visibility texture + bind
+    /// group), bound at `@group(3)` of the raster pipeline. Uploaded from a
+    /// CPU horizon-march when the sun/region/DEM changes.
+    shadow_map: ShadowMap,
+    /// Progressive, world-locked ambient-occlusion bake driven off the
+    /// `shadow_map` heightfield. Refines over a few frames, then caches
+    /// (it's sun-independent).
+    ao: AoField,
+}
+
+/// Screen-space symbology: text labels and icon sprites, shared across all
+/// vector layers (one collision world per frame).
+struct SymbolsSubsystem {
+    text: TextPipeline,
+    icons: IconPipeline,
+}
+
+/// Host-driven overlays: markers and the route/track 3D tubes.
+struct OverlaysSubsystem {
+    markers: MarkerManager,
+    marker_pipeline: MarkerPipeline,
+    /// Route/track as raised 3D tubes (a single lit mesh, drawn after the
+    /// ground layers so terrain occludes it, before screen-space overlays).
+    route_pipeline: RoutePipeline,
+    route_tubes: RouteTubeState,
+}
+
+/// The environment look: analytic sky, the sub-sea floor backstop, scene
+/// lighting, the weather-cloud composite, and the 3D look gates.
+struct AtmosphereSubsystem {
+    /// Analytic atmosphere sky, drawn first in the frame pass when the camera
+    /// is tilted (so the horizon band shows behind the terrain).
+    sky: SkyPipeline,
+    /// Sub-sea-level ground "floor" backstop, drawn after the sky and before
+    /// the terrain so streaming gaps show neutral sea-grey instead of
+    /// see-through holes; depth-writes so real terrain overdraws it.
+    floor: FloorPipeline,
+    /// Scene lighting — the sun driving terrain shading, sky, aerial
+    /// perspective + clouds. See [`crate::lighting::Lighting`].
+    lighting: Lighting,
+    /// Optional procedural weather-cloud overlay (its own composite pass).
+    clouds: Option<CloudOverlay>,
+    /// Draw the analytic sky behind the scene (when tilted).
+    sky_enabled: bool,
+    /// Basemap brightness gain for the 3D sun-lit path (1.0 = unchanged).
+    basemap_gain: f32,
+    /// Apply terrain sun-lighting in 3D (`false` = displaced but unlit).
+    terrain_lit: bool,
+    /// Apply far-distance atmospheric coloration (aerial perspective) in 3D.
+    aerial_haze: bool,
+}
+
+// ---- The S7 observability contract, per subsystem (slice D2) ----------
+// Budgets come from the caches each subsystem owns; inspect JSON is the
+// live-state snapshot; debug views name the frame-graph passes that mask
+// the subsystem's stages off (the scenario harness renders every MaskPass
+// view automatically in TURBO_PASS_ISOLATE).
+
+impl Subsystem for BasemapSubsystem {
+    fn name(&self) -> &'static str {
+        "basemap"
+    }
+    fn passes(&self) -> &'static [&'static str] {
+        &["layer"]
+    }
+    fn budgets(&self) -> BudgetReport {
+        let mut r = BudgetReport::default();
+        for l in self.layers.iter() {
+            match l {
+                LayerEntry::Raster(e) => {
+                    let s = e.cache.stats();
+                    r.bytes_used += s.bytes_used;
+                    r.bytes_budget += s.budget_bytes;
+                    r.items += s.entries;
+                }
+                LayerEntry::Vector(e) => {
+                    r.bytes_used += e.cache.bytes_used();
+                    r.bytes_budget += e.cache.budget_bytes();
+                    r.items += e.cache.len();
+                }
+                // Hillshade reads the shared terrain cache — counted by the
+                // terrain subsystem, not double-counted here.
+                LayerEntry::Hillshade(_) => {}
+            }
+        }
+        r
+    }
+    fn inspect(&self) -> String {
+        let layers: Vec<String> = self
+            .layers
+            .iter()
+            .map(|l| {
+                let (id, kind, visible) = match l {
+                    LayerEntry::Raster(e) => (&e.id, "raster", e.visible),
+                    LayerEntry::Vector(e) => (&e.id, "vector", e.visible),
+                    LayerEntry::Hillshade(e) => (&e.id, "hillshade", e.visible),
+                };
+                format!(
+                    "{{\"id\":\"{}\",\"kind\":\"{kind}\",\"visible\":{visible}}}",
+                    crate::subsystem::json_escape(id)
+                )
+            })
+            .collect();
+        format!("{{\"layers\":[{}]}}", layers.join(","))
+    }
+    fn debug_views(&self) -> &'static [DebugViewDesc] {
+        &[DebugViewDesc {
+            name: "no-tile-layers",
+            description: "frame without any tile layer (sky/terrain plumbing only)",
+            activation: DebugActivation::MaskPass("layer"),
+        }]
+    }
+}
+
+impl Subsystem for TerrainSubsystem {
+    fn name(&self) -> &'static str {
+        "terrain"
+    }
+    fn passes(&self) -> &'static [&'static str] {
+        &["shadow-assemble", "ao-accumulate"]
+    }
+    fn budgets(&self) -> BudgetReport {
+        match &self.data {
+            Some(t) => {
+                let s = t.cache.stats();
+                BudgetReport {
+                    bytes_used: s.bytes_used,
+                    bytes_budget: s.budget_bytes,
+                    items: s.entries,
+                }
+            }
+            None => BudgetReport::default(),
+        }
+    }
+    fn inspect(&self) -> String {
+        let (present, exaggeration, finest) = match &self.data {
+            Some(t) => (
+                true,
+                t.options.exaggeration,
+                Some(t.cache.finest_resident_zoom()),
+            ),
+            None => (false, 1.0f32, None),
+        };
+        format!(
+            "{{\"present\":{present},\"exaggeration\":{exaggeration},\
+             \"finest_resident_zoom\":{},\"shadow_strength\":{},\
+             \"shadow_field_assembled\":{}}}",
+            finest
+                .map(|z: u8| z.to_string())
+                .unwrap_or_else(|| "null".into()),
+            self.shadow.strength,
+            self.shadow.key.is_some(),
+        )
+    }
+    fn debug_views(&self) -> &'static [DebugViewDesc] {
+        &[
+            DebugViewDesc {
+                name: "no-cast-shadows",
+                description: "zero the cast-shadow uniforms (Lambertian shading only)",
+                activation: DebugActivation::MaskPass("shadow-assemble"),
+            },
+            DebugViewDesc {
+                name: "frozen-ao",
+                description: "halt AO refinement (cached field keeps rendering)",
+                activation: DebugActivation::MaskPass("ao-accumulate"),
+            },
+        ]
+    }
+}
+
+impl Subsystem for SymbolsSubsystem {
+    fn name(&self) -> &'static str {
+        "symbols"
+    }
+    fn passes(&self) -> &'static [&'static str] {
+        &["text", "icons"]
+    }
+    fn budgets(&self) -> BudgetReport {
+        BudgetReport {
+            // Atlas byte accounting arrives when the pipelines expose it;
+            // the working set is the placed-anchor count.
+            bytes_used: 0,
+            bytes_budget: 0,
+            items: self.text.placed_marker_anchors().len(),
+        }
+    }
+    fn inspect(&self) -> String {
+        format!(
+            "{{\"placed_anchors\":{}}}",
+            self.text.placed_marker_anchors().len()
+        )
+    }
+    fn debug_views(&self) -> &'static [DebugViewDesc] {
+        &[
+            DebugViewDesc {
+                name: "no-text",
+                description: "frame without labels (collision world still runs)",
+                activation: DebugActivation::MaskPass("text"),
+            },
+            DebugViewDesc {
+                name: "no-icons",
+                description: "frame without icon sprites",
+                activation: DebugActivation::MaskPass("icons"),
+            },
+        ]
+    }
+}
+
+impl Subsystem for OverlaysSubsystem {
+    fn name(&self) -> &'static str {
+        "overlays"
+    }
+    fn passes(&self) -> &'static [&'static str] {
+        &["markers", "route-tubes"]
+    }
+    fn budgets(&self) -> BudgetReport {
+        BudgetReport {
+            bytes_used: 0,
+            bytes_budget: 0,
+            items: self.markers.len() + self.route_tubes.tubes.len(),
+        }
+    }
+    fn inspect(&self) -> String {
+        format!(
+            "{{\"markers\":{},\"route_tubes\":{},\"tube_radius_px\":{}}}",
+            self.markers.len(),
+            self.route_tubes.tubes.len(),
+            self.route_tubes.radius_px,
+        )
+    }
+    fn debug_views(&self) -> &'static [DebugViewDesc] {
+        &[
+            DebugViewDesc {
+                name: "no-markers",
+                description: "frame without host markers",
+                activation: DebugActivation::MaskPass("markers"),
+            },
+            DebugViewDesc {
+                name: "no-route-tubes",
+                description: "frame without the route/track tubes",
+                activation: DebugActivation::MaskPass("route-tubes"),
+            },
+        ]
+    }
+}
+
+impl Subsystem for AtmosphereSubsystem {
+    fn name(&self) -> &'static str {
+        "atmosphere"
+    }
+    fn passes(&self) -> &'static [&'static str] {
+        &["sky", "floor", "clouds"]
+    }
+    fn budgets(&self) -> BudgetReport {
+        // The radar field textures are the only sized asset: two slots of
+        // grid-size R8 pairs (precip + coverage).
+        let bytes = self
+            .clouds
+            .as_ref()
+            .map(|c| (c.grid.0 as usize) * (c.grid.1 as usize) * 2 * 2)
+            .unwrap_or(0);
+        BudgetReport {
+            bytes_used: bytes,
+            bytes_budget: 0,
+            items: self
+                .clouds
+                .as_ref()
+                .map(|c| c.enabled as usize)
+                .unwrap_or(0),
+        }
+    }
+    fn inspect(&self) -> String {
+        let clouds = match &self.clouds {
+            Some(c) => format!(
+                "{{\"enabled\":{},\"grid\":[{},{}],\"world_locked\":{}}}",
+                c.enabled,
+                c.grid.0,
+                c.grid.1,
+                c.radar_geo.is_some(),
+            ),
+            None => "null".to_string(),
+        };
+        format!(
+            "{{\"lighting_mode\":\"{:?}\",\"sky_enabled\":{},\"basemap_gain\":{},\
+             \"terrain_lit\":{},\"aerial_haze\":{},\"clouds\":{clouds}}}",
+            self.lighting.mode(),
+            self.sky_enabled,
+            self.basemap_gain,
+            self.terrain_lit,
+            self.aerial_haze,
+        )
+    }
+    fn debug_views(&self) -> &'static [DebugViewDesc] {
+        &[
+            DebugViewDesc {
+                name: "no-sky",
+                description: "frame without the analytic sky dome",
+                activation: DebugActivation::MaskPass("sky"),
+            },
+            DebugViewDesc {
+                name: "no-clouds",
+                description: "frame without the weather-cloud composite",
+                activation: DebugActivation::MaskPass("clouds"),
+            },
+            DebugViewDesc {
+                name: "cloud-aov",
+                description: "render a cloud pipeline stage (set_cloud_params debug_view: \
+                              precip/coverage/field/density/light/alpha/albedo/parallax)",
+                activation: DebugActivation::Param("set_cloud_params(debug_view)"),
+            },
+        ]
     }
 }
 
@@ -679,37 +972,22 @@ pub struct Map {
     /// and clamp pitch against the terrain. See [`CameraState`].
     cam: CameraState,
     options: MapOptions,
-    layers: LayerStack,
-    /// The GPU rendering toolbox: the shared screen-space pipelines (text,
-    /// icon, marker, sky), the frame attachments, the GPU timer, and the
-    /// terrain bind-group layout/placeholder. The per-layer raster/vector/
-    /// hillshade pipelines live on their `LayerEntry`; this holds everything
-    /// the frame pass needs that *isn't* per-layer. See [`Renderer`].
+    /// Frame-level render services (MSAA attachments + GPU timer). All
+    /// content-shaped state lives on the subsystems below (slice D2).
     renderer: Renderer,
-    markers: MarkerManager,
+    /// The tile-layer stack subsystem. See [`BasemapSubsystem`].
+    basemap: BasemapSubsystem,
+    /// The 3D ground subsystem: heightmap, cast shadows, AO.
+    /// See [`TerrainSubsystem`].
+    terrain: TerrainSubsystem,
+    /// Screen-space text + icons. See [`SymbolsSubsystem`].
+    symbols: SymbolsSubsystem,
+    /// Markers + route tubes. See [`OverlaysSubsystem`].
+    overlays: OverlaysSubsystem,
+    /// Sky, floor, lighting, clouds, 3D look gates. See
+    /// [`AtmosphereSubsystem`].
+    atmosphere: AtmosphereSubsystem,
     last_frame_metrics: FrameMetrics,
-    /// Optional shared heightmap. When set, ground-plane pipelines
-    /// (raster, hillshade, vector) sample the DEM in their vertex
-    /// shaders and displace by elevation. See [`TerrainOptions`].
-    terrain: Option<Terrain>,
-    /// Optional procedural weather-cloud overlay. Drawn in its own pass
-    /// over the resolved surface (it's a single-sampled, depth-less
-    /// fullscreen composite, so it can't share the MSAA frame pass).
-    clouds: Option<CloudOverlay>,
-    /// Scene lighting — the sun driving terrain shading, sky, aerial
-    /// perspective + clouds. One explicit mode (default / time-tracked /
-    /// fixed), see [`crate::lighting::Lighting`].
-    lighting: Lighting,
-    /// Terrain cast-shadow controls + recompute cache. `strength == 0`
-    /// (default) disables the feature. See [`crate::render::shadow`] and the
-    /// shadow block in [`Map::render`].
-    shadow: TerrainShadowState,
-    /// Draw the analytic sky behind the scene (when tilted). Off lets the debug
-    /// viewer isolate the terrain against a plain backdrop.
-    sky_enabled: bool,
-    /// Route/track rendered as raised 3D tubes (replaces the flat draped line).
-    /// See [`Map::set_route_tube`] and the route block in [`Map::render`].
-    route_tubes: RouteTubeState,
     /// Renderer wall clock. `elapsed().as_secs_f32()` is stamped into the frame
     /// config each render to drift the procedural haze (so it "rolls in" and
     /// its patchiness moves over time). Animates while frames are produced.
@@ -739,20 +1017,6 @@ pub struct Map {
     /// `WorldLayerId(0)` is reserved for the Map-level terrain source.
     world_layer_ids: HashMap<String, turbomap_world::WorldLayerId>,
     next_world_layer_id: u16,
-    /// Basemap brightness gain for the 3D sun-lit path (1.0 = unchanged). The
-    /// host raises it for dark imagery (satellite) so it reads under the same
-    /// lighting that suits bright topo. Set via [`set_basemap_gain`].
-    basemap_gain: f32,
-    /// Apply terrain sun-lighting in 3D. `true` (default) = the established
-    /// lit-in-3D look; `false` = displaced geometry but the bare bright basemap
-    /// (no shading/shadows/haze) so 2D→3D doesn't darken. Set via
-    /// [`set_terrain_lit`]; hosts tie it to "sun mode".
-    terrain_lit: bool,
-    /// Apply far-distance atmospheric coloration (aerial perspective) in 3D.
-    /// `true` (default) keeps the established look; `false` forces the haze
-    /// gate to 0 so the map renders crisp at every angle. Set via
-    /// [`set_aerial_haze`]; the web ties it to a "Distance haze" setting.
-    aerial_haze: bool,
     /// Frame-graph pass disable-set for isolation debugging: any pass in the
     /// frame can be turned off by name (`"clouds"`, `"layer:hillshade"`, …)
     /// via [`Map::set_pass_enabled`]. Skipped passes still appear in the
@@ -885,6 +1149,40 @@ impl Map {
         options: MapOptions,
     ) -> Result<Self, MapError> {
         let renderer = Renderer::new(&device, &queue, surface_format, initial_size);
+        // Every pipeline draws inside the one frame pass, whose MSAA colour
+        // target matches the surface format and resolves straight to it.
+        let shadow_map = ShadowMap::new(&device, &queue);
+        let ao = AoField::new(&device, queue.clone(), &shadow_map.height_tex_layout);
+        // Built before the layer stack so displacement-capable pipelines can
+        // borrow its DEM bind-group layout (group 2) for draping.
+        let shared = TerrainShared::new(&device, &queue);
+        let terrain = TerrainSubsystem {
+            data: None,
+            shadow: TerrainShadowState::default(),
+            shared,
+            shadow_map,
+            ao,
+        };
+        let symbols = SymbolsSubsystem {
+            text: TextPipeline::new(device.clone(), queue.clone(), surface_format),
+            icons: IconPipeline::new(device.clone(), queue.clone(), surface_format),
+        };
+        let overlays = OverlaysSubsystem {
+            markers: MarkerManager::default(),
+            marker_pipeline: MarkerPipeline::new(device.clone(), queue.clone(), surface_format),
+            route_pipeline: RoutePipeline::new(device.clone(), queue.clone(), surface_format),
+            route_tubes: RouteTubeState::default(),
+        };
+        let atmosphere = AtmosphereSubsystem {
+            sky: SkyPipeline::new(device.clone(), queue.clone(), surface_format),
+            floor: FloorPipeline::new(device.clone(), queue.clone(), surface_format),
+            lighting: Lighting::default(),
+            clouds: None,
+            sky_enabled: true,
+            basemap_gain: 1.0,
+            terrain_lit: true,
+            aerial_haze: true,
+        };
         Ok(Self {
             device,
             queue,
@@ -892,16 +1190,15 @@ impl Map {
             viewport_px: initial_size,
             cam: CameraState::new(initial_camera),
             options,
-            layers: LayerStack::new(),
             renderer,
-            markers: MarkerManager::default(),
+            basemap: BasemapSubsystem {
+                layers: LayerStack::new(),
+            },
+            terrain,
+            symbols,
+            overlays,
+            atmosphere,
             last_frame_metrics: FrameMetrics::default(),
-            terrain: None,
-            clouds: None,
-            lighting: Lighting::default(),
-            shadow: TerrainShadowState::default(),
-            sky_enabled: true,
-            route_tubes: RouteTubeState::default(),
             start: Instant::now(),
             last_priority_eye: std::cell::Cell::new(None),
             // Dual-write phase: effectively-unbounded capacity so the table
@@ -913,10 +1210,6 @@ impl Map {
             lifecycle_frame: std::cell::Cell::new(0),
             world_layer_ids: HashMap::new(),
             next_world_layer_id: 1, // 0 is the terrain reservation
-
-            basemap_gain: 1.0,
-            terrain_lit: true,
-            aerial_haze: true,
             pass_mask: PassMask::default(),
         })
     }
@@ -933,14 +1226,51 @@ impl Map {
         self.pass_mask.set_enabled(name, enabled);
     }
 
+    /// The subsystem registry (slice D2): every subsystem of this map,
+    /// viewable through the S7 observability contract. Typed access stays on
+    /// the fields; this is the uniform iteration surface for inspection,
+    /// budget sweeps and the registry meta-test.
+    pub fn subsystems(&self) -> [&dyn Subsystem; 5] {
+        [
+            &self.basemap,
+            &self.terrain,
+            &self.symbols,
+            &self.overlays,
+            &self.atmosphere,
+        ]
+    }
+
+    /// One JSON object for the whole map's live state: per-subsystem inspect
+    /// snapshots + budget reports, keyed by subsystem name. The "inspect
+    /// tool" surface — hosts and the scenario harness dump it verbatim.
+    pub fn inspect_json(&self) -> String {
+        let parts: Vec<String> = self
+            .subsystems()
+            .iter()
+            .map(|s| {
+                let b = s.budgets();
+                format!(
+                    "\"{}\":{{\"state\":{},\"budgets\":{{\"bytes_used\":{},\
+                     \"bytes_budget\":{},\"items\":{}}}}}",
+                    s.name(),
+                    s.inspect(),
+                    b.bytes_used,
+                    b.bytes_budget,
+                    b.items,
+                )
+            })
+            .collect();
+        format!("{{{}}}", parts.join(","))
+    }
+
     /// Set (or clear) a route/track polyline rendered as a raised 3D tube.
     /// `points` are lng/lat; empty clears the tube `id`. `radius_px` is the tube
     /// radius in screen pixels (constant thickness at any zoom). Rebuilt against
     /// the terrain on next render.
     pub fn set_route_tube(&mut self, id: &str, points: &[LatLng], color: Color, radius_px: f64) {
         if points.len() < 2 {
-            if self.route_tubes.tubes.remove(id).is_some() {
-                self.route_tubes.dirty = true;
+            if self.overlays.route_tubes.tubes.remove(id).is_some() {
+                self.overlays.route_tubes.dirty = true;
             }
             return;
         }
@@ -951,15 +1281,15 @@ impl Map {
                 (w.x, w.y)
             })
             .collect();
-        self.route_tubes.radius_px = radius_px as f32;
-        self.route_tubes.tubes.insert(
+        self.overlays.route_tubes.radius_px = radius_px as f32;
+        self.overlays.route_tubes.tubes.insert(
             id.to_string(),
             RouteTube {
                 points: world,
                 color: [color.r, color.g, color.b, color.a],
             },
         );
-        self.route_tubes.dirty = true;
+        self.overlays.route_tubes.dirty = true;
     }
 
     /// Rebuild the combined route-tube mesh from the current polylines + terrain
@@ -967,10 +1297,10 @@ impl Map {
     /// newly-loaded DEM means the baked elevations are stale.
     fn rebuild_route_tubes(&mut self) {
         const SEGMENTS: usize = 8;
-        if self.route_tubes.tubes.is_empty() {
-            self.renderer.route_pipeline.upload(&[], &[]);
-            self.route_tubes.built_gen = self.route_tubes.terrain_gen;
-            self.route_tubes.dirty = false;
+        if self.overlays.route_tubes.tubes.is_empty() {
+            self.overlays.route_pipeline.upload(&[], &[]);
+            self.overlays.route_tubes.built_gen = self.overlays.route_tubes.terrain_gen;
+            self.overlays.route_tubes.dirty = false;
             return;
         }
         // Surface height factor: metres → world-z, matching the terrain mesh.
@@ -978,6 +1308,7 @@ impl Map {
         let m2w = (lat.cos().abs() / 40_075_017.0).max(1e-12);
         let exagg = self
             .terrain
+            .data
             .as_ref()
             .map(|t| t.options.exaggeration as f64)
             .unwrap_or(1.0);
@@ -985,6 +1316,7 @@ impl Map {
         // Stable origin for f32 precision: a deterministic min over tube points
         // (HashMap order is random, so don't depend on it).
         let origin = self
+            .overlays
             .route_tubes
             .tubes
             .values()
@@ -995,7 +1327,7 @@ impl Map {
 
         let mut verts: Vec<RouteVertex> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
-        for tube in self.route_tubes.tubes.values() {
+        for tube in self.overlays.route_tubes.tubes.values() {
             // Bake the terrain surface height per centerline point; the tube
             // radius + lift above it are applied GPU-side (constant screen size).
             let world_z: Vec<f32> = tube
@@ -1003,6 +1335,7 @@ impl Map {
                 .iter()
                 .map(|&(x, y)| {
                     self.terrain
+                        .data
                         .as_ref()
                         .and_then(|t| t.cache.elevation_at_world_stable((x, y)))
                         .map(|e| (e as f64 * m2w * exagg) as f32)
@@ -1014,10 +1347,10 @@ impl Map {
             verts.extend(v);
             indices.extend(i.into_iter().map(|idx| idx + base));
         }
-        self.renderer.route_pipeline.upload(&verts, &indices);
-        self.route_tubes.origin = origin;
-        self.route_tubes.built_gen = self.route_tubes.terrain_gen;
-        self.route_tubes.dirty = false;
+        self.overlays.route_pipeline.upload(&verts, &indices);
+        self.overlays.route_tubes.origin = origin;
+        self.overlays.route_tubes.built_gen = self.overlays.route_tubes.terrain_gen;
+        self.overlays.route_tubes.dirty = false;
     }
 
     // ---- Procedural weather-cloud overlay -----------------------------
@@ -1028,7 +1361,7 @@ impl Map {
     /// uploaded frames). Upload radar frames with [`Map::ingest_radar_frame`]
     /// and drive the animation with [`Map::set_cloud_time`].
     pub fn enable_clouds(&mut self, grid_w: u32, grid_h: u32) {
-        if let Some(c) = &mut self.clouds {
+        if let Some(c) = &mut self.atmosphere.clouds {
             if c.grid == (grid_w, grid_h) {
                 c.enabled = true;
                 return;
@@ -1042,8 +1375,8 @@ impl Map {
             grid_h,
         );
         // Preserve any geo box across a grid-size rebuild so world-lock sticks.
-        let radar_geo = self.clouds.as_ref().and_then(|c| c.radar_geo);
-        self.clouds = Some(CloudOverlay {
+        let radar_geo = self.atmosphere.clouds.as_ref().and_then(|c| c.radar_geo);
+        self.atmosphere.clouds = Some(CloudOverlay {
             scene,
             params: CloudParams::default(),
             grid: (grid_w, grid_h),
@@ -1056,7 +1389,7 @@ impl Map {
     /// world-locked (pans + zooms with the map). Pass the bounds the radar
     /// frames were sampled for. No-op if clouds aren't enabled.
     pub fn set_cloud_geo_bounds(&mut self, west: f64, south: f64, east: f64, north: f64) {
-        if let Some(c) = &mut self.clouds {
+        if let Some(c) = &mut self.atmosphere.clouds {
             // Mercator y grows southward, so north is the min-y corner.
             let min = LatLng::new(north, west).to_world();
             let max = LatLng::new(south, east).to_world();
@@ -1067,26 +1400,30 @@ impl Map {
     /// Show/hide the overlay without discarding its GPU state or uploaded
     /// frames. No-op if clouds were never enabled.
     pub fn set_clouds_visible(&mut self, visible: bool) {
-        if let Some(c) = &mut self.clouds {
+        if let Some(c) = &mut self.atmosphere.clouds {
             c.enabled = visible;
         }
     }
 
     /// Tear the overlay down entirely, freeing its GPU resources.
     pub fn disable_clouds(&mut self) {
-        self.clouds = None;
+        self.atmosphere.clouds = None;
     }
 
     /// Whether the overlay is currently enabled and will draw.
     pub fn clouds_enabled(&self) -> bool {
-        self.clouds.as_ref().map(|c| c.enabled).unwrap_or(false)
+        self.atmosphere
+            .clouds
+            .as_ref()
+            .map(|c| c.enabled)
+            .unwrap_or(false)
     }
 
     /// Upload a radar frame into slot 0 (current timestep) or 1 (next).
     /// The frame's dimensions must match the grid passed to
     /// [`Map::enable_clouds`]. No-op if clouds aren't enabled.
     pub fn ingest_radar_frame(&mut self, slot: u32, frame: &RadarFrame) {
-        if let Some(c) = &self.clouds {
+        if let Some(c) = &self.atmosphere.clouds {
             c.scene.upload(&self.queue, slot as usize, frame);
         }
     }
@@ -1096,7 +1433,7 @@ impl Map {
     /// the slot-0 radar frame into the slot-1 frame — this is what a time
     /// slider scrubs (and can run backward). No-op if clouds aren't enabled.
     pub fn set_cloud_time(&mut self, time: f32, blend: f32) {
-        if let Some(c) = &mut self.clouds {
+        if let Some(c) = &mut self.atmosphere.clouds {
             c.params.time = time;
             c.params.blend = blend.clamp(0.0, 1.0);
         }
@@ -1106,7 +1443,7 @@ impl Map {
     /// scale, opacity, …). `resolution` is overwritten per frame from the
     /// viewport, so its value here is ignored. No-op if clouds aren't enabled.
     pub fn set_cloud_params(&mut self, params: CloudParams) {
-        if let Some(c) = &mut self.clouds {
+        if let Some(c) = &mut self.atmosphere.clouds {
             let (time, blend) = (c.params.time, c.params.blend);
             c.params = params;
             c.params.time = time;
@@ -1130,7 +1467,7 @@ impl Map {
         let cache = TerrainCache::new(
             self.device.clone(),
             self.queue.clone(),
-            &self.renderer.terrain_shared,
+            &self.terrain.shared,
             self.options.cache_budget_bytes,
             halo,
             options.encoding,
@@ -1163,20 +1500,20 @@ impl Map {
         // is invisible. (A true camera-centred geometry clipmap is the next step.)
         const DEM_LOD_TILE_CAP: usize = 96;
         scene.set_lod_tile_cap(DEM_LOD_TILE_CAP);
-        self.terrain = Some(Terrain::new(source, cache, scene, options));
+        self.terrain.data = Some(Terrain::new(source, cache, scene, options));
     }
 
     pub fn clear_terrain(&mut self) {
-        self.terrain = None;
+        self.terrain.data = None;
     }
 
     pub fn has_terrain(&self) -> bool {
-        self.terrain.is_some()
+        self.terrain.data.is_some()
     }
 
     /// Enable/disable the analytic sky pass (debug isolation).
     pub fn set_sky_enabled(&mut self, enabled: bool) {
-        self.sky_enabled = enabled;
+        self.atmosphere.sky_enabled = enabled;
     }
 
     // ---- Sun / time-of-day --------------------------------------------
@@ -1188,14 +1525,14 @@ impl Map {
     /// and where the user is looking. `None` clears it (back to the
     /// fixed default unless [`Map::set_sun_position`] is also set).
     pub fn set_sun_time(&mut self, unix_seconds: Option<f64>) {
-        self.lighting.set_time(unix_seconds);
+        self.atmosphere.lighting.set_time(unix_seconds);
     }
 
     /// Pin the sun to an explicit azimuth/altitude, overriding any
     /// time-based tracking. Used for deterministic goldens and manual
     /// control. `None` clears the override.
     pub fn set_sun_position(&mut self, sun: Option<SunPosition>) {
-        self.lighting.set_fixed(sun);
+        self.atmosphere.lighting.set_fixed(sun);
     }
 
     /// Enable (and set the intensity of) terrain *cast* shadows — a peak
@@ -1212,7 +1549,7 @@ impl Map {
     /// Raise it (~1.8) for dark imagery (satellite) so it reads under the same
     /// lighting that suits bright topo. No effect on the flat 2D map.
     pub fn set_basemap_gain(&mut self, gain: f32) {
-        self.basemap_gain = gain.clamp(0.1, 8.0);
+        self.atmosphere.basemap_gain = gain.clamp(0.1, 8.0);
     }
 
     /// Toggle terrain sun-lighting in 3D. `true` (default) keeps the lit look;
@@ -1221,30 +1558,30 @@ impl Map {
     /// shadows belong to "sun mode"), which also skips the per-fragment shading
     /// path. No effect on the flat 2D map (no DEM).
     pub fn set_terrain_lit(&mut self, lit: bool) {
-        self.terrain_lit = lit;
+        self.atmosphere.terrain_lit = lit;
     }
 
     /// Toggle far-distance atmospheric coloration (aerial perspective). `true`
     /// (default) keeps the look; `false` forces the haze gate to 0 so the map is
     /// crisp at every angle/zoom. The web ties this to a "Distance haze" setting.
     pub fn set_aerial_haze(&mut self, on: bool) {
-        self.aerial_haze = on;
+        self.atmosphere.aerial_haze = on;
     }
 
     pub fn set_terrain_shadows(&mut self, strength: f32) {
         let s = strength.clamp(0.0, 1.0);
-        if s != self.shadow.strength {
-            self.shadow.strength = s;
+        if s != self.terrain.shadow.strength {
+            self.terrain.shadow.strength = s;
             // Force a recompute on the next frame (the strength change alone
             // doesn't alter the field, but turning it on from cold must).
-            self.shadow.key = None;
+            self.terrain.shadow.key = None;
         }
     }
 
     /// The sun position used this frame, resolved by the [`Lighting`] mode
     /// at the camera's current location.
     fn effective_sun(&self) -> SunPosition {
-        self.lighting.sun_at(self.cam.camera.center)
+        self.atmosphere.lighting.sun_at(self.cam.camera.center)
     }
 
     /// Push decoded RGBA back into the shared terrain heightmap.
@@ -1253,11 +1590,12 @@ impl Map {
     /// (e.g. host sent us a stale tile after `clear_terrain`).
     pub fn ingest_terrain_tile(&mut self, tile: TileId, rgba: &[u8], width: u32, height: u32) {
         let mut delivered: Option<Vec<TileId>> = None;
-        if let Some(t) = self.terrain.as_mut() {
+        if let Some(t) = self.terrain.data.as_mut() {
             let evicted = t.cache.ingest(tile, rgba, width, height);
             // New elevation data → route tubes baked before this are stale and
             // should re-drape onto the now-finer terrain.
-            self.route_tubes.terrain_gen = self.route_tubes.terrain_gen.wrapping_add(1);
+            self.overlays.route_tubes.terrain_gen =
+                self.overlays.route_tubes.terrain_gen.wrapping_add(1);
             delivered = Some(evicted);
         }
         if let Some(evicted) = delivered {
@@ -1330,8 +1668,8 @@ impl Map {
             self.device.clone(),
             self.queue.clone(),
             self.surface_format,
-            &self.renderer.terrain_shared.bind_group_layout,
-            &self.renderer.shadow_map.layout,
+            &self.terrain.shared.bind_group_layout,
+            &self.terrain.shadow_map.layout,
         );
         let cache = TextureCache::new(
             self.device.clone(),
@@ -1354,15 +1692,17 @@ impl Map {
             max_zoom,
             self.options.prefetch_margin_px,
         );
-        self.layers.push(LayerEntry::Raster(Box::new(RasterLayer {
-            id,
-            source,
-            scene,
-            pipeline,
-            cache,
-            fade_in_secs: self.options.fade_in_secs,
-            visible: true,
-        })));
+        self.basemap
+            .layers
+            .push(LayerEntry::Raster(Box::new(RasterLayer {
+                id,
+                source,
+                scene,
+                pipeline,
+                cache,
+                fade_in_secs: self.options.fade_in_secs,
+                visible: true,
+            })));
         self.recompute_zoom_bounds();
     }
 
@@ -1375,6 +1715,7 @@ impl Map {
         let id = id.into();
         let halo = self
             .terrain
+            .data
             .as_ref()
             .map(|t| t.cache.halo_px())
             .unwrap_or(0);
@@ -1382,10 +1723,11 @@ impl Map {
             self.device.clone(),
             self.queue.clone(),
             self.surface_format,
-            &self.renderer.terrain_shared.bind_group_layout,
+            &self.terrain.shared.bind_group_layout,
             halo,
         );
-        self.layers
+        self.basemap
+            .layers
             .push(LayerEntry::Hillshade(Box::new(HillshadeLayer {
                 id,
                 style,
@@ -1409,7 +1751,7 @@ impl Map {
             self.device.clone(),
             self.queue.clone(),
             self.surface_format,
-            &self.renderer.terrain_shared.bind_group_layout,
+            &self.terrain.shared.bind_group_layout,
         );
         let cache = VectorMeshCache::new(self.device.clone(), self.options.cache_budget_bytes);
         let scene = Scene::with_margin(
@@ -1419,33 +1761,36 @@ impl Map {
             max_zoom,
             self.options.prefetch_margin_px,
         );
-        self.layers.push(LayerEntry::Vector(Box::new(VectorLayer {
-            id,
-            source,
-            style,
-            scene,
-            pipeline,
-            cache,
-            fade_in_secs: self.options.fade_in_secs,
-            visible: true,
-            paint_override: None,
-            dash: None,
-            width_scale: 1.0,
-        })));
+        self.basemap
+            .layers
+            .push(LayerEntry::Vector(Box::new(VectorLayer {
+                id,
+                source,
+                style,
+                scene,
+                pipeline,
+                cache,
+                fade_in_secs: self.options.fade_in_secs,
+                visible: true,
+                paint_override: None,
+                dash: None,
+                width_scale: 1.0,
+            })));
         self.recompute_zoom_bounds();
     }
 
     /// Set (or clear) a vector layer's dash pattern, in screen pixels
     /// `(dash_len, gap_len)`. Returns `false` if no vector layer matches.
     pub fn set_vector_layer_dash(&mut self, id: &str, dash: Option<(f32, f32)>) -> bool {
-        self.layers.with_vector_mut(id, |v| v.dash = dash)
+        self.basemap.layers.with_vector_mut(id, |v| v.dash = dash)
     }
 
     /// Set (or clear) a vector layer's per-frame paint colour override.
     /// `color` is linear RGBA in `[0,1]`. Returns `false` if no vector
     /// layer matches `id`.
     pub fn set_vector_layer_color(&mut self, id: &str, color: Option<[f32; 4]>) -> bool {
-        self.layers
+        self.basemap
+            .layers
             .with_vector_mut(id, |v| v.paint_override = color)
     }
 
@@ -1453,12 +1798,14 @@ impl Map {
     /// `1.0` is the baked width. No-op for fills/text (width_px = 0). Returns
     /// `false` if no vector layer matches `id`.
     pub fn set_vector_layer_width_scale(&mut self, id: &str, scale: f32) -> bool {
-        self.layers.with_vector_mut(id, |v| v.width_scale = scale)
+        self.basemap
+            .layers
+            .with_vector_mut(id, |v| v.width_scale = scale)
     }
 
     pub fn remove_layer(&mut self, id: &str) {
         // Dropping a layer can widen or narrow the source-derived lock.
-        if self.layers.remove(id) {
+        if self.basemap.layers.remove(id) {
             if let Some(l) = self.world_layer_ids.get(id) {
                 self.lifecycle.borrow_mut().forget_layer(*l);
             }
@@ -1467,36 +1814,36 @@ impl Map {
     }
 
     pub fn layer_count(&self) -> usize {
-        self.layers.len()
+        self.basemap.layers.len()
     }
 
     pub fn has_layer(&self, id: &str) -> bool {
-        self.layers.contains(id)
+        self.basemap.layers.contains(id)
     }
 
     pub fn layer_ids(&self) -> Vec<String> {
-        self.layers.ids()
+        self.basemap.layers.ids()
     }
 
     /// Look up the vector source for a vector layer — useful for the host
     /// when constructing the fetch pump.
     pub fn vector_source(&self, id: &str) -> Option<Arc<dyn VectorTileSource>> {
-        self.layers.vector_source(id)
+        self.basemap.layers.vector_source(id)
     }
 
     pub fn raster_source(&self, id: &str) -> Option<Arc<dyn TileSource>> {
-        self.layers.raster_source(id)
+        self.basemap.layers.raster_source(id)
     }
 
     /// Terrain DEM source (Map-level since the 3D-terrain refactor;
     /// hillshade layers consume this rather than owning their own
     /// source). Returns `None` until `set_terrain_source` is called.
     pub fn terrain_source(&self) -> Option<Arc<dyn TileSource>> {
-        self.terrain.as_ref().map(|t| t.source.clone())
+        self.terrain.data.as_ref().map(|t| t.source.clone())
     }
 
     pub fn vector_style(&self, id: &str) -> Option<VectorStyle> {
-        self.layers.vector_style(id)
+        self.basemap.layers.vector_style(id)
     }
 
     // ---- camera + viewport ---------------------------------------------
@@ -1534,7 +1881,7 @@ impl Map {
     /// real tile any layer serves, but no further (past that the raster
     /// upsamples and overlays appear to drift). Re-stamps the camera.
     fn recompute_zoom_bounds(&mut self) {
-        let bounds = self.cam.zoom.resolve(self.layers.source_ranges());
+        let bounds = self.cam.zoom.resolve(self.basemap.layers.source_ranges());
         self.cam.camera.set_zoom_bounds(bounds);
         // A clamp may have changed the zoom; keep the scenes in step.
         self.sync_scenes();
@@ -1615,7 +1962,7 @@ impl Map {
         factor: f64,
         focus_px: (f64, f64),
     ) -> Option<Camera> {
-        if self.terrain.is_none()
+        if self.terrain.data.is_none()
             || self.cam.camera.pitch_deg == 0.0
             || !factor.is_finite()
             || factor <= 0.0
@@ -1764,7 +2111,7 @@ impl Map {
         // is keyed on first-on-screen time (tracked in the pipeline), so the
         // signal must come from there — not the cache's ingest age — or a fading
         // cache tile would park render-on-demand mid-fade and stick translucent.
-        self.layers.iter().any(|l| match l {
+        self.basemap.layers.iter().any(|l| match l {
             LayerEntry::Raster(r) => r.pipeline.has_active_fade(r.fade_in_secs),
             LayerEntry::Vector(v) => v.cache.any_younger_than(v.fade_in_secs),
             LayerEntry::Hillshade(_) => false,
@@ -1793,7 +2140,7 @@ impl Map {
     /// limit so the tilt gesture can clamp its *delta* against it (keeping the
     /// focus re-pin honest) instead of only post-clamping after the re-pin.
     fn terrain_pitch_max(&self) -> Option<f64> {
-        self.terrain.as_ref()?;
+        self.terrain.data.as_ref()?;
         let vp = self.viewport_px;
         let alt = self.cam.camera.altitude_world(vp) as f64;
         if alt <= 1e-9 {
@@ -1838,7 +2185,7 @@ impl Map {
 
     fn sync_scenes(&mut self) {
         self.clamp_pitch_above_terrain();
-        for l in self.layers.iter_mut() {
+        for l in self.basemap.layers.iter_mut() {
             match l {
                 LayerEntry::Raster(r) => {
                     r.scene.set_camera(self.cam.camera);
@@ -1853,7 +2200,7 @@ impl Map {
                 LayerEntry::Hillshade(_) => {}
             }
         }
-        if let Some(t) = self.terrain.as_mut() {
+        if let Some(t) = self.terrain.data.as_mut() {
             t.scene.set_camera(self.cam.camera);
             t.scene.set_viewport_px(self.viewport_px);
         }
@@ -1900,7 +2247,7 @@ impl Map {
         };
         // No relief to march, or a vertical (top-down) ray that hits the surface
         // at the same xy regardless of height → the flat unproject is exact.
-        if self.terrain.is_none() || self.cam.camera.pitch_deg == 0.0 {
+        if self.terrain.data.is_none() || self.cam.camera.pitch_deg == 0.0 {
             return flat();
         }
         let origin = self.cam.camera.center.to_world();
@@ -1997,7 +2344,7 @@ impl Map {
         let world = lng_lat.to_world();
         let (w, h) = self.viewport_px;
         let vp = (w as f64, h as f64);
-        let proj = if self.terrain.is_some() {
+        let proj = if self.terrain.data.is_some() {
             self.cam
                 .camera
                 .world_to_screen_z(world, self.ground_world_z(world), vp)
@@ -2024,7 +2371,7 @@ impl Map {
     /// same value the per-frame mesh displacement uses, so overlays align
     /// with the drawn surface.
     fn ground_world_z(&self, world: WorldPoint) -> f32 {
-        let Some(t) = self.terrain.as_ref() else {
+        let Some(t) = self.terrain.data.as_ref() else {
             return 0.0;
         };
         // `meters_to_world` at the camera-centre latitude — the same factor the
@@ -2109,7 +2456,7 @@ impl Map {
         // tile of ANY layer first. (The desktop host already re-sorted like
         // this; now the engine does it for every host.)
         let mut tagged: Vec<(PendingTile, crate::scene::TileTier, f32)> = Vec::new();
-        for l in self.layers.iter() {
+        for l in self.basemap.layers.iter() {
             match l {
                 LayerEntry::Raster(r) if r.visible => {
                     let res = |t: &TileId| self.chunk_is_resident(self.world_key(Some(&r.id), *t));
@@ -2143,7 +2490,7 @@ impl Map {
                 _ => {}
             }
         }
-        if let Some(t) = self.terrain.as_ref() {
+        if let Some(t) = self.terrain.data.as_ref() {
             let res = |t: &TileId| self.chunk_is_resident(self.world_key(None, *t));
             for (tile, tier, d) in t.scene.pending_prioritized(&res) {
                 tagged.push((PendingTile::Terrain { tile }, tier, d));
@@ -2227,7 +2574,7 @@ impl Map {
                     let _ = lc.want(key, u64::MAX, frame);
                 }
             };
-            for l in self.layers.iter() {
+            for l in self.basemap.layers.iter() {
                 match l {
                     LayerEntry::Raster(r) => {
                         want_scene(&mut lc, &mut wanted, Some(&r.id), &r.scene)
@@ -2238,7 +2585,7 @@ impl Map {
                     LayerEntry::Hillshade(_) => {}
                 }
             }
-            if let Some(t) = self.terrain.as_ref() {
+            if let Some(t) = self.terrain.data.as_ref() {
                 want_scene(&mut lc, &mut wanted, None, &t.scene);
             }
             for &(ref p, prio) in &scored {
@@ -2261,7 +2608,7 @@ impl Map {
     }
 
     fn first_visible_layer_index(&self) -> Option<usize> {
-        self.layers.first_visible_index()
+        self.basemap.layers.first_visible_index()
     }
 
     /// Back-compat shim. Hillshade no longer owns its own DEM cache —
@@ -2289,7 +2636,7 @@ impl Map {
 
     /// Terrain twin of [`Map::is_raster_ingested`].
     pub fn is_terrain_ingested(&self, tile: TileId) -> bool {
-        self.terrain.is_some() && self.chunk_is_resident(self.world_key(None, tile))
+        self.terrain.data.is_some() && self.chunk_is_resident(self.world_key(None, tile))
     }
 
     /// Vector twin of [`Map::is_raster_ingested`].
@@ -2307,7 +2654,7 @@ impl Map {
     /// The style a vector layer would tessellate against right now — a
     /// clone for off-thread tessellation (the engine's decode workers).
     pub fn vector_layer_style(&self, layer_id: &str) -> Option<VectorStyle> {
-        self.layers.iter().find_map(|l| match l {
+        self.basemap.layers.iter().find_map(|l| match l {
             LayerEntry::Vector(v) if v.id == layer_id => Some(v.style.clone()),
             _ => None,
         })
@@ -2315,7 +2662,7 @@ impl Map {
 
     pub fn ingest_raster(&mut self, layer_id: &str, tile: TileId, rgba: &[u8], w: u32, h: u32) {
         let mut delivered: Option<Vec<TileId>> = None;
-        for l in self.layers.iter_mut() {
+        for l in self.basemap.layers.iter_mut() {
             if let LayerEntry::Raster(r) = l {
                 if r.id == layer_id {
                     let evicted = r.cache.insert(tile, rgba, w, h);
@@ -2343,7 +2690,7 @@ impl Map {
         interactive: Vec<InteractiveFeature>,
     ) {
         let mut delivered: Option<Vec<TileId>> = None;
-        for l in self.layers.iter_mut() {
+        for l in self.basemap.layers.iter_mut() {
             if let LayerEntry::Vector(v) = l {
                 if v.id == layer_id {
                     let evicted = v.cache.insert(tile, mesh, labels, icons, interactive);
@@ -2366,7 +2713,7 @@ impl Map {
     pub fn ingest_vector_tile(&mut self, layer_id: &str, tile_id: TileId, tile: &VectorTile) {
         // Need to extract style+id first, then run tessellate, then store
         // — to avoid overlapping borrows.
-        let style_opt = self.layers.iter().find_map(|l| match l {
+        let style_opt = self.basemap.layers.iter().find_map(|l| match l {
             LayerEntry::Vector(v) if v.id == layer_id => Some(v.style.clone()),
             _ => None,
         });
@@ -2391,11 +2738,11 @@ impl Map {
     /// and the `pending_tiles` enumeration — no network traffic while
     /// hidden. Returns `false` if no layer matches the id.
     pub fn set_layer_visibility(&mut self, id: &str, visible: bool) -> bool {
-        self.layers.set_visibility(id, visible)
+        self.basemap.layers.set_visibility(id, visible)
     }
 
     pub fn layer_visibility(&self, id: &str) -> Option<bool> {
-        self.layers.visibility(id)
+        self.basemap.layers.visibility(id)
     }
 
     /// Set the per-layer fade-in duration. Lets the UI tune the
@@ -2403,7 +2750,7 @@ impl Map {
     /// (instant tile-pop), higher values smear arrivals into a
     /// longer crossfade.
     pub fn set_layer_fade_in(&mut self, id: &str, secs: f32) -> bool {
-        self.layers.set_fade_in(id, secs)
+        self.basemap.layers.set_fade_in(id, secs)
     }
 
     // ---- fonts ---------------------------------------------------------
@@ -2413,25 +2760,25 @@ impl Map {
     /// don't parse. Faces added earlier win where they have coverage, so
     /// the bundled Latin face is always preferred for Latin text.
     pub fn add_fallback_font(&mut self, bytes: Vec<u8>) -> bool {
-        self.renderer.text_pipeline.add_fallback_face(bytes)
+        self.symbols.text.add_fallback_face(bytes)
     }
 
     // ---- markers -------------------------------------------------------
 
     pub fn add_marker(&mut self, marker: Marker) -> MarkerId {
-        self.markers.add(marker)
+        self.overlays.markers.add(marker)
     }
 
     pub fn remove_marker(&mut self, id: MarkerId) {
-        self.markers.remove(id);
+        self.overlays.markers.remove(id);
     }
 
     pub fn clear_markers(&mut self) {
-        self.markers.clear();
+        self.overlays.markers.clear();
     }
 
     pub fn markers(&self) -> &[Marker] {
-        self.markers.all()
+        self.overlays.markers.all()
     }
 
     // ---- hit testing ---------------------------------------------------
@@ -2441,6 +2788,7 @@ impl Map {
 
         // Markers first (top z-order, newest-first within markers).
         for hit in self
+            .overlays
             .markers
             .hit(screen_px, tolerance_px, |ll| self.lng_lat_to_screen(ll))
         {
@@ -2458,7 +2806,7 @@ impl Map {
         );
         let world_tol = tolerance_px / ppw;
 
-        for layer in self.layers.iter().rev() {
+        for layer in self.basemap.layers.iter().rev() {
             let LayerEntry::Vector(v) = layer else {
                 continue;
             };
@@ -2516,7 +2864,7 @@ impl Map {
 
     /// Refresh the terrain cast-shadow field if its inputs changed, then patch
     /// `frame.raster_terrain_cfg` so the raster pipeline samples it. Called from
-    /// `render` only when `self.shadow.strength > 0`.
+    /// `render` only when `self.terrain.shadow.strength > 0`.
     ///
     /// The field is computed in the camera-relative (RTC) world frame — the
     /// same frame the vertex shader emits — so the fragment shader's UV map
@@ -2537,7 +2885,7 @@ impl Map {
             );
             return std::time::Duration::ZERO;
         }
-        let Some(terrain) = self.terrain.as_ref() else {
+        let Some(terrain) = self.terrain.data.as_ref() else {
             log::debug!("turbomap shadow: skip — no terrain");
             return std::time::Duration::ZERO;
         };
@@ -2644,13 +2992,13 @@ impl Map {
                 c.bearing_deg.to_bits(),
             ]
         };
-        let moving = animating || self.shadow.last_pose != Some(pose);
-        self.shadow.last_pose = Some(pose);
+        let moving = animating || self.terrain.shadow.last_pose != Some(pose);
+        self.terrain.shadow.last_pose = Some(pose);
 
-        let have_this = self.shadow.key.as_ref() == Some(&key);
-        let building_this = self.shadow.build.as_ref().map(|b| &b.key) == Some(&key);
+        let have_this = self.terrain.shadow.key.as_ref() == Some(&key);
+        let building_this = self.terrain.shadow.build.as_ref().map(|b| &b.key) == Some(&key);
         if !have_this && !building_this {
-            if self.shadow.key.is_none() {
+            if self.terrain.shadow.key.is_none() {
                 // FIRST field: assemble synchronously (gated only on not-animating)
                 // so shadows are present on the first settled frame — there's no
                 // previous field to keep bound meanwhile, and a single-frame
@@ -2673,17 +3021,17 @@ impl Map {
                         self.cam.camera.zoom,
                         terrain.cache.finest_resident_zoom(),
                     );
-                    self.renderer.shadow_map.upload_heights(&heights);
-                    self.shadow.origin_abs = origin_abs;
-                    self.shadow.world_size = size_f;
-                    self.shadow.key = Some(key.clone());
+                    self.terrain.shadow_map.upload_heights(&heights);
+                    self.terrain.shadow.origin_abs = origin_abs;
+                    self.terrain.shadow.world_size = size_f;
+                    self.terrain.shadow.key = Some(key.clone());
                     assemble = t0.elapsed();
                 }
             } else if !moving {
                 // REPLACEMENT: only start once the camera has SETTLED (not mid
                 // pan/fling), then amortise over frames. The old field stays
                 // bound meanwhile, so the move itself never pays the reassembly.
-                self.shadow.build = Some(ShadowBuild {
+                self.terrain.shadow.build = Some(ShadowBuild {
                     key: key.clone(),
                     origin_abs,
                     size_f,
@@ -2699,7 +3047,7 @@ impl Map {
         // each ~¼ the old single-frame cost — so a region change never blocks one
         // frame on the whole cross-tile walk (the settle hitch). The finest DEM
         // zoom is still resolved once per chunk; behaviour-identical output.
-        if let Some(mut b) = self.shadow.build.take() {
+        if let Some(mut b) = self.terrain.shadow.build.take() {
             let t0 = Instant::now();
             const CHUNK_ROWS: usize = 64;
             let row1 = (b.next_row + CHUNK_ROWS).min(dim);
@@ -2718,15 +3066,15 @@ impl Map {
                     self.cam.camera.zoom,
                     terrain.cache.finest_resident_zoom(),
                 );
-                self.renderer.shadow_map.upload_heights(&b.heights);
+                self.terrain.shadow_map.upload_heights(&b.heights);
                 // ABSOLUTE world space (lattice-snapped); the per-frame block below
                 // rebases it into the current RTC frame so it stays welded.
-                self.shadow.origin_abs = b.origin_abs;
-                self.shadow.world_size = b.size_f;
-                self.shadow.key = Some(b.key);
+                self.terrain.shadow.origin_abs = b.origin_abs;
+                self.terrain.shadow.world_size = b.size_f;
+                self.terrain.shadow.key = Some(b.key);
                 // Build complete — already `take`n out, so leave `build = None`.
             } else {
-                self.shadow.build = Some(b);
+                self.terrain.shadow.build = Some(b);
             }
             assemble = t0.elapsed();
         }
@@ -2735,20 +3083,20 @@ impl Map {
         // step (one texel) + softness scale with the assembled region, and the
         // origin is rebased into THIS frame's RTC frame every frame so the shadow
         // stays pinned to the terrain through a pan instead of sliding.
-        if self.shadow.key.is_some() {
+        if self.terrain.shadow.key.is_some() {
             let cam_now = self.cam.camera.center.to_world();
             frame.raster_terrain_cfg.shadow_origin = [
-                (self.shadow.origin_abs[0] - cam_now.x) as f32,
-                (self.shadow.origin_abs[1] - cam_now.y) as f32,
+                (self.terrain.shadow.origin_abs[0] - cam_now.x) as f32,
+                (self.terrain.shadow.origin_abs[1] - cam_now.y) as f32,
             ];
-            frame.raster_terrain_cfg.shadow_inv_size = 1.0 / self.shadow.world_size;
+            frame.raster_terrain_cfg.shadow_inv_size = 1.0 / self.terrain.shadow.world_size;
             frame.raster_terrain_cfg.shadow_texel_world =
-                self.shadow.world_size / HEIGHT_DIM as f32;
+                self.terrain.shadow.world_size / HEIGHT_DIM as f32;
             // Base penumbra band (world-z): ~10 m of relief excess fades lit→shadow
             // at contact. The shader's contact-hardening widens this with occluder
             // distance, so near edges stay crisp and far ridges throw soft shadows.
             frame.raster_terrain_cfg.shadow_softness = (45.0 * zscale).max(1e-7);
-            frame.raster_terrain_cfg.shadow_strength = self.shadow.strength;
+            frame.raster_terrain_cfg.shadow_strength = self.terrain.shadow.strength;
         }
         assemble
     }
@@ -2766,8 +3114,8 @@ impl Map {
             .camera
             .view_projection_matrix_rtc(cam_origin, self.viewport_px);
         let origin_delta = [
-            (self.route_tubes.origin.0 - cam_origin.x) as f32,
-            (self.route_tubes.origin.1 - cam_origin.y) as f32,
+            (self.overlays.route_tubes.origin.0 - cam_origin.x) as f32,
+            (self.overlays.route_tubes.origin.1 - cam_origin.y) as f32,
         ];
         let cfg = &frame.raster_terrain_cfg;
         let sun = cfg.sun_dir;
@@ -2783,12 +3131,12 @@ impl Map {
             lc
         };
         let ppw = (256.0 * 2f64.powf(self.cam.camera.zoom)) as f32;
-        let radius_px = if self.route_tubes.radius_px > 0.0 {
-            self.route_tubes.radius_px
+        let radius_px = if self.overlays.route_tubes.radius_px > 0.0 {
+            self.overlays.route_tubes.radius_px
         } else {
             7.0
         };
-        self.renderer.route_pipeline.draw(
+        self.overlays.route_pipeline.draw(
             vp,
             origin_delta,
             ppw,
@@ -2937,34 +3285,37 @@ impl Map {
             self.viewport_px,
             self.effective_sun(),
             TerrainFrameInputs {
-                present: self.terrain.is_some(),
+                present: self.terrain.data.is_some(),
                 exaggeration: self
                     .terrain
+                    .data
                     .as_ref()
                     .map(|t| t.options.exaggeration)
                     .unwrap_or(1.0),
                 encoding: self
                     .terrain
+                    .data
                     .as_ref()
                     .map(|t| t.options.encoding)
                     .unwrap_or(crate::dem::DemEncoding::MapboxRgb),
                 halo_px: self
                     .terrain
+                    .data
                     .as_ref()
                     .map(|t| t.cache.halo_px())
                     .unwrap_or(0),
             },
-            self.sky_enabled,
+            self.atmosphere.sky_enabled,
         );
         // Stamp the renderer wall clock so the procedural low haze drifts ("rolls
         // in") and its patchiness moves over time.
         frame.raster_terrain_cfg.time = self.start.elapsed().as_secs_f32();
         // Per-basemap brightness lift (host sets it from the active layer, e.g.
         // satellite). Only takes effect on the 3D sun-lit path (gated in raster).
-        frame.raster_terrain_cfg.basemap_gain = self.basemap_gain;
-        frame.raster_terrain_cfg.lit = self.terrain_lit;
+        frame.raster_terrain_cfg.basemap_gain = self.atmosphere.basemap_gain;
+        frame.raster_terrain_cfg.lit = self.atmosphere.terrain_lit;
         // Host "Distance haze" toggle: 0 the gate so aerial perspective is off.
-        if !self.aerial_haze {
+        if !self.atmosphere.aerial_haze {
             frame.raster_terrain_cfg.haze_density = 0.0;
         }
         // The frame graph: mask snapshot + per-pass bookkeeping for this frame.
@@ -2976,7 +3327,7 @@ impl Map {
         // AO bake below. Cheap no-op until the camera settles in a new region or
         // the DEM changes. (Previously gated on `shadow.strength > 0`; AO needs
         // the field even with cast shadows off.)
-        let shadow_assemble_time = if self.terrain.is_some() {
+        let shadow_assemble_time = if self.terrain.data.is_some() {
             graph
                 .run_now(&Self::PASS_SHADOW_ASSEMBLE, || {
                     self.update_terrain_shadows(&mut frame)
@@ -2991,29 +3342,30 @@ impl Map {
         // sun-independent, so the keyed field is reused across the day cycle and
         // recomputed only when the region/DEM changes. Runs after the heightfield
         // upload and before the frame pass that samples the field.
-        if self.terrain.is_some() && self.shadow.key.is_some() {
+        if self.terrain.data.is_some() && self.terrain.shadow.key.is_some() {
             let key = AoKey {
                 origin: [
-                    (self.shadow.origin_abs[0] as f32).to_bits(),
-                    (self.shadow.origin_abs[1] as f32).to_bits(),
+                    (self.terrain.shadow.origin_abs[0] as f32).to_bits(),
+                    (self.terrain.shadow.origin_abs[1] as f32).to_bits(),
                 ],
-                size: self.shadow.world_size.to_bits(),
+                size: self.terrain.shadow.world_size.to_bits(),
                 dem_inserts: self
                     .terrain
+                    .data
                     .as_ref()
                     .map(|t| t.cache.stats().inserts)
                     .unwrap_or(0),
             };
-            let world_size = self.shadow.world_size;
+            let world_size = self.terrain.shadow.world_size;
             if let Some(ts) = self.renderer.gpu_timestamps.as_mut() {
                 ts.scope_begin("ao", encoder);
             }
-            let r = &mut self.renderer;
+            let t = &mut self.terrain;
             graph.run_encoder(&Self::PASS_AO_ACCUMULATE, encoder, |enc| {
-                r.ao.accumulate(
+                t.ao.accumulate(
                     enc,
-                    &r.shadow_map.height_tex_bind_group,
-                    r.shadow_map.ao_view(),
+                    &t.shadow_map.height_tex_bind_group,
+                    t.shadow_map.ao_view(),
                     key,
                     world_size,
                 );
@@ -3027,22 +3379,22 @@ impl Map {
 
         // ---- Phase A: prepare ------------------------------------
         // Split-borrow the parts we need so the loop can mutably
-        // borrow `self.layers` while still passing references into
-        // `self.terrain`. `terrain_cell` is an Option<&mut Terrain>
+        // borrow `self.basemap.layers` while still passing references into
+        // `self.terrain.data`. `terrain_cell` is an Option<&mut Terrain>
         // we reborrow on a per-pipeline basis.
         let prepare_started = Instant::now();
         let mut tiles_drawn = 0usize;
-        let mut terrain_cell = self.terrain.as_mut();
+        let mut terrain_cell = self.terrain.data.as_mut();
         let mut prepared_layers: Vec<(usize, PreparedLayer)> =
-            Vec::with_capacity(self.layers.len());
+            Vec::with_capacity(self.basemap.layers.len());
         // One prepared text item per *visible vector layer*, in layer
         // order — preserving the old one-text-pass-per-vector-layer
         // semantics (per-layer label collision sets).
         let mut prepared_text: Vec<PreparedText> = Vec::new();
         let mut prepared_icons: Vec<PreparedIcons> = Vec::new();
-        self.renderer.text_pipeline.begin_frame();
-        self.renderer.icon_pipeline.begin_frame();
-        for (i, layer) in self.layers.iter_mut().enumerate() {
+        self.symbols.text.begin_frame();
+        self.symbols.icons.begin_frame();
+        for (i, layer) in self.basemap.layers.iter_mut().enumerate() {
             match layer {
                 LayerEntry::Raster(r) if r.visible => {
                     let p = r.pipeline.prepare(
@@ -3075,15 +3427,15 @@ impl Map {
                     // orphaned. Text runs *before* icons so a POI marker's
                     // dot can be gated on its label surviving collision (dot
                     // + label cull as a unit).
-                    prepared_text.push(self.renderer.text_pipeline.prepare(
+                    prepared_text.push(self.symbols.text.prepare(
                         &v.scene,
                         &mut v.cache,
                         self.options.pixel_ratio,
                     ));
-                    prepared_icons.push(self.renderer.icon_pipeline.prepare(
+                    prepared_icons.push(self.symbols.icons.prepare(
                         &v.scene,
                         &mut v.cache,
-                        self.renderer.text_pipeline.placed_marker_anchors(),
+                        self.symbols.text.placed_marker_anchors(),
                     ));
                 }
                 LayerEntry::Hillshade(h) if h.visible => {
@@ -3092,7 +3444,7 @@ impl Map {
                     // no-op — the demo always pairs hillshade with
                     // terrain, but be defensive. Reuse the already-
                     // borrowed `terrain_cell` rather than touching
-                    // `self.terrain` again (which the loop has
+                    // `self.terrain.data` again (which the loop has
                     // mutably borrowed for the whole iteration).
                     if let Some(t) = terrain_cell.as_deref_mut() {
                         let p = h.pipeline.prepare(
@@ -3108,44 +3460,46 @@ impl Map {
                 _ => {}
             }
         }
-        self.renderer.text_pipeline.finish_frame();
-        self.renderer.icon_pipeline.finish_frame();
+        self.symbols.text.finish_frame();
+        self.symbols.icons.finish_frame();
 
         // Markers last. Pick any scene that's around — they all sync
         // from the same camera. Prefer the first raster/vector layer
         // (they have their own scenes); fall back to terrain;
         // otherwise build a one-off from the Map's state.
-        let prepared_markers = if self.markers.is_empty() {
+        let prepared_markers = if self.overlays.markers.is_empty() {
             None
         } else {
-            let p = if let Some(scene) = self.layers.marker_scene() {
-                self.renderer
+            let p = if let Some(scene) = self.basemap.layers.marker_scene() {
+                self.overlays
                     .marker_pipeline
-                    .prepare(scene, self.markers.all())
-            } else if let Some(t) = self.terrain.as_ref() {
-                self.renderer
+                    .prepare(scene, self.overlays.markers.all())
+            } else if let Some(t) = self.terrain.data.as_ref() {
+                self.overlays
                     .marker_pipeline
-                    .prepare(&t.scene, self.markers.all())
+                    .prepare(&t.scene, self.overlays.markers.all())
             } else {
                 // No layers — build a one-off Scene from the Map's state.
                 let scene = Scene::with_margin(self.cam.camera, self.viewport_px, 0, 22, 0);
-                self.renderer
+                self.overlays
                     .marker_pipeline
-                    .prepare(&scene, self.markers.all())
+                    .prepare(&scene, self.overlays.markers.all())
             };
             Some(p)
         };
         // Rebuild the route-tube mesh when a polyline changed (now) or when new
         // DEM means the baked elevations are stale (throttled, since a tile burst
         // bumps the generation many times/sec).
-        let terrain_stale = self.route_tubes.built_gen != self.route_tubes.terrain_gen
+        let terrain_stale = self.overlays.route_tubes.built_gen
+            != self.overlays.route_tubes.terrain_gen
             && self
+                .overlays
                 .route_tubes
                 .last_build
                 .is_none_or(|t| started.duration_since(t).as_millis() >= 250);
-        if self.route_tubes.dirty || terrain_stale {
+        if self.overlays.route_tubes.dirty || terrain_stale {
             self.rebuild_route_tubes();
-            self.route_tubes.last_build = Some(started);
+            self.overlays.route_tubes.last_build = Some(started);
         }
         let prepare_time = prepare_started.elapsed();
         let visible_layers = prepared_layers.len();
@@ -3155,7 +3509,7 @@ impl Map {
         // a vector layer clears to its style background; raster and
         // hillshade (and an empty layer stack) clear to the shared
         // backdrop colour.
-        let clear = match first_visible.map(|i| &self.layers[i]) {
+        let clear = match first_visible.map(|i| &self.basemap.layers[i]) {
             Some(LayerEntry::Vector(v)) => {
                 let c = srgb_color_to_linear_f32(v.style.background);
                 wgpu::Color {
@@ -3184,23 +3538,26 @@ impl Map {
             ts.scope_begin("frame-pass", encoder);
         }
         {
-            let terrain_cache = self.terrain.as_ref().map(|t| &t.cache);
-            let placeholder_dem = &self.renderer.terrain_shared.placeholder_bind_group;
-            let shadow_bg = &self.renderer.shadow_map.bind_group;
+            let terrain_cache = self.terrain.data.as_ref().map(|t| &t.cache);
+            let placeholder_dem = &self.terrain.shared.placeholder_bind_group;
+            let shadow_bg = &self.terrain.shadow_map.bind_group;
             let renderer = &self.renderer;
-            let layers = &self.layers;
+            let atmosphere = &self.atmosphere;
+            let symbols = &self.symbols;
+            let overlays = &self.overlays;
+            let layers = &self.basemap.layers;
             let this = &*self;
             let frame_ref = &frame;
 
             let mut draws = DrawList::new();
             if let Some(g) = frame.sky_globals.as_ref() {
                 draws.add(&Self::PASS_SKY, None, move |pass| {
-                    renderer.sky_pipeline.draw(g, pass)
+                    atmosphere.sky.draw(g, pass)
                 });
             }
             if let Some(g) = frame.floor_globals.as_ref() {
                 draws.add(&Self::PASS_FLOOR, None, move |pass| {
-                    renderer.floor_pipeline.draw(g, pass)
+                    atmosphere.floor.draw(g, pass)
                 });
             }
             for (i, prepared) in prepared_layers {
@@ -3240,20 +3597,20 @@ impl Map {
             if !prepared_icons.is_empty() {
                 draws.add(&Self::PASS_ICONS, None, move |pass| {
                     for p in &prepared_icons {
-                        renderer.icon_pipeline.draw(p, pass);
+                        symbols.icons.draw(p, pass);
                     }
                 });
             }
             if !prepared_text.is_empty() {
                 draws.add(&Self::PASS_TEXT, None, move |pass| {
                     for p in &prepared_text {
-                        renderer.text_pipeline.draw(p, pass);
+                        symbols.text.draw(p, pass);
                     }
                 });
             }
             if let Some(p) = prepared_markers {
                 draws.add(&Self::PASS_MARKERS, None, move |pass| {
-                    renderer.marker_pipeline.draw(&p, pass)
+                    overlays.marker_pipeline.draw(&p, pass)
                 });
             }
 
@@ -3282,7 +3639,7 @@ impl Map {
         let (vw, vh) = (self.viewport_px.0 as f64, self.viewport_px.1 as f64);
         let viewport_px = self.viewport_px;
         let queue = &self.queue;
-        if let Some(c) = &mut self.clouds {
+        if let Some(c) = &mut self.atmosphere.clouds {
             if c.enabled {
                 if let Some(ts) = self.renderer.gpu_timestamps.as_mut() {
                     ts.scope_begin("clouds", encoder);
@@ -3409,14 +3766,15 @@ impl Map {
                         .collect()
                 })
                 .unwrap_or_default(),
-            layer_count: self.layers.len(),
-            marker_count: self.markers.len(),
+            layer_count: self.basemap.layers.len(),
+            marker_count: self.overlays.markers.len(),
             visible_layers,
             draw_calls,
             passes: report.passes,
             tiles_drawn,
             tiles: self.tile_histogram(),
             layers: self
+                .basemap
                 .layers
                 .iter()
                 .map(|l| match l {
@@ -3448,6 +3806,7 @@ impl Map {
                         // terrain registered.
                         cache: self
                             .terrain
+                            .data
                             .as_ref()
                             .map(|t| t.cache.stats())
                             .unwrap_or_default(),
@@ -3471,7 +3830,7 @@ impl Map {
     /// per-frame truth the trace records.
     fn tile_histogram(&self) -> crate::scene::TileHistogram {
         let mut h = crate::scene::TileHistogram::default();
-        for l in self.layers.iter() {
+        for l in self.basemap.layers.iter() {
             match l {
                 LayerEntry::Raster(r) => {
                     let res = |t: &TileId| self.chunk_is_resident(self.world_key(Some(&r.id), *t));
@@ -3486,7 +3845,7 @@ impl Map {
                 LayerEntry::Hillshade(_) => {}
             }
         }
-        if let Some(t) = &self.terrain {
+        if let Some(t) = &self.terrain.data {
             let res = |ti: &TileId| self.chunk_is_resident(self.world_key(None, *ti));
             h += t.scene.phase_histogram(&res);
         }

@@ -24,6 +24,7 @@ pub mod source;
 pub mod spatial_index;
 pub mod sprite;
 pub mod style;
+pub mod subsystem;
 pub mod sun;
 pub mod tessellate;
 pub mod text;
@@ -45,6 +46,7 @@ pub use render::graph::{FrameGraphReport, FramePhase, PassTiming};
 pub use scene::Scene;
 pub use source::{RasterFormat, RasterTile, TileSource};
 pub use style::{Color, Filter, HillshadeStyle, IconSpec, Paint, Rule, VectorStyle};
+pub use subsystem::{BudgetReport, DebugActivation, DebugViewDesc, Subsystem};
 pub use sun::{atmosphere, solar_position, Atmosphere, SunPosition};
 pub use tessellate::{
     tessellate, IconRequest, InteractiveFeature, LabelRequest, Mesh, VectorVertex,
