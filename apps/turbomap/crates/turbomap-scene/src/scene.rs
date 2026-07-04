@@ -282,6 +282,15 @@ pub enum Layer {
         #[serde(default)]
         dash_array: Option<Vec<f32>>,
     },
+    /// **Compositing note (plan C3, documented not hidden):** the wgpu
+    /// engine renders circles as instanced markers in the OVERLAY track —
+    /// above every positional layer (raster/fill/line/hillshade), alongside
+    /// icons and text — not interleaved at this stack position. Relative
+    /// order *among* positional layers and *among* circles is honoured;
+    /// "circle below a fill" is not expressible until the frame-graph work
+    /// (plan D1/D2) gives every contribution a declared slot. Authors
+    /// should treat circles as screen-space overlay content, which is what
+    /// the marker use-cases want anyway.
     Circle {
         id: String,
         source: String,

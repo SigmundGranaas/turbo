@@ -95,9 +95,17 @@ impl MapEngine for ModelEngine {
 
     fn capabilities(&self) -> Capabilities {
         Capabilities {
-            custom_layers: true,
+            // Honesty over aspiration (plan C3): NO engine renders custom
+            // layers yet (they become real in plan D4), and the reference
+            // model must not advertise more than the real engines deliver —
+            // hosts read these flags to degrade, so a lie here becomes a
+            // blank layer on screen.
+            custom_layers: false,
             terrain: true,
-            data_driven_paint: false,
+            // The reference model doesn't rasterize anything, but the
+            // CONTRACT it models compiles data-driven paint (`Paint::Match`),
+            // and the wgpu engine renders it — mirror that.
+            data_driven_paint: true,
             max_texture_size: 8192,
         }
     }

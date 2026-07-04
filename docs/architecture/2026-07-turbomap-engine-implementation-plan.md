@@ -842,3 +842,16 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   hosts moving to scene-declared environment authoring, behind the
   standing on-device gate. Fast lanes green (52 suites, clippy, wasm);
   gpu ladder result in the next entry.
+- _2026-07-04_: **C3 landed — the contract stops lying.**
+  `TurbomapEngine.capabilities().data_driven_paint` is now `true` (`Match`
+  paints have compiled to per-feature rules since the expression work —
+  the flag simply lied); `ModelEngine.custom_layers` drops to `false`
+  (no engine renders custom layers until plan D4, and hosts read these
+  flags to degrade — honesty over aspiration). The circle/marker
+  compositing exception is now DOCUMENTED on `Layer::Circle` and the
+  `Capabilities` fields carry their precise meaning: circles render in the
+  overlay track above positional layers; full interleaving arrives with
+  the frame graph (D1/D2). With C1 + C2b + C3, Phase 2's IR-honesty goals
+  are met except C2a (setter demotion), which waits on host
+  scene-authoring migration behind the device gate. **Next: D1 (frame
+  graph) in a fresh session.**

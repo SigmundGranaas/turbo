@@ -52,8 +52,14 @@ pub struct Hit {
 /// of (e.g. a MapKit adapter that cannot host a custom layer).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Capabilities {
+    /// This backend renders [`crate::Layer::Custom`] contributions. `false`
+    /// everywhere until custom layers become real phase-bound passes
+    /// (plan D4) — hosts must degrade, not hope.
     pub custom_layers: bool,
+    /// 3D terrain (DEM displacement + hillshade) is available.
     pub terrain: bool,
+    /// Data-driven paint (`Paint::Match` on feature properties) is
+    /// compiled and rendered, not silently reduced to its default arm.
     pub data_driven_paint: bool,
     pub max_texture_size: u32,
 }

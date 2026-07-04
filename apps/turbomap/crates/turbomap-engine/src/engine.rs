@@ -1076,9 +1076,16 @@ impl MapEngine for TurbomapEngine {
 
     fn capabilities(&self) -> Capabilities {
         Capabilities {
+            // Honest until plan D4 makes `Layer::Custom` a real phase-bound
+            // render contribution: today the engine records custom layers
+            // as unsupported and draws nothing for them.
             custom_layers: false,
             terrain: true,
-            data_driven_paint: false,
+            // TRUE (plan C3): `Match` paints compile to per-feature style
+            // rules and zoom curves evaluate on the GPU — this backend does
+            // render data-driven paint, and has since the expression work
+            // landed. The flag simply lied.
+            data_driven_paint: true,
             max_texture_size: self.max_texture_size,
         }
     }
