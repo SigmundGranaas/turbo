@@ -903,3 +903,35 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   tool): the cloud overlay washes out tilted frames, and the harness's
   built-in cast-shadow proof fails at the default pose on unmodified
   HEAD. Full ladder (unit + gpu suites + sim) in the next entry.
+- _2026-07-04_: **D1 verified — full ladder green, gate satisfied.**
+  209 core unit tests (incl. the graph scheduler/mask/validation tests);
+  44 workspace suites; clippy clean on everything D1 touched (the only
+  warnings are pre-existing egui deprecations in the demo app); wasm32
+  builds; 13 engine gpu suites (52 tests, incl. every golden replay)
+  under `REQUIRE_GPU=1`; golden crate suite; **7/7 sim behavioural gates**
+  (release, Lavapipe, 611 s). Goldens: unchanged — no re-baseline needed
+  (checked as an instrument per ground rule 2; the byte-identical
+  Sjunkhatten session predicted exactly this). Perf gate: median frame
+  CPU 5.38 ms after vs 5.61 ms before on the 51-step session; MSAA
+  encode p50 identical (0.96 ms). The per-pass report immediately paid
+  rent: `layer:basemap` dominates MSAA encode (p50 0.57 ms),
+  `shadow-assemble` owns the worst-case spike (24.5 ms reassembly,
+  now attributed instead of buried in `prepare`), and the GPU scopes'
+  first light on Lavapipe decomposed a 1784 ms software-rasterized frame
+  into `ao=100 / frame-pass=1197 / clouds=488` — the clouds composite
+  costs 0.02 ms to *encode* but ~27 % of the frame's GPU work, exactly
+  the kind of number CPU-side timing structurally cannot see. The
+  isolation tool quantified each pass's visual contribution on real
+  Sjunkhatten data (clouds touch 96 % of pixels at a 55° tilt — the
+  white-wash culprit, confirmed by eye against `iso-minus-clouds.png`;
+  hillshade 19 %, basemap 11 %, vectors 10 %). **Follow-ups surfaced,
+  parked outside D1:** (a) the scenario cloud overlay configuration
+  washes out tilted frames — revisit the synthetic radar coverage or the
+  composite's opacity curve with E-phase environment work; (b) the
+  harness's cast-shadow proof fails at the default pose on unmodified
+  HEAD (1044 px darkened vs ≥1500 required — reproduced bit-identically
+  before and after D1); diagnose with `TURBO_PASS_ISOLATE` +
+  `TURBO_DISABLE_PASSES=clouds` at a steeper-relief pose. **Next: D2
+  (subsystem registry)**, which collapses the split-borrow dance the
+  graph port still carries and gives every subsystem budgets + inspect
+  JSON + a debug view.
