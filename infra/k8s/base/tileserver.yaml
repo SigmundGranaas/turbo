@@ -162,10 +162,12 @@ spec:
             # egress. Unset/blank to disable and provision via the admin panel.
             - name: TILESERVER_PROVISION_ON_BOOT
               value: "national"
-            # Daily background re-check; skips the restore when Geonorge's
-            # source version is unchanged (hash freshness), so it's cheap.
-            - name: TILESERVER_PROVISION_REFRESH_SECS
-              value: "86400"
+            # Scheduled re-provision is now the turbo-tileserver-ingest CronJob
+            # (base/tileserver-ingest.yaml, monthly), NOT an in-process loop:
+            # k8s owns the schedule + run history and the serving pod no longer
+            # runs a background provisioner that could contend for the node.
+            # Boot-provision above stays as the empty-DB self-heal.
+            # (Retired TILESERVER_PROVISION_REFRESH_SECS=86400 at the cutover.)
             # Decompressed DEM-tile cache ceiling — the largest of the four
             # in-RAM cache tiers and the only one with no SSD byte-tier behind
             # it (a miss re-decompresses from the mmap'd DEM), so routing wants

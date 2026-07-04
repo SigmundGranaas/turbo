@@ -6,9 +6,12 @@
 # (content-hash `should_skip`) — an unchanged N50 dump is a no-op. Boot-provision
 # (TILESERVER_PROVISION_ON_BOOT) stays on the Deployment as empty-DB self-heal.
 #
-# Created SUSPENDED: the first cutover trigger one Job manually
-# (`kubectl -n turbo-prod create job --from=cronjob/turbo-tileserver-ingest <name>`)
-# and confirm it provisions, THEN unsuspend + drop the refresh-loop env.
+# Active (cutover complete 2026-07-03): a manual `--force` run proved the full
+# national provision end-to-end (streamed unzip->psql restore, curve-safe
+# upserts, download retry) and stamped the freshness marker, so the in-process
+# refresh loop (TILESERVER_PROVISION_REFRESH_SECS) was retired. This CronJob is
+# now the sole scheduled re-provision; the pre-download metadata gate makes
+# each monthly run a cheap no-op unless Kartverket republished.
 #
 # Schedule from the shared catalog's n50 cadence (monthly): 1st of month 03:00.
 apiVersion: batch/v1
@@ -19,7 +22,7 @@ metadata:
     app: turbo-tileserver-ingest
 spec:
   schedule: "0 3 1 * *"
-  suspend: true                 # cutover: verify one manual run, then unsuspend
+  suspend: false                # cutover done — verified via a manual --force run
   concurrencyPolicy: Forbid     # a provision restore is exclusive; never overlap
   startingDeadlineSeconds: 3600
   successfulJobsHistoryLimit: 1
