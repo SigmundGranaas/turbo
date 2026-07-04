@@ -2222,6 +2222,22 @@ impl Map {
         self.ingest_terrain_tile(tile, rgba, w, h);
     }
 
+    /// Whether a raster layer already holds `tile` resident. The engine's
+    /// async decode queue consults this before re-ingesting: a delivery
+    /// that raced the accept→apply window must not re-upload a resident
+    /// tile (it would restart the fade — steady-state flicker).
+    pub fn is_raster_ingested(&self, layer_id: &str, tile: TileId) -> bool {
+        self.layers.iter().any(|l| match l {
+            LayerEntry::Raster(r) => r.id == layer_id && r.scene.is_ingested(&tile),
+            _ => false,
+        })
+    }
+
+    /// Terrain twin of [`Map::is_raster_ingested`].
+    pub fn is_terrain_ingested(&self, tile: TileId) -> bool {
+        self.terrain.as_ref().is_some_and(|t| t.scene.is_ingested(&tile))
+    }
+
     pub fn ingest_raster(&mut self, layer_id: &str, tile: TileId, rgba: &[u8], w: u32, h: u32) {
         let mut delivered: Option<Vec<TileId>> = None;
         for l in self.layers.iter_mut() {

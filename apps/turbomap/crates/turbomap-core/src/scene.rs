@@ -494,6 +494,14 @@ impl Scene {
             .collect()
     }
 
+    /// Whether `id` is currently in the resident (ingested) set — the
+    /// engine's decode queue skips re-ingesting resident tiles so a
+    /// delivery that raced the async apply window doesn't re-upload and
+    /// restart a fade (steady-state flicker).
+    pub fn is_ingested(&self, id: &TileId) -> bool {
+        self.ingested.contains(id)
+    }
+
     /// Mark a tile as available to the renderer.
     pub fn ingest(&mut self, id: TileId) {
         self.ingested.insert(id);

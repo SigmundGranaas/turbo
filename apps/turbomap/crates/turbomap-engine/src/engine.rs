@@ -412,6 +412,13 @@ impl TurbomapEngine {
     /// Returns `true` when accepted (a duplicate already in flight is
     /// "accepted" too — the queue dedups).
     pub fn ingest_raster_encoded(&mut self, layer_id: &str, tile: TileId, bytes: &[u8]) -> bool {
+        // A delivery that raced the accept→apply window (the tile stayed in
+        // `pending_tiles` until its decode applied, so the host fetched it
+        // again) must not re-upload a now-resident tile — that restarts the
+        // fade and reads as steady-state flicker.
+        if self.map.is_raster_ingested(layer_id, tile) {
+            return true;
+        }
         self.decode_queue.enqueue(
             crate::codec::QueueKey::Raster { layer_id: layer_id.to_string(), tile },
             bytes.to_vec(),
@@ -423,6 +430,9 @@ impl TurbomapEngine {
     /// Same accept-then-decode-off-thread contract as
     /// [`Self::ingest_raster_encoded`].
     pub fn ingest_terrain_encoded(&mut self, tile: TileId, bytes: &[u8]) -> bool {
+        if self.map.is_terrain_ingested(tile) {
+            return true;
+        }
         self.decode_queue.enqueue(crate::codec::QueueKey::Terrain { tile }, bytes.to_vec());
         true
     }

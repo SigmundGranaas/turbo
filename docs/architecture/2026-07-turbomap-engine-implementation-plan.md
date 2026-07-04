@@ -662,3 +662,17 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   lane never compiled); sim gates re-run `REQUIRE_GPU=1` release (the real
   referee for the async-apply timing change) — result recorded in the next
   entry.
+- _2026-07-04_: **B4.1 sim run caught a real defect — fixed forward.** The
+  first `REQUIRE_GPU=1` release run came back **5/7**: `cold_load_paints_
+  every_subsystem` and `pan_session_stays_covered_and_settles_without_
+  flicker` failed. Diagnosis: with async apply, a tile stays in
+  `pending_tiles` until its decode lands, so a host (and the sim) schedules
+  it AGAIN; the duplicate delivery arrives after the tile is resident and
+  re-ingests it — re-upload + fade restart = steady-state diff churn, and
+  a cold load that struggles to settle. Exactly the class of timing bug
+  the sim exists to catch. Fix: residency guards at the encoded-ingest
+  boundary — `Scene::is_ingested` + `Map::{is_raster_ingested,
+  is_terrain_ingested}`; `ingest_*_encoded` now accepts-and-drops
+  deliveries for already-resident tiles (eviction still re-pends via
+  `un_ingest`, so refresh semantics are intact). Verification re-run in
+  flight; result in the next entry.
