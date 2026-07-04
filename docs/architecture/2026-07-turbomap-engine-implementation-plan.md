@@ -703,3 +703,20 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   off-thread tessellate round-trip + epoch passthrough; 52 workspace
   suites, clippy, wasm green; all 13 engine gpu suites green; sim gates
   re-run `REQUIRE_GPU=1` release (result in the next entry).
+- _2026-07-04_: **B4.2 sim run caught the next timing defect — the delivery
+  echo.** First `REQUIRE_GPU=1` release run: **5/7**, failing
+  `heavy_roaming_under_a_tight_cache_budget_keeps_reloading_tiles` and
+  `terrain_cast_shadows_do_not_stall_the_render_thread_while_panning`, with
+  total runtime blown from ~680 s to ~2690 s. Diagnosis: a delivered tile
+  stays in `pending_tiles` until its decode APPLIES, so every pull-driven
+  host refetches each tile once per decode latency — a delivery echo that
+  multiplies settle frames (the heavy-roaming per-region 200-frame caps
+  blew) and keeps tile churn running through the shadow gate's measurement
+  windows. Fix: the engine now SUBTRACTS the decode queue's accept→apply
+  window from `pending_tiles()` (`DecodeQueue::contains` + a
+  `decode_key_of(PendingTile)` mapping; Hillshade pending shares the
+  Terrain key since its ingest forwards to the shared terrain cache).
+  Plan-driven hosts never had the echo — an issued request stays `Fetching`
+  in the lifecycle table until its apply lands — so `streaming_plan` needs
+  no filter. Fast lanes green (52 suites, clippy, wasm, 13 engine gpu
+  suites); sim verification re-run in flight, result in the next entry.

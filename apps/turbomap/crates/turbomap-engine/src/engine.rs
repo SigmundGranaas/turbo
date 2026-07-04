@@ -420,8 +420,20 @@ impl TurbomapEngine {
     /// Tiles the engine is waiting on — the pull half of host-driven tile
     /// IO. Hosts fetch these (they know the URL templates from their own
     /// scene) and push results through the `ingest_*` methods below.
+    ///
+    /// Tiles inside the decode queue's accept→apply window are SUBTRACTED:
+    /// they're already delivered, just not yet drawable. Without this,
+    /// every pull-driven host refetches each tile once per decode latency —
+    /// a delivery echo that stretched settle times ~4× and tripped the
+    /// sim's heavy-roaming and shadow-stall gates. (Plan-driven hosts don't
+    /// need the filter: an issued request stays `Fetching` in the lifecycle
+    /// table until its apply lands, so it is never re-issued.)
     pub fn pending_tiles(&self) -> Vec<PendingTile> {
-        self.map.pending_tiles()
+        self.map
+            .pending_tiles()
+            .into_iter()
+            .filter(|p| !self.decode_queue.contains(&decode_key_of(p)))
+            .collect()
     }
 
     /// Push one fetched raster tile (encoded PNG/JPEG/WebP bytes, exactly
@@ -1093,6 +1105,24 @@ fn geojson_or_declared(scene: &Scene, source: &str, declared: &Option<String>) -
         GEOJSON_LAYER.to_string()
     } else {
         declared.clone().unwrap_or_default()
+    }
+}
+
+/// The decode-queue key a delivery for this pending tile would use.
+/// Hillshade pending tiles are DEM data — their ingest path forwards to the
+/// shared terrain cache, so they share the terrain key.
+fn decode_key_of(p: &PendingTile) -> crate::codec::QueueKey {
+    use crate::codec::QueueKey;
+    match p {
+        PendingTile::Raster { layer_id, tile } => {
+            QueueKey::Raster { layer_id: layer_id.clone(), tile: *tile }
+        }
+        PendingTile::Vector { layer_id, tile } => {
+            QueueKey::Vector { layer_id: layer_id.clone(), tile: *tile }
+        }
+        PendingTile::Terrain { tile } | PendingTile::Hillshade { tile, .. } => {
+            QueueKey::Terrain { tile: *tile }
+        }
     }
 }
 
