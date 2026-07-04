@@ -855,3 +855,8 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   are met except C2a (setter demotion), which waits on host
   scene-authoring migration behind the device gate. **Next: D1 (frame
   graph) in a fresh session.**
+- _2026-07-04_: **C2b verified: 13 engine gpu suites + 7/7 sim gates green**
+  (`REQUIRE_GPU=1`, Lavapipe, release, 569 s). Phase 2 closes at its
+  in-container scope: C1 + C2b + C3 done; C2a parked behind host
+  scene-authoring migration and the standing device gate. Phase 3 (D1
+  frame graph) opens next, in a fresh session.
