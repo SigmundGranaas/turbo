@@ -71,6 +71,9 @@ pub struct TurbomapEngine {
     /// drops it on mismatch — a repaint/rebuild that raced a decode must
     /// not paint stale style onto the map.
     vector_style_epochs: HashMap<String, u64>,
+    /// The Field2D source id the scene-declared cloud overlay consumes
+    /// (plan C2) — [`Self::ingest_field`] routes frames only for it.
+    cloud_field_source: Option<String>,
 }
 
 impl TurbomapEngine {
@@ -103,6 +106,7 @@ impl TurbomapEngine {
             pixel_ratio,
             decode_queue: crate::codec::DecodeQueue::new(),
             vector_style_epochs: HashMap::new(),
+            cloud_field_source: None,
         })
     }
 
@@ -692,9 +696,34 @@ impl TurbomapEngine {
         self.map.set_cloud_geo_bounds(west, south, east, north);
     }
 
+    /// Push one field frame for a scene-declared [`SourceDef::Field2D`]
+    /// source (plan C2) — the field twin of the tile `ingest_*` methods.
+    /// Frames for a source the current scene's cloud overlay doesn't
+    /// consume are dropped with a warning (data is transport; the SCENE
+    /// decides what renders). `slot` is 0 (current timestep) or 1 (next).
+    pub fn ingest_field(
+        &mut self,
+        source: &str,
+        slot: u32,
+        grid_w: u32,
+        grid_h: u32,
+        precip: &[u8],
+        coverage: &[u8],
+    ) -> bool {
+        if self.cloud_field_source.as_deref() != Some(source) {
+            log::warn!(
+                "ingest_field: {source:?} is not the scene's cloud field source; frame dropped"
+            );
+            return false;
+        }
+        self.ingest_radar_frame(slot, grid_w, grid_h, precip, coverage);
+        true
+    }
+
     /// Upload a radar frame into slot 0 (current timestep) or 1 (next),
     /// from two `grid_w * grid_h` byte planes: `precip` and `coverage`,
-    /// each normalised to `0..=255`.
+    /// each normalised to `0..=255`. Transitional side-door (pre-C2 hosts):
+    /// prefer a scene-declared cloud overlay + [`Self::ingest_field`].
     pub fn ingest_radar_frame(
         &mut self,
         slot: u32,
@@ -946,6 +975,36 @@ impl MapEngine for TurbomapEngine {
             self.map.set_terrain_lit(env.terrain_lit);
             self.map.set_aerial_haze(env.aerial_haze);
             self.map.set_basemap_gain(env.basemap_gain);
+            // The weather-cloud overlay (plan C2): declared, not enabled by
+            // side-door. The Field2D source anchors it geographically; frame
+            // data arrives via `ingest_field` like tiles arrive via ingest.
+            match &env.clouds {
+                Some(clouds) => {
+                    let bounds = match self.scene.sources.get(&clouds.source) {
+                        Some(SourceDef::Field2D { bounds }) => Some(*bounds),
+                        _ => {
+                            log::warn!(
+                                "environment.clouds source {:?} is not a field-2d source;                                  overlay disabled",
+                                clouds.source
+                            );
+                            None
+                        }
+                    };
+                    if let Some([west, south, east, north]) = bounds {
+                        self.map.enable_clouds(clouds.grid[0], clouds.grid[1]);
+                        self.map.set_cloud_geo_bounds(west, south, east, north);
+                        self.map.set_clouds_visible(clouds.visible);
+                        self.cloud_field_source = Some(clouds.source.clone());
+                    } else {
+                        self.map.disable_clouds();
+                        self.cloud_field_source = None;
+                    }
+                }
+                None => {
+                    self.map.disable_clouds();
+                    self.cloud_field_source = None;
+                }
+            }
         }
         delta
     }

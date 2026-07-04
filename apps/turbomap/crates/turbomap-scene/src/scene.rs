@@ -56,6 +56,28 @@ pub enum LightingDef {
     Fixed { azimuth_deg: f32, altitude_deg: f32 },
 }
 
+/// The weather-cloud overlay, declared in the Scene (plan C2): WHAT renders
+/// (the radar/coverage field source), WHERE (the source's geo bounds), and
+/// WHETHER it shows. Frame data still arrives as pushes through the
+/// engine's field-ingest path — data is transport, like tiles — and the
+/// playback clock (`set_cloud_time`) stays a control-plane verb, like the
+/// camera. Everything a scene diff should reproduce lives here.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct CloudsDef {
+    /// Source id of a [`SourceDef::Field2D`] holding the radar grids; its
+    /// `bounds` anchor the overlay geographically.
+    pub source: String,
+    /// Radar grid resolution (cells), e.g. `[128, 128]`.
+    pub grid: [u32; 2],
+    #[serde(default = "default_true")]
+    pub visible: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// The scene-declared environment (architecture S4, plan C1): the one
 /// shared model every environmental consumer samples — lighting, terrain
 /// shadow strength, sun-lit shading, aerial haze, basemap gain. This
@@ -76,6 +98,8 @@ pub struct EnvironmentDef {
     pub aerial_haze: bool,
     /// Basemap brightness multiplier; 1 = neutral.
     pub basemap_gain: f32,
+    /// The weather-cloud overlay; `None` = disabled (plan C2).
+    pub clouds: Option<CloudsDef>,
 }
 
 impl Default for EnvironmentDef {
@@ -86,6 +110,7 @@ impl Default for EnvironmentDef {
             terrain_lit: true,
             aerial_haze: true,
             basemap_gain: 1.0,
+            clouds: None,
         }
     }
 }
@@ -429,6 +454,17 @@ impl Scene {
                     return Err(SceneError::UnknownSource {
                         layer: layer.id().to_string(),
                         source: src.to_string(),
+                    });
+                }
+            }
+        }
+        if let Some(clouds) = &self.environment.clouds {
+            match self.sources.get(&clouds.source) {
+                Some(SourceDef::Field2D { .. }) => {}
+                _ => {
+                    return Err(SceneError::UnknownSource {
+                        layer: "environment.clouds".to_string(),
+                        source: clouds.source.clone(),
                     });
                 }
             }

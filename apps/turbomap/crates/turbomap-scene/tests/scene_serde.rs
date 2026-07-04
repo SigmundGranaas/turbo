@@ -220,6 +220,7 @@ fn environment_roundtrips_and_pre_c1_documents_stay_valid() {
         terrain_lit: true,
         aerial_haze: false,
         basemap_gain: 0.9,
+        clouds: None,
     };
     let json = serde_json::to_string(&scene).unwrap();
     assert!(json.contains("\"mode\":\"fixed\""), "{json}");
@@ -251,4 +252,32 @@ fn field2d_roundtrips_and_cannot_chain() {
         },
     );
     assert!(matches!(bad.validate(), Err(SceneError::InvalidChain { .. })));
+}
+
+#[test]
+fn clouds_declaration_roundtrips_and_requires_a_field_source() {
+    use turbomap_scene::CloudsDef;
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "radar".to_string(),
+        SourceDef::Field2D { bounds: [4.0, 57.0, 31.0, 71.0] },
+    );
+    scene.environment.clouds = Some(CloudsDef {
+        source: "radar".to_string(),
+        grid: [128, 128],
+        visible: true,
+    });
+    assert_eq!(scene.validate(), Ok(()));
+    let json = serde_json::to_string(&scene).unwrap();
+    let back: Scene = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, scene);
+
+    // A clouds block pointing at a missing or non-field source is invalid.
+    scene.sources.remove("radar");
+    assert!(matches!(scene.validate(), Err(SceneError::UnknownSource { .. })));
+    scene.sources.insert(
+        "radar".to_string(),
+        SourceDef::GeoJson { data: "{}".to_string() },
+    );
+    assert!(matches!(scene.validate(), Err(SceneError::UnknownSource { .. })));
 }

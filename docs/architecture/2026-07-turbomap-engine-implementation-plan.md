@@ -823,3 +823,22 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   C3 (compositing honesty + truthful `Capabilities`).
 - _2026-07-04_: **C1 verified: 7/7 sim gates green** (`REQUIRE_GPU=1`,
   Lavapipe, release, 458 s) on the environment-in-the-IR tree.
+- _2026-07-04_: **C2b landed — the weather-cloud overlay is scene-declared.**
+  `EnvironmentDef.clouds: Option<CloudsDef { source, grid, visible }>`: the
+  overlay names its `Field2D` source (whose `bounds` anchor it
+  geographically), its radar grid resolution, and visibility; `validate()`
+  rejects a clouds block pointing at a missing or non-field source. The
+  engine applies the block from the environment delta — enable + geo
+  bounds + visibility on declare, teardown on removal — and
+  `ingest_field(source, …)` is the source-addressed data push (the field
+  twin of tile ingest): frames for a source the scene doesn't consume are
+  dropped with a warning, because data is transport and the SCENE decides
+  what renders. Playback (`set_cloud_time`) stays a control-plane verb,
+  like the camera. `ingest_radar_frame`/`enable_clouds` remain as
+  documented transitional side-doors for pre-C2 hosts. **C2a (demoting the
+  sun/shadow/haze/gain setters to scene-syncing shims) is deliberately
+  deferred:** it changes host-visible semantics — a scene reapply would
+  revert imperatively-set sun mode — so it must ride with the Kotlin/web
+  hosts moving to scene-declared environment authoring, behind the
+  standing on-device gate. Fast lanes green (52 suites, clippy, wasm);
+  gpu ladder result in the next entry.
