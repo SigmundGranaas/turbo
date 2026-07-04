@@ -1731,6 +1731,15 @@ impl Map {
         still_animating
     }
 
+    /// A camera animation (ease/fling) is in flight — visual MOTION only,
+    /// no fades. The engine's decode queue keys its apply budget on this:
+    /// tight while the user watches motion, generous when settled (a fading
+    /// tile is an *apply arriving*, so counting fades here would throttle
+    /// the very work that ends them — cold-load starvation).
+    pub fn is_camera_animating(&self) -> bool {
+        self.cam.active.is_some()
+    }
+
     pub fn is_animating(&self) -> bool {
         if self.cam.active.is_some() {
             return true;

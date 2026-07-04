@@ -387,7 +387,12 @@ impl Sim {
     /// One simulated vsync: animate, deliver due tiles, render, measure.
     pub fn step(&mut self) -> &FrameStats {
         self.frame += 1;
-        let animating = self.engine.tick_now();
+        // "Animating" for stability purposes = the engine still needs
+        // frames: camera motion, tile fades, or a decode backlog whose
+        // applies land inside render(). Without the backlog term the settle
+        // loops break while tiles are still applying — the sim then
+        // measures pans mid-cold-load (the B4.2 shadow-gate failure).
+        let animating = self.engine.tick_now() || self.engine.is_animating();
 
         // Schedule newly-requested tiles with the configured latency.
         for pending in self.engine.pending_tiles() {

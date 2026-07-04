@@ -25,11 +25,17 @@ use std::time::Duration;
 use turbomap_core::{TileId, VectorStyle};
 use web_time::Instant;
 
-/// Per-frame wall-time budget for applying decoded tiles (GPU upload +
-/// bookkeeping; on wasm also the decode itself). Matches the FFI host's
-/// interactive ingest budget — a cold-load burst is spread over frames
-/// instead of pinning one.
-pub(crate) const APPLY_BUDGET: Duration = Duration::from_millis(6);
+/// Per-frame wall-time budgets for applying decoded tiles (GPU upload +
+/// bookkeeping; on wasm also the decode itself). Two tiers, chosen by
+/// whether the CAMERA is animating (visual motion — fades don't count,
+/// they ARE applies arriving):
+/// - moving: tight, so an ease/fling never hitches on tile uploads;
+/// - settled: generous, so a cold load's ~hundreds-of-tiles working set
+///   catches up within the settle instead of starving for whole seconds
+///   behind a 6 ms trickle (the sim's shadow-stall gate caught exactly
+///   that: `bl=true` on every frame, pans measured mid-cold-load).
+pub(crate) const APPLY_BUDGET_MOVING: Duration = Duration::from_millis(6);
+pub(crate) const APPLY_BUDGET_SETTLED: Duration = Duration::from_millis(32);
 
 /// What a decode job is for — also the dedup key.
 #[derive(Clone, PartialEq, Eq, Hash)]

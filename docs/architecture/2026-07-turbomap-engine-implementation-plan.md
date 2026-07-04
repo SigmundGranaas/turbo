@@ -720,3 +720,21 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   in the lifecycle table until its apply lands — so `streaming_plan` needs
   no filter. Fast lanes green (52 suites, clippy, wasm, 13 engine gpu
   suites); sim verification re-run in flight, result in the next entry.
+- _2026-07-04_: **B4.2, third iteration — apply-budget starvation found and
+  fixed.** The echo fix brought heavy-roaming back (6/7, runtime normal),
+  but the shadow-stall gate kept failing — and instrumentation showed why:
+  `prepare` grew 5 ms → 6300 ms across the pans with `backlog=true` on
+  EVERY frame. The flat 6 ms apply budget starved the ~600-tile cold-load
+  working set (~10 applies/frame), the sim's settle loop broke out on its
+  step cap because its `animating` (camera-only `tick_now`) couldn't see
+  the backlog, and the gate then measured pans mid-cold-load over a
+  half-resident set — where vector prepare's fallback walks + label layout
+  cost seconds. Two boundary-honest fixes: (1) the apply budget is now
+  TIERED on `Map::is_camera_animating` (new; visual motion only — fades
+  deliberately excluded, a fading tile IS an apply arriving): 6 ms while
+  the camera moves, 32 ms settled, so cold loads catch up during settles
+  exactly like the pre-B4 synchronous path; (2) the sim's per-frame
+  `animating` now ORs in `engine.is_animating()` (fades + backlog), so
+  settle loops actually settle before gates measure. Fast lanes green
+  (52 suites, clippy); full sim suite verification in flight — result in
+  the next entry.

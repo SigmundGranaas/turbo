@@ -478,9 +478,14 @@ impl TurbomapEngine {
     /// rendering.
     pub fn pump_decoded(&mut self) {
         use crate::codec::{DecodedKind, QueueKey};
+        let budget = if self.map.is_camera_animating() {
+            crate::codec::APPLY_BUDGET_MOVING
+        } else {
+            crate::codec::APPLY_BUDGET_SETTLED
+        };
         let map = &mut self.map;
         let epochs = &self.vector_style_epochs;
-        self.decode_queue.drain(crate::codec::APPLY_BUDGET, |d| match (d.key, d.kind) {
+        self.decode_queue.drain(budget, |d| match (d.key, d.kind) {
             (QueueKey::Raster { ref layer_id, tile }, DecodedKind::Image { rgba, w, h }) => {
                 map.ingest_raster(layer_id, tile, &rgba, w, h);
             }
