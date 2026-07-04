@@ -17,10 +17,20 @@ workstream of sessions.
 1. **Measure → model → enforce.** No behaviour change ships before the
    instrumentation slice (A1) records its baseline, and every slice's gate is
    a number or a property test, not a vibe.
-2. **Parity-first refactors.** Any slice that restructures rendering or data
-   flow must first prove pixel/behaviour equivalence (goldens compare-mode,
-   conformance, sim gates) before adding new behaviour. This playbook already
-   worked twice (single-pass refactor, wgpu 22→29).
+2. **Goldens are instruments, not gates** *(owner decision, 2026-07-04 —
+   supersedes the original "parity-first" rule)*. The goal is a better,
+   faster, more reliable engine — not an identical one. A golden diff is a
+   tripwire that demands a LOOK, never a rule that different = wrong:
+   inspect the diff, and if the new output is equal or better, re-baseline
+   (`UPDATE_GOLDEN=1`) and move on. Never contort an improvement to
+   preserve old pixels. The HARD gates are the ones about reliability, not
+   sameness: the sim's behavioural invariants (never blank, no flicker,
+   budgets, convergence), the property tests, and the conformance suite.
+   Nuance kept: for a pure refactor whose *intent* is no visual change
+   (e.g. the D1 frame-graph port), pixel-equivalence remains the cheapest
+   possible evidence of correctness — use it as a free check there, but
+   the moment the new structure enables something better, take the better
+   thing and re-baseline deliberately.
 3. **Commit and push every increment.** Container resets have rewound this
    clone twice; origin is the only durable state.
 4. **Shims, not flag days.** The FFI surface (`pending_tiles`/`ingest_*`) and
@@ -287,8 +297,10 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   icons/text/markers in `OverlayMsaa`; bloom/tonemap in `Post`; clouds in
   `Composite`. Per-pass GPU timestamps ride the existing
   `gpu_timestamps.rs` scopes.
-- **Gate:** every golden passes compare-mode (references untouched); sim
-  budgets hold; `stats_json` shows per-pass ms.
+- **Gate:** sim gates + conformance green; perf not worse (per-pass ms in
+  `stats_json` vs the A1 baseline). Goldens are checked as an instrument:
+  diffs are reviewed, and re-baselined when equal-or-better (see ground
+  rule 2) — pixel identity is NOT a merge condition.
 
 ### D2 — Subsystem registry (M)
 - `trait Subsystem` (architecture §III.6) in `turbomap-core`; migrate `Map`'s
@@ -327,7 +339,7 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   fields }` built once per frame in `RenderFrame::build` (`render/frame.rs`);
   sky/haze/shadows/hillshade/lighting derive uniforms from it — the
   "patched in Map::render" fields (`frame.rs:195–209`) collapse.
-- **Gate:** goldens unchanged; one write site for every environmental uniform
+- **Gate:** golden diffs reviewed per ground rule 2; one write site for every environmental uniform
   (grep-gate on `haze_|sun_dir` writes).
 
 ### E2 — Clouds tick as `SimulationSystem` (M)
@@ -377,7 +389,7 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
 | Concurrent agents/sessions editing `apps/turbomap` | Same rule as the tile-pipeline plan: land on this branch, rebase small, push every increment. |
 | wasm decode can't thread | Interface identical; wasm keeps budgeted main-thread decode. Revisit with wasm threads only if sim-on-wasm shows budget misses. |
 | Kotlin reconciler shrink regresses Android | Shims keep the old path callable; the Kotlin reconciler is deleted only after a device session on the plan path matches its A1-baselined numbers. |
-| Golden churn from D3's R16F height switch | Perceptual-tolerance compare first; regenerate only reviewed, intentional diffs (established golden discipline). |
+| Golden churn from D3's R16F height switch | Ground rule 2: review the diffs, re-baseline when equal-or-better — pixel identity is not a merge condition. |
 
 ## 10. Progress log
 
