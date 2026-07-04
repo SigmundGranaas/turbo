@@ -738,3 +738,11 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   settle loops actually settle before gates measure. Fast lanes green
   (52 suites, clippy); full sim suite verification in flight — result in
   the next entry.
+- _2026-07-04_: **B4.2 verified: 7/7 sim gates green** (`REQUIRE_GPU=1`,
+  Lavapipe, release, 515 s) with the tiered apply budget + backlog-aware
+  sim settling. B4.2 took three iterations, each caught by a different
+  gate: the delivery echo (heavy-roaming), then apply-budget starvation
+  (shadow-stall) — both timing classes that only a device-equivalent
+  behavioural harness surfaces. With B4.1+B4.2, nothing decodes or
+  tessellates on the render thread on any engine host. Remaining in B4:
+  B4.3 — retire the FFI host's now-redundant ingest time-slicing.

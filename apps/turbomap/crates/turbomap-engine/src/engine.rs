@@ -473,7 +473,9 @@ impl TurbomapEngine {
     }
 
     /// Apply decoded tiles to the GPU caches, bounded by
-    /// [`crate::codec::APPLY_BUDGET`]. Runs at the top of every `render()`;
+    /// the tiered apply budget ([`crate::codec::APPLY_BUDGET_MOVING`] while
+    /// the camera animates, [`crate::codec::APPLY_BUDGET_SETTLED`] otherwise).
+    /// Runs at the top of every `render()`;
     /// public so headless harnesses can drain deterministically without
     /// rendering.
     pub fn pump_decoded(&mut self) {

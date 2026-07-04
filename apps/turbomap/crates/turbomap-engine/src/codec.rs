@@ -6,7 +6,8 @@
 //! web. Now `ingest_*` only *accepts bytes*: decode runs on a small worker
 //! pool (native) or inline under the apply budget (wasm has no threads),
 //! and the decoded RGBA is applied to the GPU caches at the top of
-//! `render()`, bounded by [`APPLY_BUDGET`] per frame.
+//! `render()`, bounded per frame by the tiered apply budget
+//! ([`APPLY_BUDGET_MOVING`] / [`APPLY_BUDGET_SETTLED`]).
 //!
 //! Contract points hosts rely on:
 //! - A tile stays in `pending_tiles` until its decode *applies* — so the
