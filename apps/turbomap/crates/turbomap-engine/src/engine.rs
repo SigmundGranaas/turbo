@@ -61,6 +61,10 @@ pub struct TurbomapEngine {
     /// sizes (line widths, fonts, dashes, icons, marker radii) at compile
     /// time so the frame is crisp at the host's native DPI.
     pixel_ratio: f32,
+    /// Raster/DEM image decode off the render thread (plan B4.1): the
+    /// `ingest_*_encoded` methods enqueue bytes here; `render()` applies
+    /// decoded tiles under a per-frame budget. See [`crate::codec`].
+    decode_queue: crate::codec::DecodeQueue,
 }
 
 impl TurbomapEngine {
@@ -91,6 +95,7 @@ impl TurbomapEngine {
             unsupported: Vec::new(),
             max_texture_size,
             pixel_ratio,
+            decode_queue: crate::codec::DecodeQueue::new(),
         })
     }
 
@@ -399,26 +404,43 @@ impl TurbomapEngine {
     }
 
     /// Push one fetched raster tile (encoded PNG/JPEG/WebP bytes, exactly
-    /// as served). Returns `false` if the bytes don't decode.
+    /// as served). The bytes are ACCEPTED, not decoded here (plan B4.1):
+    /// decode runs off the render thread and the tile applies during a
+    /// later `render()` under the per-frame budget — so it leaves
+    /// `pending_tiles` only when it becomes drawable. Undecodable bytes are
+    /// dropped and the tile re-pends; the host's retry/backoff owns policy.
+    /// Returns `true` when accepted (a duplicate already in flight is
+    /// "accepted" too — the queue dedups).
     pub fn ingest_raster_encoded(&mut self, layer_id: &str, tile: TileId, bytes: &[u8]) -> bool {
-        let Ok(img) = image::load_from_memory(bytes) else {
-            return false;
-        };
-        let img = img.to_rgba8();
-        let (w, h) = img.dimensions();
-        self.map.ingest_raster(layer_id, tile, img.as_raw(), w, h);
+        self.decode_queue.enqueue(
+            crate::codec::QueueKey::Raster { layer_id: layer_id.to_string(), tile },
+            bytes.to_vec(),
+        );
         true
     }
 
     /// Push one fetched DEM tile (encoded Terrain-RGB/Terrarium image).
+    /// Same accept-then-decode-off-thread contract as
+    /// [`Self::ingest_raster_encoded`].
     pub fn ingest_terrain_encoded(&mut self, tile: TileId, bytes: &[u8]) -> bool {
-        let Ok(img) = image::load_from_memory(bytes) else {
-            return false;
-        };
-        let img = img.to_rgba8();
-        let (w, h) = img.dimensions();
-        self.map.ingest_terrain_tile(tile, img.as_raw(), w, h);
+        self.decode_queue.enqueue(crate::codec::QueueKey::Terrain { tile }, bytes.to_vec());
         true
+    }
+
+    /// Apply decoded tiles to the GPU caches, bounded by
+    /// [`crate::codec::APPLY_BUDGET`]. Runs at the top of every `render()`;
+    /// public so headless harnesses can drain deterministically without
+    /// rendering.
+    pub fn pump_decoded(&mut self) {
+        let map = &mut self.map;
+        self.decode_queue.drain(crate::codec::APPLY_BUDGET, |d| match d.key {
+            crate::codec::QueueKey::Raster { ref layer_id, tile } => {
+                map.ingest_raster(layer_id, tile, &d.rgba, d.w, d.h);
+            }
+            crate::codec::QueueKey::Terrain { tile } => {
+                map.ingest_terrain_tile(tile, &d.rgba, d.w, d.h);
+            }
+        });
     }
 
     /// Push one fetched vector tile (raw MVT protobuf bytes). Returns
@@ -663,6 +685,7 @@ impl TurbomapEngine {
 
     /// Record one frame into the host's encoder + target view.
     pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+        self.pump_decoded();
         self.update_dynamic_paint();
         self.map.render(encoder, target);
     }
@@ -672,10 +695,12 @@ impl TurbomapEngine {
         self.map.after_submit();
     }
 
-    /// True while a camera animation or a tile fade-in is in progress — the host
-    /// keeps rendering (render-on-demand) until this goes false.
+    /// True while a camera animation, a tile fade-in, or a decode backlog
+    /// is in progress — the host keeps rendering (render-on-demand) until
+    /// this goes false. The backlog term is load-bearing: decoded tiles
+    /// apply inside `render()`, so a sleeping host would strand them.
     pub fn is_animating(&self) -> bool {
-        self.map.is_animating()
+        self.map.is_animating() || self.decode_queue.backlog() > 0
     }
 
     /// Metrics for the last rendered frame (cpu/gpu time, per-layer cache

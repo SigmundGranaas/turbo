@@ -3929,6 +3929,7 @@ name = "turbomap-engine"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "crossbeam-channel",
  "image",
  "log",
  "serde_json",

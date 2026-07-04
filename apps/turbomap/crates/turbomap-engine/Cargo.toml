@@ -35,6 +35,8 @@ web-time.workspace = true
 # to keep the web engine building.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 turbomap-tiles-pmtiles = { path = "../turbomap-tiles-pmtiles" }
+# Job/result channels for the decode worker pool (wasm decodes inline).
+crossbeam-channel.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

@@ -12,6 +12,7 @@
 //! but it stays driveable headless via a software adapter, which is how
 //! the golden tests and the `inspect` dev tool exercise it.
 
+pub(crate) mod codec;
 pub mod engine;
 pub mod geojson;
 pub mod host_resolver;

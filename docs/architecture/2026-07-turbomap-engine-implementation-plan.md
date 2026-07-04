@@ -637,3 +637,28 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   green under `REQUIRE_GPU=1` on Lavapipe, release profile, 690 s run —
   post-chain tree (no sim scene declares a chain yet; the gate guards
   against regression in the shared resolver/engine paths).
+- _2026-07-04_: **B4.1 landed — raster/DEM decode off the render thread.**
+  New `turbomap-engine/src/codec.rs`: a `DecodeQueue` with two named worker
+  threads on native (crossbeam job/result channels) and a budgeted inline
+  drain on wasm (no threads) — one interface, per-platform mechanics.
+  `ingest_raster_encoded`/`ingest_terrain_encoded` now ACCEPT bytes instead
+  of decoding them on the calling thread (the render thread on Android, the
+  main thread on web); decoded tiles apply at the top of `render()` under a
+  6 ms `APPLY_BUDGET`, so a cold-load burst spreads across frames instead
+  of pinning one. Three contract points, each load-bearing: (1) an
+  in-flight **dedup set** — a tile stays in `pending_tiles` until its
+  decode applies, so without dedup a host reconcile loop would re-enqueue
+  every in-flight tile per pass; (2) **backlog counts as animating** —
+  decoded tiles apply inside `render()`, so a sleeping render-on-demand
+  host would strand them; (3) **decode failures clear the key and drop** —
+  the tile re-pends and the host's retry/backoff owns the policy (the bool
+  return now means "accepted", documented). `pump_tiles`' in-process path
+  (golden/inspect/pmtiles bundles) is untouched — it never used the encoded
+  entry points. MVT decode+tessellation stays synchronous (B4.2). Gates:
+  codec unit tests (off-thread decode round-trip within budget, dedup,
+  failure-clears-key-for-retry); 52 workspace suites, clippy, wasm build
+  green; full engine gpu suite green incl. goldens/parity/incremental
+  (test-only resolvers gained wildcard arms — gpu-gated code the default
+  lane never compiled); sim gates re-run `REQUIRE_GPU=1` release (the real
+  referee for the async-apply timing change) — result recorded in the next
+  entry.
