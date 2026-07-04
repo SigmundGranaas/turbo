@@ -408,6 +408,108 @@ fn bundled_pmtiles_scene_is_fully_offline_via_the_production_resolver() {
     assert!(motorway > 200, "bundled roads must render offline, got {motorway}");
 }
 
+fn pending_zoom(p: &turbomap_core::PendingTile) -> u8 {
+    match p {
+        turbomap_core::PendingTile::Raster { tile, .. }
+        | turbomap_core::PendingTile::Vector { tile, .. }
+        | turbomap_core::PendingTile::Hillshade { tile, .. }
+        | turbomap_core::PendingTile::Terrain { tile } => tile.z,
+    }
+}
+
+/// The bundled-under-remote chain gate (plan B6.2): ONE source id backed by
+/// `chain [bundle, remote-xyz]`. At the bundle's zoom the map renders fully
+/// offline (zero pending). Zoomed past the bundle, the engine surfaces
+/// exactly the detail tiles for the host to fetch — graceful refinement,
+/// with layers and styles never knowing which provider serves them.
+#[test]
+fn a_chained_source_renders_offline_and_surfaces_detail_to_the_host() {
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let bundle = tempfile::NamedTempFile::new().expect("temp bundle");
+    std::fs::write(bundle.path(), build_fixture_archive()).expect("write bundle");
+
+    let mut scene = omt_scene();
+    scene.sources.insert(
+        "omt".to_string(),
+        SourceDef::Chain {
+            providers: vec![
+                SourceDef::PmtilesVector {
+                    location: bundle.path().to_string_lossy().into_owned(),
+                },
+                SourceDef::VectorXyz {
+                    tiles: vec!["https://tiles.example/{z}/{x}/{y}.pbf".to_string()],
+                    min_zoom: 0,
+                    max_zoom: 15,
+                },
+            ],
+        },
+    );
+    scene.layers.retain(|l| l.id() != "basemap");
+    scene.sources.remove("base");
+
+    let (width, height) = (512, 384);
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (width, height),
+        CameraState::new(LatLng::new(60.39, 5.32), f64::from(FIXTURE_ZOOM)),
+        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        Box::new(turbomap_engine::HostDrivenResolver),
+    )
+    .expect("construct TurbomapEngine");
+
+    engine.apply(scene);
+    assert!(engine.unsupported_layers().is_empty());
+
+    // At the bundle's zoom the visible view is served fully offline. The
+    // chain's zoom union (remote reaches z0) makes the core also want a
+    // coarse overview floor below the fixture's single z5 level — tiles the
+    // bundle genuinely lacks, correctly surfaced to the host. The invariant
+    // is therefore per-tier, not "pending empty": nothing AT the visible
+    // zoom may pend. (A production baseline bundles the coarse zooms too,
+    // which is exactly what the pure-bundle test above proves.)
+    let stats = engine.pump_tiles();
+    assert!(stats.vector_tiles >= 4, "bundle must serve the coarse view, got {stats:?}");
+    let unserved_visible: Vec<_> = engine
+        .pending_tiles()
+        .iter()
+        .filter(|p| pending_zoom(p) == FIXTURE_ZOOM)
+        .cloned()
+        .collect();
+    assert!(
+        unserved_visible.is_empty(),
+        "every visible-zoom tile must come from the bundle, got {unserved_visible:?}"
+    );
+    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    engine.after_submit();
+    let near = |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| {
+        (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol)
+    };
+    let water = image.pixels().filter(|p| near(p, [166, 204, 222], 14)).count();
+    assert!(water > 200, "chained source must render the bundle offline, got {water}");
+
+    // Past the bundle: the same source surfaces detail tiles as pending —
+    // the host's fetch signal, exactly as if the chain weren't there.
+    engine.set_camera(CameraState::new(
+        LatLng::new(60.39, 5.32),
+        f64::from(FIXTURE_ZOOM) + 2.0,
+    ));
+    let _ = engine.pump_tiles(); // stub providers make no progress in-process
+    let pending = engine.pending_tiles();
+    assert!(
+        !pending.is_empty(),
+        "detail zoom must surface pending tiles for the host to fetch"
+    );
+}
+
 #[test]
 fn omt_schema_renders_from_a_pmtiles_archive() {
     let Some(gpu) = headless() else {

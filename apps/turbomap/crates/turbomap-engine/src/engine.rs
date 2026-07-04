@@ -965,9 +965,19 @@ fn dirty_sources(old: &Scene, new: &Scene) -> std::collections::BTreeSet<String>
 }
 
 /// Whether this backend can render a layer, by layer kind × source kind.
-/// Drives the inspect tool's `unsupported` report.
+/// Drives the inspect tool's `unsupported` report. A provider chain counts
+/// as its providers' (validated-uniform) kind — probe the first.
 fn is_supportable(layer: &Layer, scene: &Scene) -> bool {
-    let source_is = |want: fn(&SourceDef) -> bool| layer.source().and_then(|s| scene.sources.get(s)).map(want).unwrap_or(false);
+    let source_is = |want: fn(&SourceDef) -> bool| {
+        layer
+            .source()
+            .and_then(|s| scene.sources.get(s))
+            .map(|d| match d {
+                SourceDef::Chain { providers } => providers.first().map(want).unwrap_or(false),
+                other => want(other),
+            })
+            .unwrap_or(false)
+    };
     match layer {
         Layer::Raster { .. } => source_is(|d| {
             matches!(d, SourceDef::RasterXyz { .. } | SourceDef::PmtilesRaster { .. })

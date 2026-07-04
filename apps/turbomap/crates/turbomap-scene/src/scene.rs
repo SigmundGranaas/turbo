@@ -101,6 +101,17 @@ pub enum SourceDef {
         #[serde(default)]
         halo: u32,
     },
+    /// An ordered provider chain — the architecture's bundled-under-remote
+    /// layering (D2/D7) stated in the IR: the engine serves a tile from the
+    /// FIRST provider that covers it (e.g. a bundled coarse baseline), and
+    /// only what no in-process provider can serve surfaces to the host as
+    /// pending (e.g. detail zooms from a remote XYZ source). A cold start
+    /// with no network renders the baseline; connectivity refines it — one
+    /// source id, so layers and styles never know the difference.
+    ///
+    /// Providers must all be the same content kind (all raster, all vector,
+    /// or all DEM — GeoJSON and nested chains are rejected by `validate`).
+    Chain { providers: Vec<SourceDef> },
 }
 
 fn default_tile_size() -> u32 {
@@ -345,8 +356,9 @@ impl Scene {
     }
 
     /// Validate scene-level invariants the diff and engines rely on:
-    /// unique layer ids, and every non-custom layer pointing at a source
-    /// that exists. Returns the offending id on failure.
+    /// unique layer ids, every non-custom layer pointing at a source that
+    /// exists, and well-formed provider chains (non-empty, un-nested, one
+    /// content kind). Returns the offending id on failure.
     pub fn validate(&self) -> Result<(), SceneError> {
         let mut seen = std::collections::BTreeSet::new();
         for layer in &self.layers {
@@ -362,7 +374,42 @@ impl Scene {
                 }
             }
         }
+        for (id, def) in &self.sources {
+            if let SourceDef::Chain { providers } = def {
+                if providers.is_empty() {
+                    return Err(SceneError::InvalidChain {
+                        source: id.clone(),
+                        reason: "a chain needs at least one provider".to_string(),
+                    });
+                }
+                if providers.iter().any(|p| matches!(p, SourceDef::Chain { .. })) {
+                    return Err(SceneError::InvalidChain {
+                        source: id.clone(),
+                        reason: "chains cannot nest".to_string(),
+                    });
+                }
+                let kind = chain_kind(&providers[0]);
+                if kind.is_none() || providers.iter().any(|p| chain_kind(p) != kind) {
+                    return Err(SceneError::InvalidChain {
+                        source: id.clone(),
+                        reason: "providers must all be raster, all vector, or all DEM"
+                            .to_string(),
+                    });
+                }
+            }
+        }
         Ok(())
+    }
+}
+
+/// The content kind a chain provider serves — `None` for kinds a chain
+/// cannot contain (inline GeoJSON needs no fallback; nesting is rejected).
+fn chain_kind(def: &SourceDef) -> Option<u8> {
+    match def {
+        SourceDef::RasterXyz { .. } | SourceDef::PmtilesRaster { .. } => Some(0),
+        SourceDef::VectorXyz { .. } | SourceDef::PmtilesVector { .. } => Some(1),
+        SourceDef::DemXyz { .. } | SourceDef::PmtilesDem { .. } => Some(2),
+        SourceDef::GeoJson { .. } | SourceDef::Chain { .. } => None,
     }
 }
 
@@ -371,6 +418,7 @@ impl Scene {
 pub enum SceneError {
     DuplicateLayerId(String),
     UnknownSource { layer: String, source: String },
+    InvalidChain { source: String, reason: String },
 }
 
 impl std::fmt::Display for SceneError {
@@ -379,6 +427,9 @@ impl std::fmt::Display for SceneError {
             SceneError::DuplicateLayerId(id) => write!(f, "duplicate layer id '{id}'"),
             SceneError::UnknownSource { layer, source } => {
                 write!(f, "layer '{layer}' references unknown source '{source}'")
+            }
+            SceneError::InvalidChain { source, reason } => {
+                write!(f, "source '{source}' has an invalid provider chain: {reason}")
             }
         }
     }

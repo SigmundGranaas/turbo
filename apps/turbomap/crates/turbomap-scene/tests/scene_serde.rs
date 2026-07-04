@@ -147,3 +147,63 @@ fn pmtiles_dem_halo_defaults_to_zero() {
     let def: SourceDef = serde_json::from_str(json).unwrap();
     assert!(matches!(def, SourceDef::PmtilesDem { halo: 0, .. }));
 }
+
+// ---- provider chains (plan B6.2, decisions D2/D7) ------------------------
+
+#[test]
+fn chain_roundtrips_and_validates() {
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "basemap".to_string(),
+        SourceDef::Chain {
+            providers: vec![
+                SourceDef::PmtilesVector { location: "/data/norway-z8.pmtiles".to_string() },
+                SourceDef::VectorXyz {
+                    tiles: vec!["https://tiles.example/{z}/{x}/{y}.pbf".to_string()],
+                    min_zoom: 0,
+                    max_zoom: 15,
+                },
+            ],
+        },
+    );
+    let json = serde_json::to_string(&scene).unwrap();
+    assert!(json.contains("\"type\":\"chain\""), "{json}");
+    let back: Scene = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, scene);
+    assert_eq!(scene.validate(), Ok(()));
+}
+
+#[test]
+fn chain_rejects_empty_nested_and_mixed_kinds() {
+    let case = |def: SourceDef| {
+        let mut scene = Scene::new();
+        scene.sources.insert("bad".to_string(), def);
+        scene.validate()
+    };
+    assert!(matches!(
+        case(SourceDef::Chain { providers: vec![] }),
+        Err(SceneError::InvalidChain { .. })
+    ));
+    assert!(matches!(
+        case(SourceDef::Chain {
+            providers: vec![SourceDef::Chain { providers: vec![] }],
+        }),
+        Err(SceneError::InvalidChain { .. })
+    ));
+    assert!(matches!(
+        case(SourceDef::Chain {
+            providers: vec![
+                SourceDef::PmtilesVector { location: "/a.pmtiles".to_string() },
+                SourceDef::PmtilesRaster { location: "/b.pmtiles".to_string() },
+            ],
+        }),
+        Err(SceneError::InvalidChain { .. })
+    ));
+    // GeoJSON needs no fallback chain — rejected for kind, not silently allowed.
+    assert!(matches!(
+        case(SourceDef::Chain {
+            providers: vec![SourceDef::GeoJson { data: "{}".to_string() }],
+        }),
+        Err(SceneError::InvalidChain { .. })
+    ));
+}
