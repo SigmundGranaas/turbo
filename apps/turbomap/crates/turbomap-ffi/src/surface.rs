@@ -676,38 +676,17 @@ impl Surface {
     /// only place the engine is mutated. Runs on the render thread.
     fn render_frame(&self) {
         let mut on = self.render.lock().unwrap_or_else(|p| p.into_inner());
-        // Control commands fully drain (they must land this frame). Count them: a
-        // frame with no control commands AND no in-flight camera animation is IDLE
-        // — the render-on-demand loop is only awake to drain the tile backlog.
-        let mut cmds = 0u32;
+        // Control commands fully drain — they must land this frame.
         while let Ok(cmd) = self.cmd_rx.try_recv() {
             on.apply_cmd(cmd);
-            cmds += 1;
         }
-        // Time-budgeted tile ingest. Decode + GPU upload run on THIS (render) thread;
-        // terrain/DEM tiles in particular are expensive (decode + mesh build). Draining
-        // a whole network burst in one frame pins the render thread for seconds (the map
-        // "freezes solid" while the UI thread stays live). Instead we spend a per-frame
-        // budget — always making progress on ≥1 tile — and report a remaining backlog as
-        // "animating" below so the host keeps pumping frames; the queue drains across
-        // many cheap frames, never one giant stall.
-        //
-        // The budget is ADAPTIVE: while the camera is actively moving (gestures, fling,
-        // ease) we keep it small so interaction stays smooth; when IDLE we spend far more
-        // of the frame decoding, because that's exactly when prefetched ring tiles should
-        // be prepared in advance — the render thread is otherwise doing nothing, and the
-        // user isn't waiting on a frame. So a calm moment quietly warms the surroundings,
-        // and a later pan/zoom lands on already-resident tiles.
-        let idle = cmds == 0 && !on.engine.is_animating();
-        let ingest_budget = if idle {
-            // 8 ms (was 14): a calm-frame budget high enough to keep draining the queue but low
-            // enough that a heavy cold-load burst doesn't pin the render thread (which also holds
-            // the lock that the overlay's elevation-aware projection waits on — long holds there
-            // were the first-load choppiness). Still leaves the rest of the frame for rendering.
-            std::time::Duration::from_millis(8)
-        } else {
-            std::time::Duration::from_millis(6)
-        };
+        // Tile ingest ALSO drains fully (plan B4.3): `apply_ingest` is an
+        // O(µs) hand-off into the engine's decode queue — workers decode
+        // off this thread, and `render()` applies results under the
+        // engine's tiered budget (tight while the camera moves, generous
+        // when settled). The adaptive 8/6 ms time-slice that used to bound
+        // decode-on-the-render-thread is retired: pacing has exactly one
+        // owner now, inside the engine, identical on every host.
         let ingest_start = std::time::Instant::now();
         let mut ingested = 0u32;
         let mut applied_keys: Vec<(String, TileId)> = Vec::new();
@@ -715,12 +694,11 @@ impl Surface {
             applied_keys.push(ingest_key(&i));
             on.apply_ingest(i);
             ingested += 1;
-            if ingest_start.elapsed() >= ingest_budget {
-                break;
-            }
         }
         let ingest_ms = ingest_start.elapsed().as_secs_f64() * 1000.0;
-        let ingest_backlog = self.ingest_rx.len();
+        // The backlog that matters is delivered-but-not-yet-drawable, which
+        // now lives in the engine's decode queue (the channel is empty).
+        let ingest_backlog = on.engine.decode_backlog();
         let render_start = std::time::Instant::now();
         on.render();
         let render_ms = render_start.elapsed().as_secs_f64() * 1000.0;

@@ -902,6 +902,13 @@ impl TurbomapEngine {
         &self.unsupported
     }
 
+    /// Delivered-but-not-yet-drawable tiles inside the decode queue — the
+    /// streaming trace's backlog number now that hosts hand bytes straight
+    /// through (plan B4.3). Non-zero also keeps `is_animating` true.
+    pub fn decode_backlog(&self) -> usize {
+        self.decode_queue.backlog()
+    }
+
     /// Inspection escape hatch: the wrapped core map.
     pub fn map(&self) -> &Map {
         &self.map

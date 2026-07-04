@@ -746,3 +746,16 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   behavioural harness surfaces. With B4.1+B4.2, nothing decodes or
   tessellates on the render thread on any engine host. Remaining in B4:
   B4.3 — retire the FFI host's now-redundant ingest time-slicing.
+- _2026-07-04_: **B4.3 landed — the FFI ingest time-slice is retired.** The
+  Android render loop's adaptive 8/6 ms drain budget existed to bound
+  decode-on-the-render-thread; with B4.1/B4.2 that decode lives in the
+  engine's worker pool, so `render_frame` now drains the ingest channel
+  FULLY (each item is an O(µs) hand-off) and pacing has exactly one owner:
+  the engine's tiered apply budget, identical on every host. The published
+  trace's `backlog` becomes the engine's decode queue depth (new
+  `TurbomapEngine::decode_backlog`) — the channel is always empty now.
+  Verified here: 52 workspace suites, clippy, wasm, sim gates re-run
+  (result in the next entry). `surface.rs` is Android-gated and this
+  container has no NDK — the `android_build` CI lane compiles it on push,
+  and the plan's standing on-device session gate applies before the
+  Kotlin-side reconciler shrink leans on it.
