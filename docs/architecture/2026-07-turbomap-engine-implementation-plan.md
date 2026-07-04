@@ -544,3 +544,23 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   is deferred to a session with one rather than landed blind (the
   execution rule: nothing ships unrun). Then B3.4: legacy sets +
   `delivered_unrequested` delete, capacity governor arms.
+- _2026-07-04_: **B5.1 landed — one disk cache; raster finally cached.**
+  The bounded LRU `DiskCache` (byte budget, mtime recency, atomic
+  temp-then-rename writes, sweep-every-64) moved from `turbomap-tiles-http`
+  into `turbomap-tiles-cache` as the crate's sole content — the ONE disk
+  cache of the provider chain, deliberately format-blind (keys are relative
+  paths, values are bytes; no `turbomap-core` dependency). The unbounded
+  `DiskCachedSource<S>` adapter it replaces (wired to nothing, a latent
+  disk-fill hazard) is deleted. `turbomap-tiles-http` re-exports `DiskCache`
+  for back-compat and `HttpRasterSource` gains `with_cache_dir`/
+  `with_cache` — raster/DEM tiles were re-fetched on every cold start until
+  now. Raster and vector stores share one `<z>/<x>/<y>` layout (asserted by
+  test). Gates: cache-hit-without-network tests for both source kinds
+  (blackhole-URL technique), persistence-across-instances, budget/LRU suite
+  moved intact; 52 workspace suites green, clippy clean. The sim/golden
+  behavioural gates are out of this diff's dependency graph (neither crate
+  is a dependency of sim/golden/engine — only the desktop host consumes
+  them), so the unit lane is the full gate here. Remaining in B5: hosts
+  opting the raster sources
+  into the cache dir, `SourceDef::{PmtilesBundle,PmtilesRemote}` + resolver
+  wiring, brotli in the PMTiles reader (B5.2).

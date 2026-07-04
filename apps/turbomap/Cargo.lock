@@ -3987,9 +3987,7 @@ dependencies = [
 name = "turbomap-tiles-cache"
 version = "0.1.0"
 dependencies = [
- "log",
  "tempfile",
- "turbomap-core",
 ]
 
 [[package]]
@@ -4002,6 +4000,7 @@ dependencies = [
  "thiserror 1.0.69",
  "turbomap-core",
  "turbomap-mvt",
+ "turbomap-tiles-cache",
 ]
 
 [[package]]
