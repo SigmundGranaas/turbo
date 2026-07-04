@@ -447,14 +447,10 @@ impl Sim {
             Some(prev) => diff_fraction(prev, &img, 8),
             None => 1.0,
         };
-        // Slice-B3.1 dual-write gate, swept across every behavioural test:
-        // the lifecycle table and the legacy scene bookkeeping must agree on
-        // EVERY frame of every session, or the table may not become the
-        // source of truth. (pending_tiles ran during scheduling above, so
-        // the table is synced to this frame's camera.)
-        self.engine
-            .lifecycle_agreement()
-            .unwrap_or_else(|e| panic!("frame {}: {e}", self.frame));
+        // (Slice B3.4: the per-frame dual-write agreement assertion that
+        // lived here is retired together with the per-scene sets — the
+        // lifecycle table is the single source of truth it was soaked
+        // against, every frame, across the whole B4 campaign.)
 
         let m = self.engine.last_frame_metrics();
         let cpu_ms = m.cpu_time.as_secs_f64() * 1000.0;

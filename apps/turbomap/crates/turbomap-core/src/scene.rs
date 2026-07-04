@@ -144,7 +144,6 @@ type VisibleKey = (u64, u64, u64, u64, u64, u32, u32, u8, u8);
 pub struct Scene {
     camera: Camera,
     viewport_px: (u32, u32),
-    ingested: HashSet<TileId>,
     min_zoom: u8,
     max_zoom: u8,
     prefetch_margin_px: u32,
@@ -187,7 +186,6 @@ impl Scene {
         Self {
             camera,
             viewport_px,
-            ingested: HashSet::new(),
             min_zoom,
             max_zoom,
             prefetch_margin_px,
@@ -396,11 +394,11 @@ impl Scene {
     /// path — `pending_tiles` and the trace's wanted-tile counts both read it,
     /// so the resident/pending split is defined in exactly one place. Does NOT
     /// scan for [`Retained`](TilePhase::Retained) tiles (see [`Self::tile_phases`]).
-    fn wanted_phases(&self) -> Vec<(TileId, TilePhase)> {
+    fn wanted_phases(&self, resident: &dyn Fn(&TileId) -> bool) -> Vec<(TileId, TilePhase)> {
         self.desired_tiles()
             .into_iter()
             .map(|t| {
-                let phase = if self.ingested.contains(&t) {
+                let phase = if resident(&t) {
                     TilePhase::Resident
                 } else {
                     TilePhase::Pending
@@ -415,28 +413,24 @@ impl Scene {
     /// per-frame trace histogram: wanted tiles as Resident/Pending, plus
     /// resident-but-no-longer-wanted tiles as [`Retained`](TilePhase::Retained)
     /// (the cache's eviction candidates).
-    pub fn tile_phases(&self) -> Vec<(TileId, TilePhase)> {
-        let mut out = self.wanted_phases();
-        let wanted: HashSet<TileId> = out.iter().map(|(t, _)| *t).collect();
-        for t in &self.ingested {
-            if !wanted.contains(t) {
-                out.push((*t, TilePhase::Retained));
-            }
-        }
-        out
+    /// Slice B3.4: the scene no longer tracks residency, so `resident` is
+    /// injected (the lifecycle table, via `Map`). Retained tiles — resident
+    /// but unwanted — are the TABLE's knowledge now and are reported at the
+    /// `Map` level, not per scene.
+    pub fn tile_phases(&self, resident: &dyn Fn(&TileId) -> bool) -> Vec<(TileId, TilePhase)> {
+        self.wanted_phases(resident)
     }
 
     /// One-pass lifecycle histogram over this scene's tiles — the trace's
     /// counting view of [`Self::tile_phases`] (same classification, no
     /// per-tile `Vec`). `desired == pending + resident` by construction.
-    pub fn phase_histogram(&self) -> TileHistogram {
+    /// `retained` is always 0 here (slice B3.4): resident-but-unwanted is
+    /// the lifecycle table's knowledge; `Map::tile_histogram` fills it.
+    pub fn phase_histogram(&self, resident: &dyn Fn(&TileId) -> bool) -> TileHistogram {
         let mut h = TileHistogram::default();
-        let tagged = self.desired_tagged();
-        let mut wanted: HashSet<TileId> = HashSet::with_capacity(tagged.len());
-        for (t, tier) in tagged {
-            wanted.insert(t);
+        for (t, tier) in self.desired_tagged() {
             h.desired += 1;
-            if self.ingested.contains(&t) {
+            if resident(&t) {
                 h.resident += 1;
             } else {
                 h.pending += 1;
@@ -447,7 +441,6 @@ impl Scene {
                 }
             }
         }
-        h.retained = self.ingested.iter().filter(|t| !wanted.contains(t)).count();
         h
     }
 
@@ -458,12 +451,12 @@ impl Scene {
     /// cap, so the viewport always streams before the off-screen ring and the
     /// camera-centre tile leads its tier — instead of an undifferentiated
     /// distance race where a near ring tile could beat a far viewport tile.
-    pub fn pending_tiles(&self) -> Vec<TileId> {
+    pub fn pending_tiles(&self, resident: &dyn Fn(&TileId) -> bool) -> Vec<TileId> {
         let centre = self.camera.center.to_world();
         let mut pend: Vec<(TileId, TileTier)> = self
             .desired_tagged()
             .into_iter()
-            .filter(|(t, _)| !self.ingested.contains(t))
+            .filter(|(t, _)| !resident(t))
             .collect();
         pend.sort_by(|(a, ta), (b, tb)| {
             ta.priority().cmp(&tb.priority()).then_with(|| {
@@ -483,43 +476,15 @@ impl Scene {
     /// and sorts once by `(tier, distance)`, so the nearest in-front tile of any
     /// layer (e.g. the slow DEM the 3D relief needs) leads — instead of every
     /// tile of one layer before any of the next.
-    pub fn pending_prioritized(&self) -> Vec<(TileId, TileTier, f32)> {
+    pub fn pending_prioritized(&self, resident: &dyn Fn(&TileId) -> bool) -> Vec<(TileId, TileTier, f32)> {
         let centre = self.camera.center.to_world();
         let eye_off = self.camera.eye_offset_world(self.viewport_px);
         let eye = WorldPoint::new(centre.x + eye_off[0] as f64, centre.y + eye_off[1] as f64);
         self.desired_tagged()
             .into_iter()
-            .filter(|(t, _)| !self.ingested.contains(t))
+            .filter(|(t, _)| !resident(t))
             .map(|(t, tier)| (t, tier, tile_centre_sq_distance(t, eye) as f32))
             .collect()
-    }
-
-    /// Whether `id` is currently in the resident (ingested) set — the
-    /// engine's decode queue skips re-ingesting resident tiles so a
-    /// delivery that raced the async apply window doesn't re-upload and
-    /// restart a fade (steady-state flicker).
-    pub fn is_ingested(&self, id: &TileId) -> bool {
-        self.ingested.contains(id)
-    }
-
-    /// Mark a tile as available to the renderer.
-    pub fn ingest(&mut self, id: TileId) {
-        self.ingested.insert(id);
-    }
-
-    /// Forget that `id` was ingested — called when the GPU cache evicts
-    /// the tile under memory pressure. Without this the `ingested` set
-    /// and the actual cache residency drift apart: `pending_tiles` keeps
-    /// excluding an evicted tile forever, so it's never re-requested and
-    /// shows as a permanent grey hole until the layer is rebuilt.
-    pub fn un_ingest(&mut self, id: &TileId) {
-        self.ingested.remove(id);
-    }
-
-    /// How many tiles the renderer believes are resident. Lets a stress
-    /// test assert the bookkeeping tracks the (budget-bounded) cache.
-    pub fn ingested_len(&self) -> usize {
-        self.ingested.len()
     }
 
     /// World-space bounds of the current viewport. Used by the renderer to
@@ -672,60 +637,67 @@ mod tests {
     use super::*;
     use crate::geo::LatLng;
 
+    /// Slice B3.4: the scene classifies against an INJECTED residency
+    /// predicate (production: the lifecycle table, via `Map`). Tests model
+    /// residency as a plain set — the same shape any caller provides.
+    fn resident_set(tiles: &[TileId]) -> impl Fn(&TileId) -> bool + '_ {
+        move |t| tiles.contains(t)
+    }
+
     #[test]
     fn at_zoom_zero_with_tiny_viewport_only_one_tile_is_pending() {
         let scene = Scene::new(Camera::new(LatLng::new(0.0, 0.0), 0.0), (100, 100), 0, 22);
-        let pending = scene.pending_tiles();
+        let pending = scene.pending_tiles(&resident_set(&[]));
         assert_eq!(pending, vec![TileId::new(0, 0, 0)]);
     }
 
     #[test]
-    fn ingesting_a_pending_tile_removes_it_from_the_pending_list() {
-        let mut scene = Scene::new(Camera::new(LatLng::new(0.0, 0.0), 0.0), (100, 100), 0, 22);
-        assert_eq!(scene.pending_tiles(), vec![TileId::new(0, 0, 0)]);
-        scene.ingest(TileId::new(0, 0, 0));
+    fn a_resident_tile_drops_off_the_pending_list() {
+        let scene = Scene::new(Camera::new(LatLng::new(0.0, 0.0), 0.0), (100, 100), 0, 22);
+        assert_eq!(scene.pending_tiles(&resident_set(&[])), vec![TileId::new(0, 0, 0)]);
+        let home = [TileId::new(0, 0, 0)];
         assert!(
-            scene.pending_tiles().is_empty(),
-            "must be empty after ingest"
+            scene.pending_tiles(&resident_set(&home)).is_empty(),
+            "must be empty once resident"
         );
     }
 
     #[test]
-    fn un_ingest_makes_an_evicted_tile_pending_again() {
+    fn an_evicted_but_still_desired_tile_re_pends() {
         // The coherence contract behind the "grey tile that never reloads"
-        // bug: when the GPU cache evicts a tile under memory pressure, the
-        // host calls `un_ingest`, and the tile MUST reappear in `pending`
-        // so it gets re-fetched. Without this it greyed out permanently
-        // until the layer was rebuilt.
-        let mut scene = Scene::new(Camera::new(LatLng::new(0.0, 0.0), 0.0), (100, 100), 0, 22);
+        // bug, restated for the injected predicate: when the GPU cache
+        // evicts (the lifecycle table drops the tile from Resident), the
+        // tile MUST reappear in `pending` so it gets re-fetched. The
+        // table-side transition itself is covered by turbomap-world's
+        // property tests and the sim's heavy-roaming gate.
+        let scene = Scene::new(Camera::new(LatLng::new(0.0, 0.0), 0.0), (100, 100), 0, 22);
         let tile = TileId::new(0, 0, 0);
-        scene.ingest(tile);
-        assert!(scene.pending_tiles().is_empty(), "ingested → not pending");
-
-        scene.un_ingest(&tile); // simulate a cache eviction
+        let resident = [tile];
+        assert!(
+            scene.pending_tiles(&resident_set(&resident)).is_empty(),
+            "resident → not pending"
+        );
         assert_eq!(
-            scene.pending_tiles(),
+            scene.pending_tiles(&resident_set(&[])), // eviction: no longer resident
             vec![tile],
-            "an evicted (un-ingested) but still-desired tile must re-pend"
+            "an evicted but still-desired tile must re-pend"
         );
     }
 
     #[test]
-    fn changing_the_camera_re_exposes_uningested_tiles() {
+    fn changing_the_camera_re_exposes_missing_tiles() {
         // After a pan to a new region, freshly visible tiles should appear in
-        // the pending list even if previously visible tiles were ingested.
+        // the pending list even if previously visible tiles are resident.
         let mut scene = Scene::new(Camera::new(LatLng::new(0.0, 0.0), 1.0), (200, 200), 0, 22);
-        // Ingest the whole desired set (visible + the coarse overview backdrop).
-        for t in scene.desired_tiles() {
-            scene.ingest(t);
-        }
-        assert!(scene.pending_tiles().is_empty());
+        // The whole desired set (visible + overview backdrop) is resident.
+        let home: Vec<TileId> = scene.desired_tiles();
+        assert!(scene.pending_tiles(&resident_set(&home)).is_empty());
 
         // Jump to a different region. New visible set must include something
-        // not yet ingested.
+        // not yet resident.
         scene.set_camera(Camera::new(LatLng::new(60.0, -60.0), 4.0));
         assert!(
-            !scene.pending_tiles().is_empty(),
+            !scene.pending_tiles(&resident_set(&home)).is_empty(),
             "new region must produce pending tiles"
         );
     }
@@ -876,7 +848,7 @@ mod tests {
         );
         let tier: std::collections::HashMap<TileId, TileTier> =
             scene.desired_tagged().into_iter().collect();
-        let pending = scene.pending_tiles();
+        let pending = scene.pending_tiles(&|_| false);
         let centre = scene.camera().center.to_world();
 
         // Tier priority is non-decreasing along pending…
@@ -955,7 +927,11 @@ mod tests {
             let b = sweep_scene(cam);
             assert_eq!(a.visible_tiles(), b.visible_tiles(), "visible nondeterministic @ {cam:?}");
             assert_eq!(a.desired_tiles(), b.desired_tiles(), "desired nondeterministic @ {cam:?}");
-            assert_eq!(a.pending_tiles(), b.pending_tiles(), "pending nondeterministic @ {cam:?}");
+            assert_eq!(
+                a.pending_tiles(&|_| false),
+                b.pending_tiles(&|_| false),
+                "pending nondeterministic @ {cam:?}"
+            );
         }
     }
 
@@ -1002,24 +978,33 @@ mod tests {
         // fetches never settle. Uses the steep-tilt high-zoom case (the largest
         // working set). Phases stay consistent: an ingested wanted tile reads
         // back as Resident, never Pending.
-        let mut scene = sweep_scene(
+        let scene = sweep_scene(
             Camera::new(LatLng::new(67.27, 15.05), 16.0).with_pitch(80.0),
         );
-        let mut prev = scene.pending_tiles();
+        let mut resident: HashSet<TileId> = HashSet::new();
+        let is_res = |set: &HashSet<TileId>| {
+            let snapshot = set.clone();
+            move |t: &TileId| snapshot.contains(t)
+        };
+        let mut prev = scene.pending_tiles(&is_res(&resident));
         assert!(!prev.is_empty(), "expected pending tiles to drive the test");
         let mut guard = 0;
         while let Some(&next) = prev.first() {
             let before: HashSet<TileId> = prev.iter().copied().collect();
-            scene.ingest(next);
-            // The ingested tile is now Resident, not Pending.
+            resident.insert(next);
+            // The delivered tile is now Resident, not Pending.
+            let res = is_res(&resident);
             assert!(
-                scene.tile_phases().iter().any(|(t, p)| *t == next && *p == TilePhase::Resident),
-                "ingested tile {next:?} not classified Resident",
+                scene
+                    .tile_phases(&res)
+                    .iter()
+                    .any(|(t, p)| *t == next && *p == TilePhase::Resident),
+                "resident tile {next:?} not classified Resident",
             );
-            let now = scene.pending_tiles();
+            let now = scene.pending_tiles(&res);
             let now_set: HashSet<TileId> = now.iter().copied().collect();
-            assert!(now_set.is_subset(&before), "ingest introduced new pending tiles @ {next:?}");
-            assert!(now.len() < prev.len(), "ingest did not shrink pending @ {next:?}");
+            assert!(now_set.is_subset(&before), "delivery introduced new pending tiles @ {next:?}");
+            assert!(now.len() < prev.len(), "delivery did not shrink pending @ {next:?}");
             prev = now;
             guard += 1;
             assert!(guard < 10_000, "pending did not converge");
@@ -1038,7 +1023,7 @@ mod tests {
             let tier: std::collections::HashMap<TileId, TileTier> =
                 scene.desired_tagged().into_iter().collect();
             let prios: Vec<u8> = scene
-                .pending_tiles()
+                .pending_tiles(&|_| false)
                 .iter()
                 .map(|t| tier[t].priority())
                 .collect();
@@ -1058,7 +1043,7 @@ mod tests {
         use turbomap_world::priority::{effective_distance_sq, score};
         for cam in camera_sweep() {
             let scene = sweep_scene(cam);
-            let pend = scene.pending_prioritized();
+            let pend = scene.pending_prioritized(&|_| false);
 
             let mut historical = pend.clone();
             historical.sort_by(|(a, ta, da), (b, tb, db)| {

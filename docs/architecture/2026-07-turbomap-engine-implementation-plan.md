@@ -783,3 +783,23 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   `tile_histogram` derives from the table; `lifecycle_agreement` retires
   with the sets it compares. Keep the property tests; the capacity proof
   moves to the table's resident universe.
+- _2026-07-04_: **B3.4 completed — the legacy per-scene residency sets are
+  deleted.** `Scene` no longer tracks residency at all: `ingested` and its
+  mutators (`ingest`/`un_ingest`/`is_ingested`/`ingested_len`) are gone;
+  `pending_tiles`/`pending_prioritized`/`tile_phases`/`phase_histogram`
+  classify against an INJECTED residency predicate — in production the
+  lifecycle table via `Map` (`chunk_is_resident`), in tests a plain set.
+  `TileHistogram.retained` comes from the table alone (resident-but-
+  unwanted is the table's knowledge; scenes only know what they want).
+  All ingest sites write residency solely through `lifecycle_delivered`;
+  `lifecycle_agreement` is retired everywhere (core, engine passthrough,
+  the sim's per-frame assertion, the plan test's checkpoints) together
+  with the sets it existed to compare. The scenes are now purely
+  camera-derived want-generators — the S6 LOD policy role the
+  architecture assigns them. Scene property tests (determinism, tier
+  ordering, monotonic convergence, bounded working set) survive with
+  set-backed predicates; the evicted-tile-re-pends contract is covered at
+  the table level (turbomap-world property tests) and behaviourally (the
+  sim's heavy-roaming gate). Fast lanes green (52 suites, clippy, wasm);
+  engine gpu + full sim verification in flight — verdict in the next
+  entry.

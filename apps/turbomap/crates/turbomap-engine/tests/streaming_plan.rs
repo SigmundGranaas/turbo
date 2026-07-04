@@ -81,7 +81,6 @@ fn plan_start_deliver_cancel_acknowledge_loop_keeps_the_table_honest() {
     let plan = e.streaming_plan(4);
     assert_eq!(plan.start.len(), 4, "budget truncates the start list");
     assert!(plan.cancel.is_empty(), "nothing in flight yet");
-    e.lifecycle_agreement().expect("agreement after planning");
 
     // Re-planning immediately does NOT restart in-flight attempts.
     let replan = e.streaming_plan(64);
@@ -100,13 +99,11 @@ fn plan_start_deliver_cancel_acknowledge_loop_keeps_the_table_honest() {
         panic!("raster scene plans raster fetches");
     };
     assert!(e.ingest_raster_encoded(layer_id, *tile, &png));
-    e.lifecycle_agreement().expect("agreement after delivery");
 
     // 3) Fail another started fetch: it must re-pend (appear in a later
     //    plan), not vanish.
     let second = plan.start[1].clone();
     e.fetch_failed(second.id);
-    e.lifecycle_agreement().expect("agreement after failure");
     let tile_of = |p: &PendingTile| match p {
         PendingTile::Raster { tile, .. } => *tile,
         _ => panic!("raster scene"),

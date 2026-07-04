@@ -788,13 +788,6 @@ impl TurbomapEngine {
         self.map.last_frame_metrics()
     }
 
-    /// Slice-B3.1 dual-write gate: does the lifecycle table agree with the
-    /// legacy per-scene bookkeeping? Valid right after a `pending_tiles()`;
-    /// the sim harness asserts it every frame. See `Map::lifecycle_agreement`.
-    pub fn lifecycle_agreement(&self) -> Result<(), String> {
-        self.map.lifecycle_agreement()
-    }
-
     /// One streaming step for plan-driven hosts: fetches to start (each with
     /// a `RequestId`) and in-flight attempts to cancel. Deliveries complete
     /// through the existing `ingest_*`; failures/cancellations report back

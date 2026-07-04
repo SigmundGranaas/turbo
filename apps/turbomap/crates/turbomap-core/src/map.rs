@@ -1223,10 +1223,6 @@ impl Map {
         let mut delivered: Option<Vec<TileId>> = None;
         if let Some(t) = self.terrain.as_mut() {
             let evicted = t.cache.ingest(tile, rgba, width, height);
-            t.scene.ingest(tile);
-            for e in &evicted {
-                t.scene.un_ingest(e);
-            }
             // New elevation data → route tubes baked before this are stale and
             // should re-drape onto the now-finer terrain.
             self.route_tubes.terrain_gen = self.route_tubes.terrain_gen.wrapping_add(1);
@@ -1280,36 +1276,10 @@ impl Map {
         }
     }
 
-    /// The dual-write agreement gate: the lifecycle table and the legacy
-    /// per-scene bookkeeping must describe the same world. Valid immediately
-    /// after a `pending_tiles()` call (the table syncs against the camera
-    /// there); the sim harness asserts it every frame across the full
-    /// behavioural sweep. `fetching`/`decoding` are structurally zero until
-    /// the plan boundary goes live in B3.2+.
-    pub fn lifecycle_agreement(&self) -> Result<(), String> {
-        let lc = self.lifecycle.borrow();
-        let table = lc.histogram();
-        // Stale in-flight attempts (awaiting cancellation) are unwanted on
-        // the table's side but invisible to the scenes — exclude them, then
-        // wanted-missing must match: the scenes' `pending` counts every
-        // wanted-not-resident tile, which the table splits across
-        // Desired/Fetching/Decoding once a plan host is live.
-        let stale = lc.cancelable().len();
-        let scenes = self.tile_histogram();
-        let wanted_missing = table.desired + table.fetching + table.decoding - stale;
-        let ok = wanted_missing == scenes.pending
-            && table.resident == scenes.resident
-            && table.retained == scenes.retained;
-        if ok {
-            Ok(())
-        } else {
-            Err(format!(
-                "lifecycle table diverged from scene bookkeeping: table {table:?} \
-                 (stale in-flight {stale}) vs scenes pending={} resident={} retained={}",
-                scenes.pending, scenes.resident, scenes.retained
-            ))
-        }
-    }
+    // Slice B3.4: `lifecycle_agreement` is retired with the per-scene sets
+    // it compared. The dual-write soak (agreement asserted every sim frame
+    // across the whole B4 campaign) is what justified the flip; residency
+    // now has exactly one owner — the lifecycle table.
 
     // ---- layer management ----------------------------------------------
 
@@ -2091,12 +2061,14 @@ impl Map {
         for l in self.layers.iter() {
             match l {
                 LayerEntry::Raster(r) if r.visible => {
-                    for (tile, tier, d) in r.scene.pending_prioritized() {
+                    let res = |t: &TileId| self.chunk_is_resident(self.world_key(Some(&r.id), *t));
+                    for (tile, tier, d) in r.scene.pending_prioritized(&res) {
                         tagged.push((PendingTile::Raster { layer_id: r.id.clone(), tile }, tier, d));
                     }
                 }
                 LayerEntry::Vector(v) if v.visible => {
-                    for (tile, tier, d) in v.scene.pending_prioritized() {
+                    let res = |t: &TileId| self.chunk_is_resident(self.world_key(Some(&v.id), *t));
+                    for (tile, tier, d) in v.scene.pending_prioritized(&res) {
                         tagged.push((PendingTile::Vector { layer_id: v.id.clone(), tile }, tier, d));
                     }
                 }
@@ -2107,7 +2079,8 @@ impl Map {
             }
         }
         if let Some(t) = self.terrain.as_ref() {
-            for (tile, tier, d) in t.scene.pending_prioritized() {
+            let res = |t: &TileId| self.chunk_is_resident(self.world_key(None, *t));
+            for (tile, tier, d) in t.scene.pending_prioritized(&res) {
                 tagged.push((PendingTile::Terrain { tile }, tier, d));
             }
         }
@@ -2278,13 +2251,9 @@ impl Map {
             if let LayerEntry::Raster(r) = l {
                 if r.id == layer_id {
                     let evicted = r.cache.insert(tile, rgba, w, h);
-                    r.scene.ingest(tile);
                     // Keep the "ingested" set in step with what the cache
                     // actually holds — evicted tiles must become re-
                     // requestable, or they grey out permanently.
-                    for e in &evicted {
-                        r.scene.un_ingest(e);
-                    }
                     delivered = Some(evicted);
                     break;
                 }
@@ -2311,10 +2280,6 @@ impl Map {
                 if v.id == layer_id {
                     let evicted =
                         v.cache.insert(tile, mesh, labels, icons, interactive);
-                    v.scene.ingest(tile);
-                    for e in &evicted {
-                        v.scene.un_ingest(e);
-                    }
                     delivered = Some(evicted);
                     break;
                 }
@@ -3261,16 +3226,28 @@ impl Map {
         let mut h = crate::scene::TileHistogram::default();
         for l in self.layers.iter() {
             match l {
-                LayerEntry::Raster(r) => h += r.scene.phase_histogram(),
-                LayerEntry::Vector(v) => h += v.scene.phase_histogram(),
+                LayerEntry::Raster(r) => {
+                    let res =
+                        |t: &TileId| self.chunk_is_resident(self.world_key(Some(&r.id), *t));
+                    h += r.scene.phase_histogram(&res);
+                }
+                LayerEntry::Vector(v) => {
+                    let res =
+                        |t: &TileId| self.chunk_is_resident(self.world_key(Some(&v.id), *t));
+                    h += v.scene.phase_histogram(&res);
+                }
                 // Hillshade owns no scene/cache — it reads the shared terrain,
                 // which is counted once below.
                 LayerEntry::Hillshade(_) => {}
             }
         }
         if let Some(t) = &self.terrain {
-            h += t.scene.phase_histogram();
+            let res = |ti: &TileId| self.chunk_is_resident(self.world_key(None, *ti));
+            h += t.scene.phase_histogram(&res);
         }
+        // Resident-but-unwanted is the lifecycle table's knowledge alone
+        // (slice B3.4) — the scenes no longer track residency at all.
+        h.retained = self.lifecycle.borrow().histogram().retained;
         h
     }
 
