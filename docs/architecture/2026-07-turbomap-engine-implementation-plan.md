@@ -609,3 +609,27 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   the entry above): all 7 behavioural gates green under `REQUIRE_GPU=1` on
   Lavapipe, release profile, 622 s run — post-B5.2 tree, as expected for a
   diff no sim scene exercises.
+- _2026-07-04_: **B6.2 landed — the provider chain, bundled-under-remote in
+  the IR.** `SourceDef::Chain { providers }`: one source id, an ordered
+  provider list; `validate()` rejects empty/nested/mixed-kind chains
+  (`SceneError::InvalidChain`). `HostDrivenResolver` resolves every provider
+  through itself and composes first-hit-wins (`ChainedTileSource` /
+  `ChainedVectorSource`): a provider is consulted only inside its zoom
+  range, the first `Ok` wins, and if nothing serves the tile the LAST error
+  propagates — so a chain ending in a host stub yields the stub's
+  "fetch me host-side" signal and the tile flows through the normal pending
+  path with zero special cases downstream. Zoom coverage is the union of
+  the providers'. On wasm the bundled provider resolves `Unsupported` and
+  the chain composes what remains — same scene, graceful platform
+  degradation. Gates: serde round-trip + the three validation rejections;
+  resolver unit test (bundle serves its zoom, stub error propagates past
+  it, union bounds); gpu gate `a_chained_source_renders_offline_and_
+  surfaces_detail_to_the_host` — at the bundle's zoom every VISIBLE-zoom
+  tile is served offline (the coarse overview floor below the fixture's
+  single level correctly pends to the remote — per-tier invariant, not
+  "pending empty"), and past the bundle the same source surfaces exactly
+  the detail tiles for the host; 52 workspace suites green, clippy clean,
+  wasm green, sim gates re-run `REQUIRE_GPU=1` (result in the next entry).
+  Remaining in B6: the committed coarse Norway extract behind a CI size
+  budget + host wiring (`TURBO_BASELINE_BUNDLE`) — now unblocked, since a
+  host can declare `chain [bundle, remote]` without any engine change.
