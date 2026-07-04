@@ -821,3 +821,5 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   sim verification in flight — verdict next. Remaining in C: C2 (the
   imperative setters become shims; clouds/radar ride Field2D ingest),
   C3 (compositing honesty + truthful `Capabilities`).
+- _2026-07-04_: **C1 verified: 7/7 sim gates green** (`REQUIRE_GPU=1`,
+  Lavapipe, release, 458 s) on the environment-in-the-IR tree.
