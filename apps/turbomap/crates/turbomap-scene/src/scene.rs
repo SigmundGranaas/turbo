@@ -83,6 +83,24 @@ pub enum SourceDef {
         #[serde(default)]
         halo: u32,
     },
+    /// A PMTiles v3 archive of raster tiles (decision D2/D7: one artifact is
+    /// both the offline bundle and the serverless online source). `location`
+    /// is a local filesystem path (the bundled-baseline case) or an http(s)
+    /// URL (range requests against dumb static storage) — bundled-vs-remote
+    /// is packaging, not architecture, so it is one variant. Zoom bounds and
+    /// compression come from the archive header at resolve time.
+    PmtilesRaster { location: String },
+    /// A PMTiles v3 archive of MVT vector tiles.
+    PmtilesVector { location: String },
+    /// A PMTiles v3 archive of DEM tiles for terrain/hillshade.
+    PmtilesDem {
+        location: String,
+        encoding: DemEncoding,
+        /// Per-tile halo (px) baked into the archive's tiles; see
+        /// [`SourceDef::DemXyz::halo`].
+        #[serde(default)]
+        halo: u32,
+    },
 }
 
 fn default_tile_size() -> u32 {

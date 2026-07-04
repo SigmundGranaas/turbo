@@ -969,14 +969,23 @@ fn dirty_sources(old: &Scene, new: &Scene) -> std::collections::BTreeSet<String>
 fn is_supportable(layer: &Layer, scene: &Scene) -> bool {
     let source_is = |want: fn(&SourceDef) -> bool| layer.source().and_then(|s| scene.sources.get(s)).map(want).unwrap_or(false);
     match layer {
-        Layer::Raster { .. } => source_is(|d| matches!(d, SourceDef::RasterXyz { .. })),
-        Layer::Hillshade { .. } => source_is(|d| matches!(d, SourceDef::DemXyz { .. })),
+        Layer::Raster { .. } => source_is(|d| {
+            matches!(d, SourceDef::RasterXyz { .. } | SourceDef::PmtilesRaster { .. })
+        }),
+        Layer::Hillshade { .. } => {
+            source_is(|d| matches!(d, SourceDef::DemXyz { .. } | SourceDef::PmtilesDem { .. }))
+        }
         Layer::Line { .. }
         | Layer::Fill { .. }
         | Layer::FillExtrusion { .. }
-        | Layer::Symbol { .. } => {
-            source_is(|d| matches!(d, SourceDef::GeoJson { .. } | SourceDef::VectorXyz { .. }))
-        }
+        | Layer::Symbol { .. } => source_is(|d| {
+            matches!(
+                d,
+                SourceDef::GeoJson { .. }
+                    | SourceDef::VectorXyz { .. }
+                    | SourceDef::PmtilesVector { .. }
+            )
+        }),
         Layer::Circle { .. } => source_is(|d| matches!(d, SourceDef::GeoJson { .. })),
         Layer::Custom { .. } => false,
     }

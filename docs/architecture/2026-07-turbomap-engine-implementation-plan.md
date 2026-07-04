@@ -564,3 +564,30 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   opting the raster sources
   into the cache dir, `SourceDef::{PmtilesBundle,PmtilesRemote}` + resolver
   wiring, brotli in the PMTiles reader (B5.2).
+- _2026-07-04_: **B5.2 landed — PMTiles declarative in the Scene; brotli.**
+  `SourceDef::{PmtilesRaster, PmtilesVector, PmtilesDem}` with a single
+  `location` field — a filesystem path (bundled baseline) or http(s) URL
+  (serverless range requests); bundled-vs-remote is packaging, not a schema
+  fork (D2/D7). Zoom bounds come from the archive header at resolve time;
+  the DEM variant carries `encoding` + `halo` like `DemXyz` (halo reaches
+  the mesh via a `WithDemHalo` wrapper — the archive header has no halo
+  field). `HostDrivenResolver` resolves these to REAL in-process
+  `PMTilesSource`s — the one remote kind the engine doesn't stub, because
+  "range-read this archive" can't be expressed as a URL-template host fetch;
+  a failed open degrades to `Unsupported` + a warning, never a panic. The
+  dep is target-gated: on wasm (no std::fs / blocking reqwest) the variants
+  resolve to `Unsupported` and `turbomap-web` still builds (verified on
+  `wasm32-unknown-unknown`). The reader now decodes **brotli** tile/directory
+  compression (`brotli-decompressor`, pure Rust; encoder round-trip test) —
+  real planet archives ship brotli, and without it the bundled-baseline goal
+  only worked for archives we repack ourselves. Zstd still errors clearly.
+  Gates: serde round-trips (kebab-case tags, halo default), resolver
+  serves a tile from a writer-built temp archive, missing-archive
+  degradation, `is_supportable` accepts the new source kinds per layer;
+  52 workspace suites green, clippy clean, wasm build green. (Sim gates:
+  no sim scene declares a pmtiles source, so this diff is invisible to
+  them; the `REQUIRE_GPU=1` re-run was kicked off at commit time and its
+  result is recorded in the next entry.) Remaining in B5/B6: hosts opting
+  raster sources
+  into the disk cache, engine-level pmtiles read-through caching, the
+  committed baseline extract + offline cold-start sim gate.

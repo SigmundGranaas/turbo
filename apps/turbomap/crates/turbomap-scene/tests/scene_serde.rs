@@ -108,3 +108,42 @@ fn validate_rejects_unknown_source() {
         })
     );
 }
+
+// ---- PMTiles source variants (plan slice B5.2, decisions D2/D7) ---------
+
+#[test]
+fn pmtiles_sources_roundtrip_with_kebab_case_tags() {
+    use turbomap_scene::DemEncoding;
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "baseline".to_string(),
+        SourceDef::PmtilesVector { location: "/data/norway-z10.pmtiles".to_string() },
+    );
+    scene.sources.insert(
+        "sat".to_string(),
+        SourceDef::PmtilesRaster { location: "https://cdn.example/planet.pmtiles".to_string() },
+    );
+    scene.sources.insert(
+        "dem".to_string(),
+        SourceDef::PmtilesDem {
+            location: "/data/dem.pmtiles".to_string(),
+            encoding: DemEncoding::MapboxRgb,
+            halo: 1,
+        },
+    );
+    let json = serde_json::to_string(&scene).unwrap();
+    // Tagged kebab-case like every other source kind — host bindings parse
+    // one convention.
+    assert!(json.contains("\"type\":\"pmtiles-vector\""), "{json}");
+    assert!(json.contains("\"type\":\"pmtiles-raster\""), "{json}");
+    assert!(json.contains("\"type\":\"pmtiles-dem\""), "{json}");
+    let back: Scene = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, scene);
+}
+
+#[test]
+fn pmtiles_dem_halo_defaults_to_zero() {
+    let json = r#"{"type":"pmtiles-dem","location":"/d.pmtiles","encoding":"mapbox-rgb"}"#;
+    let def: SourceDef = serde_json::from_str(json).unwrap();
+    assert!(matches!(def, SourceDef::PmtilesDem { halo: 0, .. }));
+}

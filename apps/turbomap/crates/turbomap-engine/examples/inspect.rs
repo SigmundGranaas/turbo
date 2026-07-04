@@ -38,7 +38,10 @@ impl SourceResolver for SyntheticResolver {
             SourceDef::GeoJson { data } => {
                 ResolvedSource::Vector(Arc::new(GeoJsonVectorSource::new(data)))
             }
-            SourceDef::VectorXyz { .. } => ResolvedSource::Unsupported,
+            SourceDef::VectorXyz { .. }
+            | SourceDef::PmtilesRaster { .. }
+            | SourceDef::PmtilesVector { .. }
+            | SourceDef::PmtilesDem { .. } => ResolvedSource::Unsupported,
         }
     }
 }
@@ -143,6 +146,9 @@ fn source_type(def: &SourceDef) -> &'static str {
         SourceDef::VectorXyz { .. } => "vector-xyz",
         SourceDef::GeoJson { .. } => "geojson",
         SourceDef::DemXyz { .. } => "dem-xyz",
+        SourceDef::PmtilesRaster { .. } => "pmtiles-raster",
+        SourceDef::PmtilesVector { .. } => "pmtiles-vector",
+        SourceDef::PmtilesDem { .. } => "pmtiles-dem",
     }
 }
 

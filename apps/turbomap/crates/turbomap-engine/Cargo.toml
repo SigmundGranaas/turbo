@@ -28,7 +28,16 @@ log.workspace = true
 serde_json.workspace = true
 web-time.workspace = true
 
+# PMTiles archives resolve to real in-process sources on native hosts
+# (bundled baseline = a local file; remote = HTTP range requests). The
+# reader's IO (std::fs + blocking reqwest) doesn't exist on wasm, where
+# these sources resolve to Unsupported instead — so the dep is target-gated
+# to keep the web engine building.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+turbomap-tiles-pmtiles = { path = "../turbomap-tiles-pmtiles" }
+
 [dev-dependencies]
+tempfile = "3"
 # The golden harness supplies a headless GPU context, the offscreen
 # readback, and deterministic synthetic tile sources for tests + the
 # inspect example. (golden does not depend on engine, so no cycle.)
