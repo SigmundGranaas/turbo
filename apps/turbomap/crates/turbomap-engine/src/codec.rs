@@ -19,9 +19,10 @@
 //!   back to pending and the host's normal retry/backoff owns the policy.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::Duration;
 
-use turbomap_core::TileId;
+use turbomap_core::{TileId, VectorStyle};
 use web_time::Instant;
 
 /// Per-frame wall-time budget for applying decoded tiles (GPU upload +
@@ -35,30 +36,59 @@ pub(crate) const APPLY_BUDGET: Duration = Duration::from_millis(6);
 pub(crate) enum QueueKey {
     Raster { layer_id: String, tile: TileId },
     Terrain { tile: TileId },
+    Vector { layer_id: String, tile: TileId },
 }
 
 pub(crate) struct DecodeJob {
     pub key: QueueKey,
     pub bytes: Vec<u8>,
+    /// Vector jobs only: the layer's style at enqueue time plus its epoch.
+    /// Tessellation bakes the style into the mesh, so the worker needs the
+    /// style value and the apply side must reject a result whose epoch no
+    /// longer matches the layer (repaint/rebuild raced the decode).
+    pub style: Option<(Arc<VectorStyle>, u64)>,
 }
 
-/// A decoded, ready-to-upload tile.
+/// A decoded, ready-to-apply tile.
 pub(crate) struct Decoded {
     pub key: QueueKey,
-    pub rgba: Vec<u8>,
-    pub w: u32,
-    pub h: u32,
+    pub kind: DecodedKind,
+}
+
+pub(crate) enum DecodedKind {
+    /// Raster/DEM RGBA ready for GPU upload.
+    Image { rgba: Vec<u8>, w: u32, h: u32 },
+    /// A tessellated vector tile + the style epoch it was built against.
+    Vector { out: turbomap_core::tessellate::TessellationOutput, epoch: u64 },
 }
 
 fn decode(job: DecodeJob) -> (QueueKey, Option<Decoded>) {
-    let DecodeJob { key, bytes } = job;
-    match image::load_from_memory(&bytes) {
-        Ok(img) => {
-            let img = img.to_rgba8();
-            let (w, h) = img.dimensions();
-            (key.clone(), Some(Decoded { key, rgba: img.into_raw(), w, h }))
+    let DecodeJob { key, bytes, style } = job;
+    match &key {
+        QueueKey::Raster { .. } | QueueKey::Terrain { .. } => {
+            match image::load_from_memory(&bytes) {
+                Ok(img) => {
+                    let img = img.to_rgba8();
+                    let (w, h) = img.dimensions();
+                    let kind = DecodedKind::Image { rgba: img.into_raw(), w, h };
+                    (key.clone(), Some(Decoded { key, kind }))
+                }
+                Err(_) => (key, None),
+            }
         }
-        Err(_) => (key, None),
+        QueueKey::Vector { tile, .. } => {
+            let Some((style, epoch)) = style else {
+                return (key, None);
+            };
+            match turbomap_core::vector::decode_mvt(&bytes) {
+                Ok(vtile) => {
+                    let out = turbomap_core::tessellate::tessellate(*tile, &vtile, &style);
+                    let kind = DecodedKind::Vector { out, epoch };
+                    (key.clone(), Some(Decoded { key, kind }))
+                }
+                Err(_) => (key, None),
+            }
+        }
     }
 }
 
@@ -103,13 +133,18 @@ impl DecodeQueue {
     /// Accept bytes for decode. Returns `false` (and drops the bytes) if
     /// this key is already in flight — the dedup that keeps a host's
     /// reconcile loop from re-decoding every not-yet-applied tile.
-    pub fn enqueue(&mut self, key: QueueKey, bytes: Vec<u8>) -> bool {
+    pub fn enqueue(
+        &mut self,
+        key: QueueKey,
+        bytes: Vec<u8>,
+        style: Option<(Arc<VectorStyle>, u64)>,
+    ) -> bool {
         if !self.in_flight.insert(key.clone()) {
             return false;
         }
         // Send can only fail if workers died (poisoned process state);
         // clear the dedup entry so the tile can be retried.
-        if self.jobs.send(DecodeJob { key: key.clone(), bytes }).is_err() {
+        if self.jobs.send(DecodeJob { key: key.clone(), bytes, style }).is_err() {
             self.in_flight.remove(&key);
             return false;
         }
@@ -152,11 +187,16 @@ impl DecodeQueue {
         Self { jobs: std::collections::VecDeque::new(), in_flight: HashSet::new() }
     }
 
-    pub fn enqueue(&mut self, key: QueueKey, bytes: Vec<u8>) -> bool {
+    pub fn enqueue(
+        &mut self,
+        key: QueueKey,
+        bytes: Vec<u8>,
+        style: Option<(Arc<VectorStyle>, u64)>,
+    ) -> bool {
         if !self.in_flight.insert(key.clone()) {
             return false;
         }
-        self.jobs.push_back(DecodeJob { key, bytes });
+        self.jobs.push_back(DecodeJob { key, bytes, style });
         true
     }
 
@@ -198,15 +238,19 @@ mod tests {
     fn decodes_off_thread_and_applies_within_budget() {
         let mut q = DecodeQueue::new();
         let key = QueueKey::Terrain { tile: TileId::new(3, 1, 2) };
-        assert!(q.enqueue(key.clone(), png_1x1()));
+        assert!(q.enqueue(key.clone(), png_1x1(), None));
         assert_eq!(q.backlog(), 1);
         // The same key is deduped while in flight.
-        assert!(!q.enqueue(key, png_1x1()));
+        assert!(!q.enqueue(key, png_1x1(), None));
 
         let mut applied = Vec::new();
         let deadline = Instant::now() + Duration::from_secs(5);
         while applied.is_empty() && Instant::now() < deadline {
-            q.drain(Duration::from_millis(4), |d| applied.push((d.w, d.h, d.rgba.clone())));
+            q.drain(Duration::from_millis(4), |d| {
+                if let DecodedKind::Image { rgba, w, h } = d.kind {
+                    applied.push((w, h, rgba));
+                }
+            });
         }
         assert_eq!(applied, vec![(1, 1, vec![1, 2, 3, 255])]);
         assert_eq!(q.backlog(), 0, "apply must clear the dedup entry");
@@ -216,13 +260,40 @@ mod tests {
     fn a_decode_failure_clears_the_key_for_retry() {
         let mut q = DecodeQueue::new();
         let key = QueueKey::Raster { layer_id: "base".into(), tile: TileId::new(1, 0, 0) };
-        assert!(q.enqueue(key.clone(), b"not an image".to_vec()));
+        assert!(q.enqueue(key.clone(), b"not an image".to_vec(), None));
         let deadline = Instant::now() + Duration::from_secs(5);
         while q.backlog() > 0 && Instant::now() < deadline {
             q.drain(Duration::from_millis(4), |_| panic!("garbage must not apply"));
         }
         assert_eq!(q.backlog(), 0);
         // Retriable: the key is free again.
-        assert!(q.enqueue(key, png_1x1()));
+        assert!(q.enqueue(key, png_1x1(), None));
+    }
+
+    #[test]
+    fn vector_jobs_tessellate_off_thread_and_carry_their_epoch() {
+        use turbomap_mvt::encode::TileEncoder;
+        let bytes = TileEncoder::new()
+            .layer("roads", 4096)
+            .line(&[(0, 0), (4096, 4096)], &[])
+            .finish()
+            .finish();
+        let mut q = DecodeQueue::new();
+        let key = QueueKey::Vector { layer_id: "roads-l".into(), tile: TileId::new(3, 1, 2) };
+        // An empty style tessellates to an empty mesh — the point here is
+        // the off-thread MVT decode + tessellate round-trip and the epoch
+        // passthrough, not styling.
+        assert!(q.enqueue(key, bytes, Some((Arc::new(VectorStyle::default()), 7))));
+        let mut got = None;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while got.is_none() && Instant::now() < deadline {
+            q.drain(Duration::from_millis(4), |d| {
+                if let DecodedKind::Vector { epoch, .. } = d.kind {
+                    got = Some(epoch);
+                }
+            });
+        }
+        assert_eq!(got, Some(7), "the apply side needs the enqueue-time epoch");
+        assert_eq!(q.backlog(), 0);
     }
 }

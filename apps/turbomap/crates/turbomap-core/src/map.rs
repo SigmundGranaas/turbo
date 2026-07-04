@@ -2238,6 +2238,23 @@ impl Map {
         self.terrain.as_ref().is_some_and(|t| t.scene.is_ingested(&tile))
     }
 
+    /// Vector twin of [`Map::is_raster_ingested`].
+    pub fn is_vector_ingested(&self, layer_id: &str, tile: TileId) -> bool {
+        self.layers.iter().any(|l| match l {
+            LayerEntry::Vector(v) => v.id == layer_id && v.scene.is_ingested(&tile),
+            _ => false,
+        })
+    }
+
+    /// The style a vector layer would tessellate against right now — a
+    /// clone for off-thread tessellation (the engine's decode workers).
+    pub fn vector_layer_style(&self, layer_id: &str) -> Option<VectorStyle> {
+        self.layers.iter().find_map(|l| match l {
+            LayerEntry::Vector(v) if v.id == layer_id => Some(v.style.clone()),
+            _ => None,
+        })
+    }
+
     pub fn ingest_raster(&mut self, layer_id: &str, tile: TileId, rgba: &[u8], w: u32, h: u32) {
         let mut delivered: Option<Vec<TileId>> = None;
         for l in self.layers.iter_mut() {

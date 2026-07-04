@@ -685,3 +685,21 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   the synchronous path. Remaining in B4: MVT decode+tessellation
   off-thread (B4.2) and retiring the FFI host's now-redundant ingest
   time-slicing in favour of the engine budget (B4.3).
+- _2026-07-04_: **B4.2 landed — MVT decode + tessellation off the render
+  thread.** The `DecodeQueue` gains `QueueKey::Vector`: `ingest_mvt` now
+  accepts bytes, captures the layer's CURRENT `VectorStyle` (new
+  `Map::vector_layer_style`) plus a **style epoch**, and the worker runs
+  `decode_mvt` + lyon `tessellate` — the render thread only applies the
+  finished mesh via `ingest_vector_mesh` under the same 6 ms budget.
+  The epoch is the correctness keystone: every vector-layer (re)install
+  bumps `vector_style_epochs[layer_id]` (monotonic, entries never removed
+  so a re-added layer can't collide with a stale queued result), and apply
+  drops any result whose epoch mismatches — a repaint/rebuild that races a
+  decode re-pends the tile instead of painting stale style. Same residency
+  guard as B4.1 (`Map::is_vector_ingested`) kills duplicate-delivery
+  churn. With this, NOTHING decodes or tessellates on the render thread
+  on any engine host — the desktop's rayon pumps are now the pattern
+  everywhere, closing P3's worst half. Gates: codec unit tests incl.
+  off-thread tessellate round-trip + epoch passthrough; 52 workspace
+  suites, clippy, wasm green; all 13 engine gpu suites green; sim gates
+  re-run `REQUIRE_GPU=1` release (result in the next entry).

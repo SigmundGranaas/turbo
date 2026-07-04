@@ -61,10 +61,16 @@ pub struct TurbomapEngine {
     /// sizes (line widths, fonts, dashes, icons, marker radii) at compile
     /// time so the frame is crisp at the host's native DPI.
     pixel_ratio: f32,
-    /// Raster/DEM image decode off the render thread (plan B4.1): the
-    /// `ingest_*_encoded` methods enqueue bytes here; `render()` applies
-    /// decoded tiles under a per-frame budget. See [`crate::codec`].
+    /// Raster/DEM image decode + MVT tessellation off the render thread
+    /// (plan B4.1/B4.2): the `ingest_*` methods enqueue bytes here;
+    /// `render()` applies decoded tiles under a per-frame budget. See
+    /// [`crate::codec`].
     decode_queue: crate::codec::DecodeQueue,
+    /// Per-vector-layer style generation, bumped on every (re)install. A
+    /// tessellation result carries the epoch it was built against; apply
+    /// drops it on mismatch — a repaint/rebuild that raced a decode must
+    /// not paint stale style onto the map.
+    vector_style_epochs: HashMap<String, u64>,
 }
 
 impl TurbomapEngine {
@@ -96,6 +102,7 @@ impl TurbomapEngine {
             max_texture_size,
             pixel_ratio,
             decode_queue: crate::codec::DecodeQueue::new(),
+            vector_style_epochs: HashMap::new(),
         })
     }
 
@@ -162,6 +169,20 @@ impl TurbomapEngine {
 
     /// Install one positional layer into the core map (append).
     fn install_positional(&mut self, layer: &Layer, scene: &Scene) {
+        // Any (re)install of a vector layer invalidates tessellations built
+        // against its previous style: bump the layer's style epoch so
+        // in-flight decode results are dropped at apply. Entries are never
+        // removed — epochs stay monotonic per id, so a layer that is
+        // removed and later re-added can't collide with a stale result.
+        match layer {
+            Layer::Line { id, .. }
+            | Layer::Fill { id, .. }
+            | Layer::FillExtrusion { id, .. }
+            | Layer::Symbol { id, .. } => {
+                *self.vector_style_epochs.entry(id.clone()).or_insert(0) += 1;
+            }
+            _ => {}
+        }
         match layer {
             Layer::Raster { id, source, .. } => {
                 if let Some(ResolvedSource::Raster(src)) = self.resolve(scene, source) {
@@ -422,6 +443,7 @@ impl TurbomapEngine {
         self.decode_queue.enqueue(
             crate::codec::QueueKey::Raster { layer_id: layer_id.to_string(), tile },
             bytes.to_vec(),
+            None,
         );
         true
     }
@@ -433,7 +455,8 @@ impl TurbomapEngine {
         if self.map.is_terrain_ingested(tile) {
             return true;
         }
-        self.decode_queue.enqueue(crate::codec::QueueKey::Terrain { tile }, bytes.to_vec());
+        self.decode_queue
+            .enqueue(crate::codec::QueueKey::Terrain { tile }, bytes.to_vec(), None);
         true
     }
 
@@ -442,24 +465,51 @@ impl TurbomapEngine {
     /// public so headless harnesses can drain deterministically without
     /// rendering.
     pub fn pump_decoded(&mut self) {
+        use crate::codec::{DecodedKind, QueueKey};
         let map = &mut self.map;
-        self.decode_queue.drain(crate::codec::APPLY_BUDGET, |d| match d.key {
-            crate::codec::QueueKey::Raster { ref layer_id, tile } => {
-                map.ingest_raster(layer_id, tile, &d.rgba, d.w, d.h);
+        let epochs = &self.vector_style_epochs;
+        self.decode_queue.drain(crate::codec::APPLY_BUDGET, |d| match (d.key, d.kind) {
+            (QueueKey::Raster { ref layer_id, tile }, DecodedKind::Image { rgba, w, h }) => {
+                map.ingest_raster(layer_id, tile, &rgba, w, h);
             }
-            crate::codec::QueueKey::Terrain { tile } => {
-                map.ingest_terrain_tile(tile, &d.rgba, d.w, d.h);
+            (QueueKey::Terrain { tile }, DecodedKind::Image { rgba, w, h }) => {
+                map.ingest_terrain_tile(tile, &rgba, w, h);
             }
+            (QueueKey::Vector { ref layer_id, tile }, DecodedKind::Vector { out, epoch }) => {
+                // Stale-style guard: a repaint/rebuild bumped the epoch
+                // while this tile tessellated — drop it; the tile is still
+                // pending and refetches against the new style.
+                if epochs.get(layer_id).copied().unwrap_or(0) == epoch {
+                    map.ingest_vector_mesh(
+                        layer_id, tile, &out.mesh, out.labels, out.icons, out.interactive,
+                    );
+                }
+            }
+            // Key/kind disagreement cannot be constructed by `decode`.
+            _ => {}
         });
     }
 
-    /// Push one fetched vector tile (raw MVT protobuf bytes). Returns
-    /// `false` if the bytes don't decode.
+    /// Push one fetched vector tile (raw MVT protobuf bytes). Accepted,
+    /// not decoded here (plan B4.2): MVT decode + lyon tessellation run off
+    /// the render thread against the layer's CURRENT style, and the mesh
+    /// applies during a later `render()` under the per-frame budget. A
+    /// style change that races the decode is caught by an epoch check at
+    /// apply — the stale mesh is dropped and the tile re-pends.
     pub fn ingest_mvt(&mut self, layer_id: &str, tile: TileId, bytes: &[u8]) -> bool {
-        let Ok(vtile) = turbomap_core::vector::decode_mvt(bytes) else {
-            return false;
+        if self.map.is_vector_ingested(layer_id, tile) {
+            return true;
+        }
+        let Some(style) = self.map.vector_layer_style(layer_id) else {
+            // Layer gone (raced a scene edit): accepted-and-dropped.
+            return true;
         };
-        self.map.ingest_vector_tile(layer_id, tile, &vtile);
+        let epoch = self.vector_style_epochs.get(layer_id).copied().unwrap_or(0);
+        self.decode_queue.enqueue(
+            crate::codec::QueueKey::Vector { layer_id: layer_id.to_string(), tile },
+            bytes.to_vec(),
+            Some((std::sync::Arc::new(style), epoch)),
+        );
         true
     }
 
