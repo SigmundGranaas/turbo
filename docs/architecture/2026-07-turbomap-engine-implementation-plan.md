@@ -605,3 +605,7 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   size budget, host wiring (`TURBO_BASELINE_BUNDLE`), and the sim-level
   cold-start scenario — deferred until the provider-chain composition
   (bundled-under-remote layering) exists to wire them through.
+- _2026-07-04_: **B5.2 sim confirmation recorded** (the pending result from
+  the entry above): all 7 behavioural gates green under `REQUIRE_GPU=1` on
+  Lavapipe, release profile, 622 s run — post-B5.2 tree, as expected for a
+  diff no sim scene exercises.
