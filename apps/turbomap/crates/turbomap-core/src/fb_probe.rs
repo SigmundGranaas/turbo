@@ -193,7 +193,10 @@ mod tests {
             }
         }
         let grad_step = max_row_luma_step(&grad, W, H, |_| false);
-        assert!(hard_step > grad_step * 3.0, "hard line ({hard_step}) ≫ gradient ({grad_step})");
+        assert!(
+            hard_step > grad_step * 3.0,
+            "hard line ({hard_step}) ≫ gradient ({grad_step})"
+        );
     }
 
     #[test]
@@ -207,6 +210,10 @@ mod tests {
 
         // Open sky on top (not bounded above) → no holes.
         let open = filled(H / 2);
-        assert_eq!(sky_holes(&open, W, H, 3, is_sky), 0, "open sky is not a hole");
+        assert_eq!(
+            sky_holes(&open, W, H, 3, is_sky),
+            0,
+            "open sky is not a hole"
+        );
     }
 }

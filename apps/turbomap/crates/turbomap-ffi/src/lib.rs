@@ -203,8 +203,8 @@ impl TurboMap {
     /// Replace the whole map state with a Scene-IR JSON document. The
     /// engine diffs against the previous scene and does minimal GPU work.
     pub fn apply_scene(&self, scene_json: String) -> Result<DeltaSummary, FfiError> {
-        let scene: Scene = serde_json::from_str(&scene_json)
-            .map_err(|e| FfiError::InvalidScene(e.to_string()))?;
+        let scene: Scene =
+            serde_json::from_str(&scene_json).map_err(|e| FfiError::InvalidScene(e.to_string()))?;
         scene
             .validate()
             .map_err(|e| FfiError::InvalidScene(e.to_string()))?;
@@ -329,12 +329,16 @@ impl TurboMap {
 
     /// Report a plan-issued fetch as failed; the chunk re-pends if wanted.
     pub fn report_fetch_failed(&self, id: u64) {
-        self.lock().engine.fetch_failed(turbomap_world::RequestId(id));
+        self.lock()
+            .engine
+            .fetch_failed(turbomap_world::RequestId(id));
     }
 
     /// Report a plan `cancel` as honoured (or a declined `start`).
     pub fn report_fetch_cancelled(&self, id: u64) {
-        self.lock().engine.fetch_cancelled(turbomap_world::RequestId(id));
+        self.lock()
+            .engine
+            .fetch_cancelled(turbomap_world::RequestId(id));
     }
 
     /// Tiles the engine is waiting on. Fetch each host-side and push the
@@ -350,17 +354,30 @@ impl TurboMap {
             .pending_tiles()
             .into_iter()
             .map(|p| match p {
-                PendingTile::Raster { layer_id, tile } => tile_request(TileKind::Raster, Some(layer_id), tile),
-                PendingTile::Hillshade { layer_id, tile } => tile_request(TileKind::Terrain, Some(layer_id), tile),
+                PendingTile::Raster { layer_id, tile } => {
+                    tile_request(TileKind::Raster, Some(layer_id), tile)
+                }
+                PendingTile::Hillshade { layer_id, tile } => {
+                    tile_request(TileKind::Terrain, Some(layer_id), tile)
+                }
                 PendingTile::Terrain { tile } => tile_request(TileKind::Terrain, None, tile),
-                PendingTile::Vector { layer_id, tile } => tile_request(TileKind::Vector, Some(layer_id), tile),
+                PendingTile::Vector { layer_id, tile } => {
+                    tile_request(TileKind::Vector, Some(layer_id), tile)
+                }
             })
             .collect()
     }
 
     /// Push a fetched raster tile (encoded PNG/JPEG/WebP bytes, exactly as
     /// served). Returns `false` if the bytes don't decode.
-    pub fn ingest_raster_tile(&self, layer_id: String, z: u8, x: u32, y: u32, bytes: Vec<u8>) -> bool {
+    pub fn ingest_raster_tile(
+        &self,
+        layer_id: String,
+        z: u8,
+        x: u32,
+        y: u32,
+        bytes: Vec<u8>,
+    ) -> bool {
         self.lock()
             .engine
             .ingest_raster_encoded(&layer_id, TileId::new(z, x, y), &bytes)
@@ -374,7 +391,14 @@ impl TurboMap {
     }
 
     /// Push a fetched vector tile (raw MVT protobuf bytes).
-    pub fn ingest_vector_tile(&self, layer_id: String, z: u8, x: u32, y: u32, bytes: Vec<u8>) -> bool {
+    pub fn ingest_vector_tile(
+        &self,
+        layer_id: String,
+        z: u8,
+        x: u32,
+        y: u32,
+        bytes: Vec<u8>,
+    ) -> bool {
         self.lock()
             .engine
             .ingest_mvt(&layer_id, TileId::new(z, x, y), &bytes)

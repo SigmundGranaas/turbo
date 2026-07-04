@@ -151,8 +151,9 @@ impl RenderFrame {
         let floor_globals = if draw_sky && terrain.present {
             let origin = camera.center.to_world();
             let vp = camera.view_projection_matrix_rtc(origin, viewport_px);
-            let inv_view_proj =
-                glam::Mat4::from_cols_array_2d(&vp).inverse().to_cols_array_2d();
+            let inv_view_proj = glam::Mat4::from_cols_array_2d(&vp)
+                .inverse()
+                .to_cols_array_2d();
             if !super::mat4_is_finite(&inv_view_proj) {
                 None
             } else {
@@ -176,7 +177,11 @@ impl RenderFrame {
         // Raster ground-plane terrain config. No terrain → meters_to_world 0,
         // so the shader displacement collapses and the mesh draws flat.
         let raster_terrain_cfg = TerrainConfig {
-            meters_to_world: if terrain.present { meters_to_world } else { 0.0 },
+            meters_to_world: if terrain.present {
+                meters_to_world
+            } else {
+                0.0
+            },
             exaggeration: if terrain.present {
                 terrain.exaggeration
             } else {
@@ -210,7 +215,8 @@ impl RenderFrame {
         };
 
         // Vector drape params, derived from the raster config.
-        let vec_terrain_zscale = raster_terrain_cfg.meters_to_world * raster_terrain_cfg.exaggeration;
+        let vec_terrain_zscale =
+            raster_terrain_cfg.meters_to_world * raster_terrain_cfg.exaggeration;
         let vec_terrain_encoding = raster_terrain_cfg.encoding;
         let vec_terrain_halo_uv = {
             let halo = terrain.halo_px;
@@ -260,10 +266,20 @@ mod tests {
     #[test]
     fn pitch_gate_off_looking_down_on_only_toward_horizon() {
         for p in [0.0_f64, 10.0, 25.0] {
-            assert_eq!(aerial_haze_density(p), 0.0, "no haze looking down at {p}° (kills nadir circle)");
+            assert_eq!(
+                aerial_haze_density(p),
+                0.0,
+                "no haze looking down at {p}° (kills nadir circle)"
+            );
         }
-        assert!(aerial_haze_density(40.0) > 0.0 && aerial_haze_density(40.0) < 1.0, "fades in tilting");
-        assert!((aerial_haze_density(60.0) - 1.0).abs() < 1e-6, "full when gazing to the horizon");
+        assert!(
+            aerial_haze_density(40.0) > 0.0 && aerial_haze_density(40.0) < 1.0,
+            "fades in tilting"
+        );
+        assert!(
+            (aerial_haze_density(60.0) - 1.0).abs() < 1e-6,
+            "full when gazing to the horizon"
+        );
     }
 
     // --- Mirror of the shader's exponential-height-fog optical depth ----------
@@ -281,7 +297,11 @@ mod tests {
         let ec = (-cz_m * k).exp();
         let ep = (-pz * k).exp();
         let dz = pz - cz_m;
-        let tau = if dz.abs() > 1.0 { HAZE_SIGMA * l_m * (ec - ep) / dz } else { HAZE_SIGMA * l_m * k * ec };
+        let tau = if dz.abs() > 1.0 {
+            HAZE_SIGMA * l_m * (ec - ep) / dz
+        } else {
+            HAZE_SIGMA * l_m * k * ec
+        };
         aerial_haze_density(pitch_deg) * (1.0 - (-tau.max(0.0)).exp()) * HAZE_MAX
     }
 
@@ -290,8 +310,14 @@ mod tests {
         // Gazing to the horizon from a 2 km eye over sea-level ground: the near
         // foreground (short ray) stays crisp; the distant low horizon colours.
         let cz = 2_000.0;
-        assert!(amount(2_500.0, cz, 300.0, 70.0) < 0.15, "near foreground stays crisp");
-        assert!(amount(60_000.0, cz, 0.0, 70.0) > 0.35, "far low horizon colours");
+        assert!(
+            amount(2_500.0, cz, 300.0, 70.0) < 0.15,
+            "near foreground stays crisp"
+        );
+        assert!(
+            amount(60_000.0, cz, 0.0, 70.0) > 0.35,
+            "far low horizon colours"
+        );
     }
 
     #[test]
@@ -305,7 +331,10 @@ mod tests {
         let valley = amount(l, cz, 0.0, 70.0);
         let peak = amount(l, cz, 1_600.0, 70.0);
         assert!(valley > 0.4, "distant valley floor colours strongly");
-        assert!(peak < valley * 0.85, "a peak at the same range reads clearer than the valley");
+        assert!(
+            peak < valley * 0.85,
+            "a peak at the same range reads clearer than the valley"
+        );
     }
 
     #[test]
@@ -314,6 +343,9 @@ mod tests {
         // of the scene is clear because the ray runs through thin high air — only
         // grazing rays to the distant low horizon accumulate. No nadir whiteout.
         let cz = 40_000.0; // well above H
-        assert!(amount(30_000.0, cz, 1_500.0, 70.0) < 0.15, "mid-field terrain from high up stays clear");
+        assert!(
+            amount(30_000.0, cz, 1_500.0, 70.0) < 0.15,
+            "mid-field terrain from high up stays clear"
+        );
     }
 }

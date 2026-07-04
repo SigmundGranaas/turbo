@@ -5,11 +5,11 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use turbomap_clouds::{DebugView, SyntheticStorm};
 use turbomap_core::{
     Camera, CloudParams, Color, Filter, HitResult, LatLng, Map, MapOptions, Marker, MarkerId,
     Paint, RadarFrame, RasterFormat, Rule, SunPosition, TileSource, VectorStyle, VectorTileSource,
 };
-use turbomap_clouds::{DebugView, SyntheticStorm};
 
 use winit::{
     application::ApplicationHandler,
@@ -497,7 +497,10 @@ impl ApplicationHandler for TurbomapApp {
                 if state.egui_wants_pointer {
                     return;
                 }
-                state.host.map_mut().pan_by_pixels(delta.x as f64, delta.y as f64);
+                state
+                    .host
+                    .map_mut()
+                    .pan_by_pixels(delta.x as f64, delta.y as f64);
                 state.window.request_redraw();
             }
             WindowEvent::KeyboardInput {
@@ -620,15 +623,19 @@ impl RunningState {
                 color: Color::rgb(0x00, 0xB8, 0xD4),
                 data: std::collections::HashMap::new(),
             });
-            log::info!("added marker {:?} at lat={:.4}, lng={:.4}", id, lng_lat.lat, lng_lat.lng);
+            log::info!(
+                "added marker {:?} at lat={:.4}, lng={:.4}",
+                id,
+                lng_lat.lat,
+                lng_lat.lng
+            );
         }
 
         // For visibility: anything *else* we hit (other markers stacked,
         // features) gets logged but doesn't affect the add/delete action.
         for hit in &hits {
             match hit {
-                HitResult::Marker(m) if Some(m.id) != marker_hit => {
-                }
+                HitResult::Marker(m) if Some(m.id) != marker_hit => {}
                 _ => {}
             }
         }
@@ -668,12 +675,12 @@ impl RunningState {
         let Some(frame) = self.surface.acquire(window_size) else {
             return;
         };
-        let mut encoder =
-            self.gpu
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("turbomap-frame"),
-                });
+        let mut encoder = self
+            .gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("turbomap-frame"),
+            });
 
         // 3b. Sync the cloud debug-scene panel state into the Map (frame
         //     upload on selection change, look knobs, animation clock)
@@ -804,118 +811,115 @@ fn build_ui(ctx: &egui::Context, ui: &mut UiState, map: &mut Map, cloud_frame_co
         .max_width(270.0)
         .frame(frame)
         .show(ctx, |panel| {
-          egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .max_height(max_h)
-            .show(panel, |panel| {
-            // Frame-metric label removed. Updating the label
-            // every frame (or even every second) made the
-            // panel — and the map blended underneath through
-            // its semi-transparent background — visibly
-            // twitch. Diagnostics moved to `RUST_LOG=info`.
-            let _ = map.last_frame_metrics();
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .max_height(max_h)
+                .show(panel, |panel| {
+                    // Frame-metric label removed. Updating the label
+                    // every frame (or even every second) made the
+                    // panel — and the map blended underneath through
+                    // its semi-transparent background — visibly
+                    // twitch. Diagnostics moved to `RUST_LOG=info`.
+                    let _ = map.last_frame_metrics();
 
-            panel.separator();
+                    panel.separator();
 
-            let mut camera = map.camera();
-            let mut camera_changed = false;
-            // 3D terrain is now wired up — the hillshade layer renders
-            // as a subdivided heightmap mesh, so tilt shows real
-            // mountains rising off the basemap. Capped at 65° because
-            // the basemap + vector layers are still flat (z=0) and
-            // visibly separate from the hillshade above that angle.
-            panel.horizontal(|row| {
-                row.label("pitch");
-                let mut p = camera.pitch_deg as f32;
-                if row
-                    .add(egui::Slider::new(&mut p, 0.0..=65.0).suffix("°"))
-                    .changed()
-                {
-                    camera.pitch_deg = p as f64;
-                    camera_changed = true;
-                }
-            });
-            panel.horizontal(|row| {
-                row.label("bearing");
-                let mut b = camera.bearing_deg as f32;
-                if row
-                    .add(egui::Slider::new(&mut b, 0.0..=360.0).suffix("°"))
-                    .changed()
-                {
-                    camera.bearing_deg = b as f64;
-                    camera_changed = true;
-                }
-                if row.button("⟲").on_hover_text("north-up").clicked() {
-                    camera.bearing_deg = 0.0;
-                    camera_changed = true;
-                }
-            });
-            panel.horizontal(|row| {
-                row.label("zoom");
-                let mut z = camera.zoom as f32;
-                if row
-                    .add(egui::Slider::new(&mut z, 4.0..=18.0))
-                    .changed()
-                {
-                    camera.zoom = z as f64;
-                    camera_changed = true;
-                }
-            });
-            if camera_changed {
-                map.set_camera(camera);
-            }
+                    let mut camera = map.camera();
+                    let mut camera_changed = false;
+                    // 3D terrain is now wired up — the hillshade layer renders
+                    // as a subdivided heightmap mesh, so tilt shows real
+                    // mountains rising off the basemap. Capped at 65° because
+                    // the basemap + vector layers are still flat (z=0) and
+                    // visibly separate from the hillshade above that angle.
+                    panel.horizontal(|row| {
+                        row.label("pitch");
+                        let mut p = camera.pitch_deg as f32;
+                        if row
+                            .add(egui::Slider::new(&mut p, 0.0..=65.0).suffix("°"))
+                            .changed()
+                        {
+                            camera.pitch_deg = p as f64;
+                            camera_changed = true;
+                        }
+                    });
+                    panel.horizontal(|row| {
+                        row.label("bearing");
+                        let mut b = camera.bearing_deg as f32;
+                        if row
+                            .add(egui::Slider::new(&mut b, 0.0..=360.0).suffix("°"))
+                            .changed()
+                        {
+                            camera.bearing_deg = b as f64;
+                            camera_changed = true;
+                        }
+                        if row.button("⟲").on_hover_text("north-up").clicked() {
+                            camera.bearing_deg = 0.0;
+                            camera_changed = true;
+                        }
+                    });
+                    panel.horizontal(|row| {
+                        row.label("zoom");
+                        let mut z = camera.zoom as f32;
+                        if row.add(egui::Slider::new(&mut z, 4.0..=18.0)).changed() {
+                            camera.zoom = z as f64;
+                            camera_changed = true;
+                        }
+                    });
+                    if camera_changed {
+                        map.set_camera(camera);
+                    }
 
-            if panel
-                .button("reset camera (top-down, north-up)")
-                .clicked()
-            {
-                let mut c = map.camera();
-                c.pitch_deg = 0.0;
-                c.bearing_deg = 0.0;
-                map.set_camera(c);
-            }
+                    if panel.button("reset camera (top-down, north-up)").clicked() {
+                        let mut c = map.camera();
+                        c.pitch_deg = 0.0;
+                        c.bearing_deg = 0.0;
+                        map.set_camera(c);
+                    }
 
-            panel.separator();
-            panel.label("layers");
-            let prev_raster = ui.raster_visible;
-            let prev_hill = ui.hillshade_visible;
-            let prev_vec = ui.vector_visible;
-            panel.checkbox(&mut ui.raster_visible, "basemap (raster)");
-            panel.checkbox(&mut ui.hillshade_visible, "hillshade (turbo DEM)");
-            panel.checkbox(&mut ui.vector_visible, "vector (roads/water)");
-            if panel.checkbox(&mut ui.sky_visible, "sky (atmosphere)").changed() {
-                map.set_sky_enabled(ui.sky_visible);
-            }
-            if ui.raster_visible != prev_raster {
-                map.set_layer_visibility(RASTER_LAYER_ID_PUB, ui.raster_visible);
-            }
-            if ui.hillshade_visible != prev_hill {
-                map.set_layer_visibility(HILLSHADE_LAYER_ID_PUB, ui.hillshade_visible);
-            }
-            if ui.vector_visible != prev_vec {
-                map.set_layer_visibility(VECTOR_LAYER_ID_PUB, ui.vector_visible);
-            }
+                    panel.separator();
+                    panel.label("layers");
+                    let prev_raster = ui.raster_visible;
+                    let prev_hill = ui.hillshade_visible;
+                    let prev_vec = ui.vector_visible;
+                    panel.checkbox(&mut ui.raster_visible, "basemap (raster)");
+                    panel.checkbox(&mut ui.hillshade_visible, "hillshade (turbo DEM)");
+                    panel.checkbox(&mut ui.vector_visible, "vector (roads/water)");
+                    if panel
+                        .checkbox(&mut ui.sky_visible, "sky (atmosphere)")
+                        .changed()
+                    {
+                        map.set_sky_enabled(ui.sky_visible);
+                    }
+                    if ui.raster_visible != prev_raster {
+                        map.set_layer_visibility(RASTER_LAYER_ID_PUB, ui.raster_visible);
+                    }
+                    if ui.hillshade_visible != prev_hill {
+                        map.set_layer_visibility(HILLSHADE_LAYER_ID_PUB, ui.hillshade_visible);
+                    }
+                    if ui.vector_visible != prev_vec {
+                        map.set_layer_visibility(VECTOR_LAYER_ID_PUB, ui.vector_visible);
+                    }
 
-            panel.separator();
-            panel.horizontal(|row| {
-                row.label("fade-in");
-                if row
-                    .add(
-                        egui::Slider::new(&mut ui.fade_in_secs, 0.0..=1.5)
-                            .suffix(" s")
-                            .step_by(0.05),
-                    )
-                    .changed()
-                {
-                    map.set_layer_fade_in(RASTER_LAYER_ID_PUB, ui.fade_in_secs);
-                    map.set_layer_fade_in(HILLSHADE_LAYER_ID_PUB, ui.fade_in_secs);
-                    map.set_layer_fade_in(VECTOR_LAYER_ID_PUB, ui.fade_in_secs);
-                }
-            });
+                    panel.separator();
+                    panel.horizontal(|row| {
+                        row.label("fade-in");
+                        if row
+                            .add(
+                                egui::Slider::new(&mut ui.fade_in_secs, 0.0..=1.5)
+                                    .suffix(" s")
+                                    .step_by(0.05),
+                            )
+                            .changed()
+                        {
+                            map.set_layer_fade_in(RASTER_LAYER_ID_PUB, ui.fade_in_secs);
+                            map.set_layer_fade_in(HILLSHADE_LAYER_ID_PUB, ui.fade_in_secs);
+                            map.set_layer_fade_in(VECTOR_LAYER_ID_PUB, ui.fade_in_secs);
+                        }
+                    });
 
-            panel.separator();
-            build_cloud_controls(panel, &mut ui.clouds, cloud_frame_count);
-            });
+                    panel.separator();
+                    build_cloud_controls(panel, &mut ui.clouds, cloud_frame_count);
+                });
         });
 }
 
@@ -990,9 +994,7 @@ fn build_cloud_controls(panel: &mut egui::Ui, c: &mut CloudUiState, frame_count:
             ui.add(egui::Slider::new(&mut p.erosion, 0.0..=1.0).text("edge erosion"));
             ui.add(egui::Slider::new(&mut p.sun_elevation, 0.0..=1.0).text("sun elevation"));
             ui.add(egui::Slider::new(&mut p.extinction, 1.0..=40.0).text("view extinction"));
-            ui.add(
-                egui::Slider::new(&mut p.light_extinction, 1.0..=40.0).text("light extinction"),
-            );
+            ui.add(egui::Slider::new(&mut p.light_extinction, 1.0..=40.0).text("light extinction"));
             ui.horizontal(|row| {
                 row.label("wind");
                 row.add(egui::Slider::new(&mut p.wind[0], -3.0..=3.0).text("x"));
@@ -1122,13 +1124,7 @@ fn save_dump_to_png(
     }
     let _ = std::fs::create_dir_all(dir);
     let path = format!("{}/frame_{:05}.png", dir, frame_id);
-    if let Err(e) = image::save_buffer(
-        &path,
-        &rgba,
-        width,
-        height,
-        image::ColorType::Rgba8,
-    ) {
+    if let Err(e) = image::save_buffer(&path, &rgba, width, height, image::ColorType::Rgba8) {
         log::warn!("failed to dump frame {}: {}", frame_id, e);
     }
 }
@@ -1153,11 +1149,7 @@ fn water_only_style() -> VectorStyle {
     };
     VectorStyle {
         background: Color::rgba(0, 0, 0, 0),
-        rules: vec![
-            water("water"),
-            water("ocean"),
-            water("water_polygons"),
-        ],
+        rules: vec![water("water"), water("ocean"), water("water_polygons")],
     }
 }
 

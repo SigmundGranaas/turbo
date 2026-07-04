@@ -179,7 +179,10 @@ mod tests {
     fn egui_repaint_triggers_render_once() {
         let mut s = RenderScheduler::new();
         s.notice_egui_repaint();
-        assert_eq!(s.schedule(Instant::now(), workload_idle()), Schedule::Render);
+        assert_eq!(
+            s.schedule(Instant::now(), workload_idle()),
+            Schedule::Render
+        );
         // Dirty bit consumed by the render.
         assert_eq!(s.schedule(Instant::now(), workload_idle()), Schedule::Idle);
     }
@@ -200,10 +203,7 @@ mod tests {
         // exhaust the Metal drawable pool.
         let mut w = workload_idle();
         w.workers_have_data = true;
-        assert!(matches!(
-            s.schedule(t0, w),
-            Schedule::WakeAt(_)
-        ));
+        assert!(matches!(s.schedule(t0, w), Schedule::WakeAt(_)));
     }
 
     #[test]

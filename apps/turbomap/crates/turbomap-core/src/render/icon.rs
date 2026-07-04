@@ -321,7 +321,9 @@ impl IconPipeline {
 
         let start = self.staged.len() as u32;
         for tile in scene.visible_tiles() {
-            let Some(entry) = cache.get(tile) else { continue };
+            let Some(entry) = cache.get(tile) else {
+                continue;
+            };
             for icon in &entry.icons {
                 // A POI marker's dot only draws if its label survived — dot
                 // and label cull as one unit (no orphan dots).

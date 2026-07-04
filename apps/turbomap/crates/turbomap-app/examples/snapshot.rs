@@ -59,7 +59,11 @@ impl TileSource for HttpDemSource {
             .send()
             .map_err(|e| TileError::Network(e.to_string()))?;
         if !resp.status().is_success() {
-            return Err(TileError::Network(format!("HTTP {}: {}", resp.status(), url)));
+            return Err(TileError::Network(format!(
+                "HTTP {}: {}",
+                resp.status(),
+                url
+            )));
         }
         let bytes = resp
             .bytes()
@@ -286,13 +290,13 @@ fn main() {
     // there. CPU time + cache stats are still useful here.
     let features = wgpu::Features::empty();
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("snapshot-device"),
-            required_features: features,
-            required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
-            memory_hints: wgpu::MemoryHints::Performance,
-            experimental_features: wgpu::ExperimentalFeatures::default(),
-            trace: wgpu::Trace::Off,
-        }))
+        label: Some("snapshot-device"),
+        required_features: features,
+        required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
+        memory_hints: wgpu::MemoryHints::Performance,
+        experimental_features: wgpu::ExperimentalFeatures::default(),
+        trace: wgpu::Trace::Off,
+    }))
     .expect("device");
     let device = Arc::new(device);
     let queue = Arc::new(queue);
@@ -372,7 +376,12 @@ fn main() {
             .ok()
             .and_then(|v| v.parse::<f64>().ok())
             .unwrap_or(2.0);
-        map.set_cloud_geo_bounds(clng - half * 2.0, clat - half, clng + half * 2.0, clat + half);
+        map.set_cloud_geo_bounds(
+            clng - half * 2.0,
+            clat - half,
+            clng + half * 2.0,
+            clat + half,
+        );
         // Render any internal pipeline stage instead of the final composite,
         // for headless diagnosis at a given pitch:
         //   CLOUD_DEBUG_VIEW=parallax CLOUDS=1 cargo run ... --pitch 25
@@ -410,15 +419,17 @@ fn main() {
             match req {
                 PendingTile::Raster { layer_id, tile } => {
                     let raw = basemap.request(tile).expect("basemap request");
-                    let img =
-                        image::load_from_memory(&raw.bytes).expect("basemap decode").to_rgba8();
+                    let img = image::load_from_memory(&raw.bytes)
+                        .expect("basemap decode")
+                        .to_rgba8();
                     let (w, h) = img.dimensions();
                     map.ingest_raster(&layer_id, tile, img.as_raw(), w, h);
                 }
                 PendingTile::Hillshade { layer_id, tile } => {
                     let raw = dem.request(tile).expect("dem request");
-                    let img =
-                        image::load_from_memory(&raw.bytes).expect("dem decode").to_rgba8();
+                    let img = image::load_from_memory(&raw.bytes)
+                        .expect("dem decode")
+                        .to_rgba8();
                     let (w, h) = img.dimensions();
                     map.ingest_hillshade(&layer_id, tile, img.as_raw(), w, h);
                 }

@@ -143,8 +143,8 @@ pub(crate) struct TerrainShared {
 
 impl TerrainShared {
     pub(crate) fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
-        let layout = Arc::new(device.create_bind_group_layout(
-            &wgpu::BindGroupLayoutDescriptor {
+        let layout = Arc::new(
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("turbomap-terrain-bgl"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -164,8 +164,8 @@ impl TerrainShared {
                         count: None,
                     },
                 ],
-            },
-        ));
+            }),
+        );
         let sampler = Arc::new(device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("turbomap-terrain-sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -334,10 +334,7 @@ impl TerrainCache {
     }
 
     /// Touch + return the cache entry for `id`. Bumps the LRU.
-    pub(crate) fn get_entry(
-        &mut self,
-        id: TileId,
-    ) -> Option<&crate::render::cache::CacheEntry> {
+    pub(crate) fn get_entry(&mut self, id: TileId) -> Option<&crate::render::cache::CacheEntry> {
         self.cache.get(id)
     }
 
@@ -517,7 +514,10 @@ impl TerrainCache {
     pub(crate) fn elevation_at_world_stable(&self, world: (f64, f64)) -> Option<f32> {
         // ~1e-6 of the world span ≈ a few metres at these latitudes: fine enough
         // to separate distinct markers, coarse enough to reuse across frames.
-        let cell = ((world.0 * 1_048_576.0) as i64, (world.1 * 1_048_576.0) as i64);
+        let cell = (
+            (world.0 * 1_048_576.0) as i64,
+            (world.1 * 1_048_576.0) as i64,
+        );
         let fresh = self.sample_deepest(world);
         let mut sticky = self.sticky_elev.lock().unwrap_or_else(|p| p.into_inner());
         match (fresh, sticky.get(&cell).copied()) {
@@ -626,7 +626,6 @@ mod tests {
         assert!(ok.is_some());
         assert_eq!(ok.unwrap().grid.len(), CPU_HEIGHT_DIM * CPU_HEIGHT_DIM);
     }
-
 
     /// A grid that ramps 0 → (n-1) west-to-east, constant north-south.
     fn ramp_x() -> HeightTile {

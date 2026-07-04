@@ -64,7 +64,10 @@ fn raster_url(z: u8, x: u32, y: u32, cb: Option<u64>) -> String {
 
 fn dem_url(base: &str, z: u8, x: u32, y: u32, cb: Option<u64>) -> String {
     let bust = cb.map(|n| format!("&_cb={n}")).unwrap_or_default();
-    format!("{}/v1/dem/rgb/{z}/{x}/{y}.png?halo=1{bust}", base.trim_end_matches('/'))
+    format!(
+        "{}/v1/dem/rgb/{z}/{x}/{y}.png?halo=1{bust}",
+        base.trim_end_matches('/')
+    )
 }
 
 #[derive(Default, Clone)]
@@ -105,7 +108,11 @@ fn run_at_concurrency(
                 let ms = t0.elapsed().as_secs_f64() * 1000.0;
                 match res {
                     Ok((ok, bytes)) => local.push(Sample { ms, ok, bytes }),
-                    Err(_) => local.push(Sample { ms, ok: false, bytes: 0 }),
+                    Err(_) => local.push(Sample {
+                        ms,
+                        ok: false,
+                        bytes: 0,
+                    }),
                 }
             }
             samples.lock().unwrap().extend(local);
@@ -127,7 +134,13 @@ fn pct(sorted: &[f64], p: f64) -> f64 {
     sorted[idx.min(sorted.len() - 1)]
 }
 
-fn sweep(name: &str, make_url: impl Fn(u8, u32, u32, Option<u64>) -> String, tiles: &[(u8, u32, u32)], concs: &[usize], cold: bool) {
+fn sweep(
+    name: &str,
+    make_url: impl Fn(u8, u32, u32, Option<u64>) -> String,
+    tiles: &[(u8, u32, u32)],
+    concs: &[usize],
+    cold: bool,
+) {
     let client = Arc::new(
         reqwest::blocking::Client::builder()
             .pool_max_idle_per_host(64)
@@ -136,7 +149,11 @@ fn sweep(name: &str, make_url: impl Fn(u8, u32, u32, Option<u64>) -> String, til
             .build()
             .expect("client"),
     );
-    println!("\n=== {name} {} ({} tiles/run) ===", if cold { "[COLD/cache-bust]" } else { "[WARM]" }, tiles.len());
+    println!(
+        "\n=== {name} {} ({} tiles/run) ===",
+        if cold { "[COLD/cache-bust]" } else { "[WARM]" },
+        tiles.len()
+    );
     println!(
         "{:>4} {:>9} {:>7} {:>7} {:>7} {:>7} {:>7} {:>5} {:>7}",
         "conc", "tiles/s", "p50", "p95", "p99", "max", "MB/s", "err", "tileKB"
@@ -146,9 +163,15 @@ fn sweep(name: &str, make_url: impl Fn(u8, u32, u32, Option<u64>) -> String, til
     let mut knee_lat = 0.0_f64;
     for (run_idx, &c) in concs.iter().enumerate() {
         // Cache-bust per (conc,run) so cold means cold; warm reuses the same URLs.
-        let cb = if cold { Some(0xC0FFEE + run_idx as u64 * 1_000_003) } else { None };
+        let cb = if cold {
+            Some(0xC0FFEE + run_idx as u64 * 1_000_003)
+        } else {
+            None
+        };
         let urls: Arc<Vec<String>> = Arc::new(
-            tiles.iter().enumerate()
+            tiles
+                .iter()
+                .enumerate()
                 .map(|(i, &(z, x, y))| make_url(z, x, y, cb.map(|b| b + i as u64)))
                 .collect(),
         );
@@ -161,10 +184,22 @@ fn sweep(name: &str, make_url: impl Fn(u8, u32, u32, Option<u64>) -> String, til
         let wall_s = wall.as_secs_f64().max(1e-6);
         let tps = samples.len() as f64 / wall_s;
         let mbps = bytes_ok as f64 / wall_s / 1e6;
-        let tile_kb = if oks.is_empty() { 0.0 } else { bytes_ok as f64 / oks.len() as f64 / 1024.0 };
+        let tile_kb = if oks.is_empty() {
+            0.0
+        } else {
+            bytes_ok as f64 / oks.len() as f64 / 1024.0
+        };
         println!(
             "{:>4} {:>9.1} {:>7.0} {:>7.0} {:>7.0} {:>7.0} {:>7.2} {:>5} {:>6.0}K",
-            c, tps, pct(&lat, 0.50), pct(&lat, 0.95), pct(&lat, 0.99), lat.last().copied().unwrap_or(0.0), mbps, errs, tile_kb
+            c,
+            tps,
+            pct(&lat, 0.50),
+            pct(&lat, 0.95),
+            pct(&lat, 0.99),
+            lat.last().copied().unwrap_or(0.0),
+            mbps,
+            errs,
+            tile_kb
         );
         flush();
         // Knee = last concurrency that improved throughput by >=10%.
@@ -187,7 +222,12 @@ fn sweep(name: &str, make_url: impl Fn(u8, u32, u32, Option<u64>) -> String, til
 /// One COLD measurement at a single concurrency (cache-busted) → worst-case
 /// first-touch latency. Kept to one small run so we don't force the tileserver
 /// to regenerate hundreds of tiles. This seeds the worst-case latency model.
-fn cold_sample(name: &str, make_url: impl Fn(u8, u32, u32, Option<u64>) -> String, tiles: &[(u8, u32, u32)], conc: usize) {
+fn cold_sample(
+    name: &str,
+    make_url: impl Fn(u8, u32, u32, Option<u64>) -> String,
+    tiles: &[(u8, u32, u32)],
+    conc: usize,
+) {
     let client = Arc::new(
         reqwest::blocking::Client::builder()
             .pool_max_idle_per_host(64)
@@ -197,7 +237,9 @@ fn cold_sample(name: &str, make_url: impl Fn(u8, u32, u32, Option<u64>) -> Strin
             .expect("client"),
     );
     let urls: Arc<Vec<String>> = Arc::new(
-        tiles.iter().enumerate()
+        tiles
+            .iter()
+            .enumerate()
             .map(|(i, &(z, x, y))| make_url(z, x, y, Some(0xC01D_0000 + i as u64)))
             .collect(),
     );
@@ -214,7 +256,8 @@ fn cold_sample(name: &str, make_url: impl Fn(u8, u32, u32, Option<u64>) -> Strin
 }
 
 fn main() {
-    let base = std::env::var("TURBO_API_URL").unwrap_or_else(|_| "https://kart-api.sandring.no".to_string());
+    let base = std::env::var("TURBO_API_URL")
+        .unwrap_or_else(|_| "https://kart-api.sandring.no".to_string());
     // Sjunkhatten / Bodø.
     let (lat, lng) = (67.23, 15.30);
     let concs = [1usize, 2, 4, 8, 16, 24, 32, 48, 64];
@@ -229,13 +272,30 @@ fn main() {
 
     // Steady-state saturation curve (warm) — the input for max/min limits.
     let base_dem = base.clone();
-    sweep("DEM  (our tileserver)", move |z, x, y, cb| dem_url(&base_dem, z, x, y, cb), &dem_tiles, &concs, false);
-    sweep("RASTER (Kartverket CDN)", raster_url, &ras_tiles, &concs, false);
+    sweep(
+        "DEM  (our tileserver)",
+        move |z, x, y, cb| dem_url(&base_dem, z, x, y, cb),
+        &dem_tiles,
+        &concs,
+        false,
+    );
+    sweep(
+        "RASTER (Kartverket CDN)",
+        raster_url,
+        &ras_tiles,
+        &concs,
+        false,
+    );
 
     // Worst-case first-touch (cold), one run each.
     println!("\n=== COLD first-touch (cache-busted, worst case) ===");
     flush();
     let base_dem2 = base.clone();
-    cold_sample("DEM ", move |z, x, y, cb| dem_url(&base_dem2, z, x, y, cb), &dem_tiles, 16);
+    cold_sample(
+        "DEM ",
+        move |z, x, y, cb| dem_url(&base_dem2, z, x, y, cb),
+        &dem_tiles,
+        16,
+    );
     cold_sample("RAS ", raster_url, &ras_tiles, 16);
 }

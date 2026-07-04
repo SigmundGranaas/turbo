@@ -376,9 +376,8 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                     };
                     // Left-anchored labels sit to the right of their anchor,
                     // clearing the icon (half its width) plus a small gap.
-                    let left_pad_px = left_anchor.then(|| {
-                        icon.as_ref().map(|i| i.size_px * 0.5).unwrap_or(0.0) + 3.0
-                    });
+                    let left_pad_px = left_anchor
+                        .then(|| icon.as_ref().map(|i| i.size_px * 0.5).unwrap_or(0.0) + 3.0);
                     let make_label = |world_pos: (f32, f32), path: Option<Vec<(f32, f32)>>| {
                         text.as_ref().map(|t| LabelRequest {
                             world_pos,
@@ -570,7 +569,10 @@ fn shade(c: Color, f: f32) -> Color {
 fn wall_shade(a: [f32; 2], b: [f32; 2]) -> f32 {
     // Tile-local axes: +x east, +y south. Light *coming from* the NW means
     // the vector toward the light is (west, north) = (-x, -y).
-    const TO_LIGHT: [f32; 2] = [-std::f32::consts::FRAC_1_SQRT_2, -std::f32::consts::FRAC_1_SQRT_2];
+    const TO_LIGHT: [f32; 2] = [
+        -std::f32::consts::FRAC_1_SQRT_2,
+        -std::f32::consts::FRAC_1_SQRT_2,
+    ];
     let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
     let len = (dx * dx + dy * dy).sqrt();
     if len < 1e-9 {
@@ -637,7 +639,10 @@ mod tests {
             rules: vec![Rule {
                 source_layer: "transportation".into(),
                 filter: Filter::Always,
-                paint: Paint::Line { color: Color::rgb(255, 0, 0), width: 4.0 },
+                paint: Paint::Line {
+                    color: Color::rgb(255, 0, 0),
+                    width: 4.0,
+                },
                 min_zoom: 0,
                 max_zoom: 22,
                 interactive: false,
@@ -709,7 +714,10 @@ mod tests {
         let h = zs.iter().cloned().fold(0.0f32, f32::max);
         assert!(h > 0.0, "extrusion has a non-zero height");
         assert!(zs.contains(&0.0), "walls reach the ground (z=0)");
-        assert!(zs.iter().any(|&z| (z - h).abs() < 1e-9), "roof + wall tops at z=h");
+        assert!(
+            zs.iter().any(|&z| (z - h).abs() < 1e-9),
+            "roof + wall tops at z=h"
+        );
         // Roof (≥1 tri) + 4 wall quads (2 tris each) ⇒ well over a flat fill.
         assert!(out.mesh.indices.len() >= 3 + 4 * 6, "roof + four walls");
 
@@ -784,7 +792,12 @@ mod tests {
             }],
         };
         let out = tessellate(TileId::new(14, 8434, 4722), &tile, &style);
-        let lo = out.mesh.vertices.iter().map(|v| v.z).fold(f32::MAX, f32::min);
+        let lo = out
+            .mesh
+            .vertices
+            .iter()
+            .map(|v| v.z)
+            .fold(f32::MAX, f32::min);
         let hi = out.mesh.vertices.iter().map(|v| v.z).fold(0.0f32, f32::max);
         assert!(lo > 0.0, "floating base sits above the ground, got {lo}");
         assert!(hi > lo, "top is above the base");
@@ -816,7 +829,10 @@ mod tests {
             rules: vec![Rule {
                 source_layer: "building".into(),
                 filter: Filter::Always,
-                paint: Paint::Line { color: Color::rgb(120, 110, 90), width: 1.5 },
+                paint: Paint::Line {
+                    color: Color::rgb(120, 110, 90),
+                    width: 1.5,
+                },
                 min_zoom: 0,
                 max_zoom: 22,
                 interactive: false,
@@ -825,7 +841,10 @@ mod tests {
         let out = tessellate(TileId::new(14, 8434, 4722), &tile, &style);
         assert!(out.mesh.indices.len() >= 6, "ring must stroke to triangles");
         assert!(
-            out.mesh.vertices.iter().all(|v| (v.width_px - 1.5).abs() < 1e-4),
+            out.mesh
+                .vertices
+                .iter()
+                .all(|v| (v.width_px - 1.5).abs() < 1e-4),
             "outline vertices must carry the line width, not 0 (fill)"
         );
     }
@@ -949,7 +968,10 @@ mod tests {
         // a left pad of (icon half-width + gap) so the text clears the dot;
         // a centred label carries None.
         let mut props = HashMap::new();
-        props.insert("name".to_owned(), crate::vector::Value::String("Cafe".into()));
+        props.insert(
+            "name".to_owned(),
+            crate::vector::Value::String("Cafe".into()),
+        );
         let feat = Feature {
             id: 0,
             geom_type: GeomType::Point,
@@ -1080,7 +1102,10 @@ mod tests {
         // convention (rank 1 = most important) drives collisions: rank 3 here
         // must surface as sort_key 3, *below* a default-font label's -size.
         let mut props = HashMap::new();
-        props.insert("name".to_owned(), crate::vector::Value::String("Oslo".into()));
+        props.insert(
+            "name".to_owned(),
+            crate::vector::Value::String("Oslo".into()),
+        );
         props.insert("rank".to_owned(), crate::vector::Value::Int(3));
         let feat = Feature {
             id: 0,

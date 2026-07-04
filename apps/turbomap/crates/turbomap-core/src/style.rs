@@ -211,7 +211,10 @@ impl VectorStyle {
     pub fn without_water_fills(mut self) -> Self {
         self.rules.retain(|r| {
             !(matches!(r.paint, Paint::Fill { .. })
-                && matches!(r.source_layer.as_str(), "water" | "ocean" | "water_polygons"))
+                && matches!(
+                    r.source_layer.as_str(),
+                    "water" | "ocean" | "water_polygons"
+                ))
         });
         self
     }
@@ -361,7 +364,10 @@ mod tests {
         let surface_trunk = poly_feature(&[("class", "trunk")]);
         let tunnel_trunk = poly_feature(&[("class", "trunk"), ("brunnel", "tunnel")]);
         let service = poly_feature(&[("class", "service")]);
-        assert!(filter_matches(&surface, &surface_trunk), "surface trunk matches");
+        assert!(
+            filter_matches(&surface, &surface_trunk),
+            "surface trunk matches"
+        );
         assert!(!filter_matches(&surface, &tunnel_trunk), "tunnel excluded");
         assert!(!filter_matches(&surface, &service), "wrong class excluded");
 
@@ -372,8 +378,14 @@ mod tests {
         ]);
         assert!(filter_matches(&either, &tunnel_trunk));
         assert!(!filter_matches(&either, &surface_trunk));
-        assert!(filter_matches(&Filter::All(vec![]), &service), "empty All matches");
-        assert!(!filter_matches(&Filter::Any(vec![]), &service), "empty Any never matches");
+        assert!(
+            filter_matches(&Filter::All(vec![]), &service),
+            "empty All matches"
+        );
+        assert!(
+            !filter_matches(&Filter::Any(vec![]), &service),
+            "empty Any never matches"
+        );
     }
 
     fn line_feature(props: &[(&str, &str)]) -> Feature {

@@ -291,7 +291,10 @@ mod tests {
         // horizon colour — otherwise the terrain→sky seam shows a hard line
         // where the dissolve completes. Holds across the day (sun sweep).
         for altitude_deg in [-6.0_f32, 0.0, 10.0, 45.0, 80.0] {
-            let atmos = atmosphere(SunPosition { azimuth_deg: 135.0, altitude_deg });
+            let atmos = atmosphere(SunPosition {
+                azimuth_deg: 135.0,
+                altitude_deg,
+            });
             assert_eq!(
                 atmos.haze_color, atmos.horizon_color,
                 "haze must match sky horizon at sun altitude {altitude_deg}° for a seamless dissolve"
@@ -317,7 +320,10 @@ mod sun_azimuth_check {
             noon.azimuth_deg
         );
         // world_dir points TOWARD the sun → its south (y) component is positive.
-        assert!(noon.world_dir()[1] > 0.5, "midday sun direction points south");
+        assert!(
+            noon.world_dir()[1] > 0.5,
+            "midday sun direction points south"
+        );
 
         // Morning (08:00 UTC ≈ 09:00 local) → south-EAST: az in the SE quadrant.
         let morning = solar_position(1_718_956_800.0, 67.28, 14.4);

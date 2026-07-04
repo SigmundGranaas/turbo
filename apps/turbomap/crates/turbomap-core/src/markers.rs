@@ -136,7 +136,7 @@ mod tests {
         let mut m = MarkerManager::default();
         m.add(marker(0)); // id 1
         m.add(marker(0)); // id 2 (newest → top)
-        // Both project to the same point; both within radius.
+                          // Both project to the same point; both within radius.
         let hits = m.hit((100.0, 100.0), 0.0, |_| (100.0, 100.0));
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[0].id, MarkerId(2));

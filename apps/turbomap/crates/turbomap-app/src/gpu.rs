@@ -54,13 +54,11 @@ impl GpuContext {
     /// happens later in `RenderSurface::new`.
     pub fn new(window: Arc<Window>) -> Self {
         let instance = wgpu::Instance::new({
-        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
-        desc.backends = wgpu::Backends::PRIMARY;
-        desc
-    });
-        let surface = instance
-            .create_surface(window)
-            .expect("create surface");
+            let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+            desc.backends = wgpu::Backends::PRIMARY;
+            desc
+        });
+        let surface = instance.create_surface(window).expect("create surface");
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: Some(&surface),
@@ -78,8 +76,7 @@ impl GpuContext {
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("turbomap-device"),
             required_features: features,
-            required_limits: wgpu::Limits::downlevel_defaults()
-                .using_resolution(adapter.limits()),
+            required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
             memory_hints: wgpu::MemoryHints::Performance,
             experimental_features: wgpu::ExperimentalFeatures::default(),
             trace: wgpu::Trace::Off,

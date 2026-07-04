@@ -599,9 +599,9 @@ impl LayoutCache {
             font_size_tenths: (font_size_px * 10.0).round() as u32,
             spacing_milli: (letter_spacing_em * 1000.0).round() as u32,
         };
-        self.entries.entry(key).or_insert_with(|| {
-            layout(text, font_size_px, (0.0, 0.0), atlas, letter_spacing_em)
-        })
+        self.entries
+            .entry(key)
+            .or_insert_with(|| layout(text, font_size_px, (0.0, 0.0), atlas, letter_spacing_em))
     }
 
     pub fn len(&self) -> usize {
@@ -845,7 +845,11 @@ mod tests {
         assert_eq!(atlas.face_count(), 2);
 
         // Latin 'A' → face 0; the kanji 東 (U+6771) → the fallback face.
-        assert_eq!(atlas.shape("A")[0].face_id, 0, "Latin stays on the default face");
+        assert_eq!(
+            atlas.shape("A")[0].face_id,
+            0,
+            "Latin stays on the default face"
+        );
         let jp = atlas.shape("東");
         assert_eq!(jp.len(), 1);
         assert_eq!(jp[0].face_id, 1, "CJK falls back to the host face");
@@ -859,7 +863,11 @@ mod tests {
 
         // Mixed Latin+CJK lays out with a glyph per visible char.
         let glyphs = layout("A東", 24.0, (0.0, 0.0), &mut atlas, 0.0);
-        assert!(glyphs.len() >= 2, "mixed run lays out, got {}", glyphs.len());
+        assert!(
+            glyphs.len() >= 2,
+            "mixed run lays out, got {}",
+            glyphs.len()
+        );
     }
 
     #[test]
@@ -898,7 +906,9 @@ mod tests {
 
         // Every shaped glyph rasterises into the shared atlas.
         for sg in shaped.iter().chain(hindi.iter()) {
-            let g = atlas.ensure(sg.face_id, sg.glyph_id).expect("glyph rasterises");
+            let g = atlas
+                .ensure(sg.face_id, sg.glyph_id)
+                .expect("glyph rasterises");
             let _ = g;
         }
     }
@@ -1017,9 +1027,13 @@ mod tests {
     fn layout_cache_hit_returns_the_same_glyphs_as_a_miss() {
         let mut atlas = FontAtlas::new();
         let mut cache = LayoutCache::new();
-        let first = cache.get_or_compute("Bergen", 14.0, 0.0, &mut atlas).to_vec();
+        let first = cache
+            .get_or_compute("Bergen", 14.0, 0.0, &mut atlas)
+            .to_vec();
         assert_eq!(cache.len(), 1);
-        let second = cache.get_or_compute("Bergen", 14.0, 0.0, &mut atlas).to_vec();
+        let second = cache
+            .get_or_compute("Bergen", 14.0, 0.0, &mut atlas)
+            .to_vec();
         // Cache size unchanged on the second call.
         assert_eq!(cache.len(), 1);
         assert_eq!(first, second);
@@ -1080,7 +1094,11 @@ mod tests {
         let glyphs = layout_along_path("MAIN ST", 16.0, &path, &mut atlas).expect("fits");
         assert!(!glyphs.is_empty());
         for g in &glyphs {
-            assert!(g.angle.abs() < 1e-4, "horizontal line ⇒ angle ~0, got {}", g.angle);
+            assert!(
+                g.angle.abs() < 1e-4,
+                "horizontal line ⇒ angle ~0, got {}",
+                g.angle
+            );
         }
         for w in glyphs.windows(2) {
             assert!(

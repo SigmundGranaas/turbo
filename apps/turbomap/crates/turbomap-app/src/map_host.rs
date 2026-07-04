@@ -226,9 +226,21 @@ impl MapHost {
     /// delivery simply completes whatever attempt is current.
     pub fn dispatch_fetches(&mut self) {
         let free = |used: usize| MAX_INFLIGHT_PER_LAYER.saturating_sub(used);
-        let vector_used = self.inflight.iter().filter(|(k, _)| *k == VECTOR_LAYER_ID).count();
-        let raster_used = self.inflight.iter().filter(|(k, _)| *k == RASTER_LAYER_ID).count();
-        let terrain_used = self.inflight.iter().filter(|(k, _)| *k == TERRAIN_KEY).count();
+        let vector_used = self
+            .inflight
+            .iter()
+            .filter(|(k, _)| *k == VECTOR_LAYER_ID)
+            .count();
+        let raster_used = self
+            .inflight
+            .iter()
+            .filter(|(k, _)| *k == RASTER_LAYER_ID)
+            .count();
+        let terrain_used = self
+            .inflight
+            .iter()
+            .filter(|(k, _)| *k == TERRAIN_KEY)
+            .count();
         let budget = free(vector_used) + free(raster_used) + free(terrain_used);
         let plan = self.map.streaming_plan(budget);
         for id in plan.cancel {
@@ -310,7 +322,6 @@ impl MapHost {
         }
     }
 }
-
 
 /// Convenience helper to construct a `MapHost` plus its pumps
 /// from a set of tile sources + a vector style. Used by

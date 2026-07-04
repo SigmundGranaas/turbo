@@ -78,17 +78,12 @@ fn parse_args() -> Args {
             "--center" => {
                 let v = args.next().expect("--center LAT,LNG");
                 let (lat, lng) = v.split_once(',').expect("LAT,LNG");
-                center = Some((
-                    lat.parse().expect("lat f64"),
-                    lng.parse().expect("lng f64"),
-                ));
+                center = Some((lat.parse().expect("lat f64"), lng.parse().expect("lng f64")));
             }
             "--zoom" => zoom = Some(args.next().expect("--zoom Z").parse().expect("z u8")),
             "--grid" => grid = Some(args.next().expect("--grid N").parse().expect("n u32")),
             "--out" => out = Some(args.next().expect("--out PATH").into()),
-            "--bench" => {
-                bench = Some(args.next().expect("--bench N").parse().expect("n u32"))
-            }
+            "--bench" => bench = Some(args.next().expect("--bench N").parse().expect("n u32")),
             "-h" | "--help" => {
                 eprintln!(
                     "usage: dem_probe --server URL (--tile Z/X/Y | --center LAT,LNG --zoom Z) \
@@ -268,9 +263,20 @@ fn encode_png(img: &RgbaImage) -> Vec<u8> {
     out
 }
 
-fn fetch(client: &reqwest::blocking::Client, base: &str, z: u8, x: u32, y: u32)
-    -> (RgbaImage, Duration, u16, usize) {
-    let url = format!("{}/v1/dem/rgb/{}/{}/{}.png", base.trim_end_matches('/'), z, x, y);
+fn fetch(
+    client: &reqwest::blocking::Client,
+    base: &str,
+    z: u8,
+    x: u32,
+    y: u32,
+) -> (RgbaImage, Duration, u16, usize) {
+    let url = format!(
+        "{}/v1/dem/rgb/{}/{}/{}.png",
+        base.trim_end_matches('/'),
+        z,
+        x,
+        y
+    );
     let started = Instant::now();
     let resp = client.get(&url).send().expect("send");
     let status = resp.status().as_u16();

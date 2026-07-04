@@ -92,7 +92,6 @@ impl TextureCache {
             .map(|e| Instant::now().duration_since(e.created_at).as_secs_f32())
     }
 
-
     pub(crate) fn get(&mut self, id: TileId) -> Option<&CacheEntry> {
         if self.entries.contains_key(&id) {
             self.touch(id);
@@ -122,7 +121,6 @@ impl TextureCache {
         }
         None
     }
-
 
     /// Insert a decoded tile, evicting LRU tiles if the budget is
     /// exceeded. Returns the ids that were evicted so the caller can

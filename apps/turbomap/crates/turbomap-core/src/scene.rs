@@ -314,10 +314,17 @@ impl Scene {
     /// to plain tile ids. The coarse far leaves double as the overview backdrop.
     fn lod_tiles(&self) -> Vec<TileId> {
         let vp = (self.viewport_px.0 as f64, self.viewport_px.1 as f64);
-        crate::lod::select(&self.camera, vp, self.min_zoom, self.max_zoom, self.sse_target_px, self.lod_tile_cap)
-            .into_iter()
-            .map(|t| t.id)
-            .collect()
+        crate::lod::select(
+            &self.camera,
+            vp,
+            self.min_zoom,
+            self.max_zoom,
+            self.sse_target_px,
+            self.lod_tile_cap,
+        )
+        .into_iter()
+        .map(|t| t.id)
+        .collect()
     }
 
     /// Tiles the host should keep loaded: the visible set plus a
@@ -476,7 +483,10 @@ impl Scene {
     /// and sorts once by `(tier, distance)`, so the nearest in-front tile of any
     /// layer (e.g. the slow DEM the 3D relief needs) leads — instead of every
     /// tile of one layer before any of the next.
-    pub fn pending_prioritized(&self, resident: &dyn Fn(&TileId) -> bool) -> Vec<(TileId, TileTier, f32)> {
+    pub fn pending_prioritized(
+        &self,
+        resident: &dyn Fn(&TileId) -> bool,
+    ) -> Vec<(TileId, TileTier, f32)> {
         let centre = self.camera.center.to_world();
         let eye_off = self.camera.eye_offset_world(self.viewport_px);
         let eye = WorldPoint::new(centre.x + eye_off[0] as f64, centre.y + eye_off[1] as f64);
@@ -533,12 +543,7 @@ impl Scene {
         let vw = self.viewport_px.0 as f64;
         let vh = self.viewport_px.1 as f64;
         let m = margin_px as f64;
-        let corners_px = [
-            (-m, -m),
-            (vw + m, -m),
-            (vw + m, vh + m),
-            (-m, vh + m),
-        ];
+        let corners_px = [(-m, -m), (vw + m, -m), (vw + m, vh + m), (-m, vh + m)];
         let mut min_world_x = f64::INFINITY;
         let mut max_world_x = f64::NEG_INFINITY;
         let mut min_world_y = f64::INFINITY;
@@ -654,7 +659,10 @@ mod tests {
     #[test]
     fn a_resident_tile_drops_off_the_pending_list() {
         let scene = Scene::new(Camera::new(LatLng::new(0.0, 0.0), 0.0), (100, 100), 0, 22);
-        assert_eq!(scene.pending_tiles(&resident_set(&[])), vec![TileId::new(0, 0, 0)]);
+        assert_eq!(
+            scene.pending_tiles(&resident_set(&[])),
+            vec![TileId::new(0, 0, 0)]
+        );
         let home = [TileId::new(0, 0, 0)];
         assert!(
             scene.pending_tiles(&resident_set(&home)).is_empty(),
@@ -925,8 +933,16 @@ mod tests {
         for cam in camera_sweep() {
             let a = sweep_scene(cam);
             let b = sweep_scene(cam);
-            assert_eq!(a.visible_tiles(), b.visible_tiles(), "visible nondeterministic @ {cam:?}");
-            assert_eq!(a.desired_tiles(), b.desired_tiles(), "desired nondeterministic @ {cam:?}");
+            assert_eq!(
+                a.visible_tiles(),
+                b.visible_tiles(),
+                "visible nondeterministic @ {cam:?}"
+            );
+            assert_eq!(
+                a.desired_tiles(),
+                b.desired_tiles(),
+                "desired nondeterministic @ {cam:?}"
+            );
             assert_eq!(
                 a.pending_tiles(&|_| false),
                 b.pending_tiles(&|_| false),
@@ -946,7 +962,10 @@ mod tests {
         let bound = crate::capacity::MAX_DESIRED_TILES;
         for cam in camera_sweep() {
             let n = sweep_scene(cam).desired_tiles().len();
-            assert!(n <= bound, "desired set {n} > governed ceiling {bound} @ {cam:?}");
+            assert!(
+                n <= bound,
+                "desired set {n} > governed ceiling {bound} @ {cam:?}"
+            );
         }
     }
 
@@ -978,9 +997,7 @@ mod tests {
         // fetches never settle. Uses the steep-tilt high-zoom case (the largest
         // working set). Phases stay consistent: an ingested wanted tile reads
         // back as Resident, never Pending.
-        let scene = sweep_scene(
-            Camera::new(LatLng::new(67.27, 15.05), 16.0).with_pitch(80.0),
-        );
+        let scene = sweep_scene(Camera::new(LatLng::new(67.27, 15.05), 16.0).with_pitch(80.0));
         let mut resident: HashSet<TileId> = HashSet::new();
         let is_res = |set: &HashSet<TileId>| {
             let snapshot = set.clone();
@@ -1003,8 +1020,14 @@ mod tests {
             );
             let now = scene.pending_tiles(&res);
             let now_set: HashSet<TileId> = now.iter().copied().collect();
-            assert!(now_set.is_subset(&before), "delivery introduced new pending tiles @ {next:?}");
-            assert!(now.len() < prev.len(), "delivery did not shrink pending @ {next:?}");
+            assert!(
+                now_set.is_subset(&before),
+                "delivery introduced new pending tiles @ {next:?}"
+            );
+            assert!(
+                now.len() < prev.len(),
+                "delivery did not shrink pending @ {next:?}"
+            );
             prev = now;
             guard += 1;
             assert!(guard < 10_000, "pending did not converge");
@@ -1028,7 +1051,10 @@ mod tests {
                 .map(|t| tier[t].priority())
                 .collect();
             for w in prios.windows(2) {
-                assert!(w[0] <= w[1], "tier priority regressed in pending @ {cam:?}: {prios:?}");
+                assert!(
+                    w[0] <= w[1],
+                    "tier priority regressed in pending @ {cam:?}: {prios:?}"
+                );
             }
         }
     }

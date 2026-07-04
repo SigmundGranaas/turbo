@@ -405,9 +405,11 @@ impl Camera {
     ) {
         let after = self.pixel_to_world(focus_px, viewport_px);
         let c = self.center.to_world();
-        self.center =
-            WorldPoint::new(c.x - (after.x - focus_world.x), c.y - (after.y - focus_world.y))
-                .to_lat_lng();
+        self.center = WorldPoint::new(
+            c.x - (after.x - focus_world.x),
+            c.y - (after.y - focus_world.y),
+        )
+        .to_lat_lng();
     }
 
     /// Pixels per world unit at the current zoom (one world unit = the full
@@ -499,7 +501,11 @@ impl Camera {
         // origin in f64, then cast — so the f32 the matrix carries is the small
         // offset from the origin, not the ~0.5 absolute Mercator coordinate.
         let centre = self.center.to_world();
-        let target = Vec3::new((centre.x - origin.x) as f32, (centre.y - origin.y) as f32, 0.0);
+        let target = Vec3::new(
+            (centre.x - origin.x) as f32,
+            (centre.y - origin.y) as f32,
+            0.0,
+        );
 
         // Eye position relative to target.
         //   1. Start at (0, 0, altitude) — straight above the target.
@@ -605,11 +611,7 @@ impl Camera {
     /// when pitched far enough that the world point is past the horizon).
     /// Used by the text + marker pipelines to position screen-aligned
     /// labels and circles at world anchors.
-    pub fn world_to_screen(
-        self,
-        world: WorldPoint,
-        viewport_px: (f64, f64),
-    ) -> Option<(f64, f64)> {
+    pub fn world_to_screen(self, world: WorldPoint, viewport_px: (f64, f64)) -> Option<(f64, f64)> {
         // Bottom inset shifts the principal point up by inset/2 px (so the camera
         // centre lands in the visible band above the inset). Default 0 = no shift.
         let inset_y = self.viewport_inset_px * 0.5;
@@ -698,7 +700,8 @@ impl Camera {
             // by inset/2). The matrix path below inherits the inset for free via
             // the inset-aware `view_projection` it inverts.
             return WorldPoint::new(
-                center.x + (pixel.0 - viewport_px.0 * 0.5 + self.viewport_inset_right_px * 0.5) / ppw,
+                center.x
+                    + (pixel.0 - viewport_px.0 * 0.5 + self.viewport_inset_right_px * 0.5) / ppw,
                 center.y + (pixel.1 - viewport_px.1 * 0.5 + self.viewport_inset_px * 0.5) / ppw,
             );
         }
@@ -944,7 +947,12 @@ impl FlingAnimation {
     /// Construct with an explicit start time + `tau` — used by tests so they
     /// can pin behaviour without sleeping.
     pub fn new_at(start: Camera, velocity_px: (f64, f64), started_at: Instant, tau: f64) -> Self {
-        Self { start, velocity_px, started_at, tau }
+        Self {
+            start,
+            velocity_px,
+            started_at,
+            tau,
+        }
     }
 
     fn elapsed(&self, now: Instant) -> f64 {
@@ -1008,7 +1016,14 @@ impl ZoomFlingAnimation {
         focus_px: (f64, f64),
         viewport_px: (f64, f64),
     ) -> Self {
-        Self::new_at(start, zoom_velocity, focus_px, viewport_px, Instant::now(), 0.25)
+        Self::new_at(
+            start,
+            zoom_velocity,
+            focus_px,
+            viewport_px,
+            Instant::now(),
+            0.25,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1020,7 +1035,14 @@ impl ZoomFlingAnimation {
         started_at: Instant,
         tau: f64,
     ) -> Self {
-        Self { start, zoom_velocity, focus_px, viewport_px, started_at, tau }
+        Self {
+            start,
+            zoom_velocity,
+            focus_px,
+            viewport_px,
+            started_at,
+            tau,
+        }
     }
 
     fn elapsed(&self, now: Instant) -> f64 {
@@ -1041,7 +1063,8 @@ impl ZoomFlingAnimation {
         // A delta of `d` levels is a multiplicative factor of 2^d; zooming
         // about the fixed focus keeps the pinch centroid stable.
         let factor = 2f64.powf(self.delta_levels(now));
-        self.start.zoomed_around(factor, self.focus_px, self.viewport_px)
+        self.start
+            .zoomed_around(factor, self.focus_px, self.viewport_px)
     }
 
     pub fn is_finished(&self, now: Instant) -> bool {
@@ -1181,9 +1204,7 @@ mod tests {
         let viewport = (1080u32, 2400u32); // tall phone
         let mut deg = 0.0;
         while deg <= MAX_PITCH_DEG {
-            let cam = Camera::new(center, 13.0)
-                .with_pitch(deg)
-                .with_bearing(31.0);
+            let cam = Camera::new(center, 13.0).with_pitch(deg).with_bearing(31.0);
             assert!(
                 (cam.pitch_deg - deg).abs() < 1e-9,
                 "pitch within range should be honoured: {deg}",
@@ -1191,7 +1212,10 @@ mod tests {
             let vp = cam.view_projection_matrix(viewport);
             assert!(matrix_is_finite(&vp), "non-finite VP at pitch {deg}");
             let vp_rtc = cam.view_projection_matrix_rtc(origin, viewport);
-            assert!(matrix_is_finite(&vp_rtc), "non-finite RTC VP at pitch {deg}");
+            assert!(
+                matrix_is_finite(&vp_rtc),
+                "non-finite RTC VP at pitch {deg}"
+            );
             deg += 0.5;
         }
     }
@@ -1295,7 +1319,10 @@ mod tests {
         let total_px = 1000.0 * tau;
         let expected_world = x0 - total_px / (256.0 * 16.0);
         let far = x(cam_at(5.0));
-        assert!((far - expected_world).abs() < 1e-4, "{far} vs {expected_world}");
+        assert!(
+            (far - expected_world).abs() < 1e-4,
+            "{far} vs {expected_world}"
+        );
     }
 
     #[test]
@@ -1415,11 +1442,19 @@ mod tests {
         cam.rotate_by(20.0); // 370 → 10
         assert!((cam.bearing_deg - 10.0).abs() < 1e-9, "{}", cam.bearing_deg);
         cam.rotate_by(-30.0); // 10 → -20 → 340
-        assert!((cam.bearing_deg - 340.0).abs() < 1e-9, "{}", cam.bearing_deg);
+        assert!(
+            (cam.bearing_deg - 340.0).abs() < 1e-9,
+            "{}",
+            cam.bearing_deg
+        );
 
         // Pitch clamps to [0, MAX_PITCH_DEG] and never tilts past the limit.
         cam.pitch_by(80.0);
-        assert!((cam.pitch_deg - MAX_PITCH_DEG).abs() < 1e-9, "{}", cam.pitch_deg);
+        assert!(
+            (cam.pitch_deg - MAX_PITCH_DEG).abs() < 1e-9,
+            "{}",
+            cam.pitch_deg
+        );
         cam.pitch_by(-200.0);
         assert!(cam.pitch_deg.abs() < 1e-9, "{}", cam.pitch_deg);
     }
@@ -1444,8 +1479,8 @@ mod tests {
         let centre = (viewport.0 * 0.5, viewport.1 * 0.5);
         let mut spun = Camera::new(LatLng::new(60.39, 5.32), 11.0);
         spun.rotate_by(48.0);
-        let around = Camera::new(LatLng::new(60.39, 5.32), 11.0)
-            .rotated_around(48.0, centre, viewport);
+        let around =
+            Camera::new(LatLng::new(60.39, 5.32), 11.0).rotated_around(48.0, centre, viewport);
         assert!((spun.bearing_deg - around.bearing_deg).abs() < 1e-9);
         assert_world_close(spun.center.to_world(), around.center.to_world(), 1e-5);
     }
@@ -1499,7 +1534,9 @@ mod tests {
         let viewport = (800.0, 600.0);
         let cam = Camera::new(LatLng::new(60.39, 5.32), 13.0).with_pitch(55.0);
         let centre = cam.center.to_world();
-        let flat = cam.world_to_screen(centre, viewport).expect("flat projects");
+        let flat = cam
+            .world_to_screen(centre, viewport)
+            .expect("flat projects");
         let lifted = cam
             .world_to_screen_z(centre, 5.0e-6, viewport) // ~200 m of world-space height
             .expect("lifted projects");
@@ -1551,11 +1588,19 @@ mod tests {
         // Zooming in hard from near the ceiling can't exceed MAX_ZOOM.
         let mut cam = Camera::new(LatLng::new(60.39, 5.32), MAX_ZOOM - 0.5);
         cam.zoom_around(64.0, focus, viewport); // +6 levels requested
-        assert!((cam.zoom - MAX_ZOOM).abs() < 1e-12, "clamped at max: {}", cam.zoom);
+        assert!(
+            (cam.zoom - MAX_ZOOM).abs() < 1e-12,
+            "clamped at max: {}",
+            cam.zoom
+        );
         // Zooming out hard from the floor can't go below MIN_ZOOM.
         let mut cam = Camera::new(LatLng::new(0.0, 0.0), MIN_ZOOM + 0.5);
         cam.zoom_around(0.25, focus, viewport); // -2 levels requested
-        assert!((cam.zoom - MIN_ZOOM).abs() < 1e-12, "clamped at min: {}", cam.zoom);
+        assert!(
+            (cam.zoom - MIN_ZOOM).abs() < 1e-12,
+            "clamped at min: {}",
+            cam.zoom
+        );
     }
 
     #[test]
@@ -1568,9 +1613,17 @@ mod tests {
         let bounds = ZoomBounds::new(4.0, 18.0);
         let mut cam = Camera::new(LatLng::new(60.39, 5.32), 17.0).with_zoom_bounds(bounds);
         cam.zoom_around(64.0, focus, viewport); // +6 levels requested → would be 23
-        assert!((cam.zoom - 18.0).abs() < 1e-12, "locked at source max: {}", cam.zoom);
+        assert!(
+            (cam.zoom - 18.0).abs() < 1e-12,
+            "locked at source max: {}",
+            cam.zoom
+        );
         cam.zoom_around(2f64.powi(-20), focus, viewport); // -20 levels requested
-        assert!((cam.zoom - 4.0).abs() < 1e-12, "locked at source min: {}", cam.zoom);
+        assert!(
+            (cam.zoom - 4.0).abs() < 1e-12,
+            "locked at source min: {}",
+            cam.zoom
+        );
     }
 
     #[test]
@@ -1629,8 +1682,7 @@ mod tests {
         let viewport = (1024u32, 768u32);
         let m = glam::Mat4::from_cols_array_2d(&cam.view_projection_matrix(viewport));
         let centre_world = cam.center.to_world();
-        let clip = m
-            * glam::Vec4::new(centre_world.x as f32, centre_world.y as f32, 0.0, 1.0);
+        let clip = m * glam::Vec4::new(centre_world.x as f32, centre_world.y as f32, 0.0, 1.0);
         let ndc = clip.truncate() / clip.w;
         assert!(ndc.x.abs() < 1e-4, "x ndc = {}", ndc.x);
         assert!(ndc.y.abs() < 1e-4, "y ndc = {}", ndc.y);
@@ -1677,7 +1729,10 @@ mod tests {
 
         let world = centre.to_world();
         let plain_y = plain.world_to_screen(world, viewport).expect("on-screen").1;
-        let inset_y = inset_cam.world_to_screen(world, viewport).expect("on-screen").1;
+        let inset_y = inset_cam
+            .world_to_screen(world, viewport)
+            .expect("on-screen")
+            .1;
 
         // The centre lifts up (smaller y) by ~inset/2.
         assert!(inset_y < plain_y, "{inset_y} should sit above {plain_y}");
@@ -1712,9 +1767,13 @@ mod tests {
         let project = |m: [[f32; 4]; 4], p: glam::Vec4| -> (f64, f64) {
             let clip = glam::Mat4::from_cols_array_2d(&m) * p;
             let ndc = clip.truncate() / clip.w;
-            (((ndc.x + 1.0) * 0.5) as f64 * vp_px.0, ((1.0 - ndc.y) * 0.5) as f64 * vp_px.1)
+            (
+                ((ndc.x + 1.0) * 0.5) as f64 * vp_px.0,
+                ((1.0 - ndc.y) * 0.5) as f64 * vp_px.1,
+            )
         };
-        let dist = |a: (f64, f64), b: (f64, f64)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+        let dist =
+            |a: (f64, f64), b: (f64, f64)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
 
         let abs_px = project(
             cam.view_projection_matrix(viewport),
@@ -1722,11 +1781,19 @@ mod tests {
         );
         let rtc_px = project(
             cam.view_projection_matrix_rtc(origin, viewport),
-            glam::Vec4::new((world.x - origin.x) as f32, (world.y - origin.y) as f32, 0.0, 1.0),
+            glam::Vec4::new(
+                (world.x - origin.x) as f32,
+                (world.y - origin.y) as f32,
+                0.0,
+                1.0,
+            ),
         );
         let abs_err = dist(abs_px, truth);
         let rtc_err = dist(rtc_px, truth);
-        assert!(rtc_err < 1.0, "RTC should be sub-pixel at z19 (got {rtc_err} px; abs {abs_err} px)");
+        assert!(
+            rtc_err < 1.0,
+            "RTC should be sub-pixel at z19 (got {rtc_err} px; abs {abs_err} px)"
+        );
         assert!(
             abs_err > 4.0,
             "absolute f32 must be visibly off at z19 ({abs_err} px) or the test proves nothing"
@@ -1900,7 +1967,8 @@ mod tests {
         let pitch = 80.0_f64.to_radians();
         // Eye height in metres (vertical world → metres via C/cosφ).
         let eye_h_m = altitude * pitch.cos() * (EARTH_CIRCUMFERENCE_M / coslat);
-        let expected_world = (2.0 * EARTH_RADIUS_M * eye_h_m).sqrt() / (EARTH_CIRCUMFERENCE_M * coslat);
+        let expected_world =
+            (2.0 * EARTH_RADIUS_M * eye_h_m).sqrt() / (EARTH_CIRCUMFERENCE_M * coslat);
         let got = ground_horizon_world(altitude as f32, pitch as f32, coslat as f32) as f64;
         assert!(
             (got - expected_world).abs() < expected_world * 0.02,
@@ -1914,9 +1982,14 @@ mod tests {
         // grazing pitch across the zoom range (high zoom = small altitude = the
         // largest far/near ratio).
         for zoom in [10.0_f64, 14.0, 17.0, 19.0] {
-            let cam = Camera::new(LatLng::new(67.23, 15.30), zoom).with_pitch(80.0).with_bearing(33.0);
+            let cam = Camera::new(LatLng::new(67.23, 15.30), zoom)
+                .with_pitch(80.0)
+                .with_bearing(33.0);
             let m = cam.view_projection_matrix_rtc(cam.center.to_world(), (1080, 1600));
-            assert!(matrix_is_finite(&m), "vp must be finite at zoom {zoom}, pitch 80");
+            assert!(
+                matrix_is_finite(&m),
+                "vp must be finite at zoom {zoom}, pitch 80"
+            );
         }
     }
 }

@@ -81,7 +81,9 @@ fn full_host_roundtrip_through_the_ffi_surface() {
     let pending = map.pending_tiles();
     assert!(!pending.is_empty(), "remote raster tiles should be pending");
     assert!(pending.iter().all(|t| t.kind == TileKind::Raster));
-    assert!(pending.iter().all(|t| t.layer_id.as_deref() == Some("basemap")));
+    assert!(pending
+        .iter()
+        .all(|t| t.layer_id.as_deref() == Some("basemap")));
 
     // 3. Host fetch loop: push an encoded PNG for every pending tile.
     let tile_bytes = fake_tile_png();
@@ -105,7 +107,9 @@ fn full_host_roundtrip_through_the_ffi_surface() {
     // 4. Snapshot through the FFI and check actual pixels: the sea-green
     //    basemap everywhere, the red route somewhere.
     let png = map.render_png().expect("render png");
-    let img = image::load_from_memory(&png).expect("decode png").to_rgba8();
+    let img = image::load_from_memory(&png)
+        .expect("decode png")
+        .to_rgba8();
     assert_eq!((img.width(), img.height()), (512, 384));
     let centre = img.get_pixel(256, 192);
     let total = img.pixels().count();
@@ -176,7 +180,8 @@ fn zoom_lock_clamps_the_camera_through_the_ffi_surface() {
     // at z14 caps the camera there — past it the raster would upsample and
     // sharp overlays drift, exactly what the lock prevents.
     map.clear_zoom_bounds();
-    map.apply_scene(scene_with_max_zoom_14()).expect("apply scene");
+    map.apply_scene(scene_with_max_zoom_14())
+        .expect("apply scene");
     let zb = map.zoom_bounds();
     assert!(
         (zb.max - 14.0).abs() < 1e-9,

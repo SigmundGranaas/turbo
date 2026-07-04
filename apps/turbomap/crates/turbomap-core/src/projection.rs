@@ -156,14 +156,11 @@ fn lat_lng_to_utm(ll: LatLng, zone: u32) -> (f64, f64) {
                 + (5.0 - 18.0 * t + t * t + 72.0 * c - 58.0 * ep2) * big_a * a2 * a2 / 120.0);
     let northing = UTM_FALSE_NORTHING
         + UTM_K0
-            * (m
-                + n
-                    * tan_lat
-                    * (a2 / 2.0
-                        + (5.0 - t + 9.0 * c + 4.0 * c * c) * a2 * a2 / 24.0
-                        + (61.0 - 58.0 * t + t * t + 600.0 * c - 330.0 * ep2)
-                            * a2 * a2 * a2
-                            / 720.0));
+            * (m + n
+                * tan_lat
+                * (a2 / 2.0
+                    + (5.0 - t + 9.0 * c + 4.0 * c * c) * a2 * a2 / 24.0
+                    + (61.0 - 58.0 * t + t * t + 600.0 * c - 330.0 * ep2) * a2 * a2 * a2 / 720.0));
     (easting, northing)
 }
 
@@ -205,12 +202,16 @@ fn utm_to_lat_lng(easting: f64, northing: f64, zone: u32) -> LatLng {
             * (d2 / 2.0
                 - (5.0 + 3.0 * t1 + 10.0 * c1 - 4.0 * c1 * c1 - 9.0 * ep2) * d2 * d2 / 24.0
                 + (61.0 + 90.0 * t1 + 298.0 * c1 + 45.0 * t1 * t1 - 252.0 * ep2 - 3.0 * c1 * c1)
-                    * d2 * d2 * d2
+                    * d2
+                    * d2
+                    * d2
                     / 720.0);
     let lon = lon0
         + (d - (1.0 + 2.0 * t1 + c1) * d2 * d / 6.0
             + (5.0 - 2.0 * c1 + 28.0 * t1 - 3.0 * c1 * c1 + 8.0 * ep2 + 24.0 * t1 * t1)
-                * d2 * d2 * d
+                * d2
+                * d2
+                * d
                 / 120.0)
             / cos_phi1;
 
@@ -356,7 +357,10 @@ mod tests {
             "({e0}, {n0}) -> zone32 ({e32}, {n32}) -> ({e_back}, {n_back})",
         );
         // The two zones really are different frames — the easting must shift.
-        assert!((e32 - e0).abs() > 1.0, "zone change should move the easting");
+        assert!(
+            (e32 - e0).abs() > 1.0,
+            "zone change should move the easting"
+        );
     }
 
     #[test]

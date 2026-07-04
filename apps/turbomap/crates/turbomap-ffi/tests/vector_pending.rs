@@ -67,10 +67,15 @@ fn vector_water_source_enumerates_host_pending_tiles() {
         !vector.is_empty(),
         "the vector water source must produce host-fetchable Vector pending tiles, \
          else the host never fetches water; pending kinds were: {:?}",
-        pending.iter().map(|t| (t.kind, t.layer_id.clone())).collect::<Vec<_>>()
+        pending
+            .iter()
+            .map(|t| (t.kind, t.layer_id.clone()))
+            .collect::<Vec<_>>()
     );
     assert!(
-        vector.iter().all(|t| t.layer_id.as_deref() == Some("water")),
+        vector
+            .iter()
+            .all(|t| t.layer_id.as_deref() == Some("water")),
         "vector pending tiles must be keyed by the layer id the host resolves URLs with"
     );
 }

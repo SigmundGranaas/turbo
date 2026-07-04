@@ -144,10 +144,7 @@ impl VectorMeshCache {
         // the first feature; fall back to MVT's standard 4 096 if
         // empty (shouldn't happen — we already returned for empty
         // tiles above).
-        let extent = interactive
-            .first()
-            .map(|f| f.extent)
-            .unwrap_or(4096);
+        let extent = interactive.first().map(|f| f.extent).unwrap_or(4096);
         let mut hit_index = SpatialIndex::new(extent);
         for (i, f) in interactive.iter().enumerate() {
             // Constant 4 tile-local-unit tolerance so thin lines /
@@ -157,11 +154,7 @@ impl VectorMeshCache {
             hit_index.insert(i as u32, &f.feature.geometry, 4.0);
         }
         hit_index.finish();
-        let bytes = mesh_bytes
-            + label_bytes
-            + icon_bytes
-            + interactive_bytes
-            + hit_index.bytes();
+        let bytes = mesh_bytes + label_bytes + icon_bytes + interactive_bytes + hit_index.bytes();
         self.entries.insert(
             id,
             VectorEntry {

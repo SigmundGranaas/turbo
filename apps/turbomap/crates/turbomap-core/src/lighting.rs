@@ -94,7 +94,10 @@ mod tests {
         let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
         assert!((len - 1.0).abs() < 1e-4);
 
-        let pinned = SunPosition { azimuth_deg: 120.0, altitude_deg: 40.0 };
+        let pinned = SunPosition {
+            azimuth_deg: 120.0,
+            altitude_deg: 40.0,
+        };
         l.set_fixed(Some(pinned));
         assert_eq!(l.sun_at(c), pinned);
 

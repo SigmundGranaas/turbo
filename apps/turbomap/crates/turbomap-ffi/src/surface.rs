@@ -25,7 +25,9 @@ use ndk::native_window::NativeWindow;
 use raw_window_handle::{
     AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
-use turbomap_core::{Camera, Color as CoreColor, LatLng as CoreLatLng, MapOptions, PendingTile, TileId};
+use turbomap_core::{
+    Camera, Color as CoreColor, LatLng as CoreLatLng, MapOptions, PendingTile, TileId,
+};
 use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine};
 use turbomap_scene::{LatLng, Scene, ScreenPoint};
 
@@ -301,7 +303,12 @@ impl OnScreen {
     fn apply_cmd(&mut self, cmd: Cmd) {
         use std::time::Duration;
         match cmd {
-            Cmd::SetCamera { lat, lng, zoom, bearing } => {
+            Cmd::SetCamera {
+                lat,
+                lng,
+                zoom,
+                bearing,
+            } => {
                 let mut c = self.engine.camera();
                 c.center = LatLng::new(lat, lng);
                 c.zoom = zoom;
@@ -327,12 +334,23 @@ impl OnScreen {
                 c.center = LatLng::new(target.lat, target.lng);
                 self.engine.set_camera(c);
             }
-            Cmd::SetRouteTube { id, points, color, radius_m } => {
+            Cmd::SetRouteTube {
+                id,
+                points,
+                color,
+                radius_m,
+            } => {
                 self.engine.set_route_tube(&id, &points, color, radius_m);
             }
             Cmd::Fling(vx, vy) => self.engine.fling((vx, vy)),
             Cmd::ZoomFling { v, fx, fy } => self.engine.zoom_fling(v, (fx, fy)),
-            Cmd::EaseTo { lat, lng, zoom, bearing, dur_ms } => {
+            Cmd::EaseTo {
+                lat,
+                lng,
+                zoom,
+                bearing,
+                dur_ms,
+            } => {
                 let mut target = self.engine.camera();
                 target.center = LatLng::new(lat, lng);
                 target.zoom = zoom;
@@ -344,7 +362,12 @@ impl OnScreen {
                 target.pitch_deg = pitch;
                 self.engine.ease_to(target, Duration::from_millis(dur_ms));
             }
-            Cmd::ZoomAroundAnimated { factor, fx, fy, dur_ms } => {
+            Cmd::ZoomAroundAnimated {
+                factor,
+                fx,
+                fy,
+                dur_ms,
+            } => {
                 self.engine
                     .zoom_around_animated(factor, (fx, fy), Duration::from_millis(dur_ms));
             }
@@ -366,8 +389,15 @@ impl OnScreen {
             Cmd::EnableClouds { w, h } => self.engine.enable_clouds(w, h),
             Cmd::SetCloudsVisible(v) => self.engine.set_clouds_visible(v),
             Cmd::SetCloudGeoBounds { w, s, e, n } => self.engine.set_cloud_geo_bounds(w, s, e, n),
-            Cmd::IngestRadar { slot, w, h, precip, coverage } => {
-                self.engine.ingest_radar_frame(slot, w, h, &precip, &coverage);
+            Cmd::IngestRadar {
+                slot,
+                w,
+                h,
+                precip,
+                coverage,
+            } => {
+                self.engine
+                    .ingest_radar_frame(slot, w, h, &precip, &coverage);
             }
             Cmd::SetCloudTime { time, blend } => self.engine.set_cloud_time(time, blend),
             Cmd::ApplyScene(scene) => {
@@ -426,7 +456,14 @@ fn ingest_key(i: &Ingest) -> (String, TileId) {
 impl FramePerf {
     /// Accumulate one frame; log a summary ~1×/s and an immediate line on any
     /// frame that exceeds the 16.7 ms vsync budget (the stalls the user feels).
-    fn record(&mut self, render_ms: f64, ingest_ms: f64, ingested: u32, backlog: usize, pending: u32) {
+    fn record(
+        &mut self,
+        render_ms: f64,
+        ingest_ms: f64,
+        ingested: u32,
+        backlog: usize,
+        pending: u32,
+    ) {
         let now = std::time::Instant::now();
         let gap_ms = self
             .last_frame_at
@@ -540,44 +577,115 @@ fn pending_tiles_filtered(
 enum Cmd {
     /// Centre/zoom/bearing set; pitch is preserved from the live camera (the
     /// 2D gesture path doesn't touch tilt).
-    SetCamera { lat: f64, lng: f64, zoom: f64, bearing: f64 },
+    SetCamera {
+        lat: f64,
+        lng: f64,
+        zoom: f64,
+        bearing: f64,
+    },
     /// Translate the camera by a screen-space finger delta (px). Applied on the
     /// render thread against the LIVE camera, so successive pan events within one
     /// frame ACCUMULATE instead of each recomputing from a stale snapshot and
     /// overwriting (the dropped-intermediate-motion "throttle"/jitter). Ground-
     /// plane unproject → consistent under pitch (no terrain-hit skitter).
-    PanByPixels { dx: f64, dy: f64 },
+    PanByPixels {
+        dx: f64,
+        dy: f64,
+    },
     /// Set (or clear, when `points` is empty) a route/track polyline drawn as a
     /// raised 3D tube. Replaces the old flat geo-json line for route/track.
-    SetRouteTube { id: String, points: Vec<CoreLatLng>, color: CoreColor, radius_m: f64 },
+    SetRouteTube {
+        id: String,
+        points: Vec<CoreLatLng>,
+        color: CoreColor,
+        radius_m: f64,
+    },
     Fling(f64, f64),
-    ZoomFling { v: f64, fx: f64, fy: f64 },
-    EaseTo { lat: f64, lng: f64, zoom: f64, bearing: f64, dur_ms: u64 },
-    EasePitch { pitch: f64, dur_ms: u64 },
-    ZoomAroundAnimated { factor: f64, fx: f64, fy: f64, dur_ms: u64 },
-    ZoomAround { factor: f64, fx: f64, fy: f64 },
-    OrbitAround { db: f64, dp: f64, fx: f64, fy: f64 },
+    ZoomFling {
+        v: f64,
+        fx: f64,
+        fy: f64,
+    },
+    EaseTo {
+        lat: f64,
+        lng: f64,
+        zoom: f64,
+        bearing: f64,
+        dur_ms: u64,
+    },
+    EasePitch {
+        pitch: f64,
+        dur_ms: u64,
+    },
+    ZoomAroundAnimated {
+        factor: f64,
+        fx: f64,
+        fy: f64,
+        dur_ms: u64,
+    },
+    ZoomAround {
+        factor: f64,
+        fx: f64,
+        fy: f64,
+    },
+    OrbitAround {
+        db: f64,
+        dp: f64,
+        fx: f64,
+        fy: f64,
+    },
     CancelAnimation,
     SetViewportInset(f64),
     SetTerrainShadows(f32),
     SetSunTime(Option<f64>),
-    EnableClouds { w: u32, h: u32 },
+    EnableClouds {
+        w: u32,
+        h: u32,
+    },
     SetCloudsVisible(bool),
-    SetCloudGeoBounds { w: f64, s: f64, e: f64, n: f64 },
-    IngestRadar { slot: u32, w: u32, h: u32, precip: Vec<u8>, coverage: Vec<u8> },
-    SetCloudTime { time: f32, blend: f32 },
+    SetCloudGeoBounds {
+        w: f64,
+        s: f64,
+        e: f64,
+        n: f64,
+    },
+    IngestRadar {
+        slot: u32,
+        w: u32,
+        h: u32,
+        precip: Vec<u8>,
+        coverage: Vec<u8>,
+    },
+    SetCloudTime {
+        time: f32,
+        blend: f32,
+    },
     ApplyScene(Box<Scene>),
     PumpTiles,
-    Resize { w: u32, h: u32 },
+    Resize {
+        w: u32,
+        h: u32,
+    },
 }
 
 /// A fetched tile to upload. Separate from [`Cmd`] so tile bursts are rate-
 /// limited per frame (decode + GPU upload is the expensive part) without ever
 /// delaying a control command — control fully drains, ingest is capped.
 enum Ingest {
-    Raster { layer: String, tile: TileId, bytes: Vec<u8> },
-    Terrain { tile: TileId, bytes: Vec<u8> },
-    Vector { layer: String, tile: TileId, bytes: Vec<u8> },
+    Raster {
+        layer: String,
+        tile: TileId,
+        bytes: Vec<u8>,
+    },
+    Terrain {
+        tile: TileId,
+        bytes: Vec<u8>,
+    },
+    Vector {
+        layer: String,
+        tile: TileId,
+        bytes: Vec<u8>,
+    },
 }
 
 /// Cheap, immutable read model republished after every frame. UI reads load it
@@ -718,7 +826,8 @@ impl Surface {
         // remaining tiles would only trickle in on the next unrelated invalidation.
         snap.animating = snap.animating || ingest_backlog > 0;
         let pending = snap.pending_count;
-        on.perf.record(render_ms, ingest_ms, ingested, ingest_backlog, pending);
+        on.perf
+            .record(render_ms, ingest_ms, ingested, ingest_backlog, pending);
         // Publish the full structured per-frame trace (Slice 1): the engine's
         // always-on FrameMetrics plus the streaming timings/counts only the FFI
         // render loop knows. Overwrites the cheap cache-only stats built above.
@@ -740,7 +849,10 @@ impl Surface {
     }
 
     fn latest(&self) -> Arc<Snapshot> {
-        self.snapshot.lock().unwrap_or_else(|p| p.into_inner()).clone()
+        self.snapshot
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 }
 
@@ -922,7 +1034,16 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     fx: jdouble,
     fy: jdouble,
 ) {
-    unsafe { enqueue(handle, Cmd::ZoomFling { v: zoom_velocity, fx, fy }) };
+    unsafe {
+        enqueue(
+            handle,
+            Cmd::ZoomFling {
+                v: zoom_velocity,
+                fx,
+                fy,
+            },
+        )
+    };
 }
 
 /// Ease the camera to a target pose over `duration_ms` (accel/decel). Pitch is
@@ -941,7 +1062,13 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     unsafe {
         enqueue(
             handle,
-            Cmd::EaseTo { lat, lng, zoom, bearing: bearing_deg, dur_ms: duration_ms.max(0) as u64 },
+            Cmd::EaseTo {
+                lat,
+                lng,
+                zoom,
+                bearing: bearing_deg,
+                dur_ms: duration_ms.max(0) as u64,
+            },
         )
     };
 }
@@ -958,7 +1085,15 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     pitch_deg: jdouble,
     duration_ms: jint,
 ) {
-    unsafe { enqueue(handle, Cmd::EasePitch { pitch: pitch_deg, dur_ms: duration_ms.max(0) as u64 }) };
+    unsafe {
+        enqueue(
+            handle,
+            Cmd::EasePitch {
+                pitch: pitch_deg,
+                dur_ms: duration_ms.max(0) as u64,
+            },
+        )
+    };
 }
 
 /// Animate a focus-invariant zoom by `factor` about `(fx, fy)` over `duration_ms`.
@@ -975,7 +1110,12 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     unsafe {
         enqueue(
             handle,
-            Cmd::ZoomAroundAnimated { factor, fx, fy, dur_ms: duration_ms.max(0) as u64 },
+            Cmd::ZoomAroundAnimated {
+                factor,
+                fx,
+                fy,
+                dur_ms: duration_ms.max(0) as u64,
+            },
         )
     };
 }
@@ -1011,7 +1151,17 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     fx: jdouble,
     fy: jdouble,
 ) {
-    unsafe { enqueue(handle, Cmd::OrbitAround { db: d_bearing_deg, dp: d_pitch_deg, fx, fy }) };
+    unsafe {
+        enqueue(
+            handle,
+            Cmd::OrbitAround {
+                db: d_bearing_deg,
+                dp: d_pitch_deg,
+                fx,
+                fy,
+            },
+        )
+    };
 }
 
 /// Catch any in-flight camera animation, freezing the camera exactly where it
@@ -1036,7 +1186,9 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
 ) -> jstring {
     let json = unsafe { with_surface(handle, |s| s.latest().stats_json.clone()) }
         .unwrap_or_else(|| "{}".to_string());
-    env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+    env.new_string(json)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
 }
 
 /// Reserve `bottom_px` at the bottom of the viewport (e.g. the live sheet) so the
@@ -1059,7 +1211,15 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     width: jint,
     height: jint,
 ) {
-    unsafe { enqueue(handle, Cmd::Resize { w: width.max(0) as u32, h: height.max(0) as u32 }) };
+    unsafe {
+        enqueue(
+            handle,
+            Cmd::Resize {
+                w: width.max(0) as u32,
+                h: height.max(0) as u32,
+            },
+        )
+    };
 }
 
 /// Build a `double[]` JNI return; empty array on allocation failure.
@@ -1083,7 +1243,17 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     zoom: jdouble,
     bearing_deg: jdouble,
 ) {
-    unsafe { enqueue(handle, Cmd::SetCamera { lat, lng, zoom, bearing: bearing_deg }) };
+    unsafe {
+        enqueue(
+            handle,
+            Cmd::SetCamera {
+                lat,
+                lng,
+                zoom,
+                bearing: bearing_deg,
+            },
+        )
+    };
 }
 
 /// One-finger pan step: translate the camera by a screen-space finger delta (px).
@@ -1132,7 +1302,17 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         .map(|c| CoreLatLng::new(c[0], c[1]))
         .collect();
     let color = CoreColor::rgba(r as u8, g as u8, b as u8, a as u8);
-    unsafe { enqueue(handle, Cmd::SetRouteTube { id, points, color, radius_m }) };
+    unsafe {
+        enqueue(
+            handle,
+            Cmd::SetRouteTube {
+                id,
+                points,
+                color,
+                radius_m,
+            },
+        )
+    };
 }
 
 /// `[lat, lng, zoom, bearingDeg]`.
@@ -1144,7 +1324,10 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
 ) -> jni::sys::jarray {
     let cam = unsafe { with_surface(handle, |s| s.latest().cam.clone()) };
     match cam {
-        Some(c) => double_array(&mut env, &[c.center.lat, c.center.lng, c.zoom, c.bearing_deg]),
+        Some(c) => double_array(
+            &mut env,
+            &[c.center.lat, c.center.lng, c.zoom, c.bearing_deg],
+        ),
         None => double_array(&mut env, &[]),
     }
 }
@@ -1169,8 +1352,13 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     // the flicker. Unproject (the drag hot path) keeps its wait-free fallback; project does not.
     let p = unsafe {
         with_surface(handle, |s| {
-            let on = s.render.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            on.engine.project(LatLng::new(lat, lng)).map(|sp| (sp.x, sp.y))
+            let on = s
+                .render
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            on.engine
+                .project(LatLng::new(lat, lng))
+                .map(|sp| (sp.x, sp.y))
         })
     }
     .flatten();
@@ -1200,7 +1388,9 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
                 }
             }
             let snap = s.latest();
-            let ll = snapshot_camera(&snap).pixel_to_world((x, y), snap.viewport).to_lat_lng();
+            let ll = snapshot_camera(&snap)
+                .pixel_to_world((x, y), snap.viewport)
+                .to_lat_lng();
             (ll.lat, ll.lng)
         })
     };
@@ -1233,7 +1423,9 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
                 return (lat, lng, wz as f64, if hit { 1.0 } else { 0.0 });
             }
             let snap = s.latest();
-            let ll = snapshot_camera(&snap).pixel_to_world((x, y), snap.viewport).to_lat_lng();
+            let ll = snapshot_camera(&snap)
+                .pixel_to_world((x, y), snap.viewport)
+                .to_lat_lng();
             (ll.lat, ll.lng, 0.0, 0.0)
         })
     };
@@ -1254,7 +1446,9 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
 ) -> jni::sys::jstring {
     let json = unsafe { with_surface(handle, |s| s.latest().pending_json.clone()) }
         .unwrap_or_else(|| "[]".to_string());
-    env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+    env.new_string(json)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
 }
 
 /// Push a fetched raster tile (encoded PNG/JPEG/WebP). Returns false if it
@@ -1296,13 +1490,21 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
             }
             drop(q);
             s.ingest_tx
-                .send(Ingest::Raster { layer, tile, bytes: data })
+                .send(Ingest::Raster {
+                    layer,
+                    tile,
+                    bytes: data,
+                })
                 .is_ok()
         })
     };
     // Optimistic: the upload happens on the render thread next frame. A decode
     // failure just leaves the tile un-ingested; the reconciler re-requests it.
-    if sent == Some(true) { JNI_TRUE } else { JNI_FALSE }
+    if sent == Some(true) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
 }
 
 /// Push a fetched vector tile (raw MVT/protobuf bytes) into the named vector
@@ -1341,11 +1543,19 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
             }
             drop(q);
             s.ingest_tx
-                .send(Ingest::Vector { layer, tile, bytes: data })
+                .send(Ingest::Vector {
+                    layer,
+                    tile,
+                    bytes: data,
+                })
                 .is_ok()
         })
     };
-    if sent == Some(true) { JNI_TRUE } else { JNI_FALSE }
+    if sent == Some(true) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
 }
 
 /// Push a fetched DEM tile (encoded Mapbox-Terrain-RGB PNG) into the shared
@@ -1381,7 +1591,11 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
                 .is_ok()
         })
     };
-    if sent == Some(true) { JNI_TRUE } else { JNI_FALSE }
+    if sent == Some(true) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
 }
 
 // ---- weather-cloud overlay ----------------------------------------------
@@ -1395,7 +1609,15 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     grid_w: jint,
     grid_h: jint,
 ) {
-    unsafe { enqueue(handle, Cmd::EnableClouds { w: grid_w.max(0) as u32, h: grid_h.max(0) as u32 }) };
+    unsafe {
+        enqueue(
+            handle,
+            Cmd::EnableClouds {
+                w: grid_w.max(0) as u32,
+                h: grid_h.max(0) as u32,
+            },
+        )
+    };
 }
 
 /// Disable the overlay, or just hide it (`visible == false`) while keeping
@@ -1420,7 +1642,11 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     handle: jlong,
     unix_seconds: jdouble,
 ) {
-    let t = if unix_seconds < 0.0 { None } else { Some(unix_seconds) };
+    let t = if unix_seconds < 0.0 {
+        None
+    } else {
+        Some(unix_seconds)
+    };
     unsafe { enqueue(handle, Cmd::SetSunTime(t)) };
 }
 
@@ -1449,7 +1675,17 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     east: jdouble,
     north: jdouble,
 ) {
-    unsafe { enqueue(handle, Cmd::SetCloudGeoBounds { w: west, s: south, e: east, n: north }) };
+    unsafe {
+        enqueue(
+            handle,
+            Cmd::SetCloudGeoBounds {
+                w: west,
+                s: south,
+                e: east,
+                n: north,
+            },
+        )
+    };
 }
 
 /// Upload a radar frame into `slot` (0 = current, 1 = next) from two

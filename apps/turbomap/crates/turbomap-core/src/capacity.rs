@@ -39,7 +39,11 @@ pub(crate) const OVERVIEW_DEPTH: u8 = 3;
 /// *empirical* desired count never exceeds this; this is the *declared* bound
 /// the cache is sized against.
 pub(crate) const MAX_DESIRED_TILES: usize = {
-    let visible = if LOD_TILE_CAP > RECT_TILE_CAP { LOD_TILE_CAP } else { RECT_TILE_CAP };
+    let visible = if LOD_TILE_CAP > RECT_TILE_CAP {
+        LOD_TILE_CAP
+    } else {
+        RECT_TILE_CAP
+    };
     visible + RECT_TILE_CAP // + the overview backdrop (itself a capped rectangle)
 };
 

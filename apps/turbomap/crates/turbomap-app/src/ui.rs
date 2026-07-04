@@ -74,8 +74,11 @@ impl UiOverlay {
             None,
             None,
         );
-        let renderer =
-            egui_wgpu::Renderer::new(device, surface_format, egui_wgpu::RendererOptions::default());
+        let renderer = egui_wgpu::Renderer::new(
+            device,
+            surface_format,
+            egui_wgpu::RendererOptions::default(),
+        );
         Self {
             ctx,
             state,
