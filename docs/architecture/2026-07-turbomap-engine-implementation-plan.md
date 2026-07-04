@@ -633,3 +633,7 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   Remaining in B6: the committed coarse Norway extract behind a CI size
   budget + host wiring (`TURBO_BASELINE_BUNDLE`) — now unblocked, since a
   host can declare `chain [bundle, remote]` without any engine change.
+- _2026-07-04_: **B6.2 sim confirmation recorded:** all 7 behavioural gates
+  green under `REQUIRE_GPU=1` on Lavapipe, release profile, 690 s run —
+  post-chain tree (no sim scene declares a chain yet; the gate guards
+  against regression in the shared resolver/engine paths).
