@@ -330,6 +330,84 @@ fn omt_scene() -> Scene {
     scene
 }
 
+/// The offline cold-start gate (plan B6, decisions D2/D7): a Scene that
+/// declares its basemap as a `pmtiles-vector` bundle renders COMPLETELY —
+/// through the production `HostDrivenResolver`, with zero host fetches and
+/// nothing left pending — from one local file. This is the bundled-baseline
+/// promise stated as a test: no network, no host IO loop, full map.
+#[test]
+fn bundled_pmtiles_scene_is_fully_offline_via_the_production_resolver() {
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    // The bundle: the analytic OMT world packed into a real .pmtiles file.
+    let bundle = tempfile::NamedTempFile::new().expect("temp bundle");
+    std::fs::write(bundle.path(), build_fixture_archive()).expect("write bundle");
+
+    // The scene names the bundle declaratively — no custom resolver, no
+    // URL-template hack. Same style stack as the golden, minus the raster
+    // base (a stub source would leave host-pending tiles by design).
+    let mut scene = omt_scene();
+    scene.sources.insert(
+        "omt".to_string(),
+        SourceDef::PmtilesVector {
+            location: bundle.path().to_string_lossy().into_owned(),
+        },
+    );
+    scene.layers.retain(|l| l.id() != "basemap");
+    scene.sources.remove("base");
+
+    let (width, height) = (512, 384);
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (width, height),
+        CameraState::new(LatLng::new(60.39, 5.32), f64::from(FIXTURE_ZOOM)),
+        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        Box::new(turbomap_engine::HostDrivenResolver),
+    )
+    .expect("construct TurbomapEngine");
+
+    engine.apply(scene);
+    assert!(
+        engine.unsupported_layers().is_empty(),
+        "the production resolver must accept pmtiles sources, got {:?}",
+        engine.unsupported_layers()
+    );
+
+    let stats = engine.pump_tiles();
+    assert!(
+        stats.vector_tiles >= 4,
+        "tiles must be served from the bundle in-process, got {stats:?}"
+    );
+    // THE offline invariant: after the in-process drain, nothing is left
+    // for a host to fetch — a cold start with no network shows a full map.
+    let pending = engine.pending_tiles();
+    assert!(
+        pending.is_empty(),
+        "offline scene must leave zero host-pending tiles, got {}",
+        pending.len()
+    );
+
+    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    engine.after_submit();
+
+    // Coverage census — the map is genuinely there, not just "no errors".
+    let near = |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| {
+        (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol)
+    };
+    let water = image.pixels().filter(|p| near(p, [166, 204, 222], 14)).count();
+    let motorway = image.pixels().filter(|p| near(p, [233, 164, 80], 25)).count();
+    assert!(water > 200, "bundled water must render offline, got {water}");
+    assert!(motorway > 200, "bundled roads must render offline, got {motorway}");
+}
+
 #[test]
 fn omt_schema_renders_from_a_pmtiles_archive() {
     let Some(gpu) = headless() else {

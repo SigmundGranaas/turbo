@@ -591,3 +591,17 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   raster sources
   into the disk cache, engine-level pmtiles read-through caching, the
   committed baseline extract + offline cold-start sim gate.
+- _2026-07-04_: **B6 (core gate) landed — offline cold start proven at the
+  engine seam.** New gpu-gated test `bundled_pmtiles_scene_is_fully_offline_
+  via_the_production_resolver` (`turbomap-engine/tests/omt_pmtiles.rs`): the
+  analytic OMT world packed into a real `.pmtiles` file, declared in the
+  Scene as a `pmtiles-vector` source, resolved by the PRODUCTION
+  `HostDrivenResolver` (no custom resolver, no URL hack), drained fully
+  in-process by `pump_tiles`, then the offline invariant asserted —
+  **`pending_tiles()` is empty** (nothing left for a host to fetch) — plus a
+  pixel census proving water + roads actually rendered. Run green on
+  Lavapipe (`REQUIRE_GPU=1`), alongside the untouched `omt-pmtiles-bergen`
+  golden. Remaining in B6: a committed coarse Norway extract behind a CI
+  size budget, host wiring (`TURBO_BASELINE_BUNDLE`), and the sim-level
+  cold-start scenario — deferred until the provider-chain composition
+  (bundled-under-remote layering) exists to wire them through.
