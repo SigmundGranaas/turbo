@@ -935,3 +935,35 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   (subsystem registry)**, which collapses the split-borrow dance the
   graph port still carries and gives every subsystem budgets + inspect
   JSON + a debug view.
+- _2026-07-04_: **D2 landed + verified — the subsystem registry, gate
+  satisfied.** `Map`'s god-fields regrouped into five subsystems that own
+  their pipelines and state (Basemap = the tile-layer stack; Terrain =
+  heightmap + cast-shadow field + AO + shared DEM plumbing; Symbols =
+  text/icons; Overlays = markers/route tubes; Atmosphere = sky, floor,
+  lighting, clouds, 3D look gates), with `Renderer` reduced to genuine
+  frame services (MSAA attachments + GPU timer) and the render path's
+  split-borrow dance replaced by per-subsystem borrows. The S7
+  observability core is the new `turbomap-core/src/subsystem.rs`:
+  `trait Subsystem { name, passes, budgets, inspect, debug_views }` +
+  `Map::subsystems()` / `Map::inspect_json()` (re-exported on the
+  engine; the scenario harness writes `inspect.json` every run).
+  Debug views tie into the D1 pass mask (`DebugActivation::MaskPass`),
+  so "evaluate any subsystem alone" is one switch. Deliberately staged:
+  `reconcile`/`tick`/`data_needs` join the trait when their callers
+  exist (engine scene slices, E2 simulation, D3 world layers) — the
+  observability obligation is what D2's gate demands, and it is now
+  build-enforced by the registry meta-test
+  (`turbomap-golden/tests/subsystems.rs`): unique names, ≥1 declared
+  frame-graph pass each, coherent budgets, parsable inspect JSON, ≥1
+  debug view, and every pass label in a rendered frame claimed by
+  exactly one subsystem. **Verification:** 210 core unit tests; engine
+  gpu suites + golden replays + the meta-test green under
+  `REQUIRE_GPU=1`; goldens unchanged; wasm32 builds; **7/7 sim gates**
+  (release, 647.9 s); and the Sjunkhatten session (real Kartverket topo
+  + kart-api DEM, 53 frames incl. the shadow A/B) **byte-identical to
+  the D1 session** — two consecutive architectural refactors with zero
+  pixel drift. Live inspect sample from the session: terrain
+  {exaggeration 1.5, finest_resident_zoom 14, shadow_field_assembled
+  true}, basemap {545 MB of 1 GiB budget, 3209 entries}. **Next: D3
+  (Surface seam + DEM decode out of WGSL) or D4 (Layer::Custom real) —
+  both now unblocked.**
