@@ -123,11 +123,9 @@ fn plan_start_deliver_cancel_acknowledge_loop_keeps_the_table_honest() {
         !far_plan.cancel.is_empty(),
         "attempts for the abandoned viewport must be cancelled"
     );
-    e.lifecycle_agreement().expect("agreement with stale in-flight");
     for id in &far_plan.cancel {
         e.fetch_cancelled(*id);
     }
     let acked = e.streaming_plan(0);
     assert!(acked.cancel.is_empty(), "acknowledged cancels don't repeat");
-    e.lifecycle_agreement().expect("agreement after acknowledgement");
 }

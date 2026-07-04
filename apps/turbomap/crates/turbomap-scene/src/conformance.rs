@@ -221,6 +221,54 @@ pub fn check_source_update_detected(engine: &mut dyn MapEngine) {
 }
 
 /// `project` then `unproject` returns the original coordinate (pitch 0).
+/// Changing only the scene-declared environment yields an
+/// environment-only delta — no source or layer churn — and reapplying the
+/// same environment is a no-op (plan C1: the side-doors are absorbed, so
+/// environment edits must be as observable and minimal as any other).
+pub fn check_environment_diffing(engine: &mut dyn MapEngine) {
+    use crate::scene::LightingDef;
+    let base = raster_scene(&["base-l"]);
+    engine.apply(base.clone());
+
+    let mut lit = base.clone();
+    lit.environment.lighting = LightingDef::TimeTracked { unix_seconds: 1_750_000_000.0 };
+    lit.environment.terrain_shadows = 0.85;
+    let delta = engine.apply(lit.clone());
+    assert_eq!(
+        delta.environment.as_ref(),
+        Some(&lit.environment),
+        "an environment edit must surface as delta.environment"
+    );
+    assert!(delta.sources.is_empty(), "environment edit must not churn sources");
+    assert!(delta.layers.is_empty(), "environment edit must not churn layers");
+
+    let again = engine.apply(lit);
+    assert!(again.is_empty(), "reapplying the same environment must be a no-op");
+}
+
+/// Updating a `Field2D` source's definition is a source `Updated` with no
+/// layer churn — field data rides the same declarative rails as tiles.
+pub fn check_field_source_update(engine: &mut dyn MapEngine) {
+    let mut scene = raster_scene(&["base-l"]);
+    scene.sources.insert(
+        "radar".to_string(),
+        SourceDef::Field2D { bounds: [4.0, 57.0, 31.0, 71.0] },
+    );
+    engine.apply(scene.clone());
+
+    scene.sources.insert(
+        "radar".to_string(),
+        SourceDef::Field2D { bounds: [3.0, 56.0, 32.0, 72.0] },
+    );
+    let delta = engine.apply(scene);
+    assert_eq!(
+        delta.sources,
+        vec![SourceChange::Updated("radar".to_string())],
+        "a field-source edit must be a source Updated"
+    );
+    assert!(delta.layers.is_empty(), "field edit must not churn layers");
+}
+
 pub fn check_projection_roundtrips(engine: &mut dyn MapEngine) {
     engine.resize(1024, 768);
     engine.set_camera(CameraState {
@@ -254,5 +302,7 @@ pub fn run_all(factory: &dyn Fn() -> Box<dyn MapEngine>) {
     check_reorder_is_minimal(&mut *factory());
     check_repaint_is_update_only(&mut *factory());
     check_source_update_detected(&mut *factory());
+    check_environment_diffing(&mut *factory());
+    check_field_source_update(&mut *factory());
     check_projection_roundtrips(&mut *factory());
 }

@@ -35,11 +35,15 @@ pub enum LayerChange {
 pub struct SceneDelta {
     pub sources: Vec<SourceChange>,
     pub layers: Vec<LayerChange>,
+    /// `Some(new)` when the scene-declared environment changed (plan C1) —
+    /// the engine applies the whole block (it's a handful of scalars, so
+    /// per-field deltas would be complexity without a saving).
+    pub environment: Option<crate::EnvironmentDef>,
 }
 
 impl SceneDelta {
     pub fn is_empty(&self) -> bool {
-        self.sources.is_empty() && self.layers.is_empty()
+        self.sources.is_empty() && self.layers.is_empty() && self.environment.is_none()
     }
 }
 
@@ -48,6 +52,8 @@ pub fn diff(old: &Scene, new: &Scene) -> SceneDelta {
     SceneDelta {
         sources: diff_sources(&old.sources, &new.sources),
         layers: diff_layers(&old.layers, &new.layers),
+        environment: (old.environment != new.environment)
+            .then(|| new.environment.clone()),
     }
 }
 

@@ -925,6 +925,28 @@ impl MapEngine for TurbomapEngine {
             let old = std::mem::replace(&mut self.scene, scene);
             self.reconcile(&old);
         }
+        // The scene-declared environment (plan C1): applied as one block —
+        // the same core setters the imperative side-doors call, now driven
+        // by the diff so environment state is declarative on every host.
+        if let Some(env) = &delta.environment {
+            use turbomap_scene::LightingDef;
+            match env.lighting {
+                LightingDef::Default => self.map.set_sun_time(None),
+                LightingDef::TimeTracked { unix_seconds } => {
+                    self.map.set_sun_time(Some(unix_seconds))
+                }
+                LightingDef::Fixed { azimuth_deg, altitude_deg } => {
+                    self.map.set_sun_position(Some(turbomap_core::SunPosition {
+                        azimuth_deg,
+                        altitude_deg,
+                    }))
+                }
+            }
+            self.map.set_terrain_shadows(env.terrain_shadows);
+            self.map.set_terrain_lit(env.terrain_lit);
+            self.map.set_aerial_haze(env.aerial_haze);
+            self.map.set_basemap_gain(env.basemap_gain);
+        }
         delta
     }
 

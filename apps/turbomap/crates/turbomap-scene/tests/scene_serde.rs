@@ -207,3 +207,48 @@ fn chain_rejects_empty_nested_and_mixed_kinds() {
         Err(SceneError::InvalidChain { .. })
     ));
 }
+
+// ---- environment block + field sources (plan C1, architecture S4) --------
+
+#[test]
+fn environment_roundtrips_and_pre_c1_documents_stay_valid() {
+    use turbomap_scene::{EnvironmentDef, LightingDef};
+    let mut scene = sample_scene();
+    scene.environment = EnvironmentDef {
+        lighting: LightingDef::Fixed { azimuth_deg: 135.0, altitude_deg: 30.0 },
+        terrain_shadows: 0.85,
+        terrain_lit: true,
+        aerial_haze: false,
+        basemap_gain: 0.9,
+    };
+    let json = serde_json::to_string(&scene).unwrap();
+    assert!(json.contains("\"mode\":\"fixed\""), "{json}");
+    let back: Scene = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, scene);
+
+    // A pre-C1 document (no environment key) parses to the neutral default.
+    let old: Scene = serde_json::from_str(r#"{"sources":{},"layers":[]}"#).unwrap();
+    assert_eq!(old.environment, EnvironmentDef::default());
+}
+
+#[test]
+fn field2d_roundtrips_and_cannot_chain() {
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "radar".to_string(),
+        SourceDef::Field2D { bounds: [4.0, 57.0, 31.0, 71.0] },
+    );
+    let json = serde_json::to_string(&scene).unwrap();
+    assert!(json.contains("\"type\":\"field2d\"") || json.contains("\"type\":\"field-2d\""), "{json}");
+    let back: Scene = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, scene);
+
+    let mut bad = Scene::new();
+    bad.sources.insert(
+        "c".to_string(),
+        SourceDef::Chain {
+            providers: vec![SourceDef::Field2D { bounds: [0.0, 0.0, 1.0, 1.0] }],
+        },
+    );
+    assert!(matches!(bad.validate(), Err(SceneError::InvalidChain { .. })));
+}

@@ -96,6 +96,10 @@ impl SourceResolver for HostDrivenResolver {
             SourceDef::GeoJson { data } => {
                 ResolvedSource::Vector(Arc::new(GeoJsonVectorSource::new(data)))
             }
+            // Field2D sources carry no tiles — their frames arrive through
+            // the engine's field-ingest path (plan C2 wires the cloud/radar
+            // overlay to them). No layer kind renders one directly yet.
+            SourceDef::Field2D { .. } => ResolvedSource::Unsupported,
             // PMTiles archives are the one remote-source kind the engine
             // resolves to REAL in-process sources rather than host-fed stubs:
             // the reader owns the archive smarts (directories, Hilbert,

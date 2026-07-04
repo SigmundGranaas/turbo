@@ -803,3 +803,21 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   sim's heavy-roaming gate). Fast lanes green (52 suites, clippy, wasm);
   engine gpu + full sim verification in flight — verdict in the next
   entry.
+- _2026-07-04_: **B3.4 verified: 7/7 sim gates green** (`REQUIRE_GPU=1`,
+  Lavapipe, release, 460 s) on the sets-deleted tree; two stale
+  `lifecycle_agreement` call sites in the gpu-gated plan test cleaned up
+  (13/13 engine gpu suites green after). **Workstream B is complete.**
+- _2026-07-04_: **C1 landed — the environment enters the Scene IR**
+  (Phase 2 begins). `EnvironmentDef` (lighting mode Default/TimeTracked/
+  Fixed, terrain-shadow strength, sun-lit shading, aerial haze, basemap
+  gain — defaults engine-neutral so every pre-C1 document stays valid) +
+  `SourceDef::Field2D { bounds }` (geo-anchored data grids; chains reject
+  them). `SceneDelta.environment: Option<EnvironmentDef>` — an environment
+  edit is an environment-only delta; `TurbomapEngine::apply` drives the
+  same core setters the imperative side-doors call. Conformance grows two
+  clauses every engine must satisfy: `check_environment_diffing` (edit →
+  env-only delta, reapply → no-op) and `check_field_source_update`.
+  Fast lanes green (52 suites, clippy, wasm); engine gpu suites 13/13;
+  sim verification in flight — verdict next. Remaining in C: C2 (the
+  imperative setters become shims; clouds/radar ride Field2D ingest),
+  C3 (compositing honesty + truthful `Capabilities`).

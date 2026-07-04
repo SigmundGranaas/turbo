@@ -42,6 +42,54 @@ pub enum TextAnchor {
     Left,
 }
 
+/// How the environment's sun is determined — mirrors the core's
+/// `LightingMode` state machine (exactly one source of the sun).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(tag = "mode", rename_all = "kebab-case")]
+pub enum LightingDef {
+    /// The fixed, pleasant default (deterministic goldens; pre-clock hosts).
+    #[default]
+    Default,
+    /// Track a real instant (UTC): the sun follows the clock and the camera.
+    TimeTracked { unix_seconds: f64 },
+    /// Pinned azimuth/altitude — manual control.
+    Fixed { azimuth_deg: f32, altitude_deg: f32 },
+}
+
+/// The scene-declared environment (architecture S4, plan C1): the one
+/// shared model every environmental consumer samples — lighting, terrain
+/// shadow strength, sun-lit shading, aerial haze, basemap gain. This
+/// absorbs what were imperative side-door setters (`set_sun_time`,
+/// `set_terrain_shadows`, …) into the declarative Scene, so environment
+/// state is diffed, conformance-tested, and visible to every adapter.
+/// Defaults match a freshly constructed engine, so an unspecified
+/// environment (including every pre-C1 scene JSON) is a no-op.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct EnvironmentDef {
+    pub lighting: LightingDef,
+    /// Cast-shadow strength on 3D terrain; 0 = off.
+    pub terrain_shadows: f32,
+    /// Sun-lit terrain shading of the basemap ("sun mode").
+    pub terrain_lit: bool,
+    /// Distance haze / aerial perspective.
+    pub aerial_haze: bool,
+    /// Basemap brightness multiplier; 1 = neutral.
+    pub basemap_gain: f32,
+}
+
+impl Default for EnvironmentDef {
+    fn default() -> Self {
+        Self {
+            lighting: LightingDef::Default,
+            terrain_shadows: 0.0,
+            terrain_lit: true,
+            aerial_haze: true,
+            basemap_gain: 1.0,
+        }
+    }
+}
+
 /// A named data source layers draw from.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -101,6 +149,13 @@ pub enum SourceDef {
         #[serde(default)]
         halo: u32,
     },
+    /// A geo-anchored 2D data field (architecture S4's `FieldSet`): radar
+    /// precipitation, wind, sea state — grids a simulation or overlay
+    /// samples, declared as a source so field data is part of the Scene
+    /// like everything else. The host pushes frames through the engine's
+    /// field-ingest path (C2); `bounds` is `[west, south, east, north]`.
+    #[serde(rename = "field-2d")]
+    Field2D { bounds: [f64; 4] },
     /// An ordered provider chain — the architecture's bundled-under-remote
     /// layering (D2/D7) stated in the IR: the engine serves a tile from the
     /// FIRST provider that covers it (e.g. a bundled coarse baseline), and
@@ -348,6 +403,10 @@ pub struct Scene {
     pub sources: std::collections::BTreeMap<String, SourceDef>,
     #[serde(default)]
     pub layers: Vec<Layer>,
+    /// The scene-declared environment; defaults are engine-neutral, and
+    /// `#[serde(default)]` keeps every pre-C1 scene document valid.
+    #[serde(default)]
+    pub environment: EnvironmentDef,
 }
 
 impl Scene {
@@ -409,7 +468,7 @@ fn chain_kind(def: &SourceDef) -> Option<u8> {
         SourceDef::RasterXyz { .. } | SourceDef::PmtilesRaster { .. } => Some(0),
         SourceDef::VectorXyz { .. } | SourceDef::PmtilesVector { .. } => Some(1),
         SourceDef::DemXyz { .. } | SourceDef::PmtilesDem { .. } => Some(2),
-        SourceDef::GeoJson { .. } | SourceDef::Chain { .. } => None,
+        SourceDef::GeoJson { .. } | SourceDef::Chain { .. } | SourceDef::Field2D { .. } => None,
     }
 }
 

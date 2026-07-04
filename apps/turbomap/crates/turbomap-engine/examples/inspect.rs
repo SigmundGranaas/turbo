@@ -42,6 +42,7 @@ impl SourceResolver for SyntheticResolver {
             | SourceDef::PmtilesRaster { .. }
             | SourceDef::PmtilesVector { .. }
             | SourceDef::PmtilesDem { .. }
+            | SourceDef::Field2D { .. }
             | SourceDef::Chain { .. } => ResolvedSource::Unsupported,
         }
     }
@@ -150,6 +151,7 @@ fn source_type(def: &SourceDef) -> &'static str {
         SourceDef::PmtilesRaster { .. } => "pmtiles-raster",
         SourceDef::PmtilesVector { .. } => "pmtiles-vector",
         SourceDef::PmtilesDem { .. } => "pmtiles-dem",
+        SourceDef::Field2D { .. } => "field-2d",
         SourceDef::Chain { .. } => "chain",
     }
 }

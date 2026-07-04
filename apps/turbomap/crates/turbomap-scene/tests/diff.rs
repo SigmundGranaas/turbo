@@ -162,3 +162,15 @@ fn add_and_remove_in_one_diff() {
         .layers
         .contains(&LayerChange::Added { id: "c".into(), index: 1 }));
 }
+
+#[test]
+fn an_environment_edit_is_an_environment_only_delta() {
+    use turbomap_scene::{diff::diff, LightingDef, Scene};
+    let a = Scene::new();
+    let mut b = Scene::new();
+    b.environment.lighting = LightingDef::TimeTracked { unix_seconds: 1.0 };
+    let d = diff(&a, &b);
+    assert_eq!(d.environment.as_ref(), Some(&b.environment));
+    assert!(d.sources.is_empty() && d.layers.is_empty());
+    assert!(diff(&b, &b).is_empty(), "identical environments must not dirty the delta");
+}
