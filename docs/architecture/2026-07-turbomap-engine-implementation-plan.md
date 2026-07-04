@@ -759,3 +759,12 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   container has no NDK — the `android_build` CI lane compiles it on push,
   and the plan's standing on-device session gate applies before the
   Kotlin-side reconciler shrink leans on it.
+- _2026-07-04_: **B4.3 sim confirmation: 7/7 green** (`REQUIRE_GPU=1`,
+  Lavapipe, release, 573 s). **Workstream B4 is complete**: decode and
+  tessellation run off the render thread on every engine host, pacing has
+  one owner (the engine's motion-tiered apply budget), and the streaming
+  trace reports the real backlog. Open on this branch: B3.4 (retire the
+  legacy lifecycle sets after the dual-write soak), B6 packaging (the
+  coarse Norway `.pmtiles` + `TURBO_BASELINE_BUNDLE` host wiring — needs
+  real tile data near the tileserver), and the standing on-device
+  validation session before the Kotlin reconciler shrink.
