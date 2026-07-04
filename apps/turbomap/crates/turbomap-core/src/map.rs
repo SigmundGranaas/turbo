@@ -24,15 +24,20 @@ use crate::{
     error::MapError,
     geo::{LatLng, WorldPoint},
     hit::geometry_hit,
+    lighting::Lighting,
+    markers::MarkerManager,
     render::{
         ao::{AoField, AoKey},
         cache::CacheStats,
-        frame::{RenderFrame, TerrainFrameInputs},
         floor::FloorPipeline,
+        frame::{RenderFrame, TerrainFrameInputs},
         gpu_timestamps::GpuTimestamps,
+        graph::{
+            DrawList, FrameGraph, FramePhase, MsaaAttachments, PassDesc, PassMask, PassTiming, Res,
+        },
         hillshade::{HillshadePipeline, PreparedHillshade},
         icon::{IconPipeline, PreparedIcons},
-        marker::{MarkerPipeline, PreparedMarkers},
+        marker::MarkerPipeline,
         raster::{PreparedRaster, RasterPipeline},
         route::{build_tube, RoutePipeline, RouteVertex},
         shadow::{ShadowMap, HEIGHT_DIM},
@@ -44,8 +49,6 @@ use crate::{
         vector_cache::VectorMeshCache,
         TextureCache, BACKGROUND_CLEAR,
     },
-    lighting::Lighting,
-    markers::MarkerManager,
     scene::Scene,
     source::TileSource,
     style::{Color, HillshadeStyle, VectorStyle},
@@ -391,7 +394,10 @@ impl LayerStack {
     }
 
     fn ids(&self) -> Vec<String> {
-        self.entries.iter().map(|l| Self::id_of(l).to_string()).collect()
+        self.entries
+            .iter()
+            .map(|l| Self::id_of(l).to_string())
+            .collect()
     }
 
     /// Remove the layer with `id` (if any). Returns whether the stack changed
@@ -747,6 +753,12 @@ pub struct Map {
     /// gate to 0 so the map renders crisp at every angle. Set via
     /// [`set_aerial_haze`]; the web ties it to a "Distance haze" setting.
     aerial_haze: bool,
+    /// Frame-graph pass disable-set for isolation debugging: any pass in the
+    /// frame can be turned off by name (`"clouds"`, `"layer:hillshade"`, …)
+    /// via [`Map::set_pass_enabled`]. Skipped passes still appear in the
+    /// frame's pass report (marked `skipped`), so an isolation experiment is
+    /// a fully described frame. Empty in production.
+    pass_mask: PassMask,
 }
 
 /// Route/track 3D-tube state. Each entry is a polyline + style; the combined
@@ -838,7 +850,9 @@ fn debug_shadow_relief(tag: &str, heights: &[f32], size_f: f32, zoom: f64, dem_f
     }
     let (mn, mx) = heights
         .iter()
-        .fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), &h| (a.min(h), b.max(h)));
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), &h| {
+            (a.min(h), b.max(h))
+        });
     let nonzero = heights.iter().filter(|&&h| h != 0.0).count();
     eprintln!(
         "SHADOW[{tag}] zoom={zoom:.1} dem_finest_z={dem_finest_z} field_size={size_f:.6} \
@@ -903,7 +917,20 @@ impl Map {
             basemap_gain: 1.0,
             terrain_lit: true,
             aerial_haze: true,
+            pass_mask: PassMask::default(),
         })
+    }
+
+    /// Enable/disable a frame-graph pass by name — the isolation-debugging
+    /// switch (architecture §III.3). Names are the `label`s reported in
+    /// [`FrameMetrics::passes`]: a bare kind (`"sky"`, `"clouds"`, `"layer"`)
+    /// disables every instance; a qualified instance (`"layer:hillshade"`)
+    /// disables just that one. Disabled passes are skipped but still reported
+    /// (marked `skipped`), and every skip is safe by construction: persistent
+    /// resources (heightfield, AO) simply go stale, draw contributions just
+    /// don't paint.
+    pub fn set_pass_enabled(&mut self, name: &str, enabled: bool) {
+        self.pass_mask.set_enabled(name, enabled);
     }
 
     /// Set (or clear) a route/track polyline rendered as a raised 3D tube.
@@ -927,7 +954,10 @@ impl Map {
         self.route_tubes.radius_px = radius_px as f32;
         self.route_tubes.tubes.insert(
             id.to_string(),
-            RouteTube { points: world, color: [color.r, color.g, color.b, color.a] },
+            RouteTube {
+                points: world,
+                color: [color.r, color.g, color.b, color.a],
+            },
         );
         self.route_tubes.dirty = true;
     }
@@ -959,7 +989,9 @@ impl Map {
             .tubes
             .values()
             .flat_map(|t| t.points.iter())
-            .fold((f64::INFINITY, f64::INFINITY), |a, p| (a.0.min(p.0), a.1.min(p.1)));
+            .fold((f64::INFINITY, f64::INFINITY), |a, p| {
+                (a.0.min(p.0), a.1.min(p.1))
+            });
 
         let mut verts: Vec<RouteVertex> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
@@ -1267,7 +1299,13 @@ impl Map {
     /// Mirror a delivered payload into the table (legacy shim path — see
     /// `Lifecycle::delivered_unrequested`) plus any evictions the cache
     /// reported alongside it.
-    fn lifecycle_delivered(&self, layer_id: Option<&str>, tile: TileId, bytes: u64, evicted: &[TileId]) {
+    fn lifecycle_delivered(
+        &self,
+        layer_id: Option<&str>,
+        tile: TileId,
+        bytes: u64,
+        evicted: &[TileId],
+    ) {
         let frame = self.lifecycle_frame.get();
         let mut lc = self.lifecycle.borrow_mut();
         lc.delivered_unrequested(self.world_key(layer_id, tile), bytes, frame);
@@ -1407,7 +1445,8 @@ impl Map {
     /// `color` is linear RGBA in `[0,1]`. Returns `false` if no vector
     /// layer matches `id`.
     pub fn set_vector_layer_color(&mut self, id: &str, color: Option<[f32; 4]>) -> bool {
-        self.layers.with_vector_mut(id, |v| v.paint_override = color)
+        self.layers
+            .with_vector_mut(id, |v| v.paint_override = color)
     }
 
     /// Set a vector layer's per-frame line-width multiplier (the zoom curve).
@@ -1535,7 +1574,12 @@ impl Map {
     /// a near-zero velocity is a no-op.
     pub fn zoom_fling(&mut self, zoom_velocity: f64, focus_px: (f64, f64)) {
         let (w, h) = self.viewport_px;
-        let z = ZoomFlingAnimation::new(self.cam.camera, zoom_velocity, focus_px, (w as f64, h as f64));
+        let z = ZoomFlingAnimation::new(
+            self.cam.camera,
+            zoom_velocity,
+            focus_px,
+            (w as f64, h as f64),
+        );
         if z.is_finished(Instant::now()) {
             return;
         }
@@ -1547,9 +1591,7 @@ impl Map {
         // Depth + MSAA colour must match the surface size or Metal asserts on
         // the next render; FrameTargets recreates them together (no-op when
         // unchanged or degenerate).
-        self.renderer
-            .targets
-            .resize(&self.device, (width, height));
+        self.renderer.targets.resize(&self.device, (width, height));
         self.sync_scenes();
     }
 
@@ -1568,7 +1610,11 @@ impl Map {
     /// back to the flat zoom (2D, no terrain, or the ray missed the surface
     /// before/after). Raycasts a candidate camera in place (direct field write,
     /// no scene-sync) then restores the live camera, so it's side-effect-free.
-    fn terrain_anchored_zoom_target(&mut self, factor: f64, focus_px: (f64, f64)) -> Option<Camera> {
+    fn terrain_anchored_zoom_target(
+        &mut self,
+        factor: f64,
+        focus_px: (f64, f64),
+    ) -> Option<Camera> {
         if self.terrain.is_none()
             || self.cam.camera.pitch_deg == 0.0
             || !factor.is_finite()
@@ -1593,8 +1639,8 @@ impl Map {
             let a = after.lng_lat.to_world();
             let centre = cand.center.to_world();
             let mut c = cand;
-            c.center =
-                WorldPoint::new(centre.x + (target.x - a.x), centre.y + (target.y - a.y)).to_lat_lng();
+            c.center = WorldPoint::new(centre.x + (target.x - a.x), centre.y + (target.y - a.y))
+                .to_lat_lng();
             c
         } else {
             // Grazing / over-horizon after zoom: keep the zoom, skip the re-pin.
@@ -1817,7 +1863,10 @@ impl Map {
 
     pub fn screen_to_lng_lat(&self, screen_px: (f64, f64)) -> LatLng {
         let (w, h) = self.viewport_px;
-        let world = self.cam.camera.pixel_to_world(screen_px, (w as f64, h as f64));
+        let world = self
+            .cam
+            .camera
+            .pixel_to_world(screen_px, (w as f64, h as f64));
         world.to_lat_lng()
     }
 
@@ -1949,7 +1998,9 @@ impl Map {
         let (w, h) = self.viewport_px;
         let vp = (w as f64, h as f64);
         let proj = if self.terrain.is_some() {
-            self.cam.camera.world_to_screen_z(world, self.ground_world_z(world), vp)
+            self.cam
+                .camera
+                .world_to_screen_z(world, self.ground_world_z(world), vp)
         } else {
             self.cam.camera.world_to_screen(world, vp)
         }?;
@@ -2063,13 +2114,27 @@ impl Map {
                 LayerEntry::Raster(r) if r.visible => {
                     let res = |t: &TileId| self.chunk_is_resident(self.world_key(Some(&r.id), *t));
                     for (tile, tier, d) in r.scene.pending_prioritized(&res) {
-                        tagged.push((PendingTile::Raster { layer_id: r.id.clone(), tile }, tier, d));
+                        tagged.push((
+                            PendingTile::Raster {
+                                layer_id: r.id.clone(),
+                                tile,
+                            },
+                            tier,
+                            d,
+                        ));
                     }
                 }
                 LayerEntry::Vector(v) if v.visible => {
                     let res = |t: &TileId| self.chunk_is_resident(self.world_key(Some(&v.id), *t));
                     for (tile, tier, d) in v.scene.pending_prioritized(&res) {
-                        tagged.push((PendingTile::Vector { layer_id: v.id.clone(), tile }, tier, d));
+                        tagged.push((
+                            PendingTile::Vector {
+                                layer_id: v.id.clone(),
+                                tile,
+                            },
+                            tier,
+                            d,
+                        ));
                     }
                 }
                 // Hillshade no longer fetches its own DEM tiles —
@@ -2152,21 +2217,24 @@ impl Map {
             let mut lc = self.lifecycle.borrow_mut();
             let mut wanted: std::collections::HashSet<turbomap_world::ChunkKey> =
                 std::collections::HashSet::new();
-            let want_scene =
-                |lc: &mut turbomap_world::Lifecycle,
-                 wanted: &mut std::collections::HashSet<turbomap_world::ChunkKey>,
-                 layer_id: Option<&str>,
-                 scene: &crate::scene::Scene| {
-                    for (tile, _) in scene.desired_tagged() {
-                        let key = self.world_key(layer_id, tile);
-                        wanted.insert(key);
-                        let _ = lc.want(key, u64::MAX, frame);
-                    }
-                };
+            let want_scene = |lc: &mut turbomap_world::Lifecycle,
+                              wanted: &mut std::collections::HashSet<turbomap_world::ChunkKey>,
+                              layer_id: Option<&str>,
+                              scene: &crate::scene::Scene| {
+                for (tile, _) in scene.desired_tagged() {
+                    let key = self.world_key(layer_id, tile);
+                    wanted.insert(key);
+                    let _ = lc.want(key, u64::MAX, frame);
+                }
+            };
             for l in self.layers.iter() {
                 match l {
-                    LayerEntry::Raster(r) => want_scene(&mut lc, &mut wanted, Some(&r.id), &r.scene),
-                    LayerEntry::Vector(v) => want_scene(&mut lc, &mut wanted, Some(&v.id), &v.scene),
+                    LayerEntry::Raster(r) => {
+                        want_scene(&mut lc, &mut wanted, Some(&r.id), &r.scene)
+                    }
+                    LayerEntry::Vector(v) => {
+                        want_scene(&mut lc, &mut wanted, Some(&v.id), &v.scene)
+                    }
                     LayerEntry::Hillshade(_) => {}
                 }
             }
@@ -2278,15 +2346,15 @@ impl Map {
         for l in self.layers.iter_mut() {
             if let LayerEntry::Vector(v) = l {
                 if v.id == layer_id {
-                    let evicted =
-                        v.cache.insert(tile, mesh, labels, icons, interactive);
+                    let evicted = v.cache.insert(tile, mesh, labels, icons, interactive);
                     delivered = Some(evicted);
                     break;
                 }
             }
         }
         if let Some(evicted) = delivered {
-            let bytes = (mesh.vertices.len() * std::mem::size_of::<crate::tessellate::VectorVertex>()
+            let bytes = (mesh.vertices.len()
+                * std::mem::size_of::<crate::tessellate::VectorVertex>()
                 + mesh.indices.len() * 4) as u64;
             self.lifecycle_delivered(Some(layer_id), tile, bytes, &evicted);
         }
@@ -2463,7 +2531,10 @@ impl Map {
         let cfg = frame.raster_terrain_cfg;
         // Cast shadows only make sense on real 3D terrain.
         if cfg.meters_to_world <= 0.0 {
-            log::debug!("turbomap shadow: skip — meters_to_world={}", cfg.meters_to_world);
+            log::debug!(
+                "turbomap shadow: skip — meters_to_world={}",
+                cfg.meters_to_world
+            );
             return std::time::Duration::ZERO;
         }
         let Some(terrain) = self.terrain.as_ref() else {
@@ -2531,11 +2602,18 @@ impl Map {
         let dem_inserts = terrain.cache.stats().inserts;
 
         let key = ShadowKey {
-            sun: [sun_dir[0].to_bits(), sun_dir[1].to_bits(), sun_dir[2].to_bits()],
+            sun: [
+                sun_dir[0].to_bits(),
+                sun_dir[1].to_bits(),
+                sun_dir[2].to_bits(),
+            ],
             // Snapped lattice origin + grid size: changes only when the camera
             // crosses a whole cell, and always on the same global lattice, so the
             // field re-assembles seldom and never sub-cell-jitters.
-            origin: [(origin_abs[0] as f32).to_bits(), (origin_abs[1] as f32).to_bits()],
+            origin: [
+                (origin_abs[0] as f32).to_bits(),
+                (origin_abs[1] as f32).to_bits(),
+            ],
             size: size_f.to_bits(),
             dem_inserts,
         };
@@ -2580,10 +2658,21 @@ impl Map {
                 if !animating {
                     let t0 = Instant::now();
                     let mut heights = vec![0.0f32; dim * dim];
-                    terrain.cache.sample_grid((origin_abs[0], origin_abs[1]), cell, dim, |idx, e| {
-                        heights[idx] = e.unwrap_or(0.0) * zscale;
-                    });
-                    debug_shadow_relief("sync", &heights, size_f, self.cam.camera.zoom, terrain.cache.finest_resident_zoom());
+                    terrain.cache.sample_grid(
+                        (origin_abs[0], origin_abs[1]),
+                        cell,
+                        dim,
+                        |idx, e| {
+                            heights[idx] = e.unwrap_or(0.0) * zscale;
+                        },
+                    );
+                    debug_shadow_relief(
+                        "sync",
+                        &heights,
+                        size_f,
+                        self.cam.camera.zoom,
+                        terrain.cache.finest_resident_zoom(),
+                    );
                     self.renderer.shadow_map.upload_heights(&heights);
                     self.shadow.origin_abs = origin_abs;
                     self.shadow.world_size = size_f;
@@ -2615,12 +2704,20 @@ impl Map {
             const CHUNK_ROWS: usize = 64;
             let row1 = (b.next_row + CHUNK_ROWS).min(dim);
             let (o, c, zs, row0) = (b.origin_abs, b.cell, b.zscale, b.next_row);
-            terrain.cache.sample_grid_rows((o[0], o[1]), c, dim, row0, row1, |idx, e| {
-                b.heights[idx] = e.unwrap_or(0.0) * zs;
-            });
+            terrain
+                .cache
+                .sample_grid_rows((o[0], o[1]), c, dim, row0, row1, |idx, e| {
+                    b.heights[idx] = e.unwrap_or(0.0) * zs;
+                });
             b.next_row = row1;
             if b.next_row >= dim {
-                debug_shadow_relief("prog", &b.heights, b.size_f, self.cam.camera.zoom, terrain.cache.finest_resident_zoom());
+                debug_shadow_relief(
+                    "prog",
+                    &b.heights,
+                    b.size_f,
+                    self.cam.camera.zoom,
+                    terrain.cache.finest_resident_zoom(),
+                );
                 self.renderer.shadow_map.upload_heights(&b.heights);
                 // ABSOLUTE world space (lattice-snapped); the per-frame block below
                 // rebases it into the current RTC frame so it stays welded.
@@ -2645,7 +2742,8 @@ impl Map {
                 (self.shadow.origin_abs[1] - cam_now.y) as f32,
             ];
             frame.raster_terrain_cfg.shadow_inv_size = 1.0 / self.shadow.world_size;
-            frame.raster_terrain_cfg.shadow_texel_world = self.shadow.world_size / HEIGHT_DIM as f32;
+            frame.raster_terrain_cfg.shadow_texel_world =
+                self.shadow.world_size / HEIGHT_DIM as f32;
             // Base penumbra band (world-z): ~10 m of relief excess fades lit→shadow
             // at contact. The shader's contact-hardening widens this with occluder
             // distance, so near edges stay crisp and far ridges throw soft shadows.
@@ -2655,33 +2753,9 @@ impl Map {
         assemble
     }
 
-    /// Draw the per-layer ground content (raster / vector mesh / hillshade) into
-    /// `pass`. Water is an ordinary vector fill drawn by the vector pipeline.
-    fn draw_layers(
-        &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        prepared_layers: &[(usize, PreparedLayer)],
-        terrain_cache: Option<&crate::render::terrain::TerrainCache>,
-        placeholder_dem: &wgpu::BindGroup,
-        shadow_bg: &wgpu::BindGroup,
-    ) {
-        for (i, prepared) in prepared_layers {
-            match (&self.layers[*i], prepared) {
-                (LayerEntry::Raster(r), PreparedLayer::Raster(p)) => {
-                    r.pipeline.draw(p, &r.cache, terrain_cache, placeholder_dem, shadow_bg, pass);
-                }
-                (LayerEntry::Vector(v), PreparedLayer::Vector(p)) => {
-                    v.pipeline.draw(p, &v.cache, terrain_cache, placeholder_dem, pass);
-                }
-                (LayerEntry::Hillshade(h), PreparedLayer::Hillshade(p)) => {
-                    if let Some(tc) = terrain_cache {
-                        h.pipeline.draw(p, tc, pass);
-                    }
-                }
-                _ => unreachable!("prepared layer kind mismatch"),
-            }
-        }
-    }
+    // `draw_layers` is gone (slice D1): each layer's draw is registered as
+    // its own named graph node (`layer:<id>`) directly in `render`, so the
+    // pass report times layers individually and any one can be masked off.
 
     /// Draw the route/track 3-D tubes into `pass` (after ground layers so the
     /// terrain occludes them, before screen-space overlays).
@@ -2703,7 +2777,11 @@ impl Map {
             sun
         };
         let lc = cfg.light_color;
-        let light = if lc[0] + lc[1] + lc[2] < 0.01 { [1.0, 1.0, 1.0] } else { lc };
+        let light = if lc[0] + lc[1] + lc[2] < 0.01 {
+            [1.0, 1.0, 1.0]
+        } else {
+            lc
+        };
         let ppw = (256.0 * 2f64.powf(self.cam.camera.zoom)) as f32;
         let radius_px = if self.route_tubes.radius_px > 0.0 {
             self.route_tubes.radius_px
@@ -2723,25 +2801,80 @@ impl Map {
         );
     }
 
-    /// Draw the screen-space overlays (icons under labels, then labels, then
-    /// markers) into `pass`.
-    fn draw_overlays(
-        &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        prepared_icons: &[PreparedIcons],
-        prepared_text: &[PreparedText],
-        prepared_markers: &Option<PreparedMarkers>,
-    ) {
-        for p in prepared_icons {
-            self.renderer.icon_pipeline.draw(p, pass);
-        }
-        for p in prepared_text {
-            self.renderer.text_pipeline.draw(p, pass);
-        }
-        if let Some(p) = prepared_markers {
-            self.renderer.marker_pipeline.draw(p, pass);
-        }
-    }
+    // `draw_overlays` is gone (slice D1): icons, text and markers are their
+    // own OverlayMsaa graph nodes registered in `render` (same order:
+    // icons under labels, then labels, then markers).
+
+    // ---- The frame's pass set (slice D1) --------------------------------
+    // Every pass the renderer can run, with its phase and declared data
+    // flow. Registration order in `render` is painter's order; the graph
+    // schedules phases and validates that every non-persistent read has a
+    // producer this frame. `HeightField`/`AoField` are persistent (assembled
+    // incrementally, cached across frames), so consumers may run on frames
+    // where the producers did nothing — that's the streaming model, not a
+    // hazard. The shadow *uniforms* flow to layers via `RenderFrame`, which
+    // zeroes them when no heightfield exists — a safe default, so layers
+    // don't declare a hard read on them.
+    const PASS_SHADOW_ASSEMBLE: PassDesc = PassDesc {
+        name: "shadow-assemble",
+        phase: FramePhase::BeforeFrame,
+        reads: &[],
+        writes: &[Res::HeightField, Res::ShadowUniforms],
+    };
+    const PASS_AO_ACCUMULATE: PassDesc = PassDesc {
+        name: "ao-accumulate",
+        phase: FramePhase::BeforeFrame,
+        reads: &[Res::HeightField],
+        writes: &[Res::AoField],
+    };
+    const PASS_SKY: PassDesc = PassDesc {
+        name: "sky",
+        phase: FramePhase::GroundMsaa,
+        reads: &[],
+        writes: &[Res::ColorMsaa],
+    };
+    const PASS_FLOOR: PassDesc = PassDesc {
+        name: "floor",
+        phase: FramePhase::GroundMsaa,
+        reads: &[],
+        writes: &[Res::ColorMsaa, Res::Depth],
+    };
+    const PASS_LAYER: PassDesc = PassDesc {
+        name: "layer",
+        phase: FramePhase::GroundMsaa,
+        reads: &[Res::HeightField, Res::AoField],
+        writes: &[Res::ColorMsaa, Res::Depth],
+    };
+    const PASS_ROUTE_TUBES: PassDesc = PassDesc {
+        name: "route-tubes",
+        phase: FramePhase::GroundMsaa,
+        reads: &[Res::HeightField],
+        writes: &[Res::ColorMsaa, Res::Depth],
+    };
+    const PASS_ICONS: PassDesc = PassDesc {
+        name: "icons",
+        phase: FramePhase::OverlayMsaa,
+        reads: &[],
+        writes: &[Res::ColorMsaa],
+    };
+    const PASS_TEXT: PassDesc = PassDesc {
+        name: "text",
+        phase: FramePhase::OverlayMsaa,
+        reads: &[],
+        writes: &[Res::ColorMsaa],
+    };
+    const PASS_MARKERS: PassDesc = PassDesc {
+        name: "markers",
+        phase: FramePhase::OverlayMsaa,
+        reads: &[],
+        writes: &[Res::ColorMsaa],
+    };
+    const PASS_CLOUDS: PassDesc = PassDesc {
+        name: "clouds",
+        phase: FramePhase::Composite,
+        reads: &[Res::FrameTarget],
+        writes: &[Res::FrameTarget],
+    };
 
     pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
         let started = Instant::now();
@@ -2777,17 +2910,23 @@ impl Map {
             ts.try_drain();
             ts.begin(encoder);
         }
-        // The frame is recorded as exactly ONE render pass — on
-        // tile-based mobile GPUs every extra pass costs a full
-        // framebuffer load/store. Three phases:
+        // The frame is a FRAME GRAPH (slice D1, architecture §III.3): every
+        // piece of GPU work is a named pass with a phase and declared reads/
+        // writes (see the `PASS_*` descriptors above). BeforeFrame passes run
+        // at encoder level, all Ground+Overlay contributions share exactly
+        // ONE MSAA render pass (on tile-based mobile GPUs every extra pass
+        // costs a full framebuffer load/store — the graph makes that rule
+        // structural), and Composite passes run over the resolved target.
+        // Per-pass CPU timings land in `FrameMetrics::passes`; any pass can
+        // be disabled by name for isolation debugging (`set_pass_enabled`).
+        //
+        // Around the graph, the CPU frame keeps its classic phases:
         //   A. prepare: every visible layer (in order) does its CPU
         //      work — uniform/instance uploads, batch building, LRU
         //      touches — and returns a draw list.
         //   B. pick the frame clear colour (replicating the old
         //      "first visible layer clears" semantics).
-        //   C. begin the single pass and replay the prepared draw
-        //      lists in order: layer geometry, then text per visible
-        //      vector layer, then markers.
+        //   C. the graph's MSAA pass replays the prepared draw lists.
         //
         // All per-frame render globals — metres-to-world, the sun-lit
         // atmosphere, the aerial-perspective haze, the sky uniform and the
@@ -2809,7 +2948,11 @@ impl Map {
                     .as_ref()
                     .map(|t| t.options.encoding)
                     .unwrap_or(crate::dem::DemEncoding::MapboxRgb),
-                halo_px: self.terrain.as_ref().map(|t| t.cache.halo_px()).unwrap_or(0),
+                halo_px: self
+                    .terrain
+                    .as_ref()
+                    .map(|t| t.cache.halo_px())
+                    .unwrap_or(0),
             },
             self.sky_enabled,
         );
@@ -2824,6 +2967,9 @@ impl Map {
         if !self.aerial_haze {
             frame.raster_terrain_cfg.haze_density = 0.0;
         }
+        // The frame graph: mask snapshot + per-pass bookkeeping for this frame.
+        let mut graph = FrameGraph::new(self.pass_mask.clone());
+
         // Terrain relief field: assemble the camera-centred cross-tile
         // heightfield whenever we have 3D terrain — it drives BOTH cast shadows
         // (per-fragment march, gated by `shadow_strength`) and the world-locked
@@ -2831,7 +2977,11 @@ impl Map {
         // the DEM changes. (Previously gated on `shadow.strength > 0`; AO needs
         // the field even with cast shadows off.)
         let shadow_assemble_time = if self.terrain.is_some() {
-            self.update_terrain_shadows(&mut frame)
+            graph
+                .run_now(&Self::PASS_SHADOW_ASSEMBLE, || {
+                    self.update_terrain_shadows(&mut frame)
+                })
+                .unwrap_or(Duration::ZERO)
         } else {
             std::time::Duration::ZERO
         };
@@ -2855,14 +3005,22 @@ impl Map {
                     .unwrap_or(0),
             };
             let world_size = self.shadow.world_size;
+            if let Some(ts) = self.renderer.gpu_timestamps.as_mut() {
+                ts.scope_begin("ao", encoder);
+            }
             let r = &mut self.renderer;
-            r.ao.accumulate(
-                encoder,
-                &r.shadow_map.height_tex_bind_group,
-                r.shadow_map.ao_view(),
-                key,
-                world_size,
-            );
+            graph.run_encoder(&Self::PASS_AO_ACCUMULATE, encoder, |enc| {
+                r.ao.accumulate(
+                    enc,
+                    &r.shadow_map.height_tex_bind_group,
+                    r.shadow_map.ao_view(),
+                    key,
+                    world_size,
+                );
+            });
+            if let Some(ts) = self.renderer.gpu_timestamps.as_mut() {
+                ts.scope_end(encoder);
+            }
         }
 
         let first_visible = self.first_visible_layer_index();
@@ -2961,13 +3119,19 @@ impl Map {
             None
         } else {
             let p = if let Some(scene) = self.layers.marker_scene() {
-                self.renderer.marker_pipeline.prepare(scene, self.markers.all())
+                self.renderer
+                    .marker_pipeline
+                    .prepare(scene, self.markers.all())
             } else if let Some(t) = self.terrain.as_ref() {
-                self.renderer.marker_pipeline.prepare(&t.scene, self.markers.all())
+                self.renderer
+                    .marker_pipeline
+                    .prepare(&t.scene, self.markers.all())
             } else {
                 // No layers — build a one-off Scene from the Map's state.
                 let scene = Scene::with_margin(self.cam.camera, self.viewport_px, 0, 22, 0);
-                self.renderer.marker_pipeline.prepare(&scene, self.markers.all())
+                self.renderer
+                    .marker_pipeline
+                    .prepare(&scene, self.markers.all())
             };
             Some(p)
         };
@@ -2984,6 +3148,7 @@ impl Map {
             self.route_tubes.last_build = Some(started);
         }
         let prepare_time = prepare_started.elapsed();
+        let visible_layers = prepared_layers.len();
 
         // ---- Phase B: frame clear colour -------------------------
         // Replicates the old "first visible layer clears" semantics:
@@ -3004,58 +3169,107 @@ impl Map {
         };
 
         // ---- Phase C: the render pass ----------------------------
-        // ONE MSAA pass: sky, floor, the ground layers (raster / vector mesh,
-        // water is an ordinary vector fill, / hillshade), route tubes and
-        // overlays, resolved straight to the frame's target. (The HDR bloom +
-        // ACES post stage was a leftover of the reverted realistic-water
+        // ONE MSAA pass, owned by the frame graph (`run_msaa`): sky, floor,
+        // the ground layers (raster / vector mesh, water is an ordinary
+        // vector fill, / hillshade), route tubes and overlays, resolved
+        // straight to the frame's target. Each contribution is a named graph
+        // node — one per tile layer — so the report shows where the encode
+        // time goes and any single layer can be isolated off. (The HDR bloom
+        // + ACES post stage was a leftover of the reverted realistic-water
         // feature — it silently regraded the whole authored palette; removed
         // 2026-07-03 to restore the golden-locked cartographic look. HDR post
         // returns deliberately with water v2, goldens re-baselined on purpose.)
         let pass_started = Instant::now();
+        if let Some(ts) = self.renderer.gpu_timestamps.as_mut() {
+            ts.scope_begin("frame-pass", encoder);
+        }
         {
             let terrain_cache = self.terrain.as_ref().map(|t| &t.cache);
             let placeholder_dem = &self.renderer.terrain_shared.placeholder_bind_group;
             let shadow_bg = &self.renderer.shadow_map.bind_group;
-            let targets = &self.renderer.targets;
+            let renderer = &self.renderer;
+            let layers = &self.layers;
+            let this = &*self;
+            let frame_ref = &frame;
 
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("turbomap-frame-pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: targets.color_view(),
-                    resolve_target: Some(target),
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(clear),
-                        store: wgpu::StoreOp::Discard,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: targets.depth_view(),
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
+            let mut draws = DrawList::new();
+            if let Some(g) = frame.sky_globals.as_ref() {
+                draws.add(&Self::PASS_SKY, None, move |pass| {
+                    renderer.sky_pipeline.draw(g, pass)
+                });
+            }
+            if let Some(g) = frame.floor_globals.as_ref() {
+                draws.add(&Self::PASS_FLOOR, None, move |pass| {
+                    renderer.floor_pipeline.draw(g, pass)
+                });
+            }
+            for (i, prepared) in prepared_layers {
+                let id = match &layers[i] {
+                    LayerEntry::Raster(r) => r.id.clone(),
+                    LayerEntry::Vector(v) => v.id.clone(),
+                    LayerEntry::Hillshade(h) => h.id.clone(),
+                };
+                draws.add(&Self::PASS_LAYER, Some(id), move |pass| {
+                    match (&layers[i], &prepared) {
+                        (LayerEntry::Raster(r), PreparedLayer::Raster(p)) => {
+                            r.pipeline.draw(
+                                p,
+                                &r.cache,
+                                terrain_cache,
+                                placeholder_dem,
+                                shadow_bg,
+                                pass,
+                            );
+                        }
+                        (LayerEntry::Vector(v), PreparedLayer::Vector(p)) => {
+                            v.pipeline
+                                .draw(p, &v.cache, terrain_cache, placeholder_dem, pass);
+                        }
+                        (LayerEntry::Hillshade(h), PreparedLayer::Hillshade(p)) => {
+                            if let Some(tc) = terrain_cache {
+                                h.pipeline.draw(p, tc, pass);
+                            }
+                        }
+                        _ => unreachable!("prepared layer kind mismatch"),
+                    }
+                });
+            }
+            draws.add(&Self::PASS_ROUTE_TUBES, None, move |pass| {
+                this.draw_route_tubes(pass, frame_ref)
             });
-            if let Some(g) = &frame.sky_globals {
-                self.renderer.sky_pipeline.draw(g, &mut pass);
+            if !prepared_icons.is_empty() {
+                draws.add(&Self::PASS_ICONS, None, move |pass| {
+                    for p in &prepared_icons {
+                        renderer.icon_pipeline.draw(p, pass);
+                    }
+                });
             }
-            if let Some(g) = &frame.floor_globals {
-                self.renderer.floor_pipeline.draw(g, &mut pass);
+            if !prepared_text.is_empty() {
+                draws.add(&Self::PASS_TEXT, None, move |pass| {
+                    for p in &prepared_text {
+                        renderer.text_pipeline.draw(p, pass);
+                    }
+                });
             }
-            self.draw_layers(
-                &mut pass,
-                &prepared_layers,
-                terrain_cache,
-                placeholder_dem,
-                shadow_bg,
+            if let Some(p) = prepared_markers {
+                draws.add(&Self::PASS_MARKERS, None, move |pass| {
+                    renderer.marker_pipeline.draw(&p, pass)
+                });
+            }
+
+            graph.run_msaa(
+                encoder,
+                MsaaAttachments {
+                    color_view: renderer.targets.color_view(),
+                    resolve_target: target,
+                    depth_view: renderer.targets.depth_view(),
+                    clear,
+                },
+                draws,
             );
-            self.draw_route_tubes(&mut pass, &frame);
-            self.draw_overlays(&mut pass, &prepared_icons, &prepared_text, &prepared_markers);
+        }
+        if let Some(ts) = self.renderer.gpu_timestamps.as_mut() {
+            ts.scope_end(encoder);
         }
         let pass_time = pass_started.elapsed();
 
@@ -3066,74 +3280,86 @@ impl Map {
         let clouds_started = Instant::now();
         let cam = self.cam.camera;
         let (vw, vh) = (self.viewport_px.0 as f64, self.viewport_px.1 as f64);
+        let viewport_px = self.viewport_px;
+        let queue = &self.queue;
         if let Some(c) = &mut self.clouds {
             if c.enabled {
-                c.params.resolution = [vw as f32, vh as f32];
-                // World-lock: map each screen pixel into the radar's geo box so
-                // the clouds pan + zoom with the terrain. Sample the real camera
-                // projection at three viewport corners (exact for top-down,
-                // bearing/inset-correct via `pixel_to_world`) → screen-uv→field-uv
-                // affine. No geo box yet → identity (screen-locked legacy look).
-                match c.radar_geo {
-                    Some((min, max)) => {
-                        let (o, dx, dy) = cloud_field_affine(cam, (vw, vh), min, max);
-                        c.params.field_uv_origin = o;
-                        c.params.field_uv_dx = dx;
-                        c.params.field_uv_dy = dy;
+                if let Some(ts) = self.renderer.gpu_timestamps.as_mut() {
+                    ts.scope_begin("clouds", encoder);
+                }
+                graph.run_encoder(&Self::PASS_CLOUDS, encoder, |enc| {
+                    c.params.resolution = [vw as f32, vh as f32];
+                    // World-lock: map each screen pixel into the radar's geo box so
+                    // the clouds pan + zoom with the terrain. Sample the real camera
+                    // projection at three viewport corners (exact for top-down,
+                    // bearing/inset-correct via `pixel_to_world`) → screen-uv→field-uv
+                    // affine. No geo box yet → identity (screen-locked legacy look).
+                    match c.radar_geo {
+                        Some((min, max)) => {
+                            let (o, dx, dy) = cloud_field_affine(cam, (vw, vh), min, max);
+                            c.params.field_uv_origin = o;
+                            c.params.field_uv_dx = dx;
+                            c.params.field_uv_dy = dy;
 
-                        // Pitch-3D camera-ray parallax: feed the real camera ray
-                        // so the march rakes through the world-locked volume and
-                        // reveals the puff sides. WIRED but GATED OFF — validated
-                        // via the desktop debug scene (turbomap-app snapshot,
-                        // `CLOUD_DEBUG_VIEW=light --pitch 25/45`) that the
-                        // camera-ray branch of `render_volume` collapses the
-                        // lighting/shadow contrast at moderate tilt: the Light AOV
-                        // goes near-uniform pale and the final composite washes to
-                        // flat white — worse than the flat look it replaces. The
-                        // parallax *shift* itself is sane (bounded, zero at pitch
-                        // 0); the bug is in the camera-ray lighting integration.
-                        // Until that's fixed, the flat top-down field stays
-                        // world-locked under tilt (clouds pan/zoom correctly, just
-                        // no side-reveal). Flip to `true` to re-enable.
-                        const ENABLE_CAMERA_RAY: bool = true;
-                        if ENABLE_CAMERA_RAY && cam.pitch_deg > 0.5 {
-                            let sx = (max.x - min.x).abs().max(1e-12);
-                            let sy = (max.y - min.y).abs().max(1e-12);
-                            c.params.world_to_field = [(1.0 / sx) as f32, (1.0 / sy) as f32];
-                            // Slab altitude in world (mercator) units, scaled to
-                            // the box so the parallax magnitude is zoom-stable:
-                            // ~`CLOUD_SLAB_FRAC` of the box gives a few-puff rake
-                            // at a moderate tilt.
-                            c.params.cloud_alt_base = 0.0;
-                            c.params.cloud_alt_top = (CLOUD_SLAB_FRAC * sy) as f32;
-                            let vp = cam.view_projection_matrix(self.viewport_px);
-                            let inv = glam::Mat4::from_cols_array_2d(&vp).inverse().to_cols_array_2d();
-                            // Guard the inverse: a degenerate VP → NaN → the
-                            // cloud raymarch would hang the driver. Fall back to
-                            // the world-locked flat field (no camera ray).
-                            if crate::render::mat4_is_finite(&inv) {
-                                c.params.inv_view_proj = inv;
-                                c.params.use_camera_ray = true;
+                            // Pitch-3D camera-ray parallax: feed the real camera ray
+                            // so the march rakes through the world-locked volume and
+                            // reveals the puff sides. WIRED but GATED OFF — validated
+                            // via the desktop debug scene (turbomap-app snapshot,
+                            // `CLOUD_DEBUG_VIEW=light --pitch 25/45`) that the
+                            // camera-ray branch of `render_volume` collapses the
+                            // lighting/shadow contrast at moderate tilt: the Light AOV
+                            // goes near-uniform pale and the final composite washes to
+                            // flat white — worse than the flat look it replaces. The
+                            // parallax *shift* itself is sane (bounded, zero at pitch
+                            // 0); the bug is in the camera-ray lighting integration.
+                            // Until that's fixed, the flat top-down field stays
+                            // world-locked under tilt (clouds pan/zoom correctly, just
+                            // no side-reveal). Flip to `true` to re-enable.
+                            const ENABLE_CAMERA_RAY: bool = true;
+                            if ENABLE_CAMERA_RAY && cam.pitch_deg > 0.5 {
+                                let sx = (max.x - min.x).abs().max(1e-12);
+                                let sy = (max.y - min.y).abs().max(1e-12);
+                                c.params.world_to_field = [(1.0 / sx) as f32, (1.0 / sy) as f32];
+                                // Slab altitude in world (mercator) units, scaled to
+                                // the box so the parallax magnitude is zoom-stable:
+                                // ~`CLOUD_SLAB_FRAC` of the box gives a few-puff rake
+                                // at a moderate tilt.
+                                c.params.cloud_alt_base = 0.0;
+                                c.params.cloud_alt_top = (CLOUD_SLAB_FRAC * sy) as f32;
+                                let vp = cam.view_projection_matrix(viewport_px);
+                                let inv = glam::Mat4::from_cols_array_2d(&vp)
+                                    .inverse()
+                                    .to_cols_array_2d();
+                                // Guard the inverse: a degenerate VP → NaN → the
+                                // cloud raymarch would hang the driver. Fall back to
+                                // the world-locked flat field (no camera ray).
+                                if crate::render::mat4_is_finite(&inv) {
+                                    c.params.inv_view_proj = inv;
+                                    c.params.use_camera_ray = true;
+                                } else {
+                                    c.params.use_camera_ray = false;
+                                }
                             } else {
                                 c.params.use_camera_ray = false;
                             }
-                        } else {
+                        }
+                        None => {
+                            c.params.field_uv_origin = [0.0, 0.0];
+                            c.params.field_uv_dx = [1.0, 0.0];
+                            c.params.field_uv_dy = [0.0, 1.0];
                             c.params.use_camera_ray = false;
                         }
                     }
-                    None => {
-                        c.params.field_uv_origin = [0.0, 0.0];
-                        c.params.field_uv_dx = [1.0, 0.0];
-                        c.params.field_uv_dy = [0.0, 1.0];
-                        c.params.use_camera_ray = false;
-                    }
-                }
 
-                // Half-res cloud buffer: the volumetric march is the cost, so
-                // render it at half resolution and upscale-composite — keeps
-                // the live overlay within budget on mobile / software GPUs.
-                c.scene
-                    .render_overlay_downsampled(&self.queue, encoder, target, &c.params, 2);
+                    // Half-res cloud buffer: the volumetric march is the cost, so
+                    // render it at half resolution and upscale-composite — keeps
+                    // the live overlay within budget on mobile / software GPUs.
+                    c.scene
+                        .render_overlay_downsampled(queue, enc, target, &c.params, 2);
+                });
+                if let Some(ts) = self.renderer.gpu_timestamps.as_mut() {
+                    ts.scope_end(encoder);
+                }
             }
         }
 
@@ -3141,12 +3367,21 @@ impl Map {
             ts.end(encoder);
         }
         let clouds_time = clouds_started.elapsed();
-        // sky + each drawn layer + icons + text + markers = the pass's draw calls.
-        let draw_calls = frame.sky_globals.is_some() as usize
-            + prepared_layers.len()
-            + prepared_icons.len()
-            + prepared_text.len()
-            + prepared_markers.is_some() as usize;
+        // The frame's pass report: what ran (in order), what was skipped, and
+        // each pass's CPU encode time. Debug builds validate the declared
+        // data flow in `finish`.
+        let report = graph.finish();
+        // Draw contributions actually encoded into the MSAA pass this frame
+        // (sky/floor + each drawn layer + route tubes + icons + text +
+        // markers). Since D1 this counts from the graph report, which
+        // includes the floor + route-tube nodes the old hand count missed.
+        let draw_calls = report
+            .passes
+            .iter()
+            .filter(|p| {
+                !p.skipped && matches!(p.phase, FramePhase::GroundMsaa | FramePhase::OverlayMsaa)
+            })
+            .count();
         self.last_frame_metrics = FrameMetrics {
             cpu_time: started.elapsed(),
             frame_dropped: false,
@@ -3163,10 +3398,22 @@ impl Map {
                     Some(Duration::from_nanos(t.last_duration_ns))
                 }
             }),
+            gpu_passes: self
+                .renderer
+                .gpu_timestamps
+                .as_ref()
+                .map(|t| {
+                    t.last_scopes
+                        .iter()
+                        .map(|(name, ns)| (name.to_string(), Duration::from_nanos(*ns)))
+                        .collect()
+                })
+                .unwrap_or_default(),
             layer_count: self.layers.len(),
             marker_count: self.markers.len(),
-            visible_layers: prepared_layers.len(),
+            visible_layers,
             draw_calls,
+            passes: report.passes,
             tiles_drawn,
             tiles: self.tile_histogram(),
             layers: self
@@ -3227,13 +3474,11 @@ impl Map {
         for l in self.layers.iter() {
             match l {
                 LayerEntry::Raster(r) => {
-                    let res =
-                        |t: &TileId| self.chunk_is_resident(self.world_key(Some(&r.id), *t));
+                    let res = |t: &TileId| self.chunk_is_resident(self.world_key(Some(&r.id), *t));
                     h += r.scene.phase_histogram(&res);
                 }
                 LayerEntry::Vector(v) => {
-                    let res =
-                        |t: &TileId| self.chunk_is_resident(self.world_key(Some(&v.id), *t));
+                    let res = |t: &TileId| self.chunk_is_resident(self.world_key(Some(&v.id), *t));
                     h += v.scene.phase_histogram(&res);
                 }
                 // Hillshade owns no scene/cache — it reads the shared terrain,
@@ -3329,6 +3574,16 @@ pub struct FrameMetrics {
     pub visible_layers: usize,
     pub draw_calls: usize,
     pub tiles_drawn: usize,
+    /// The frame graph's pass report (slice D1): every pass that ran or was
+    /// masked off this frame, in execution order, with per-pass CPU encode
+    /// time. The always-on decomposition of `phases.pass` — "the frame got
+    /// slow" resolves to *which pass* without attaching a profiler.
+    pub passes: Vec<PassTiming>,
+    /// GPU wall time per encoder-level scope (`ao` / `frame-pass` /
+    /// `clouds`), one-frame delayed like `gpu_time` and empty without
+    /// `Features::TIMESTAMP_QUERY`. The GPU-side decomposition CPU encode
+    /// times can't see — a cheap-to-encode pass (clouds) can dominate here.
+    pub gpu_passes: Vec<(String, Duration)>,
     /// Tile-lifecycle histogram summed across every layer scene + terrain —
     /// desired/pending/resident/retained, pending split by tier. The trace's
     /// "is streaming healthy?" counters (plan slice A1). Zero on dropped

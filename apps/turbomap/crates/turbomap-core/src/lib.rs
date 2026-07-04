@@ -18,7 +18,7 @@ pub mod lod;
 pub mod map;
 pub mod markers;
 pub mod projection;
-mod render;
+pub mod render;
 pub mod scene;
 pub mod source;
 pub mod spatial_index;
@@ -34,17 +34,18 @@ pub use camera::{Camera, CameraAnimation, FiniteF64, ZoomBounds, ZoomLock, TILE_
 pub use dem::{decode_elevation, DemEncoding};
 pub use error::{MapError, TileError};
 pub use geo::{LatLng, WorldPoint, MAX_LATITUDE_DEG};
-pub use projection::{reproject, Crs};
+pub use lighting::{Lighting, LightingMode};
 pub use map::{
     CloudParams, FrameMetrics, HitFeature, HitMarker, HitResult, LayerKind, LayerMetrics, Map,
     MapOptions, Marker, MarkerId, PendingTile, PhaseTimings,
     PublicTerrainOptions as TerrainOptions, RadarFrame,
 };
+pub use projection::{reproject, Crs};
+pub use render::graph::{FrameGraphReport, FramePhase, PassTiming};
 pub use scene::Scene;
 pub use source::{RasterFormat, RasterTile, TileSource};
-pub use lighting::{Lighting, LightingMode};
-pub use sun::{atmosphere, solar_position, Atmosphere, SunPosition};
 pub use style::{Color, Filter, HillshadeStyle, IconSpec, Paint, Rule, VectorStyle};
+pub use sun::{atmosphere, solar_position, Atmosphere, SunPosition};
 pub use tessellate::{
     tessellate, IconRequest, InteractiveFeature, LabelRequest, Mesh, VectorVertex,
 };

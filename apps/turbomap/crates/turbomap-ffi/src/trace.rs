@@ -107,7 +107,12 @@ pub(crate) fn frame_trace(engine: &TurbomapEngine, live: FrameTrace) -> FrameTra
         pend_visible: m.tiles.pending_visible,
         pend_prefetch: m.tiles.pending_prefetch,
         bytes: m.layers.iter().map(|l| l.cache.bytes_used).sum(),
-        budget: m.layers.iter().map(|l| l.cache.budget_bytes).max().unwrap_or(0),
+        budget: m
+            .layers
+            .iter()
+            .map(|l| l.cache.budget_bytes)
+            .max()
+            .unwrap_or(0),
         evictions: m.layers.iter().map(|l| l.cache.evictions).sum(),
         hits: m.layers.iter().map(|l| l.cache.hits).sum(),
         misses: m.layers.iter().map(|l| l.cache.misses).sum(),
@@ -119,6 +124,31 @@ pub(crate) fn frame_trace(engine: &TurbomapEngine, live: FrameTrace) -> FrameTra
 /// live streaming timings.
 pub(crate) fn stats_json(engine: &TurbomapEngine) -> String {
     frame_trace(engine, FrameTrace::default()).to_json()
+}
+
+/// The frame graph's pass report as a JSON array — the decomposition of
+/// `pass_ms` (slice D1): one entry per pass instance, in execution order,
+/// with its phase, CPU encode time and skip state.
+pub(crate) fn passes_json(engine: &TurbomapEngine) -> String {
+    passes_json_from(&engine.last_frame_metrics().passes)
+}
+
+/// Pure formatter behind [`passes_json`], host-compiled and unit-tested (the
+/// engine variant needs a GPU device).
+pub(crate) fn passes_json_from(passes: &[turbomap_core::PassTiming]) -> String {
+    let items: Vec<String> = passes
+        .iter()
+        .map(|p| {
+            format!(
+                "{{\"pass\":\"{}\",\"phase\":\"{:?}\",\"cpu_ms\":{:.3},\"skipped\":{}}}",
+                p.label,
+                p.phase,
+                p.cpu.as_secs_f64() * 1000.0,
+                p.skipped,
+            )
+        })
+        .collect();
+    format!("[{}]", items.join(","))
 }
 
 #[cfg(test)]
@@ -163,15 +193,31 @@ mod tests {
         };
         let j = t.to_json();
         for key in [
-            "\"frame\":7", "\"gap_ms\":18.25", "\"prepare_ms\":3.300", "\"pass_ms\":0.200",
-            "\"draw_calls\":7", "\"tiles_drawn\":440", "\"pending\":31", "\"backlog\":12",
-            "\"ingested\":5", "\"frame_dropped\":false", "\"gpu_ms\":null",
+            "\"frame\":7",
+            "\"gap_ms\":18.25",
+            "\"prepare_ms\":3.300",
+            "\"pass_ms\":0.200",
+            "\"draw_calls\":7",
+            "\"tiles_drawn\":440",
+            "\"pending\":31",
+            "\"backlog\":12",
+            "\"ingested\":5",
+            "\"frame_dropped\":false",
+            "\"gpu_ms\":null",
             // lifecycle histogram (A1): engine want-list + eviction candidates.
-            "\"desired\":471", "\"retained\":41", "\"pend_overview\":1",
-            "\"pend_visible\":20", "\"pend_prefetch\":10",
+            "\"desired\":471",
+            "\"retained\":41",
+            "\"pend_overview\":1",
+            "\"pend_visible\":20",
+            "\"pend_prefetch\":10",
             // legacy keys preserved; `tiles` mirrors `resident`.
-            "\"resident\":512", "\"tiles\":512", "\"bytes\":1024", "\"budget\":2048",
-            "\"evictions\":9", "\"hits\":100", "\"misses\":20",
+            "\"resident\":512",
+            "\"tiles\":512",
+            "\"bytes\":1024",
+            "\"budget\":2048",
+            "\"evictions\":9",
+            "\"hits\":100",
+            "\"misses\":20",
         ] {
             assert!(j.contains(key), "trace JSON missing {key}: {j}");
         }
@@ -179,7 +225,36 @@ mod tests {
 
     #[test]
     fn frame_trace_json_renders_gpu_time_when_present() {
-        let t = FrameTrace { gpu_ms: Some(0.875), ..FrameTrace::default() };
+        let t = FrameTrace {
+            gpu_ms: Some(0.875),
+            ..FrameTrace::default()
+        };
         assert!(t.to_json().contains("\"gpu_ms\":0.875"), "{}", t.to_json());
+    }
+
+    #[test]
+    fn passes_json_serializes_the_pass_report_in_order() {
+        use std::time::Duration;
+        use turbomap_core::{FramePhase, PassTiming};
+        let passes = vec![
+            PassTiming {
+                label: "sky".to_string(),
+                phase: FramePhase::GroundMsaa,
+                cpu: Duration::from_micros(120),
+                skipped: false,
+            },
+            PassTiming {
+                label: "layer:hillshade".to_string(),
+                phase: FramePhase::GroundMsaa,
+                cpu: Duration::ZERO,
+                skipped: true,
+            },
+        ];
+        let j = passes_json_from(&passes);
+        assert_eq!(
+            j,
+            "[{\"pass\":\"sky\",\"phase\":\"GroundMsaa\",\"cpu_ms\":0.120,\"skipped\":false},\
+             {\"pass\":\"layer:hillshade\",\"phase\":\"GroundMsaa\",\"cpu_ms\":0.000,\"skipped\":true}]"
+        );
     }
 }

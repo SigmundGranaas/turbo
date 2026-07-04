@@ -11,6 +11,7 @@ pub(crate) mod cache;
 pub(crate) mod floor;
 pub(crate) mod frame;
 pub(crate) mod gpu_timestamps;
+pub mod graph;
 pub(crate) mod hillshade;
 pub(crate) mod icon;
 pub(crate) mod marker;
@@ -125,7 +126,10 @@ mod tests {
 
         let mut with_nan = identity;
         with_nan[2][3] = f32::NAN;
-        assert!(!mat4_is_finite(&with_nan), "a single NaN must fail the gate");
+        assert!(
+            !mat4_is_finite(&with_nan),
+            "a single NaN must fail the gate"
+        );
 
         let mut with_inf = identity;
         with_inf[0][0] = f32::INFINITY;

@@ -872,3 +872,34 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   in-container scope: C1 + C2b + C3 done; C2a parked behind host
   scene-authoring migration and the standing device gate. Phase 3 (D1
   frame graph) opens next, in a fresh session.
+- _2026-07-04_: **D1 landed — the frame is a graph.**
+  `turbomap-core/src/render/graph.rs` (new): `PassDesc { name, phase,
+  reads, writes }` over a coarse resource set (`HeightField`, `AoField`,
+  `ShadowUniforms`, `ColorMsaa`, `Depth`, `FrameTarget`),
+  `FramePhase::{BeforeFrame, GroundMsaa, OverlayMsaa, Composite}` (no
+  `Post` — the HDR post stage was already removed on purpose), a
+  unit-tested scheduler (phase-ordered, stable painter's order within a
+  phase) and data-flow validation (every non-persistent read needs a
+  producer this frame; the heightfield/AO fields are persistent —
+  streaming semantics, validated in debug on every rendered frame).
+  `Map::render` registers passes instead of hand-sequencing: shadow
+  heightfield + AO in `BeforeFrame`; sky/floor/one node **per tile
+  layer** (`layer:<id>`)/route tubes in `GroundMsaa`; icons/text/markers
+  in `OverlayMsaa`; clouds in `Composite`. The single-MSAA-pass rule is
+  now structural: `FrameGraph::run_msaa` is the only place the frame
+  pass begins, and contributions get a `&mut RenderPass`, not the
+  encoder. Where the graph is BETTER than the old sequence (ground rule
+  2): per-pass CPU timings always-on in `FrameMetrics::passes`
+  (+ `passes.csv`/`passes_json` surfaces), per-scope GPU timestamps
+  (`ao`/`frame-pass`/`clouds`, `FrameMetrics::gpu_passes`), runtime pass
+  isolation (`Map::set_pass_enabled`, harness `TURBO_DISABLE_PASSES` +
+  `TURBO_PASS_ISOLATE` A/B image dumps), and `draw_calls` counting the
+  floor/route nodes the old hand count missed.
+  **Verification (visual, real data):** the Sjunkhatten scenario harness
+  (real Kartverket topo + real kart-api DEM, 51 scripted steps) rendered
+  before/after: frames byte-identical (max pixel diff 0 across the
+  session), per-frame CPU no worse. Two pre-existing baseline findings
+  recorded (not D1 regressions, now diagnosable with the isolation
+  tool): the cloud overlay washes out tilted frames, and the harness's
+  built-in cast-shadow proof fails at the default pose on unmodified
+  HEAD. Full ladder (unit + gpu suites + sim) in the next entry.
