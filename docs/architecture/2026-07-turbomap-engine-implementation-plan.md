@@ -676,3 +676,12 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   deliveries for already-resident tiles (eviction still re-pends via
   `un_ingest`, so refresh semantics are intact). Verification re-run in
   flight; result in the next entry.
+- _2026-07-04_: **B4.1 verified:** with the residency guard, all 7
+  behavioural sim gates green under `REQUIRE_GPU=1` on Lavapipe, release
+  profile, 679 s run — including the two that caught the defect
+  (`cold_load_paints_every_subsystem`, `pan_session_stays_covered_and_
+  settles_without_flicker`). Raster/DEM decode now runs off the render
+  thread on every engine host with steady-state behaviour equivalent to
+  the synchronous path. Remaining in B4: MVT decode+tessellation
+  off-thread (B4.2) and retiring the FFI host's now-redundant ingest
+  time-slicing in favour of the engine budget (B4.3).
