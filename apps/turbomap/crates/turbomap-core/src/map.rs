@@ -2235,24 +2235,32 @@ impl Map {
     /// async decode queue consults this before re-ingesting: a delivery
     /// that raced the accept→apply window must not re-upload a resident
     /// tile (it would restart the fade — steady-state flicker).
+    ///
+    /// Slice B3.4 (first step): answered by the LIFECYCLE TABLE, not the
+    /// per-scene sets — the dual-write soak (agreement asserted every sim
+    /// frame across the whole B4 campaign) proved `Resident|Retained` in
+    /// the table equals the scenes' `ingested`, so residency truth now has
+    /// one owner. The per-scene sets remain only as the desired-set filter
+    /// until the follow-up deletes them.
     pub fn is_raster_ingested(&self, layer_id: &str, tile: TileId) -> bool {
-        self.layers.iter().any(|l| match l {
-            LayerEntry::Raster(r) => r.id == layer_id && r.scene.is_ingested(&tile),
-            _ => false,
-        })
+        self.chunk_is_resident(self.world_key(Some(layer_id), tile))
     }
 
     /// Terrain twin of [`Map::is_raster_ingested`].
     pub fn is_terrain_ingested(&self, tile: TileId) -> bool {
-        self.terrain.as_ref().is_some_and(|t| t.scene.is_ingested(&tile))
+        self.terrain.is_some() && self.chunk_is_resident(self.world_key(None, tile))
     }
 
     /// Vector twin of [`Map::is_raster_ingested`].
     pub fn is_vector_ingested(&self, layer_id: &str, tile: TileId) -> bool {
-        self.layers.iter().any(|l| match l {
-            LayerEntry::Vector(v) => v.id == layer_id && v.scene.is_ingested(&tile),
-            _ => false,
-        })
+        self.chunk_is_resident(self.world_key(Some(layer_id), tile))
+    }
+
+    fn chunk_is_resident(&self, key: turbomap_world::ChunkKey) -> bool {
+        matches!(
+            self.lifecycle.borrow().phase_of(key),
+            Some(turbomap_world::Phase::Resident | turbomap_world::Phase::Retained)
+        )
     }
 
     /// The style a vector layer would tessellate against right now — a

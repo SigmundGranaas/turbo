@@ -768,3 +768,18 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   coarse Norway `.pmtiles` + `TURBO_BASELINE_BUNDLE` host wiring — needs
   real tile data near the tileserver), and the standing on-device
   validation session before the Kotlin reconciler shrink.
+- _2026-07-04_: **B3.4 (first step) landed — residency truth has one owner.**
+  The dual-write soak is formally concluded: `lifecycle_agreement` held on
+  every sim frame across the entire B4 campaign (5 full release sweeps).
+  `Map::is_{raster,vector,terrain}_ingested` — the decode queue's
+  re-ingest guards — now answer from the lifecycle table
+  (`phase_of ∈ {Resident, Retained}`) instead of the per-scene `ingested`
+  sets, which the agreement gate proved equivalent. Verified: 52 workspace
+  suites, clippy, 13 engine gpu suites, 7/7 sim gates (457 s release).
+  **Continuation (next session):** delete the per-scene `ingested` sets —
+  `Scene::{ingest, un_ingest, is_ingested, ingested_len}` and the
+  `desired − ingested` filtering move to table-backed views threaded
+  through `Map` (scenes keep only the camera-derived desired/LOD walk);
+  `tile_histogram` derives from the table; `lifecycle_agreement` retires
+  with the sets it compares. Keep the property tests; the capacity proof
+  moves to the table's resident universe.
