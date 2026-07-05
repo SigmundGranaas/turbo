@@ -440,3 +440,23 @@ download → evict → re-download UX validated there too.
   `-D warnings`, wasm check, GPU suites incl. the new golden, 8/8 sim
   gates release). Phase 6 in-container slices are COMPLETE (P6.6 stays
   device-gated).
+- _2026-07-05_: **PHASE 6 COMPLETE at container scope.** All seven slices
+  are landed and verified: P6.0 (the ladder is CI — three green runs on
+  the branch already), P6.1 (invariant 7 total), P6.2 (the last
+  imperative host is a Scene host; `map_mut` closed), P6.3 (web content
+  plane), P6.4 (hit-testing on every binding), P6.5 (IR-ordered
+  compositing; C3's exception retired to one documented symbol-track
+  residual), P6.6 (offline premise corrected; both gates written).
+  Every host in the repo now authors content exclusively through the
+  Scene IR, transports tiles exclusively through the streaming plan, and
+  every architectural claim is enforced by a test that runs in CI. The
+  phase's gates caught three real bugs the old structure had hidden:
+  the wasm-opt-108 module corruption, the desktop app's decade of
+  accumulated warnings masking a dead dump path, and scene-declared
+  tubes baking at null island since P5.2 (Android's tube path — repaired).
+  **Left for the on-device agent:** compile + run all Kotlin (hitTest
+  contract, offline gates, the P5/P6 host changes), the airplane-mode
+  and hit-test device runs, real-GPU visual checks, and a
+  WebGPU-browser session for the web map. Then the payoff round
+  (architecture Phase 5: water/snow/vegetation as pure subsystems) has
+  a fully-adopted, fully-enforced foundation to land on.
