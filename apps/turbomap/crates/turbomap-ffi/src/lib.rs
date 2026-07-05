@@ -105,25 +105,6 @@ pub struct Capabilities {
     pub max_texture_size: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
-pub enum TileKind {
-    Raster,
-    Terrain,
-    Vector,
-}
-
-/// One tile the engine is waiting on. The host fetches it (using the URL
-/// template from its own scene) and pushes bytes via the matching ingest.
-#[derive(Debug, Clone, uniffi::Record)]
-pub struct TileRequest {
-    pub kind: TileKind,
-    /// Target layer; `None` for the shared terrain DEM.
-    pub layer_id: Option<String>,
-    pub z: u8,
-    pub x: u32,
-    pub y: u32,
-}
-
 /// What an `applyScene` changed, as counts (the full delta is a Rust-side
 /// concept; hosts mostly need "did anything change").
 #[derive(Debug, Clone, Copy, Default, uniffi::Record)]
@@ -341,33 +322,6 @@ impl TurboMap {
             .fetch_cancelled(turbomap_world::RequestId(id));
     }
 
-    /// Tiles the engine is waiting on. Fetch each host-side and push the
-    /// bytes back through the matching `ingest*`.
-    ///
-    /// **Legacy shim** over `streaming_plan_json` (start list only — no
-    /// attempt tracking, no cancellation). Existing hosts keep working; new
-    /// host code should consume the plan.
-    pub fn pending_tiles(&self) -> Vec<TileRequest> {
-        use turbomap_core::PendingTile;
-        self.lock()
-            .engine
-            .pending_tiles()
-            .into_iter()
-            .map(|p| match p {
-                PendingTile::Raster { layer_id, tile } => {
-                    tile_request(TileKind::Raster, Some(layer_id), tile)
-                }
-                PendingTile::Hillshade { layer_id, tile } => {
-                    tile_request(TileKind::Terrain, Some(layer_id), tile)
-                }
-                PendingTile::Terrain { tile } => tile_request(TileKind::Terrain, None, tile),
-                PendingTile::Vector { layer_id, tile } => {
-                    tile_request(TileKind::Vector, Some(layer_id), tile)
-                }
-            })
-            .collect()
-    }
-
     /// Push a fetched raster tile (encoded PNG/JPEG/WebP bytes, exactly as
     /// served). Returns `false` if the bytes don't decode.
     pub fn ingest_raster_tile(
@@ -549,16 +503,6 @@ fn from_camera_state(c: CameraState) -> Camera {
         zoom: c.zoom,
         pitch_deg: c.pitch_deg,
         bearing_deg: c.bearing_deg,
-    }
-}
-
-fn tile_request(kind: TileKind, layer_id: Option<String>, tile: TileId) -> TileRequest {
-    TileRequest {
-        kind,
-        layer_id,
-        z: tile.z,
-        x: tile.x,
-        y: tile.y,
     }
 }
 

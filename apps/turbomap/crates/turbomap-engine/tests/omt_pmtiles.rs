@@ -406,11 +406,11 @@ fn bundled_pmtiles_scene_is_fully_offline_via_the_production_resolver() {
     );
     // THE offline invariant: after the in-process drain, nothing is left
     // for a host to fetch — a cold start with no network shows a full map.
-    let pending = engine.pending_tiles();
+    let plan = engine.streaming_plan(usize::MAX);
     assert!(
-        pending.is_empty(),
-        "offline scene must leave zero host-pending tiles, got {}",
-        pending.len()
+        plan.start.is_empty(),
+        "offline scene must leave zero host-fetchable starts, got {}",
+        plan.start.len()
     );
 
     let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
@@ -514,10 +514,11 @@ fn a_chained_source_renders_offline_and_surfaces_detail_to_the_host() {
         "bundle must serve the coarse view, got {stats:?}"
     );
     let unserved_visible: Vec<_> = engine
-        .pending_tiles()
-        .iter()
+        .streaming_plan(usize::MAX)
+        .start
+        .into_iter()
+        .map(|r| r.fetch)
         .filter(|p| pending_zoom(p) == FIXTURE_ZOOM)
-        .cloned()
         .collect();
     assert!(
         unserved_visible.is_empty(),
@@ -543,10 +544,10 @@ fn a_chained_source_renders_offline_and_surfaces_detail_to_the_host() {
         f64::from(FIXTURE_ZOOM) + 2.0,
     ));
     let _ = engine.pump_tiles(); // stub providers make no progress in-process
-    let pending = engine.pending_tiles();
+    let plan = engine.streaming_plan(usize::MAX);
     assert!(
-        !pending.is_empty(),
-        "detail zoom must surface pending tiles for the host to fetch"
+        !plan.start.is_empty(),
+        "detail zoom must surface plan starts for the host to fetch"
     );
 }
 

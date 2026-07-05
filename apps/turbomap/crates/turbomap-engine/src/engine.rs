@@ -444,7 +444,7 @@ impl TurbomapEngine {
         let mut stats = DrainStats::default();
         loop {
             let before_round = stats.raster_tiles + stats.terrain_tiles + stats.vector_tiles;
-            let pending = self.map.pending_tiles();
+            let pending = self.map.plan_start_preview();
             if pending.is_empty() {
                 break;
             }
@@ -495,38 +495,18 @@ impl TurbomapEngine {
         stats
     }
 
-    /// Tiles the engine is waiting on — the pull half of host-driven tile
-    /// IO. Hosts fetch these (they know the URL templates from their own
-    /// scene) and push results through the `ingest_*` methods below.
-    ///
-    /// Tiles inside the decode queue's accept→apply window are SUBTRACTED:
-    /// they're already delivered, just not yet drawable. Without this,
-    /// every pull-driven host refetches each tile once per decode latency —
-    /// a delivery echo that stretched settle times ~4× and tripped the
-    /// sim's heavy-roaming and shadow-stall gates. (Plan-driven hosts don't
-    /// need the filter: an issued request stays `Fetching` in the lifecycle
-    /// table until its apply lands, so it is never re-issued.)
-    pub fn pending_tiles(&self) -> Vec<PendingTile> {
-        self.map
-            .pending_tiles()
-            .into_iter()
-            .filter(|p| !self.decode_queue.contains(&decode_key_of(p)))
-            .collect()
-    }
-
     /// Push one fetched raster tile (encoded PNG/JPEG/WebP bytes, exactly
     /// as served). The bytes are ACCEPTED, not decoded here (plan B4.1):
     /// decode runs off the render thread and the tile applies during a
-    /// later `render()` under the per-frame budget — so it leaves
-    /// `pending_tiles` only when it becomes drawable. Undecodable bytes are
+    /// later `render()` under the per-frame budget — so the plan keeps the
+    /// attempt `Fetching` until it becomes drawable. Undecodable bytes are
     /// dropped and the tile re-pends; the host's retry/backoff owns policy.
     /// Returns `true` when accepted (a duplicate already in flight is
     /// "accepted" too — the queue dedups).
     pub fn ingest_raster_encoded(&mut self, layer_id: &str, tile: TileId, bytes: &[u8]) -> bool {
-        // A delivery that raced the accept→apply window (the tile stayed in
-        // `pending_tiles` until its decode applied, so the host fetched it
-        // again) must not re-upload a now-resident tile — that restarts the
-        // fade and reads as steady-state flicker.
+        // A delivery that raced the accept→apply window must not re-upload a
+        // now-resident tile — that restarts the fade and reads as
+        // steady-state flicker.
         if self.map.is_raster_ingested(layer_id, tile) {
             return true;
         }
@@ -938,8 +918,8 @@ impl TurbomapEngine {
     /// One streaming step for plan-driven hosts: fetches to start (each with
     /// a `RequestId`) and in-flight attempts to cancel. Deliveries complete
     /// through the existing `ingest_*`; failures/cancellations report back
-    /// via [`Self::fetch_failed`] / [`Self::fetch_cancelled`]. The legacy
-    /// `pending_tiles`/`ingest_*` pull-push remains as the start-only shim.
+    /// via [`Self::fetch_failed`] / [`Self::fetch_cancelled`]. (P5.1: the
+    /// legacy pull-push shim is gone — every host consumes the plan.)
     pub fn streaming_plan(&mut self, max_start: usize) -> turbomap_core::map::StreamingPlan {
         self.map.streaming_plan(max_start)
     }
@@ -965,7 +945,7 @@ impl TurbomapEngine {
 
 /// JSON for a [`StreamingPlan`](turbomap_core::map::StreamingPlan). `kind` is
 /// `raster`/`hillshade`/`vector`/`terrain`; `layer` is `__terrain` for the
-/// shared DEM (mirrors the legacy `pending_tiles` shape, plus `id`).
+/// shared DEM.
 /// `RequestId`s are session-scoped counters, far below 2^53, so they survive
 /// a JS `number` exactly.
 pub fn streaming_plan_to_json(plan: &turbomap_core::map::StreamingPlan) -> String {
@@ -1337,26 +1317,6 @@ fn geojson_or_declared(scene: &Scene, source: &str, declared: &Option<String>) -
         GEOJSON_LAYER.to_string()
     } else {
         declared.clone().unwrap_or_default()
-    }
-}
-
-/// The decode-queue key a delivery for this pending tile would use.
-/// Hillshade pending tiles are DEM data — their ingest path forwards to the
-/// shared terrain cache, so they share the terrain key.
-fn decode_key_of(p: &PendingTile) -> crate::codec::QueueKey {
-    use crate::codec::QueueKey;
-    match p {
-        PendingTile::Raster { layer_id, tile } => QueueKey::Raster {
-            layer_id: layer_id.clone(),
-            tile: *tile,
-        },
-        PendingTile::Vector { layer_id, tile } => QueueKey::Vector {
-            layer_id: layer_id.clone(),
-            tile: *tile,
-        },
-        PendingTile::Terrain { tile } | PendingTile::Hillshade { tile, .. } => {
-            QueueKey::Terrain { tile: *tile }
-        }
     }
 }
 

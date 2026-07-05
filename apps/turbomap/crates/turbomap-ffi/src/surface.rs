@@ -403,6 +403,12 @@ impl OnScreen {
             Cmd::ApplyScene(scene) => {
                 self.engine.apply(*scene);
             }
+            Cmd::FetchFailed(id) => {
+                self.engine.fetch_failed(turbomap_world::RequestId(id));
+            }
+            Cmd::FetchCancelled(id) => {
+                self.engine.fetch_cancelled(turbomap_world::RequestId(id));
+            }
             Cmd::PumpTiles => {
                 self.engine.pump_tiles();
             }
@@ -425,31 +431,18 @@ impl OnScreen {
         }
     }
 
-    /// Build the immutable read model the UI loads wait-free. `queued` is the set
-    /// of tiles already handed to the engine but not yet uploaded; they are
-    /// filtered out of the pending list so the host never re-requests an in-flight
-    /// upload (see [`Surface::queued`]).
-    fn build_snapshot(&self, queued: &std::collections::HashSet<(String, TileId)>) -> Snapshot {
-        let (pending_count, pending_json) = pending_tiles_filtered(&self.engine, queued);
+    /// Build the immutable read model the UI loads wait-free. Tile work is
+    /// NOT in here — it rides the plan outbox (consume-once), not a
+    /// republished snapshot.
+    fn build_snapshot(&self) -> Snapshot {
         Snapshot {
             cam: self.engine.camera(),
             viewport: (self.config.width as f64, self.config.height as f64),
             inset: self.inset,
             animating: self.engine.is_animating(),
-            pending_count,
-            pending_json,
+            pending_count: 0,
             stats_json: stats_json(&self.engine),
         }
-    }
-}
-
-/// The `(layer, tile)` identity of one queued ingest — must match the namespacing
-/// used by [`pending_tiles_filtered`] (raster → layer id, terrain → `__terrain`).
-fn ingest_key(i: &Ingest) -> (String, TileId) {
-    match i {
-        Ingest::Raster { layer, tile, .. } => (layer.clone(), *tile),
-        Ingest::Terrain { tile, .. } => ("__terrain".to_string(), *tile),
-        Ingest::Vector { layer, tile, .. } => (layer.clone(), *tile),
     }
 }
 
@@ -513,38 +506,6 @@ impl FramePerf {
             self.max_gap_ms = 0.0;
         }
     }
-}
-
-/// `(count, JSON array)` of the tiles the engine is waiting on, MINUS those whose
-/// bytes are already queued for upload (`queued`) — the host pumps off this list,
-/// and re-requesting an in-flight upload is the re-ingest storm this prevents.
-fn pending_tiles_filtered(
-    engine: &TurbomapEngine,
-    queued: &std::collections::HashSet<(String, TileId)>,
-) -> (u32, String) {
-    let items: Vec<String> = engine
-        .pending_tiles()
-        .into_iter()
-        .filter_map(|p| {
-            let (kind, layer, t) = match p {
-                PendingTile::Raster { layer_id, tile } => ("raster", layer_id, tile),
-                PendingTile::Hillshade { layer_id, tile } => ("hillshade", layer_id, tile),
-                PendingTile::Vector { layer_id, tile } => ("vector", layer_id, tile),
-                PendingTile::Terrain { tile } => ("terrain", "__terrain".to_string(), tile),
-            };
-            // Already handed to the engine (bytes in the ingest queue)? Skip — it
-            // becomes resident within a frame or two; re-requesting it floods the
-            // queue with duplicates and starves real work + camera moves.
-            if queued.contains(&(layer.clone(), t)) {
-                return None;
-            }
-            Some(format!(
-                "{{\"kind\":\"{kind}\",\"layer\":\"{layer}\",\"z\":{},\"x\":{},\"y\":{}}}",
-                t.z, t.x, t.y
-            ))
-        })
-        .collect();
-    (items.len() as u32, format!("[{}]", items.join(",")))
 }
 
 // The structured per-frame trace (`FrameTrace`, `frame_trace`, `stats_json`)
@@ -661,6 +622,11 @@ enum Cmd {
         blend: f32,
     },
     ApplyScene(Box<Scene>),
+    /// Report a plan-issued fetch as failed (the engine re-pends + backs off
+    /// — retry policy has exactly one owner, the lifecycle table).
+    FetchFailed(u64),
+    /// Report a plan `cancel` as honoured, or a `start` the host declined.
+    FetchCancelled(u64),
     PumpTiles,
     Resize {
         w: u32,
@@ -698,8 +664,9 @@ struct Snapshot {
     viewport: (f64, f64),
     inset: f64,
     animating: bool,
+    /// Desired-but-not-resident count from the last minted plan — perf
+    /// telemetry only (the actionable list rides the plan outbox).
     pending_count: u32,
-    pending_json: String,
     stats_json: String,
 }
 
@@ -716,7 +683,6 @@ impl Default for Snapshot {
             inset: 0.0,
             animating: false,
             pending_count: 0,
-            pending_json: "[]".to_string(),
             stats_json: "{}".to_string(),
         }
     }
@@ -744,21 +710,32 @@ fn snapshot_camera(s: &Snapshot) -> Camera {
 /// host-side guard in `TurbomapMapView.launchTileFetch`.
 const MAX_INGEST_TILE_BYTES: i32 = 16 * 1024 * 1024;
 
-/// The shared handle. UI-facing fields (`cmd*`, `ingest*`, `snapshot`) are
-/// wait-free; `render` is held only by the render thread + lifecycle.
+/// The shared handle. UI-facing fields (`cmd*`, `ingest*`, `snapshot`,
+/// `plan_*`) are wait-free or brief-lock; `render` is held only by the
+/// render thread + lifecycle.
+///
+/// TILE TRANSPORT (plan P5.1): the STREAMING PLAN, not the legacy
+/// pending-tiles poll. The host grants fetch lanes
+/// (`nativeTakeStreamingPlanJson(handle, freeLanes)`); the render thread
+/// mints at most that many `start`s from the engine's lifecycle table each
+/// frame (so in-flight fetches are never re-issued — the table's `Fetching`
+/// state IS the dedup that the old host-side `queued` set approximated) and
+/// appends the plan to an outbox the host drains consume-once. Deliveries
+/// complete through the ordinary `ingest*`; failures/cancels report by
+/// request id, and the ENGINE owns retry/backoff policy.
 struct Surface {
     cmd_tx: crossbeam_channel::Sender<Cmd>,
     cmd_rx: crossbeam_channel::Receiver<Cmd>,
     ingest_tx: crossbeam_channel::Sender<Ingest>,
     ingest_rx: crossbeam_channel::Receiver<Ingest>,
-    /// Tiles handed to the engine (bytes enqueued) but not yet decoded+uploaded
-    /// on the render thread. They are NOT yet in the engine's resident set, so
-    /// `engine.pending_tiles()` still lists them — without this, the host re-
-    /// fetches + re-enqueues every such tile each reconcile pass (a disk-cache
-    /// hit is instant), flooding the ingest queue with thousands of duplicates
-    /// (observed backlog 30k+) and starving both tile uploads and camera moves.
-    /// We exclude this set from the published pending list and dedup re-enqueues.
-    queued: Mutex<std::collections::HashSet<(String, TileId)>>,
+    /// Fetch lanes granted by the host and not yet spent by the render
+    /// thread. Swapped to 0 when a plan is minted, so the host's stated
+    /// capacity bounds exactly one plan's `start` list.
+    plan_lanes: std::sync::atomic::AtomicU32,
+    /// Plans minted but not yet taken by the host (JSON objects, in mint
+    /// order). Drained whole by `nativeTakeStreamingPlanJson` — consume-once,
+    /// so a start can never be lost to a snapshot overwrite.
+    plan_outbox: Mutex<Vec<String>>,
     snapshot: Mutex<Arc<Snapshot>>,
     render: Mutex<OnScreen>,
 }
@@ -767,14 +744,14 @@ impl Surface {
     fn new(on: OnScreen) -> Self {
         let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
         let (ingest_tx, ingest_rx) = crossbeam_channel::unbounded();
-        let queued = Mutex::new(std::collections::HashSet::new());
-        let snap = Arc::new(on.build_snapshot(&queued.lock().unwrap_or_else(|p| p.into_inner())));
+        let snap = Arc::new(on.build_snapshot());
         Surface {
             cmd_tx,
             cmd_rx,
             ingest_tx,
             ingest_rx,
-            queued,
+            plan_lanes: std::sync::atomic::AtomicU32::new(0),
+            plan_outbox: Mutex::new(Vec::new()),
             snapshot: Mutex::new(snap),
             render: Mutex::new(on),
         }
@@ -797,9 +774,7 @@ impl Surface {
         // owner now, inside the engine, identical on every host.
         let ingest_start = std::time::Instant::now();
         let mut ingested = 0u32;
-        let mut applied_keys: Vec<(String, TileId)> = Vec::new();
         while let Ok(i) = self.ingest_rx.try_recv() {
-            applied_keys.push(ingest_key(&i));
             on.apply_ingest(i);
             ingested += 1;
         }
@@ -810,18 +785,22 @@ impl Surface {
         let render_start = std::time::Instant::now();
         on.render();
         let render_ms = render_start.elapsed().as_secs_f64() * 1000.0;
-        // The tiles we just uploaded are now resident in the engine, so they drop
-        // out of `pending_tiles()` on their own — clear them from the queued set so
-        // it tracks only the still-in-flight uploads, and so a later eviction can
-        // legitimately re-request them.
-        let queued = {
-            let mut q = self.queued.lock().unwrap_or_else(|p| p.into_inner());
-            for k in &applied_keys {
-                q.remove(k);
-            }
-            q.clone()
-        };
-        let mut snap = on.build_snapshot(&queued);
+        // Mint the frame's streaming plan against the lanes the host granted
+        // since the last mint. Zero lanes still surfaces cancels (aborting
+        // in-flight fetches the camera moved away from must not wait on
+        // capacity).
+        let lanes = self.plan_lanes.swap(0, std::sync::atomic::Ordering::AcqRel);
+        let plan = on.engine.streaming_plan(lanes as usize);
+        let plan_pending = plan.start.len() as u32;
+        if !plan.start.is_empty() || !plan.cancel.is_empty() {
+            let json = turbomap_engine::engine::streaming_plan_to_json(&plan);
+            self.plan_outbox
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .push(json);
+        }
+        let mut snap = on.build_snapshot();
+        snap.pending_count = plan_pending;
         // A pending ingest backlog must keep the render-on-demand host awake, or the
         // remaining tiles would only trickle in on the next unrelated invalidation.
         snap.animating = snap.animating || ingest_backlog > 0;
@@ -1439,16 +1418,57 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
 /// `[{"kind":"raster","layer":"basemap","z":..,"x":..,"y":..}, ...]` — the host
 /// fetches each (it owns the URL templates + offline) and pushes bytes back.
 #[no_mangle]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativePendingTilesJson(
+/// Grant `free_lanes` fetch lanes and drain every plan minted since the last
+/// call, as a JSON ARRAY of plan objects
+/// (`[{"start":[{"id","kind","layer","z","x","y"}],"cancel":[ids]}, …]`).
+/// Consume-once: each start appears in exactly one take. The first call after
+/// a grant returns plans minted on the NEXT frame — poll on the host's pump
+/// cadence. Honour every `cancel` (abort transport, then
+/// `nativeReportFetchCancelled`); report failures via
+/// `nativeReportFetchFailed`; deliveries complete through the ordinary
+/// `nativeIngest*`.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeTakeStreamingPlanJson(
     env: JNIEnv,
     _class: JClass,
     handle: jlong,
+    free_lanes: jint,
 ) -> jni::sys::jstring {
-    let json = unsafe { with_surface(handle, |s| s.latest().pending_json.clone()) }
-        .unwrap_or_else(|| "[]".to_string());
+    let json = unsafe {
+        with_surface(handle, |s| {
+            s.plan_lanes.fetch_max(
+                free_lanes.max(0) as u32,
+                std::sync::atomic::Ordering::AcqRel,
+            );
+            let plans: Vec<String> =
+                std::mem::take(&mut *s.plan_outbox.lock().unwrap_or_else(|p| p.into_inner()));
+            format!("[{}]", plans.join(","))
+        })
+    }
+    .unwrap_or_else(|| "[]".to_string());
     env.new_string(json)
         .map(|s| s.into_raw())
         .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeReportFetchFailed(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    id: jlong,
+) {
+    unsafe { enqueue(handle, Cmd::FetchFailed(id.max(0) as u64)) }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeReportFetchCancelled(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    id: jlong,
+) {
+    unsafe { enqueue(handle, Cmd::FetchCancelled(id.max(0) as u64)) }
 }
 
 /// Push a fetched raster tile (encoded PNG/JPEG/WebP). Returns false if it
@@ -1479,16 +1499,11 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         Err(_) => return JNI_FALSE,
     };
     let tile = TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32);
+    // The lifecycle table's `Fetching` state dedups re-requests now — the
+    // plan never re-issues an in-flight tile, so the old host-side queued-set
+    // guard is gone.
     let sent = unsafe {
         with_surface(handle, |s| {
-            // Dedup: if this tile's bytes are already queued for upload, drop the
-            // duplicate (the host shouldn't ask again, but a race can). Mark it
-            // queued BEFORE sending so the next published snapshot excludes it.
-            let mut q = s.queued.lock().unwrap_or_else(|p| p.into_inner());
-            if !q.insert((layer.clone(), tile)) {
-                return true;
-            }
-            drop(q);
             s.ingest_tx
                 .send(Ingest::Raster {
                     layer,
@@ -1511,7 +1526,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
 /// layer, so the engine tessellates it — for the realistic-water layer, its
 /// `water` polygons feed the water pipeline. Returns false if oversized, the
 /// handle is gone, or the ingest queue is closed. Mirrors [`nativeIngestRaster`]
-/// (same queue + `queued` dedup); decode happens on the render thread.
+/// (same queue); decode happens on the render thread.
 #[no_mangle]
 pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeIngestVector(
     mut env: JNIEnv,
@@ -1537,11 +1552,6 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     let tile = TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32);
     let sent = unsafe {
         with_surface(handle, |s| {
-            let mut q = s.queued.lock().unwrap_or_else(|p| p.into_inner());
-            if !q.insert((layer.clone(), tile)) {
-                return true;
-            }
-            drop(q);
             s.ingest_tx
                 .send(Ingest::Vector {
                     layer,
@@ -1581,11 +1591,6 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     let tile = TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32);
     let sent = unsafe {
         with_surface(handle, |s| {
-            let mut q = s.queued.lock().unwrap_or_else(|p| p.into_inner());
-            if !q.insert(("__terrain".to_string(), tile)) {
-                return true;
-            }
-            drop(q);
             s.ingest_tx
                 .send(Ingest::Terrain { tile, bytes: data })
                 .is_ok()

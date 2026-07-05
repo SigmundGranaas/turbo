@@ -411,11 +411,15 @@ fn main() {
     // are in-process so each request is microseconds.
     let mut iterations = 0;
     loop {
-        let pending = map.pending_tiles();
-        if pending.is_empty() {
+        // Plan-transport drain (P5.1): mint the plan, serve every start.
+        let plan = map.streaming_plan(usize::MAX);
+        for id in plan.cancel {
+            map.fetch_cancelled(id);
+        }
+        if plan.start.is_empty() {
             break;
         }
-        for req in pending {
+        for req in plan.start.into_iter().map(|r| r.fetch) {
             match req {
                 PendingTile::Raster { layer_id, tile } => {
                     let raw = basemap.request(tile).expect("basemap request");

@@ -160,11 +160,17 @@ fn drain_pending(
 ) {
     let mut rounds = 0;
     loop {
-        let pending = map.pending_tiles();
-        if pending.is_empty() {
+        // Plan-transport drain (P5.1): mint the full plan, deliver every
+        // start synchronously. Synthetic sources never fail, so no
+        // fetch_failed path; cancels can't occur at a fixed camera.
+        let plan = map.streaming_plan(usize::MAX);
+        for id in plan.cancel {
+            map.fetch_cancelled(id);
+        }
+        if plan.start.is_empty() {
             break;
         }
-        for req in pending {
+        for req in plan.start.into_iter().map(|r| r.fetch) {
             match req {
                 PendingTile::Raster { layer_id, tile } => {
                     if let Some(src) = raster.get(&layer_id) {

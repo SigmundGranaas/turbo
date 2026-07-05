@@ -75,33 +75,37 @@ fn full_host_roundtrip_through_the_ffi_surface() {
     assert_eq!(delta.sources_changed, 2, "{delta:?}");
     assert!(map.unsupported_layers().is_empty());
 
-    // 2. GeoJSON drains in-process; remote raster tiles stay pending.
+    // 2. GeoJSON drains in-process; remote raster tiles surface as PLAN
+    //    starts (P5.1 — the uniffi host boundary is the streaming plan).
     let local = map.pump_local_tiles();
     assert!(local.vector_tiles > 0, "geojson should drain: {local:?}");
-    let pending = map.pending_tiles();
-    assert!(!pending.is_empty(), "remote raster tiles should be pending");
-    assert!(pending.iter().all(|t| t.kind == TileKind::Raster));
-    assert!(pending
-        .iter()
-        .all(|t| t.layer_id.as_deref() == Some("basemap")));
+    let plan: serde_json::Value =
+        serde_json::from_str(&map.streaming_plan_json(u32::MAX)).expect("plan json");
+    let start = plan["start"].as_array().expect("start array").clone();
+    assert!(!start.is_empty(), "remote raster tiles should be planned");
+    assert!(start.iter().all(|t| t["kind"] == "raster"));
+    assert!(start.iter().all(|t| t["layer"] == "basemap"));
 
-    // 3. Host fetch loop: push an encoded PNG for every pending tile.
+    // 3. Host fetch loop: push an encoded PNG for every planned start.
     let tile_bytes = fake_tile_png();
-    for req in &pending {
+    for req in &start {
         assert!(
             map.ingest_raster_tile(
-                req.layer_id.clone().unwrap(),
-                req.z,
-                req.x,
-                req.y,
+                req["layer"].as_str().unwrap().to_string(),
+                req["z"].as_u64().unwrap() as u8,
+                req["x"].as_u64().unwrap() as u32,
+                req["y"].as_u64().unwrap() as u32,
                 tile_bytes.clone()
             ),
             "tile {req:?} should decode"
         );
     }
+    // Deliveries complete the attempts; nothing new to start.
+    let plan: serde_json::Value =
+        serde_json::from_str(&map.streaming_plan_json(u32::MAX)).expect("plan json");
     assert!(
-        map.pending_tiles().is_empty(),
-        "all pending tiles were ingested"
+        plan["start"].as_array().expect("start array").is_empty(),
+        "all planned tiles were ingested"
     );
 
     // 4. Snapshot through the FFI and check actual pixels: the sea-green

@@ -550,13 +550,20 @@ fn drain_tiles(
     vector: &Arc<dyn VectorTileSource>,
 ) {
     for _round in 0..40 {
-        let pending = map.pending_tiles();
-        if pending.is_empty() {
+        // Plan-transport drain (P5.1). Failures report by attempt id so the
+        // engine re-pends; a fixed camera mints no cancels.
+        let plan = map.streaming_plan(usize::MAX);
+        for id in plan.cancel {
+            map.fetch_cancelled(id);
+        }
+        if plan.start.is_empty() {
             return;
         }
         let mut progressed = false;
-        for req in pending {
-            match req {
+        for r in plan.start {
+            let id = r.id;
+            let mut delivered = false;
+            match r.fetch {
                 PendingTile::Raster { layer_id, tile } => match basemap.request(tile) {
                     Ok(raw) => match image::load_from_memory(&raw.bytes) {
                         Ok(img) => {
@@ -564,6 +571,7 @@ fn drain_tiles(
                             let (w, h) = img.dimensions();
                             map.ingest_raster(&layer_id, tile, img.as_raw(), w, h);
                             progressed = true;
+                            delivered = true;
                         }
                         Err(e) => {
                             if std::env::var("TURBO_DEBUG_RASTER").is_ok() {
@@ -594,6 +602,7 @@ fn drain_tiles(
                             ) {
                                 map.ingest_terrain_tile(tile, &decoded);
                                 progressed = true;
+                                delivered = true;
                             }
                         }
                     }
@@ -602,9 +611,15 @@ fn drain_tiles(
                     if let Ok(vt) = vector.request(tile) {
                         map.ingest_vector_tile(&layer_id, tile, &vt);
                         progressed = true;
+                        delivered = true;
                     }
                 }
                 PendingTile::Hillshade { .. } => {}
+            }
+            if !delivered {
+                // Failed fetch/decode: hand the attempt back so the tile
+                // re-pends and a later round retries it.
+                map.fetch_failed(id);
             }
         }
         if !progressed {

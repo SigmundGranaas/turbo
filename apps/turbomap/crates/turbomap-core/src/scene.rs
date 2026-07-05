@@ -53,7 +53,7 @@ pub const TERRAIN_LOD_SSE_TARGET_PX: f64 = 480.0;
 /// later slice reflects back as sub-states of [`TilePhase::Pending`].
 ///
 /// This is the single source of truth the derived views read from
-/// ([`Scene::pending_tiles`], the per-frame trace histogram) — so "wanted but
+/// ([`Scene::missing_tiles`], the per-frame trace histogram) — so "wanted but
 /// missing", "drawable now", and "evictable" are one classification instead of
 /// three ad-hoc set differences scattered across the pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -458,7 +458,7 @@ impl Scene {
     /// cap, so the viewport always streams before the off-screen ring and the
     /// camera-centre tile leads its tier — instead of an undifferentiated
     /// distance race where a near ring tile could beat a far viewport tile.
-    pub fn pending_tiles(&self, resident: &dyn Fn(&TileId) -> bool) -> Vec<TileId> {
+    pub fn missing_tiles(&self, resident: &dyn Fn(&TileId) -> bool) -> Vec<TileId> {
         let centre = self.camera.center.to_world();
         let mut pend: Vec<(TileId, TileTier)> = self
             .desired_tagged()
@@ -652,7 +652,7 @@ mod tests {
     #[test]
     fn at_zoom_zero_with_tiny_viewport_only_one_tile_is_pending() {
         let scene = Scene::new(Camera::new(LatLng::new(0.0, 0.0), 0.0), (100, 100), 0, 22);
-        let pending = scene.pending_tiles(&resident_set(&[]));
+        let pending = scene.missing_tiles(&resident_set(&[]));
         assert_eq!(pending, vec![TileId::new(0, 0, 0)]);
     }
 
@@ -660,12 +660,12 @@ mod tests {
     fn a_resident_tile_drops_off_the_pending_list() {
         let scene = Scene::new(Camera::new(LatLng::new(0.0, 0.0), 0.0), (100, 100), 0, 22);
         assert_eq!(
-            scene.pending_tiles(&resident_set(&[])),
+            scene.missing_tiles(&resident_set(&[])),
             vec![TileId::new(0, 0, 0)]
         );
         let home = [TileId::new(0, 0, 0)];
         assert!(
-            scene.pending_tiles(&resident_set(&home)).is_empty(),
+            scene.missing_tiles(&resident_set(&home)).is_empty(),
             "must be empty once resident"
         );
     }
@@ -682,11 +682,11 @@ mod tests {
         let tile = TileId::new(0, 0, 0);
         let resident = [tile];
         assert!(
-            scene.pending_tiles(&resident_set(&resident)).is_empty(),
+            scene.missing_tiles(&resident_set(&resident)).is_empty(),
             "resident → not pending"
         );
         assert_eq!(
-            scene.pending_tiles(&resident_set(&[])), // eviction: no longer resident
+            scene.missing_tiles(&resident_set(&[])), // eviction: no longer resident
             vec![tile],
             "an evicted but still-desired tile must re-pend"
         );
@@ -699,13 +699,13 @@ mod tests {
         let mut scene = Scene::new(Camera::new(LatLng::new(0.0, 0.0), 1.0), (200, 200), 0, 22);
         // The whole desired set (visible + overview backdrop) is resident.
         let home: Vec<TileId> = scene.desired_tiles();
-        assert!(scene.pending_tiles(&resident_set(&home)).is_empty());
+        assert!(scene.missing_tiles(&resident_set(&home)).is_empty());
 
         // Jump to a different region. New visible set must include something
         // not yet resident.
         scene.set_camera(Camera::new(LatLng::new(60.0, -60.0), 4.0));
         assert!(
-            !scene.pending_tiles(&resident_set(&home)).is_empty(),
+            !scene.missing_tiles(&resident_set(&home)).is_empty(),
             "new region must produce pending tiles"
         );
     }
@@ -856,7 +856,7 @@ mod tests {
         );
         let tier: std::collections::HashMap<TileId, TileTier> =
             scene.desired_tagged().into_iter().collect();
-        let pending = scene.pending_tiles(&|_| false);
+        let pending = scene.missing_tiles(&|_| false);
         let centre = scene.camera().center.to_world();
 
         // Tier priority is non-decreasing along pending…
@@ -944,8 +944,8 @@ mod tests {
                 "desired nondeterministic @ {cam:?}"
             );
             assert_eq!(
-                a.pending_tiles(&|_| false),
-                b.pending_tiles(&|_| false),
+                a.missing_tiles(&|_| false),
+                b.missing_tiles(&|_| false),
                 "pending nondeterministic @ {cam:?}"
             );
         }
@@ -1003,7 +1003,7 @@ mod tests {
             let snapshot = set.clone();
             move |t: &TileId| snapshot.contains(t)
         };
-        let mut prev = scene.pending_tiles(&is_res(&resident));
+        let mut prev = scene.missing_tiles(&is_res(&resident));
         assert!(!prev.is_empty(), "expected pending tiles to drive the test");
         let mut guard = 0;
         while let Some(&next) = prev.first() {
@@ -1018,7 +1018,7 @@ mod tests {
                     .any(|(t, p)| *t == next && *p == TilePhase::Resident),
                 "resident tile {next:?} not classified Resident",
             );
-            let now = scene.pending_tiles(&res);
+            let now = scene.missing_tiles(&res);
             let now_set: HashSet<TileId> = now.iter().copied().collect();
             assert!(
                 now_set.is_subset(&before),
@@ -1046,7 +1046,7 @@ mod tests {
             let tier: std::collections::HashMap<TileId, TileTier> =
                 scene.desired_tagged().into_iter().collect();
             let prios: Vec<u8> = scene
-                .pending_tiles(&|_| false)
+                .missing_tiles(&|_| false)
                 .iter()
                 .map(|t| tier[t].priority())
                 .collect();

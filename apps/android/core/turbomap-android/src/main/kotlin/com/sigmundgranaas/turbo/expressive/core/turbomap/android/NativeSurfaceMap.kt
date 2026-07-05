@@ -120,9 +120,25 @@ internal object NativeSurfaceMap {
      */
     external fun nativeUnprojectGround(handle: Long, xPx: Double, yPx: Double): DoubleArray
 
-    // ── Host-driven tile IO ─────────────────────────────────────────────────
-    /** Tiles the engine awaits, as JSON `[{"kind","layer","z","x","y"}, ...]`. */
-    external fun nativePendingTilesJson(handle: Long): String
+    // ── Host-driven tile IO: the STREAMING PLAN ────────────────────────────
+    /**
+     * Grant [freeLanes] fetch lanes and drain every plan minted since the last
+     * call, as a JSON array of plan objects:
+     * `[{"start":[{"id","kind","layer","z","x","y"}],"cancel":[ids]}, …]`.
+     * Consume-once — each `start` appears in exactly one take. Honour every
+     * `cancel` (abort the fetch, then [nativeReportFetchCancelled]); a start
+     * the host declines must also be reported cancelled so the engine
+     * re-issues it. Deliveries complete through the ordinary `nativeIngest*`;
+     * failures report via [nativeReportFetchFailed] (retry/backoff policy is
+     * the HOST's — the engine re-pends immediately).
+     */
+    external fun nativeTakeStreamingPlanJson(handle: Long, freeLanes: Int): String
+
+    /** Report a plan-issued fetch as failed; the tile re-pends while wanted. */
+    external fun nativeReportFetchFailed(handle: Long, id: Long)
+
+    /** Report a plan `cancel` as honoured (or a `start` the host declined). */
+    external fun nativeReportFetchCancelled(handle: Long, id: Long)
 
     /** Push a fetched raster tile (encoded image bytes); false if it didn't decode. */
     external fun nativeIngestRaster(handle: Long, layerId: String, z: Int, x: Int, y: Int, bytes: ByteArray): Boolean

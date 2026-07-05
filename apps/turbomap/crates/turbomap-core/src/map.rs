@@ -253,7 +253,8 @@ impl Default for MapOptions {
     }
 }
 
-/// One pending tile request from `Map::pending_tiles`. The host uses
+/// One tile fetch the plan asks the host to run (`FetchRequest::fetch`,
+/// minted by [`Map::streaming_plan`]). The host uses
 /// `layer_id` to route ingest calls back to the right layer.
 ///
 /// `Terrain` is a special variant — there is at most one terrain
@@ -1098,22 +1099,22 @@ pub struct Map {
     time_override: Option<f32>,
     /// The previous frame's clock, for the simulation tick's `dt`.
     last_frame_clock: Option<f32>,
-    /// Camera-eye world position at the previous `pending_tiles()` call — the
+    /// Camera-eye world position at the previous plan selection — the
     /// finite-difference travel direction that feeds the priority score's
     /// motion term (stream WHERE WE'RE HEADING). `None` until the first call;
     /// a stationary camera yields zero alignment, which is the exact parity
     /// case with the historical `(tier, distance)` order. `Cell` because
-    /// `pending_tiles` is a `&self` read on the render thread and this is
+    /// selection is a `&self` read on the render thread and this is
     /// its private memo, not shared state.
     last_priority_eye: std::cell::Cell<Option<WorldPoint>>,
     /// **Slice B3.1 dual-write.** The ONE lifecycle table
     /// ([`turbomap_world::Lifecycle`]) shadowing the legacy per-scene
-    /// `ingested` sets. Written alongside every selection (`pending_tiles`)
+    /// `ingested` sets. Written alongside every selection
     /// and ingest/eviction; [`Map::lifecycle_agreement`] proves the two
     /// bookkeepings agree across the full sim sweep. The legacy sets are
     /// deleted (and this becomes the source of truth feeding the
     /// `StreamingPlan`) only after that gate has held — never before.
-    /// `RefCell`: written from the `&self` `pending_tiles` on the render
+    /// `RefCell`: written from the `&self` selection on the render
     /// thread, same discipline as `last_priority_eye`.
     lifecycle: std::cell::RefCell<turbomap_world::Lifecycle>,
     /// Monotonic counter for the table's recency stamps (frame-ish; advances
@@ -2619,12 +2620,12 @@ impl Map {
     /// entry carries the layer id so the host can route
     /// `ingest_raster`/`ingest_vector_mesh` back correctly.
     ///
-    /// **Legacy shim** (plan slice B3.2): the start-only projection of
-    /// [`Map::streaming_plan`], for hosts that fetch on their own initiative
-    /// and cannot yet cancel. New hosts should consume the plan: it
-    /// additionally tracks each fetch attempt (`RequestId`) and names the
-    /// in-flight work the camera has moved away from.
-    pub fn pending_tiles(&self) -> Vec<PendingTile> {
+    /// Start-only PREVIEW of [`Map::streaming_plan`] — for the engine's
+    /// synchronous local-source pump ONLY (it serves what its resolver can
+    /// and mints no attempts). Hidden: every external host consumes the
+    /// plan (P5.1); the pull-push shim this used to be is deleted.
+    #[doc(hidden)]
+    pub fn plan_start_preview(&self) -> Vec<PendingTile> {
         self.plan_selection().into_iter().map(|(p, _)| p).collect()
     }
 

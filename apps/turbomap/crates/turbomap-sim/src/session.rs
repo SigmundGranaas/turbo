@@ -370,7 +370,8 @@ pub struct Sim {
     /// Simulated network latency, in frames, for every tile fetch.
     pub latency_frames: u64,
     frame: u64,
-    in_flight: HashMap<TileKey, u64>,
+    /// Scheduled deliveries: key → (plan request id, due frame).
+    in_flight: HashMap<TileKey, (turbomap_core::RequestId, u64)>,
     land_png: Vec<u8>,
     prev: Option<RgbaImage>,
     pub last: Option<RgbaImage>,
@@ -449,28 +450,40 @@ impl Sim {
         // measures pans mid-cold-load (the B4.2 shadow-gate failure).
         let animating = self.engine.tick_now() || self.engine.is_animating();
 
-        // Schedule newly-requested tiles with the configured latency.
-        for pending in self.engine.pending_tiles() {
-            let key = match pending {
+        // Schedule the frame's PLAN starts with the configured latency —
+        // the sim is a plan-transport host like web/Android (P5.1): the
+        // engine's lifecycle table owns dedup (a Fetching tile is never
+        // re-issued), and cancels abort scheduled deliveries the camera
+        // moved away from.
+        let plan = self.engine.streaming_plan(usize::MAX);
+        for id in plan.cancel {
+            self.in_flight.retain(|_, (rid, _)| *rid != id);
+            self.engine.fetch_cancelled(id);
+        }
+        for r in plan.start {
+            let key = match r.fetch {
                 PendingTile::Raster { layer_id, tile } => TileKey::Raster(layer_id, tile),
                 PendingTile::Vector { layer_id, tile } => TileKey::Vector(layer_id, tile),
                 // DEM tiles for the 3D sessions (basemap_scene_3d); absent in
                 // the flat basemap sessions, where the terrain scene is empty.
                 PendingTile::Terrain { tile } => TileKey::Terrain(tile),
                 // Height-only terrain draws no relief-shading overlay, so the
-                // hillshade tile stream is unused here.
-                PendingTile::Hillshade { .. } => continue,
+                // hillshade tile stream is unused here — decline it honestly.
+                PendingTile::Hillshade { .. } => {
+                    self.engine.fetch_cancelled(r.id);
+                    continue;
+                }
             };
             self.in_flight
                 .entry(key)
-                .or_insert(self.frame + self.latency_frames);
+                .or_insert((r.id, self.frame + self.latency_frames));
         }
 
         // Deliver everything whose latency elapsed.
         let due: Vec<TileKey> = self
             .in_flight
             .iter()
-            .filter(|(_, &due)| due <= self.frame)
+            .filter(|(_, &(_, due))| due <= self.frame)
             .map(|(k, _)| k.clone())
             .collect();
         let delivered = due.len() as u32;

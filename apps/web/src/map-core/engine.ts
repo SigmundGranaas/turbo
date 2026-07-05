@@ -4,7 +4,7 @@
  *  host, and overlays use — a hand-written interface that the WASM `TurboMap`
  *  satisfies structurally (so features never name the concrete WASM type, and
  *  it can be stubbed in unit tests). The renderer/tile lifecycle (`render`,
- *  `apply_scene`, `ingest_*`, `pending_tiles`) is deliberately NOT here — that
+ *  `apply_scene`, `ingest_*`, `streaming_plan`) is deliberately NOT here — that
  *  is `map-engine`-internal, not something a feature should reach for.
  *
  *  Signatures mirror `turbomap-web`'s generated `.d.ts`; if the bindings drift,

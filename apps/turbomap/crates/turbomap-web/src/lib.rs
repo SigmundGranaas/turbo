@@ -229,35 +229,6 @@ impl TurboMap {
             .fetch_cancelled(turbomap_world::RequestId(id as u64));
     }
 
-    /// Tiles the engine is waiting on, as a JSON array of
-    /// `{"kind","layer","z","x","y"}` — the host fetches each and pushes the
-    /// bytes back via the matching `ingest_*`. `kind` is raster/hillshade/
-    /// vector/terrain; `layer` is `__terrain` for the shared DEM.
-    ///
-    /// **Legacy shim** over [`streaming_plan`](Self::streaming_plan) (start
-    /// list only, no attempt tracking, no cancellation). Kept for hosts that
-    /// haven't adopted the plan; new code should not use it.
-    pub fn pending_tiles(&self) -> String {
-        let items: Vec<String> = self
-            .engine
-            .pending_tiles()
-            .into_iter()
-            .map(|p| {
-                let (kind, layer, t) = match p {
-                    PendingTile::Raster { layer_id, tile } => ("raster", layer_id, tile),
-                    PendingTile::Hillshade { layer_id, tile } => ("hillshade", layer_id, tile),
-                    PendingTile::Vector { layer_id, tile } => ("vector", layer_id, tile),
-                    PendingTile::Terrain { tile } => ("terrain", "__terrain".to_string(), tile),
-                };
-                format!(
-                    "{{\"kind\":\"{kind}\",\"layer\":\"{layer}\",\"z\":{},\"x\":{},\"y\":{}}}",
-                    t.z, t.x, t.y
-                )
-            })
-            .collect();
-        format!("[{}]", items.join(","))
-    }
-
     /// Push a fetched raster tile (encoded PNG/JPEG/WebP, exactly as served).
     /// Returns `false` if the bytes don't decode.
     pub fn ingest_raster_tile(&mut self, layer: &str, z: u8, x: u32, y: u32, bytes: &[u8]) -> bool {

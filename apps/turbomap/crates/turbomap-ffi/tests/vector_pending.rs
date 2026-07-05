@@ -57,19 +57,18 @@ fn vector_water_source_enumerates_host_pending_tiles() {
     map.apply_scene(scene_with_vector_water())
         .expect("apply scene");
 
-    let pending = map.pending_tiles();
-    let vector: Vec<_> = pending
-        .iter()
-        .filter(|t| t.kind == TileKind::Vector)
-        .collect();
+    let plan: serde_json::Value =
+        serde_json::from_str(&map.streaming_plan_json(u32::MAX)).expect("plan json");
+    let start = plan["start"].as_array().expect("start array").clone();
+    let vector: Vec<_> = start.iter().filter(|t| t["kind"] == "vector").collect();
 
     assert!(
         !vector.is_empty(),
-        "the vector water source must produce host-fetchable Vector pending tiles, \
-         else the host never fetches water; pending kinds were: {:?}",
-        pending
+        "the vector water source must produce host-fetchable vector plan starts, \
+         else the host never fetches water; planned kinds were: {:?}",
+        start
             .iter()
-            .map(|t| (t.kind, t.layer_id.clone()))
+            .map(|t| (t["kind"].clone(), t["layer"].clone()))
             .collect::<Vec<_>>()
     );
     assert!(

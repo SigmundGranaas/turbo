@@ -275,7 +275,7 @@ internal class TurbomapSurfaceController {
     private var lastBearing = Double.NaN
 
     // ── Tile reconciler ────────────────────────────────────────────────────
-    // The engine's `pending_tiles` (desired-minus-present, nearest-first) is the
+    // The engine's streaming plan (desired-minus-present, nearest-first) is the
     // single source of truth. A loop continuously drives the host toward it
     // rather than firing once per gesture: each pass starts fetches for desired
     // tiles, CANCELS fetches for tiles no longer desired (so a fast pan can't
@@ -284,6 +284,9 @@ internal class TurbomapSurfaceController {
     // This is what makes loading consistent and self-healing after panning.
     private val inFlight = HashMap<String, Job>()
     private val retryAt = HashMap<String, Long>()
+
+    /** Plan request-id → reconcile key, for honouring `cancel` entries. */
+    private val fetchIds = HashMap<Long, String>()
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private var reconcileLoop: Job? = null
     private var lastStatsLogMs = 0L
@@ -667,39 +670,81 @@ internal class TurbomapSurfaceController {
         )
     }
 
+    /**
+     * Consume the engine's STREAMING PLAN (plan P5.1): the engine plans —
+     * priority order, dedup against in-flight fetches, cancel of stale ones —
+     * and this host only executes transport. The host still owns two things
+     * the engine deliberately leaves above the table: per-kind fetch LANES
+     * (the narrow MVT lane that keeps the 2-core tileserver inside its
+     * timeout, DEM separate from raster churn) and failure BACKOFF. Starts
+     * that a full lane or a backoff window declines are reported cancelled,
+     * so the engine re-issues them on a later plan — nothing is lost.
+     */
     private fun reconcile() {
         if (handle == 0L) return
-        val arr = runCatching { JSONArray(NativeSurfaceMap.nativePendingTilesJson(handle)) }.getOrNull() ?: return
-        val desired = (0 until arr.length()).mapNotNull { parsePendingRaster(arr.optJSONObject(it)) }
-        lastPendingCount = desired.size
-        val byKey = desired.associateBy { it.key }
         val now = SystemClock.uptimeMillis()
+        retryAt.entries.removeAll { it.value <= now }
+        val free = (RASTER_FETCH_LANE + DEM_FETCH_LANE + VECTOR_FETCH_LANE - inFlight.size)
+            .coerceAtLeast(0)
+        val plans = runCatching {
+            JSONArray(NativeSurfaceMap.nativeTakeStreamingPlanJson(handle, free))
+        }.getOrNull() ?: return
+        var started = 0
+        for (p in 0 until plans.length()) {
+            val plan = plans.optJSONObject(p) ?: continue
+            val cancels = plan.optJSONArray("cancel")
+            if (cancels != null) {
+                for (i in 0 until cancels.length()) {
+                    val id = cancels.optLong(i, -1L)
+                    if (id < 0) continue
+                    fetchIds.remove(id)?.let { key -> inFlight.remove(key)?.cancel() }
+                    NativeSurfaceMap.nativeReportFetchCancelled(handle, id)
+                }
+            }
+            val starts = plan.optJSONArray("start")
+            if (starts != null) {
+                for (i in 0 until starts.length()) {
+                    val t = parsePlanStart(starts.optJSONObject(i)) ?: continue
+                    val lane = laneOf(t.key)
+                    val admitted = admitFetch(
+                        key = t.key,
+                        laneUsed = inFlight.keys.count { laneOf(it) == lane },
+                        laneCap = laneCap(lane),
+                        alreadyInFlight = inFlight.containsKey(t.key),
+                        retryAt = retryAt,
+                        now = now,
+                    )
+                    if (!admitted) {
+                        // Declined (lane full / backing off / duplicate) — hand it
+                        // back so the engine re-issues when capacity frees up.
+                        NativeSurfaceMap.nativeReportFetchCancelled(handle, t.id)
+                        continue
+                    }
+                    fetchIds[t.id] = t.key
+                    inFlight[t.key] = launchTileFetch(t)
+                    started++
+                }
+            }
+        }
+        lastPendingCount = started + inFlight.size
+    }
 
-        // Plan each KIND in its own lane (separate budget + separate in-flight
-        // set), so raster churn can't starve DEM and vice-versa. Within a lane
-        // the engine's order is already nearest-first. A tile's lane is read off
-        // its key (terrain tiles are keyed "__terrain/…", see parsePendingRaster).
-        fun laneDecision(inLane: (String) -> Boolean, cap: Int) = planReconcile(
-            desiredOrdered = desired.map { it.key }.filter(inLane),
-            inFlight = inFlight.keys.filter(inLane).toSet(),
-            retryAt = retryAt,
-            now = now,
-            cap = cap,
-        )
-        // Vector (MVT) tiles get their OWN small lane: the self-hosted basemap
-        // MVT query is CPU-heavy (per-feature simplify over big coastline polys,
-        // ~0.2-1.5s/tile on the 2-core tileserver, no tile cache). Lumped into the
-        // 32-wide raster lane they flooded the server with 32 concurrent slow
-        // queries → every one backed up past the 10s timeout → backoff → no water.
-        // A narrow lane keeps concurrent MVT renders within what the server can
-        // serve under the timeout. (Raster excludes both DEM and vector keys.)
-        val raster = laneDecision({ !isDemKey(it) && !isVectorKey(it) }, RASTER_FETCH_LANE)
-        val dem = laneDecision(::isDemKey, DEM_FETCH_LANE)
-        val vector = laneDecision(::isVectorKey, VECTOR_FETCH_LANE)
+    private enum class FetchLane { RASTER, DEM, VECTOR }
 
-        (raster.toCancel + dem.toCancel + vector.toCancel).forEach { key -> inFlight.remove(key)?.cancel() }
-        retryAt.keys.retainAll(byKey.keys)
-        (raster.toStart + dem.toStart + vector.toStart).forEach { key -> byKey[key]?.let { inFlight[key] = launchTileFetch(it) } }
+    private fun laneOf(key: String): FetchLane = when {
+        isDemKey(key) -> FetchLane.DEM
+        isVectorKey(key) -> FetchLane.VECTOR
+        else -> FetchLane.RASTER
+    }
+
+    // Vector (MVT) tiles keep their OWN small lane: the self-hosted basemap
+    // MVT query is CPU-heavy (~0.2-1.5s/tile on the 2-core tileserver); in a
+    // 32-wide shared lane they flooded the server past its timeout. DEM is
+    // separate so raster churn can't starve the heightmap.
+    private fun laneCap(lane: FetchLane): Int = when (lane) {
+        FetchLane.RASTER -> RASTER_FETCH_LANE
+        FetchLane.DEM -> DEM_FETCH_LANE
+        FetchLane.VECTOR -> VECTOR_FETCH_LANE
     }
 
     /** A reconcile-key belongs to the DEM lane iff it's a terrain tile. Matches
@@ -711,6 +756,7 @@ internal class TurbomapSurfaceController {
     private fun isVectorKey(key: String) = vectors.any { key.startsWith(it.id + "/") }
 
     private data class TileFetch(
+        val id: Long,
         val layer: String,
         val z: Int,
         val x: Int,
@@ -721,11 +767,13 @@ internal class TurbomapSurfaceController {
         val vector: Boolean = false,
     )
 
-    /** Turn one pending-tiles entry into a fetchable raster/DEM request, or null.
+    /** Turn one plan `start` entry into a fetchable request, or null.
      *  "terrain" entries use the DEM URL (3D heightmap) and ingest via the DEM
      *  path; "raster" entries use their layer's template. */
-    private fun parsePendingRaster(o: org.json.JSONObject?): TileFetch? {
+    private fun parsePlanStart(o: org.json.JSONObject?): TileFetch? {
         if (o == null) return null
+        val id = o.optLong("id", -1L)
+        if (id < 0) return null
         val kind = o.optString("kind")
         val layer = o.optString("layer")
         val template = when (kind) {
@@ -739,7 +787,7 @@ internal class TurbomapSurfaceController {
         val y = o.optInt("y")
         val url = template.replace("{z}", "$z").replace("{x}", "$x").replace("{y}", "$y")
         return TileFetch(
-            layer, z, x, y, "$layer/$z/$x/$y", url,
+            id, layer, z, x, y, "$layer/$z/$x/$y", url,
             terrain = kind == "terrain",
             vector = kind == "vector",
         )
@@ -763,9 +811,11 @@ internal class TurbomapSurfaceController {
             }
             when {
                 bytes == null -> {
-                    // Genuine miss (HTTP error/timeout): back off, then the next
-                    // reconcile pass retries it for free (it's still desired).
+                    // Genuine miss (HTTP error/timeout): report the attempt failed
+                    // (the engine re-pends it) and back off locally so the next
+                    // plans decline it until the window elapses.
                     retryAt[t.key] = SystemClock.uptimeMillis() + RETRY_BACKOFF_MS
+                    if (handle != 0L) NativeSurfaceMap.nativeReportFetchFailed(handle, t.id)
                 }
                 handle == 0L -> Unit
                 bytes.size > MAX_TILE_BYTES -> {
@@ -774,6 +824,7 @@ internal class TurbomapSurfaceController {
                     // the process, so evict it and back off instead of ingesting.
                     withContext(Dispatchers.IO) { tileCache?.remove(t.layer, t.z, t.x, t.y) }
                     retryAt[t.key] = SystemClock.uptimeMillis() + RETRY_BACKOFF_MS
+                    if (handle != 0L) NativeSurfaceMap.nativeReportFetchFailed(handle, t.id)
                     android.util.Log.w("TurbomapTiles", "tile ${t.key} oversize (${bytes.size}B); evicted + skipped")
                 }
                 (when {
@@ -790,6 +841,7 @@ internal class TurbomapSurfaceController {
                     // forever — the cause of grey gaps accumulating over a session.
                     withContext(Dispatchers.IO) { tileCache?.remove(t.layer, t.z, t.x, t.y) }
                     retryAt[t.key] = SystemClock.uptimeMillis() + RETRY_BACKOFF_MS
+                    if (handle != 0L) NativeSurfaceMap.nativeReportFetchFailed(handle, t.id)
                     android.util.Log.w("TurbomapTiles", "tile ${t.key} did not decode (${bytes.size}B); evicted + backing off")
                 }
             }
@@ -801,6 +853,7 @@ internal class TurbomapSurfaceController {
                 // flood the HTTP pool until real tiles starve. That was the persistent
                 // checkerboard stall.
                 if (inFlight[t.key] === self) inFlight.remove(t.key)
+                fetchIds.remove(t.id)
                 requestReconcile() // a slot freed — fill it with the next-nearest tile
             }
         }
@@ -820,6 +873,7 @@ internal class TurbomapSurfaceController {
         inFlight.values.toList().forEach { it.cancel() }
         inFlight.clear()
         retryAt.clear()
+        fetchIds.clear()
         scope.coroutineContext.cancelChildren()
         val h = handle
         handle = 0L
