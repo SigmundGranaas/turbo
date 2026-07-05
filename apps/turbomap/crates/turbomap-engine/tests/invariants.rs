@@ -216,5 +216,43 @@ fn decode_elevation_has_one_home() {
     );
 }
 
-// P6.1 adds here: zero imperative content setters on the engine/bindings.
+/// Invariant 7, total (P5.2 + P6.1): content has exactly ONE authoring
+/// surface — the Scene IR. No imperative content setter may exist on the
+/// engine or its bindings, hidden or public. Core `Map` keeps these methods
+/// as `reconcile`'s private write path; nothing above it may.
+#[test]
+fn content_has_one_authoring_surface() {
+    const SETTERS: &[&str] = &[
+        "fn set_sun_position",
+        "fn set_terrain_shadows",
+        "fn set_clouds_visible",
+        "fn set_route_tube",
+        "fn enable_clouds",
+        "fn disable_clouds",
+        "fn set_cloud_sim",
+        "fn set_cloud_geo_bounds",
+        "fn set_sun_time",
+        "fn set_basemap_gain",
+        "fn set_terrain_lit",
+        "fn set_aerial_haze",
+    ];
+    let files: Vec<_> = rust_sources()
+        .into_iter()
+        .filter(|(p, _)| {
+            let rp = rel(p);
+            rp.starts_with("crates/turbomap-engine/src/")
+                || rp.starts_with("crates/turbomap-ffi/src/")
+                || rp.starts_with("crates/turbomap-web/src/")
+        })
+        .collect();
+    for needle in SETTERS {
+        assert_no_hits(
+            &files,
+            needle,
+            &[],
+            "one authoring surface for content (invariant 7, P6.1)",
+        );
+    }
+}
+
 // P6.2 adds here: zero `map_mut` outside `crates/turbomap-engine/`.

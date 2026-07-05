@@ -365,6 +365,10 @@ enum TileKey {
 pub struct Sim {
     gpu: Gpu,
     pub engine: TurbomapEngine,
+    /// The currently applied Scene document. The sim mutates content the way
+    /// every real host does (plan P6.1): edit the document, re-apply, let
+    /// `reconcile` diff — never through imperative engine verbs.
+    scene: Scene,
     width: u32,
     height: u32,
     /// Simulated network latency, in frames, for every tile fetch.
@@ -396,6 +400,7 @@ impl Sim {
         Some(Self {
             gpu,
             engine,
+            scene: Scene::new(),
             width,
             height,
             latency_frames: 0,
@@ -412,16 +417,43 @@ impl Sim {
         self.engine.camera()
     }
 
+    /// Apply a Scene document (and remember it, so the content mutators below
+    /// can edit-and-re-apply like a real host).
+    pub fn apply(&mut self, scene: Scene) {
+        self.engine.apply(scene.clone());
+        self.scene = scene;
+    }
+
     /// Enable/disable terrain cast shadows (3D sessions, `basemap_scene_3d`).
-    /// 0 = off. Passthrough to the engine.
+    /// 0 = off. Scene-declared: edits `environment.terrain_shadows` and
+    /// re-applies.
     pub fn set_terrain_shadows(&mut self, strength: f32) {
-        self.engine.set_terrain_shadows(strength);
+        self.scene.environment.terrain_shadows = strength;
+        self.apply(self.scene.clone());
     }
 
     /// Pin the sun to an explicit azimuth/altitude (degrees). A LOW altitude is
     /// what makes terrain self-occlude, so a shadow test sets e.g. (90, 16).
+    /// Scene-declared: fixed-mode lighting in the environment block.
     pub fn set_sun(&mut self, azimuth_deg: f32, altitude_deg: f32) {
-        self.engine.set_sun_position(azimuth_deg, altitude_deg);
+        self.scene.environment.lighting = turbomap_scene::LightingDef::Fixed {
+            azimuth_deg,
+            altitude_deg,
+        };
+        self.apply(self.scene.clone());
+    }
+
+    /// Show/hide the scene-declared cloud overlay (storm sessions). Edits the
+    /// document's `CloudsDef::visible` — a session without declared clouds
+    /// has nothing to toggle, and says so.
+    pub fn set_clouds_visible(&mut self, visible: bool) {
+        self.scene
+            .environment
+            .clouds
+            .as_mut()
+            .expect("set_clouds_visible needs a scene with declared clouds")
+            .visible = visible;
+        self.apply(self.scene.clone());
     }
 
     /// A camera centred on the synthetic city. Lat/lng are arbitrary —

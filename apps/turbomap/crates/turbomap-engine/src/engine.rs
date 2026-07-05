@@ -736,42 +736,14 @@ impl TurbomapEngine {
         self.map.pitch_around(delta_deg, focus_px);
     }
 
-    // ---- Environment / content (SCENE-owned, plan P5.2) ----------------
+    // ---- Environment / content (SCENE-owned, plans P5.2 + P6.1) --------
     //
-    // There are deliberately NO public imperative content setters here:
-    // lighting, shadows, haze, gain, clouds, and route tubes are Scene
-    // state — declare them in the IR (`environment`, `Layer::Tube`) and
-    // re-apply; the engine diffs. The few methods below marked
-    // `#[doc(hidden)]` are HARNESS surfaces (the simulation gates pin
-    // sun/shadow/visibility mid-run without a scene rebuild) — hosts and
-    // adapters must not grow dependencies on them.
-
-    /// Harness surface (sim gates): pin the sun to an explicit
-    /// azimuth/altitude (degrees), overriding any scene lighting —
-    /// deterministic light for behavioural gates. Hosts declare lighting
-    /// in the scene's `environment` instead.
-    #[doc(hidden)]
-    pub fn set_sun_position(&mut self, azimuth_deg: f32, altitude_deg: f32) {
-        self.map.set_sun_position(Some(turbomap_core::SunPosition {
-            azimuth_deg,
-            altitude_deg,
-        }));
-    }
-
-    /// Harness surface (sim gates): terrain *cast* shadows at `strength`
-    /// in `[0,1]` (0 = off). Hosts declare `environment.terrain-shadows`
-    /// in the scene instead.
-    #[doc(hidden)]
-    pub fn set_terrain_shadows(&mut self, strength: f32) {
-        self.map.set_terrain_shadows(strength);
-    }
-
-    /// Harness surface (sim gates): show/hide the cloud overlay without a
-    /// scene rebuild. Hosts declare `environment.clouds.visible` instead.
-    #[doc(hidden)]
-    pub fn set_clouds_visible(&mut self, visible: bool) {
-        self.map.set_clouds_visible(visible);
-    }
+    // There are deliberately NO imperative content setters here — public
+    // or hidden: lighting, shadows, haze, gain, clouds, and route tubes
+    // are Scene state. Declare them in the IR (`environment`,
+    // `Layer::Tube`) and re-apply; the engine diffs. Even the sim gates
+    // author scenes (P6.1 deleted the last harness verbs), and the
+    // `invariants` test forbids their return.
 
     /// Push one field frame for a scene-declared [`SourceDef::Field2D`]
     /// source (plan C2) — the field twin of the tile `ingest_*` methods.

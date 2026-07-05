@@ -53,7 +53,7 @@ fn cold_load_paints_every_subsystem() {
     }) else {
         return;
     };
-    sim.engine.apply(basemap_scene());
+    sim.apply(basemap_scene());
     let settled = sim.run_until_stable(120, 0.001);
     assert!(
         settled.is_some(),
@@ -105,7 +105,7 @@ fn zoom_journey_never_shows_a_blank_map() {
     let Some(mut sim) = sim_or_skip(11.0, MapOptions::default()) else {
         return;
     };
-    sim.engine.apply(basemap_scene());
+    sim.apply(basemap_scene());
     assert!(
         sim.run_until_stable(200, 0.002).is_some(),
         "initial load must settle"
@@ -156,7 +156,7 @@ fn pan_session_stays_covered_and_settles_without_flicker() {
     let Some(mut sim) = sim_or_skip(12.0, MapOptions::default()) else {
         return;
     };
-    sim.engine.apply(basemap_scene());
+    sim.apply(basemap_scene());
     assert!(sim.run_until_stable(200, 0.002).is_some());
 
     // Drag east for 40 frames (a steady one-finger pan), tiles 2 frames late.
@@ -216,7 +216,7 @@ fn heavy_roaming_under_a_tight_cache_budget_keeps_reloading_tiles() {
     let Some(mut sim) = sim_or_skip(12.0, opts) else {
         return;
     };
-    sim.engine.apply(basemap_scene());
+    sim.apply(basemap_scene());
 
     let start = sim.camera();
     assert!(
@@ -288,7 +288,7 @@ fn long_roaming_session_keeps_caches_within_budget() {
     let Some(mut sim) = sim_or_skip(12.0, opts) else {
         return;
     };
-    sim.engine.apply(basemap_scene());
+    sim.apply(basemap_scene());
 
     let start = sim.camera();
     assert!(
@@ -359,7 +359,7 @@ fn frame_cost_stays_within_budget() {
     let Some(mut sim) = sim_or_skip(11.0, MapOptions::default()) else {
         return;
     };
-    sim.engine.apply(basemap_scene());
+    sim.apply(basemap_scene());
     sim.run_until_stable(200, 0.002);
     sim.stats.clear();
 
@@ -417,7 +417,7 @@ fn terrain_cast_shadows_do_not_stall_the_render_thread_while_panning() {
     let Some(mut sim) = sim_or_skip(14.0, no_fade()) else {
         return;
     };
-    sim.engine.apply(basemap_scene_3d());
+    sim.apply(basemap_scene_3d());
     sim.engine.pitch_by(45.0); // 3D, but a modest tilt so the footprint-sized
                                // shadow grid overlaps the visible terrain well
     sim.set_sun(90.0, 16.0); // a LOW sun so the synthetic relief self-occludes
@@ -515,7 +515,7 @@ fn storm_sim_keeps_animating_coherently_within_budget() {
     let Some(mut sim) = sim_or_skip(9.5, no_fade()) else {
         return;
     };
-    sim.engine.apply(storm_scene());
+    sim.apply(storm_scene());
     let (pa, ca) = synthetic_radar(96, 0.15);
     let (pb, cb) = synthetic_radar(96, 0.55);
     assert!(sim.engine.ingest_field("radar", 0, 96, 96, &pa, &ca));
@@ -545,7 +545,7 @@ fn storm_sim_keeps_animating_coherently_within_budget() {
     );
 
     // (2) The overlay is really painting: hide it and the frame changes a lot.
-    sim.engine.set_clouds_visible(false);
+    sim.set_clouds_visible(false);
     sim.step();
     let clear = sim.last.clone().expect("clouds-off frame");
     let veiled = diff_fraction(&frame_b, &clear, 6);
@@ -553,7 +553,7 @@ fn storm_sim_keeps_animating_coherently_within_budget() {
         veiled > 0.05,
         "the storm overlay must visibly veil the city (diff {veiled:.4})"
     );
-    sim.engine.set_clouds_visible(true);
+    sim.set_clouds_visible(true);
 
     // (3) Frame budget holds with the sim on — same cap as the base
     // frame-cost gate.
