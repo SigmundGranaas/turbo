@@ -57,23 +57,6 @@ internal object NativeSurfaceMap {
      *  accumulate without a stale-snapshot recompute → smooth pan in 2D + 3D. */
     external fun nativePanBy(handle: Long, dx: Double, dy: Double)
 
-    /**
-     * Set (or clear, with an empty [coords]) a route/track polyline drawn as a
-     * raised 3D tube — a single lit mesh that drapes on the terrain, replacing
-     * the old flat per-tile line. [coords] is a flat `[lat0, lng0, lat1, …]`
-     * array; [radiusPx] is the tube radius in screen pixels.
-     */
-    external fun nativeSetRouteTube(
-        handle: Long,
-        id: String,
-        coords: DoubleArray,
-        r: Int,
-        g: Int,
-        b: Int,
-        a: Int,
-        radiusPx: Double,
-    )
-
     // ── Physics / motion ────────────────────────────────────────────────────
     /** Start an inertial pan fling at screen-pixel velocity (drag-release). */
     external fun nativeFling(handle: Long, vx: Double, vy: Double)
@@ -150,35 +133,9 @@ internal object NativeSurfaceMap {
     /** Push a fetched DEM tile (Mapbox-Terrain-RGB PNG) into the shared heightmap (3D terrain). */
     external fun nativeIngestTerrain(handle: Long, z: Int, x: Int, y: Int, bytes: ByteArray): Boolean
 
-    /**
-     * Track the sun (terrain shading + sky colour) to a real UTC instant,
-     * so the scene's light matches the time of day. [unixSeconds] is UTC
-     * seconds since the epoch; a negative value reverts to a fixed default.
-     */
-    external fun nativeSetSunTime(handle: Long, unixSeconds: Double)
-
-    /**
-     * Enable terrain *cast* shadows (a peak shadows the valley behind it) at
-     * [strength] in `[0,1]`; 0 disables the feature (zero per-frame cost).
-     * Only affects 3D terrain; distinct from the always-on relief self-shading.
-     */
-    external fun nativeSetTerrainShadows(handle: Long, strength: Float)
-
-    // ── Weather-cloud overlay ───────────────────────────────────────────────
-    /** Enable the procedural cloud overlay with a [gridW]×[gridH] radar grid. */
-    external fun nativeEnableClouds(handle: Long, gridW: Int, gridH: Int)
-
-    /** Hide/show the overlay without discarding uploaded frames. */
-    external fun nativeSetCloudsVisible(handle: Long, visible: Boolean)
-
-    /** Geo-register the radar to its lat/lng box → world-locked overlay. */
-    external fun nativeSetCloudGeoBounds(
-        handle: Long,
-        west: Double,
-        south: Double,
-        east: Double,
-        north: Double,
-    )
+    // ── Weather-cloud overlay: transport + clock only (plan P5.2) ───────────
+    // What renders (grid, geo bounds, visibility, sun, shadows) is SCENE
+    // state — declare it in the IR's `environment` and `nativeApplyScene` it.
 
     /**
      * Upload a radar frame into [slot] (0 = current timestep, 1 = next) from two

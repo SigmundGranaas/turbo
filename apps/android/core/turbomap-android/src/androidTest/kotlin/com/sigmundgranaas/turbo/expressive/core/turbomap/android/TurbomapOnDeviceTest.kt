@@ -3,14 +3,12 @@ package com.sigmundgranaas.turbo.expressive.core.turbomap.android
 import android.graphics.BitmapFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import uniffi.turbomap_ffi.Camera
 import uniffi.turbomap_ffi.GeoPoint
-import uniffi.turbomap_ffi.TileKind
 import uniffi.turbomap_ffi.TurboMap
 import java.io.ByteArrayOutputStream
 
@@ -62,15 +60,21 @@ class TurbomapOnDeviceTest {
 
             val local = map.pumpLocalTiles()
             assertTrue("geojson should drain: $local", local.vectorTiles > 0u)
-            val pending = map.pendingTiles()
-            assertFalse("remote raster tiles should be pending", pending.isEmpty())
-            assertTrue(pending.all { it.kind == TileKind.RASTER })
 
+            // Drain the streaming plan (P5.1), delivering a PNG per start,
+            // until the engine wants nothing more.
             val tile = fakeTilePng()
-            for (req in pending) {
-                assertTrue("tile $req should decode", map.ingestRasterTile(req.layerId!!, req.z, req.x, req.y, tile))
+            var delivered = 0
+            while (true) {
+                val starts = planStarts(map.streamingPlanJson(64u))
+                if (starts.isEmpty()) break
+                assertTrue("only rasters start: $starts", starts.all { it.kind == "raster" })
+                for (req in starts) {
+                    assertTrue("tile $req should decode", map.ingestRasterTile(req.layer, req.z, req.x, req.y, tile))
+                }
+                delivered += starts.size
             }
-            assertTrue(map.pendingTiles().isEmpty())
+            assertTrue("remote raster tiles should have been planned", delivered > 0)
 
             val png = map.renderPng()
             val bmp = BitmapFactory.decodeByteArray(png, 0, png.size)
@@ -97,7 +101,27 @@ class TurbomapOnDeviceTest {
         }
     }
 
+    /** One `start` from a minted streaming-plan JSON (plan P5.1). */
+    private data class PlanStart(val id: Long, val kind: String, val layer: String, val z: UByte, val x: UInt, val y: UInt)
+
+    private fun planStarts(planJson: String): List<PlanStart> =
+        START_RE.findAll(planJson).map { m ->
+            PlanStart(
+                id = m.groupValues[1].toLong(),
+                kind = m.groupValues[2],
+                layer = m.groupValues[3],
+                z = m.groupValues[4].toUByte(),
+                x = m.groupValues[5].toUInt(),
+                y = m.groupValues[6].toUInt(),
+            )
+        }.toList()
+
     private data class PixelCounts(val greenish: Int, val reddish: Int, val total: Int)
+
+    private companion object {
+        val START_RE =
+            Regex("""\{"id":(\d+),"kind":"([^"]+)","layer":"([^"]+)","z":(\d+),"x":(\d+),"y":(\d+)}""")
+    }
 
     private fun countPixels(bmp: android.graphics.Bitmap): PixelCounts {
         var greenish = 0

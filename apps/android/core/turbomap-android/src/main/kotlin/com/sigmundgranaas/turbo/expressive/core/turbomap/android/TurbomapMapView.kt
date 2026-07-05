@@ -141,7 +141,6 @@ fun TurbomapMapView(
     controller.cacheDir = remember(context) { File(context.cacheDir, TURBOMAP_TILE_DIR) }
     // The live user position is NOT in the scene anymore — it's a Compose MyPositionPin in
     // the overlay (stands on the terrain via the engine projection). See TurbomapScene.
-    fun scene() = TurbomapScene.build(rasters, vectors, measure, demUrl = demUrl)
 
     // Latest 3D flag read by the long-lived gesture lambda (pointerInput(Unit) never
     // restarts), so toggling 3D takes effect without recreating the detector.
@@ -163,7 +162,7 @@ fun TurbomapMapView(
                     holder.addCallback(object : SurfaceHolder.Callback {
                         override fun surfaceCreated(holder: SurfaceHolder) = Unit
                         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                            controller.attachOrResize(holder.surface, width, height, initialCamera, initialZoom, scene(), rasters, vectors, demUrl, onMapReady)
+                            controller.attachOrResize(holder.surface, width, height, initialCamera, initialZoom, rasters, vectors, measure, demUrl, onMapReady)
                         }
                         override fun surfaceDestroyed(holder: SurfaceHolder) = controller.detach()
                     })
@@ -228,11 +227,11 @@ fun TurbomapMapView(
         }
     }
 
-    LaunchedEffect(rasters, vectors, measure, userLocation, demUrl) {
-        controller.applyScene(scene(), rasters, vectors, demUrl)
+    LaunchedEffect(rasters, vectors, measure, demUrl) {
+        controller.applyContent(rasters, vectors, measure, demUrl)
     }
-    // Route + track render as raised 3D tubes (a native lit mesh), not scene
-    // lines — pushed separately whenever their geometry changes.
+    // Route + track render as raised 3D tubes — `tube` layers in the same
+    // Scene document (plan P5.2), rebuilt whenever their geometry changes.
     LaunchedEffect(track) {
         controller.setRouteTube("track", track, TurbomapScene.TrackColor)
     }
@@ -271,6 +270,22 @@ internal class TurbomapSurfaceController {
     private var vectors: List<TurbomapScene.VectorSpec> = emptyList()
     /** DEM tile URL template for 3D terrain ("terrain" pending tiles fetch this); null = flat. */
     private var demUrl: String? = null
+    /** Measure polyline — flat geojson content in the scene. */
+    private var measure: List<LatLng> = emptyList()
+
+    // ── Scene state the old imperative side-doors carried (plan P5.2) ──────
+    // Route/track tubes, the sun, terrain shadows, and the cloud overlay are
+    // SCENE content now: each mutation rebuilds the one Scene document and
+    // re-applies it (the engine diffs, so a tube/environment-only change is
+    // cheap). Kept controller-side so a surface (re)create replays them.
+    private val tubes = LinkedHashMap<String, TurbomapScene.TubeSpec>()
+    private var environment = TurbomapScene.EnvironmentSpec()
+    /** Radar grid size, set by [enableClouds]; null = no cloud overlay. */
+    private var cloudGrid: Pair<Int, Int>? = null
+    /** Radar geo box `[west, south, east, north]`; the overlay only enters the
+     *  scene once geo-registered (the IR's field source is world-locked). */
+    private var cloudBounds: DoubleArray? = null
+    private var cloudsVisible = true
     private val scope = CoroutineScope(Dispatchers.Main.immediate)
     private var lastBearing = Double.NaN
 
@@ -379,9 +394,9 @@ internal class TurbomapSurfaceController {
         h: Int,
         camera: LatLng,
         zoom: Double,
-        sceneJson: String,
         rasterSpecs: List<TurbomapScene.RasterSpec>,
         vectorSpecs: List<TurbomapScene.VectorSpec>,
+        measurePts: List<LatLng>,
         demUrlTemplate: String?,
         onMapReady: (MapEngine) -> Unit,
     ) {
@@ -389,6 +404,7 @@ internal class TurbomapSurfaceController {
         height = h
         rasters = rasterSpecs
         vectors = vectorSpecs
+        measure = measurePts
         demUrl = demUrlTemplate
         if (handle == 0L) {
             handle = NativeSurfaceMap.nativeCreate(surface, w, h, camera.lat, camera.lng, zoom)
@@ -397,20 +413,21 @@ internal class TurbomapSurfaceController {
                 onError(NativeSurfaceMap.nativeLastError() ?: "wgpu surface init failed")
                 return
             }
-            NativeSurfaceMap.nativeApplyScene(handle, sceneJson)
-            // Light the scene by the real clock so terrain shading + the
-            // sky take on the current time-of-day colours.
-            NativeSurfaceMap.nativeSetSunTime(handle, System.currentTimeMillis() / 1000.0)
-            // Terrain CAST shadows are owned by "sun mode" (the time-of-day
-            // slider) — off by default, enabled when the user turns sun mode on.
-            // See SunOverlayControls / TerrainSunOverlay.
+            // Light the scene by the real clock so terrain shading + the sky
+            // take on the current time-of-day colours. Terrain CAST shadows
+            // stay off until "sun mode" raises them (SunOverlayControls).
+            environment = environment.copy(sunUnixSeconds = System.currentTimeMillis() / 1000.0)
+            // One Scene document carries everything — content, tubes set
+            // before the surface existed, and the environment (plan P5.2).
+            NativeSurfaceMap.nativeApplyScene(handle, sceneJson())
             NativeSurfaceMap.nativePumpLocal(handle)
             val eng = TurbomapMapEngine(handle, w, h)
             // Camera/inset changes from the rail/flyTo/sheet must redraw (render-on-demand).
             eng.onMutated = { requestRender(cameraMoved = true) }
+            // Sun/shadow/cloud mutations from features route back here and
+            // become scene rebuilds — the engine has no imperative side-doors.
+            eng.environmentHost = this
             engine = eng
-            // Re-push any route/track tubes set before the surface existed.
-            pushAllTubes()
             onMapReady(eng)
             startRenderLoop()
             startReconcileLoop()
@@ -423,13 +440,35 @@ internal class TurbomapSurfaceController {
         }
     }
 
-    // Route/track 3D tubes, kept so they can be re-pushed after a surface
-    // (re)create — see [pushAllTubes] in attachOrResize.
-    private class TubeSpec(val coords: DoubleArray, val color: TurbomapScene.Rgba, val radiusPx: Double)
-    private val tubes = LinkedHashMap<String, TubeSpec>()
+    /** The complete Scene document — content + tubes + environment — from the
+     *  controller's current state. Consecutive applies are diffed engine-side,
+     *  so a rebuild that only changes one tube or the sun is cheap. */
+    private fun sceneJson() = TurbomapScene.build(
+        rasters = rasters,
+        vectors = vectors,
+        measure = measure,
+        demUrl = demUrl,
+        tubes = tubes.values.toList(),
+        environment = environment.copy(clouds = cloudsSpec()),
+    )
 
-    /** Set (or clear, with < 2 points) a route/track polyline drawn as a raised
-     *  3D tube. Wait-free (enqueues a native command). */
+    private fun cloudsSpec(): TurbomapScene.CloudsSpec? {
+        val (gw, gh) = cloudGrid ?: return null
+        val b = cloudBounds ?: return null
+        return TurbomapScene.CloudsSpec(gw, gh, b[0], b[1], b[2], b[3], cloudsVisible)
+    }
+
+    /** Rebuild + re-apply the Scene after any content/environment mutation. */
+    private fun reapplyScene() {
+        if (handle == 0L) return
+        NativeSurfaceMap.nativeApplyScene(handle, sceneJson())
+        NativeSurfaceMap.nativePumpLocal(handle)
+        requestRender(cameraMoved = false)
+        requestReconcile()
+    }
+
+    /** Set (or clear, with < 2 points) a route/track polyline drawn as a
+     *  raised 3D tube — a `tube` layer in the scene (plan P5.2). */
     fun setRouteTube(
         id: String,
         points: List<LatLng>?,
@@ -437,75 +476,66 @@ internal class TurbomapSurfaceController {
         radiusPx: Double = ROUTE_TUBE_RADIUS_PX,
     ) {
         val pts = points.orEmpty()
-        val coords = if (pts.size < 2) {
-            DoubleArray(0)
+        if (pts.size < 2) {
+            tubes.remove(id)
         } else {
-            DoubleArray(pts.size * 2).also { a ->
-                pts.forEachIndexed { i, p ->
-                    a[i * 2] = p.lat
-                    a[i * 2 + 1] = p.lng
-                }
-            }
+            tubes[id] = TurbomapScene.TubeSpec(id, pts, color, radiusPx)
         }
-        tubes[id] = TubeSpec(coords, color, radiusPx)
-        pushTube(id)
+        reapplyScene()
     }
 
-    private fun pushTube(id: String) {
-        val h = handle
-        if (h == 0L) return
-        val t = tubes[id] ?: return
-        NativeSurfaceMap.nativeSetRouteTube(
-            h, id, t.coords, t.color.r, t.color.g, t.color.b, t.color.a, t.radiusPx,
-        )
-        requestRender(cameraMoved = false)
-    }
-
-    private fun pushAllTubes() {
-        tubes.keys.toList().forEach { pushTube(it) }
-    }
-
-    fun applyScene(
-        sceneJson: String,
+    fun applyContent(
         rasterSpecs: List<TurbomapScene.RasterSpec>,
         vectorSpecs: List<TurbomapScene.VectorSpec>,
+        measurePts: List<LatLng>,
         demUrlTemplate: String?,
     ) {
         if (handle == 0L) return
         rasters = rasterSpecs
         vectors = vectorSpecs
+        measure = measurePts
         demUrl = demUrlTemplate
-        NativeSurfaceMap.nativeApplyScene(handle, sceneJson)
-        NativeSurfaceMap.nativePumpLocal(handle)
-        requestRender(cameraMoved = false)
-        requestReconcile()
+        reapplyScene()
     }
 
-    // ── Weather-cloud overlay ───────────────────────────────────────────────
-    // Thin forwarders to the native overlay. The engine is serialised by a
-    // Mutex inside the FFI, so these are safe to call from the main thread
-    // while the render thread draws — they just contend briefly for the lock,
-    // like the tile reconciler.
+    // ── Scene environment (plan P5.2) ───────────────────────────────────────
+    // The sun, terrain shadows, and the cloud overlay's declaration are scene
+    // state; each mutation rebuilds + re-applies the document. Only radar
+    // frame DATA ([TurbomapMapEngine.ingestRadarFrame], transport like tiles)
+    // and the playback clock (nativeSetCloudTime) stay imperative verbs.
 
-    /** Enable the cloud overlay with a [gridW]×[gridH] radar grid. */
+    /** Track the sun (terrain shading + sky colour) to a real UTC instant;
+     *  negative reverts to the engine's fixed default light (the
+     *  [com.sigmundgranaas.turbo.expressive.domain.TerrainSunOverlay] contract). */
+    fun setSunTime(unixSeconds: Double) {
+        environment = environment.copy(sunUnixSeconds = unixSeconds.takeIf { it >= 0 })
+        reapplyScene()
+    }
+
+    /** Terrain cast-shadow strength in `[0,1]`; 0 = off ("sun mode"). */
+    fun setTerrainShadows(strength: Float) {
+        environment = environment.copy(terrainShadows = strength)
+        reapplyScene()
+    }
+
+    /** Declare the cloud overlay's radar grid. The overlay enters the scene
+     *  once [setCloudGeoBounds] world-locks it (the IR has no screen-locked
+     *  clouds — an unregistered field renders nothing, by design). */
     fun enableClouds(gridW: Int, gridH: Int) {
-        if (handle == 0L) return
-        NativeSurfaceMap.nativeEnableClouds(handle, gridW, gridH)
-        requestRender(cameraMoved = false)
+        cloudGrid = gridW to gridH
+        reapplyScene()
     }
 
     /** Hide/show the overlay without discarding uploaded frames. */
     fun setCloudsVisible(visible: Boolean) {
-        if (handle == 0L) return
-        NativeSurfaceMap.nativeSetCloudsVisible(handle, visible)
-        requestRender(cameraMoved = false)
+        cloudsVisible = visible
+        reapplyScene()
     }
 
     /** Geo-register the radar to its lat/lng box → world-locked overlay. */
     fun setCloudGeoBounds(west: Double, south: Double, east: Double, north: Double) {
-        if (handle == 0L) return
-        NativeSurfaceMap.nativeSetCloudGeoBounds(handle, west, south, east, north)
-        requestRender(cameraMoved = false)
+        cloudBounds = doubleArrayOf(west, south, east, north)
+        reapplyScene()
     }
 
     /**

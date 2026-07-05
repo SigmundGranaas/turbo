@@ -310,6 +310,19 @@ fn parse_positions(coords: &[serde_json::Value]) -> Option<Vec<(f64, f64)>> {
     (line.len() >= 2).then_some(line)
 }
 
+/// Parse GeoJSON `LineString`/`MultiLineString` geometry into an ordered
+/// polyline of `(lng, lat)` pairs — the scene-declared route-tube layer's
+/// geometry (plan P5.2). Multiple lines concatenate in document order (a
+/// recorded track split into segments still reads as one route).
+pub fn parse_line(data: &str) -> Vec<(f64, f64)> {
+    let Ok(root) = serde_json::from_str::<serde_json::Value>(data) else {
+        return Vec::new();
+    };
+    let mut geo = ParsedGeometry::default();
+    collect_geometries(&root, &Default::default(), &mut geo);
+    geo.lines.into_iter().flat_map(|(line, _)| line).collect()
+}
+
 /// Parse GeoJSON `Point`/`MultiPoint` geometry into `(lng, lat)` pairs —
 /// used to drive circle/marker layers, which are positioned in geographic
 /// coordinates (not the world space lines use).

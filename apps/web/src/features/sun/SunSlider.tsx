@@ -1,8 +1,9 @@
 import { Glass } from '../../ui/Glass';
 
-/** Time-of-day slider shown while Sun mode is on. Drives the engine's solar
- *  position (`set_sun_time`) so the user can sweep the lighting from dawn to
- *  dusk instead of being stuck at the real-clock time (which can be dark). */
+/** Time-of-day slider shown while Sun mode is on. Drives the scene
+ *  environment's time-tracked lighting so the user can sweep the light from
+ *  dawn to dusk instead of being stuck at the real-clock time (which can be
+ *  dark). */
 export function SunSlider({
   dark,
   hour,

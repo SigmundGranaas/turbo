@@ -8,10 +8,11 @@
 //!   `CAMetalLayer` through uniffi. Surface creation + the vsync render
 //!   loop are small pieces of hand-written per-platform glue that wrap
 //!   the same [`TurboMap`] object.
-//! - Tile IO is **host-driven**: `pendingTiles()` lists what the engine
-//!   needs; the host fetches (it owns auth/caching/offline) and pushes
-//!   encoded bytes back via the `ingest*` methods. Inline GeoJSON needs
-//!   no IO and is drained in-process by `pumpLocalTiles()`.
+//! - Tile IO is **host-driven** via the STREAMING PLAN (plan P5.1):
+//!   `streamingPlanJson()` mints priority-ordered starts + cancels; the
+//!   host fetches (it owns auth/caching/offline) and pushes encoded bytes
+//!   back via the `ingest*` methods, reporting failures/cancels by request
+//!   id. Inline GeoJSON needs no IO and drains via `pumpLocalTiles()`.
 //!
 //! Everything here is exercised from Rust tests acting as a foreign host
 //! (`tests/roundtrip.rs`), and the Kotlin/Swift sources are generated in
@@ -358,40 +359,18 @@ impl TurboMap {
             .ingest_mvt(&layer_id, TileId::new(z, x, y), &bytes)
     }
 
-    // ---- weather-cloud overlay --------------------------------------------
-
-    /// Enable the procedural cloud overlay with a radar grid of
-    /// `grid_w × grid_h` cells. Push frames with [`ingest_radar_frame`] and
-    /// scrub the time slider with [`set_cloud_time`]. The overlay draws on
-    /// every subsequent `render`/on-screen frame until disabled.
-    ///
-    /// [`ingest_radar_frame`]: Self::ingest_radar_frame
-    /// [`set_cloud_time`]: Self::set_cloud_time
-    pub fn enable_clouds(&self, grid_w: u32, grid_h: u32) {
-        self.lock().engine.enable_clouds(grid_w, grid_h);
-    }
-
-    /// Enable terrain cast shadows at `strength` in `[0,1]` (0 = off). Only
-    /// affects 3D terrain; off costs nothing. See
-    /// [`turbomap_engine::Engine::set_terrain_shadows`].
-    pub fn set_terrain_shadows(&self, strength: f32) {
-        self.lock().engine.set_terrain_shadows(strength);
-    }
-
-    /// Tear the cloud overlay down, freeing its GPU resources.
-    pub fn disable_clouds(&self) {
-        self.lock().engine.disable_clouds();
-    }
-
-    /// Show/hide the overlay without discarding uploaded frames.
-    pub fn set_clouds_visible(&self, visible: bool) {
-        self.lock().engine.set_clouds_visible(visible);
-    }
+    // ---- weather-cloud overlay: transport + clock only (plan P5.2) ---------
+    //
+    // WHAT renders (grid, geo bounds, visibility) is Scene state — declare
+    // `environment.clouds` + a `field-2d` source in the IR and `applyScene`
+    // it. Only the frame DATA push (transport, like tile ingest) and the
+    // playback clock (a control verb, like the camera) cross here.
 
     /// Upload a radar frame into `slot` 0 (current timestep) or 1 (next),
     /// from two `grid_w * grid_h` byte planes — `precip` and `coverage`,
     /// each `0..=255`. The host samples MET radar/cloud rasters for the
-    /// viewport and normalises them to this grid.
+    /// viewport and normalises them to this grid. Frames render only while
+    /// the applied scene declares a cloud overlay consuming them.
     pub fn ingest_radar_frame(
         &self,
         slot: u32,
@@ -413,7 +392,7 @@ impl TurboMap {
     }
 
     /// Drain sources that need no IO (inline GeoJSON) in-process. Remote
-    /// tiles are untouched — they stay in `pendingTiles()` for the host.
+    /// tiles are untouched — they surface through the streaming plan.
     pub fn pump_local_tiles(&self) -> DrainStats {
         let stats = self.lock().engine.pump_tiles();
         DrainStats {

@@ -38,9 +38,17 @@ export type Layer =
       height_only?: boolean;
     };
 
+// The scene-declared environment (plan P5.2: ONE content plane). The type +
+// live store are in map-core (`environment.ts`) so features can patch it
+// without importing the engine substrate; the surface subscribes there and
+// re-applies the scene built here.
+import { currentEnvironment, type MapEnvironment } from '../map-core';
+export { onEnvironmentChange } from '../map-core';
+
 export interface Scene {
   sources: Record<string, SourceDef>;
   layers: Layer[];
+  environment?: MapEnvironment;
 }
 
 import { API_BASE } from '../config';
@@ -146,6 +154,9 @@ export function buildBaseScene(base: BaseLayerId, terrain = false): Scene {
     },
   };
   const layers: Layer[] = [{ type: 'raster', id, source: id }];
+  // The scene carries the whole environment (P5.2): the per-base brightness
+  // gain folds in here; user-driven fields ride the live environment store.
+  const environment: MapEnvironment = { ...currentEnvironment(), 'basemap-gain': basemapGain(base) };
   if (terrain) {
     // Host-driven: bytes come from the `__terrain` template (templates.ts), but
     // the engine needs the source declared to know encoding/halo + request it.
@@ -154,5 +165,5 @@ export function buildBaseScene(base: BaseLayerId, terrain = false): Scene {
     // itself from the sun (one lit 3D surface), same as Android.
     layers.push({ type: 'hillshade', id: 'hillshade', source: 'dem', exaggeration: TERRAIN_EXAGGERATION, height_only: true });
   }
-  return { sources, layers };
+  return { sources, layers, environment };
 }

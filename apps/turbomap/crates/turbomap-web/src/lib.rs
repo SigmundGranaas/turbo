@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use wasm_bindgen::prelude::*;
 
-use turbomap_core::{Camera as CoreCamera, LatLng as CoreLatLng, MapOptions, PendingTile, TileId};
+use turbomap_core::{Camera as CoreCamera, LatLng as CoreLatLng, MapOptions, TileId};
 use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine};
 use turbomap_scene::{LatLng, Scene, ScreenPoint};
 
@@ -436,39 +436,10 @@ impl TurboMap {
         vec![lat, lng, if hit { 1.0 } else { 0.0 }]
     }
 
-    /// Enable terrain cast shadows at `strength` in `[0,1]` (0 = off).
-    pub fn set_terrain_shadows(&mut self, strength: f32) {
-        self.engine.set_terrain_shadows(strength);
-    }
-
-    /// Toggle terrain sun-lighting in 3D. `true` = lit (Lambertian shading +
-    /// shadows + haze); `false` = the bare bright basemap over the displaced
-    /// relief, so a plain 2D→3D switch doesn't darken the scene (and the heavy
-    /// per-fragment shading path is skipped). The host ties this to "sun mode".
-    pub fn set_terrain_lit(&mut self, lit: bool) {
-        self.engine.set_terrain_lit(lit);
-    }
-
-    /// Toggle far-distance atmospheric coloration (aerial perspective). `true` =
-    /// distant terrain takes the sky's hue when tilted toward the horizon;
-    /// `false` = crisp at every angle. The web ties this to a "Distance haze"
-    /// setting (off by default).
-    pub fn set_aerial_haze(&mut self, on: bool) {
-        self.engine.set_aerial_haze(on);
-    }
-
-    /// Basemap brightness gain for the 3D sun-lit terrain (1.0 = unchanged).
-    /// The web host raises it for dark imagery (satellite) so it reads under the
-    /// same lighting that suits bright topo. No effect on the flat 2D map.
-    pub fn set_basemap_gain(&mut self, gain: f32) {
-        self.engine.set_basemap_gain(gain);
-    }
-
-    /// Drive sun lighting from a unix timestamp (seconds), or `null` for the
-    /// default fixed sun.
-    pub fn set_sun_time(&mut self, unix_secs: Option<f64>) {
-        self.engine.set_sun_time(unix_secs);
-    }
+    // Environment (lighting, shadows, haze, basemap gain) is scene state:
+    // declare it in the scene IR's `environment` block and re-apply the scene
+    // (plan P5.2 — one content plane). There are deliberately no imperative
+    // environment setters on this surface.
 }
 
 fn js_err(msg: String) -> JsValue {

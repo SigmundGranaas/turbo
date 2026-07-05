@@ -1166,3 +1166,44 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   ladder green, every golden byte-stable, **8/8 sim gates on the plan
   transport** (release, 665.9 s), wasm32 builds. Kotlin is
   compile-unverified here (no Android SDK) — on-device agent to confirm.
+- _2026-07-05_: **P5.2 landed + verified — one content plane.** Content
+  has exactly one authoring surface, the Scene IR; the imperative
+  side-doors are gone from every host boundary. New IR: `Layer::Tube`
+  (route/track as the raised 3D tube — GeoJSON LineString source, plain
+  colour, `radius_px`). Engine: tubes install from the scene and diff as
+  their own set in `reconcile` (each is an overlay mesh keyed by id, NOT
+  a core stack layer — putting them in the positional prefix would
+  misalign it against `layer_ids`, and removal would never fire; caught
+  by the new `tube_layer.rs` gate). Deleted from the engine's public
+  surface: `enable/disable_clouds`, `set_cloud_sim`,
+  `set_cloud_geo_bounds`, `set_sun_time`, `set_basemap_gain`,
+  `set_terrain_lit`, `set_aerial_haze`, `set_route_tube`; kept
+  `#[doc(hidden)]` harness verbs for the sim gates (`set_sun_position`,
+  `set_terrain_shadows`, `set_clouds_visible`) and the genuine
+  transport/control verbs (`ingest_field`/`ingest_radar_frame`,
+  `set_cloud_time`). FFI: the six content JNI externs + `Cmd`s and the
+  four uniffi cloud/shadow setters are deleted — only radar-frame ingest
+  (transport) and the cloud clock (control) cross. Web: the five wasm
+  env setters deleted; the environment lives in a `map-core` store
+  (`setMapEnvironment` patch → the surface re-applies the scene; keys
+  are the IR's kebab-case). Android: `TurbomapScene.build` now emits
+  `tube` layers + the `environment` block (time-tracked sun,
+  terrain-shadows, clouds over a `field-2d` radar source,
+  `animate:false` — the host scrubs); the surface controller owns that
+  state and rebuilds the one Scene document per mutation;
+  `TerrainSunOverlay`/`WeatherCloudOverlay` route through it unchanged
+  for features. Also fixed, found by actually BOOTING the web app in
+  headless Chromium: the D1 frame graph's per-pass profiling used
+  `std::time::Instant`, which panics on wasm ("time not implemented") —
+  the web map has been broken in-browser since D1; now `web_time`. Also
+  repaired the dormant (feature-gated) ffi gpu tests and the three
+  stale Kotlin JVM tests P5.1 missed (`pendingTiles` → plan drain).
+  **Gates:** workspace + clippy clean; wasm32 clean; **70 GPU tests**
+  (engine/golden/ffi incl. every golden byte-stable, the new tube gate,
+  Tube serde round-trip); **8/8 sim gates** (release) on the demoted
+  engine; web: tsc + eslint (env store moved to `map-core` to satisfy
+  the feature→engine boundary) + 16 vitest + production build + a
+  headless-Chromium boot smoke (full UI renders; WebGPU adapter itself
+  is unavailable in this container). Kotlin is compile-unverified here
+  (no Android SDK) — on-device agent to confirm, plus real-GPU visual
+  checks: sun-mode scene rebuild, radar overlay via the scene, tubes.

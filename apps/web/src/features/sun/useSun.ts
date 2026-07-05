@@ -1,4 +1,5 @@
 import { useMapEngine } from '../../map-core';
+import { setMapEnvironment } from '../../map-core';
 import { useUiStore } from '../../store/uiStore';
 import { useSunStore, nowHour } from './sunStore';
 
@@ -24,7 +25,7 @@ export function useSun() {
     if (!engine) return;
     const d = new Date();
     d.setHours(Math.floor(h), Math.round((h - Math.floor(h)) * 60), 0, 0);
-    engine.set_sun_time(d.getTime() / 1000);
+    setMapEnvironment({ lighting: { mode: 'time-tracked', unix_seconds: d.getTime() / 1000 } });
   };
 
   const toggle = () => {
@@ -46,10 +47,10 @@ export function useSun() {
       applyHour(h);
       // Cast shadows (peaks shadow the valleys) — what makes relief read as
       // distinct, like the native app. Only on in sun mode.
-      engine.set_terrain_shadows(0.7);
+      setMapEnvironment({ 'terrain-shadows': 0.7 });
     } else {
-      engine.set_sun_time(undefined);
-      engine.set_terrain_shadows(0);
+      setMapEnvironment({ lighting: { mode: 'default' } });
+      setMapEnvironment({ 'terrain-shadows': 0 });
     }
     useSunStore.getState().setOn(next);
   };

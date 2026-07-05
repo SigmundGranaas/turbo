@@ -32,7 +32,11 @@
 //! mis-ordered registration fails loudly in tests instead of rendering wrong.
 
 use std::collections::BTreeSet;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+// `std::time::Instant` panics on wasm ("time not implemented"); web_time is
+// std's Instant on native and `performance.now()` in the browser. Per-pass
+// profiling must never be the thing that breaks a platform.
+use web_time::Instant;
 
 /// Logical resources a pass can read or write. Coarse on purpose: these tag
 /// *data flow between passes*, not individual GPU objects.

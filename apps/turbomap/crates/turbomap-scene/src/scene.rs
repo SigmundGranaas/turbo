@@ -380,6 +380,19 @@ pub enum Layer {
         #[serde(default)]
         height_only: bool,
     },
+    /// A route/track drawn as a raised 3D tube over the terrain (the
+    /// engine's route look since the 3D work): a single lit mesh, occluded
+    /// by relief, constant on-screen radius. `source` must be a GeoJSON
+    /// LineString/MultiLineString. This is CONTENT — scene-declared like
+    /// every layer (plan P5.2); the old imperative `set_route_tube`
+    /// side-door is gone.
+    Tube {
+        id: String,
+        source: String,
+        color: Color,
+        /// Tube radius in on-screen pixels.
+        radius_px: f64,
+    },
     /// A host-supplied render pass, portable across platforms. The IR only
     /// names it; the renderer binds the actual pass by `kind`.
     Custom { id: String, kind: String },
@@ -416,6 +429,7 @@ impl Layer {
             | Layer::Circle { id, .. }
             | Layer::Symbol { id, .. }
             | Layer::Hillshade { id, .. }
+            | Layer::Tube { id, .. }
             | Layer::Custom { id, .. } => id,
         }
     }
@@ -429,7 +443,8 @@ impl Layer {
             | Layer::Line { source, .. }
             | Layer::Circle { source, .. }
             | Layer::Symbol { source, .. }
-            | Layer::Hillshade { source, .. } => Some(source),
+            | Layer::Hillshade { source, .. }
+            | Layer::Tube { source, .. } => Some(source),
             Layer::Custom { .. } => None,
         }
     }

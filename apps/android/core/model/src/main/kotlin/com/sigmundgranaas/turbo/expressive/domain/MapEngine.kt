@@ -17,8 +17,8 @@ package com.sigmundgranaas.turbo.expressive.domain
  * (`apps/turbomap/.../turbomap-engine`): [fromScreen]/[toScreen] are its
  * `unproject`/`project`, [flyTo]/[frameTo] its camera animation, etc.
  *
- * The **data plane** of that contract (`applyScene`, `pendingTiles`/
- * `ingestTile`, `hitTest`, `capabilities`) and explicit surface lifecycle are
+ * The **data plane** of that contract (`applyScene`, the streaming plan /
+ * `ingest*`, `hitTest`, `capabilities`) and explicit surface lifecycle are
  * deliberately *not* here yet (see
  * `docs/architecture/2026-06-android-renderer-swap-test-plan.md`, Stage E).
  * Keeping this interface free of any renderer type is what lets that happen

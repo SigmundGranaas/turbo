@@ -192,6 +192,27 @@ impl TurbomapEngine {
         for layer in new_pos.iter().skip(prefix) {
             self.install_positional(layer, &new);
         }
+
+        // --- route tubes: scene content, but each is an overlay MESH keyed
+        // by id (not a core stack layer), so they diff as their own set.
+        // An undeclared id clears (an empty polyline removes the mesh); a
+        // new or changed declaration (or dirty source) re-installs — the
+        // core's set_route_tube is idempotent per id.
+        let old_tubes = tube_layers(old);
+        let new_tubes = tube_layers(&new);
+        for t in &old_tubes {
+            if !new_tubes.iter().any(|n| n.id() == t.id()) {
+                self.map
+                    .set_route_tube(t.id(), &[], CoreColor::rgba(0, 0, 0, 0), 0.0);
+            }
+        }
+        for t in &new_tubes {
+            let unchanged = old_tubes.iter().any(|o| o == t)
+                && t.source().map(|s| !dirty.contains(s)).unwrap_or(true);
+            if !unchanged {
+                self.install_positional(t, &new);
+            }
+        }
         // Terrain is global; if the new scene has no hillshade, drop it.
         if !new
             .layers
@@ -273,6 +294,29 @@ impl TurbomapEngine {
                 if let Some(factory) = self.custom_layer_kinds.get(kind.as_str()) {
                     let layer = factory(&self.map.custom_layer_init());
                     self.map.add_custom_layer(id.clone(), kind.clone(), layer);
+                }
+            }
+            Layer::Tube {
+                id,
+                source,
+                color,
+                radius_px,
+            } => {
+                // Scene-declared 3D route tube (plan P5.2). The polyline
+                // comes straight from the GeoJSON source; the tube mesh is
+                // not a stack layer, so removal is handled in `reconcile`'s
+                // tube diff, not the positional prefix.
+                if let Some(SourceDef::GeoJson { data }) = scene.sources.get(source) {
+                    let points: Vec<CoreLatLng> = crate::geojson::parse_line(data)
+                        .into_iter()
+                        .map(|(lng, lat)| CoreLatLng::new(lat, lng))
+                        .collect();
+                    self.map.set_route_tube(
+                        id,
+                        &points,
+                        CoreColor::rgba(color.r, color.g, color.b, color.a),
+                        *radius_px,
+                    );
                 }
             }
             Layer::Line {
@@ -692,43 +736,21 @@ impl TurbomapEngine {
         self.map.pitch_around(delta_deg, focus_px);
     }
 
-    // ---- Weather-cloud overlay (passthrough to Map) -------------------
+    // ---- Environment / content (SCENE-owned, plan P5.2) ----------------
+    //
+    // There are deliberately NO public imperative content setters here:
+    // lighting, shadows, haze, gain, clouds, and route tubes are Scene
+    // state — declare them in the IR (`environment`, `Layer::Tube`) and
+    // re-apply; the engine diffs. The few methods below marked
+    // `#[doc(hidden)]` are HARNESS surfaces (the simulation gates pin
+    // sun/shadow/visibility mid-run without a scene rebuild) — hosts and
+    // adapters must not grow dependencies on them.
 
-    /// Enable the procedural cloud overlay with a radar grid sized
-    /// `grid_w × grid_h`. Push frames with [`ingest_radar_frame`] and drive
-    /// the time slider with [`set_cloud_time`].
-    ///
-    /// [`ingest_radar_frame`]: Self::ingest_radar_frame
-    /// [`set_cloud_time`]: Self::set_cloud_time
-    pub fn enable_clouds(&mut self, grid_w: u32, grid_h: u32) {
-        self.map.enable_clouds(grid_w, grid_h);
-    }
-
-    /// Tear the cloud overlay down, freeing its GPU resources.
-    pub fn disable_clouds(&mut self) {
-        self.map.disable_clouds();
-    }
-
-    /// Show/hide the overlay without discarding its state.
-    pub fn set_clouds_visible(&mut self, visible: bool) {
-        self.map.set_clouds_visible(visible);
-    }
-
-    /// Hand the cloud clock to the engine's simulation (plan E2) or take
-    /// it back for host scrubbing. See [`turbomap_core::Map::set_cloud_sim`].
-    pub fn set_cloud_sim(&mut self, sim: bool) {
-        self.map.set_cloud_sim(sim);
-    }
-
-    /// Track the sun (terrain shading + sky colour) to a real UTC instant
-    /// at the camera location, so the scene's light matches the time of
-    /// day. `None` reverts to the fixed default.
-    pub fn set_sun_time(&mut self, unix_seconds: Option<f64>) {
-        self.map.set_sun_time(unix_seconds);
-    }
-
-    /// Pin the sun to an explicit azimuth/altitude (degrees), overriding any
-    /// time tracking — deterministic light for tests/goldens and direct control.
+    /// Harness surface (sim gates): pin the sun to an explicit
+    /// azimuth/altitude (degrees), overriding any scene lighting —
+    /// deterministic light for behavioural gates. Hosts declare lighting
+    /// in the scene's `environment` instead.
+    #[doc(hidden)]
     pub fn set_sun_position(&mut self, azimuth_deg: f32, altitude_deg: f32) {
         self.map.set_sun_position(Some(turbomap_core::SunPosition {
             azimuth_deg,
@@ -736,50 +758,19 @@ impl TurbomapEngine {
         }));
     }
 
-    /// Enable terrain *cast* shadows (a peak shadows the valley behind it) at
-    /// the given `strength` in `[0,1]`. 0 disables the feature (zero per-frame
-    /// cost); only affects 3D terrain. See [`turbomap_core::Map::set_terrain_shadows`].
+    /// Harness surface (sim gates): terrain *cast* shadows at `strength`
+    /// in `[0,1]` (0 = off). Hosts declare `environment.terrain-shadows`
+    /// in the scene instead.
+    #[doc(hidden)]
     pub fn set_terrain_shadows(&mut self, strength: f32) {
         self.map.set_terrain_shadows(strength);
     }
 
-    /// Basemap brightness gain for the 3D sun-lit terrain (1.0 = unchanged).
-    /// Raise it for dark imagery (satellite). No effect on the flat 2D map.
-    /// See [`turbomap_core::Map::set_basemap_gain`].
-    pub fn set_basemap_gain(&mut self, gain: f32) {
-        self.map.set_basemap_gain(gain);
-    }
-
-    /// Toggle terrain sun-lighting in 3D (`true` = lit, default; `false` = bare
-    /// bright basemap over the relief so 2D→3D doesn't darken). Hosts tie this to
-    /// "sun mode". See [`turbomap_core::Map::set_terrain_lit`].
-    pub fn set_terrain_lit(&mut self, lit: bool) {
-        self.map.set_terrain_lit(lit);
-    }
-
-    /// Toggle far-distance atmospheric coloration (aerial perspective).
-    /// See [`turbomap_core::Map::set_aerial_haze`].
-    pub fn set_aerial_haze(&mut self, on: bool) {
-        self.map.set_aerial_haze(on);
-    }
-
-    /// Set (or clear, when `points` is empty) a route/track polyline drawn as a
-    /// raised 3D tube. `points` are lng/lat; `radius_m` is the tube radius in
-    /// metres. See [`turbomap_core::Map::set_route_tube`].
-    pub fn set_route_tube(
-        &mut self,
-        id: &str,
-        points: &[CoreLatLng],
-        color: CoreColor,
-        radius_m: f64,
-    ) {
-        self.map.set_route_tube(id, points, color, radius_m);
-    }
-
-    /// Geo-register the radar to the `west/south/east/north` lat-lng box it
-    /// covers, so the overlay is world-locked (pans + zooms with the map).
-    pub fn set_cloud_geo_bounds(&mut self, west: f64, south: f64, east: f64, north: f64) {
-        self.map.set_cloud_geo_bounds(west, south, east, north);
+    /// Harness surface (sim gates): show/hide the cloud overlay without a
+    /// scene rebuild. Hosts declare `environment.clouds.visible` instead.
+    #[doc(hidden)]
+    pub fn set_clouds_visible(&mut self, visible: bool) {
+        self.map.set_clouds_visible(visible);
     }
 
     /// Push one field frame for a scene-declared [`SourceDef::Field2D`]
@@ -808,8 +799,10 @@ impl TurbomapEngine {
 
     /// Upload a radar frame into slot 0 (current timestep) or 1 (next),
     /// from two `grid_w * grid_h` byte planes: `precip` and `coverage`,
-    /// each normalised to `0..=255`. Transitional side-door (pre-C2 hosts):
-    /// prefer a scene-declared cloud overlay + [`Self::ingest_field`].
+    /// each normalised to `0..=255`. This is TRANSPORT (data delivery,
+    /// like tile ingest), not content — what renders is declared by the
+    /// scene's `environment.clouds`. Prefer [`Self::ingest_field`], which
+    /// checks the frame against the scene's declared field source.
     pub fn ingest_radar_frame(
         &mut self,
         slot: u32,
@@ -1244,6 +1237,19 @@ fn positional_layers(scene: &Scene) -> Vec<Layer> {
         .collect()
 }
 
+/// The scene's route-tube declarations. Tubes are scene content like any
+/// layer, but each installs an overlay MESH keyed by id — not a core stack
+/// layer — so they must not enter the positional prefix (whose removal
+/// walks the core's `layer_ids`, which never contain a tube). They diff
+/// as their own set in `reconcile`.
+fn tube_layers(scene: &Scene) -> Vec<&Layer> {
+    scene
+        .layers
+        .iter()
+        .filter(|l| matches!(l, Layer::Tube { .. }))
+        .collect()
+}
+
 fn circle_layers(scene: &Scene) -> Vec<Layer> {
     scene
         .layers
@@ -1304,6 +1310,7 @@ fn is_supportable(
             )
         }),
         Layer::Circle { .. } => source_is(|d| matches!(d, SourceDef::GeoJson { .. })),
+        Layer::Tube { .. } => source_is(|d| matches!(d, SourceDef::GeoJson { .. })),
         // Real since plan D4: supported iff a factory is registered for the
         // declared kind.
         Layer::Custom { kind, .. } => custom_kinds.contains_key(kind.as_str()),

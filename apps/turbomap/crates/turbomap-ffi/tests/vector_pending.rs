@@ -7,7 +7,7 @@
 //! water surface stays empty — "topo tiles, no water".
 #![cfg(feature = "gpu-tests")]
 
-use turbomap_ffi::{Camera, TileKind, TurboMap};
+use turbomap_ffi::{Camera, TurboMap};
 
 fn camera() -> Camera {
     Camera {
@@ -72,9 +72,7 @@ fn vector_water_source_enumerates_host_pending_tiles() {
             .collect::<Vec<_>>()
     );
     assert!(
-        vector
-            .iter()
-            .all(|t| t.layer_id.as_deref() == Some("water")),
-        "vector pending tiles must be keyed by the layer id the host resolves URLs with"
+        vector.iter().all(|t| t["layer"] == "water"),
+        "vector plan starts must be keyed by the layer id the host resolves URLs with"
     );
 }

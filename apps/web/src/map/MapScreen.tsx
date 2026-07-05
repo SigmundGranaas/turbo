@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { setMapEnvironment } from '../map-core';
 import { useQueryClient } from '@tanstack/react-query';
 import type { TurboMap } from 'turbomap-web';
 import { useSession } from '../api/auth';
@@ -222,14 +223,14 @@ export function MapScreen() {
   // path is skipped (big perf win). No-op in 2D (no DEM). Re-applied when sun
   // toggles or the engine boots.
   useEffect(() => {
-    mapRef.current?.set_terrain_lit(sun.on);
+    setMapEnvironment({ 'terrain-lit': sun.on });
   }, [sun.on, ready]);
 
   // Far-distance atmospheric haze (aerial perspective) — opt-in via Settings,
   // off by default. No-op in 2D (no DEM); re-applied when toggled or on boot.
   const distanceHaze = useUiStore((s) => s.distanceHaze);
   useEffect(() => {
-    mapRef.current?.set_aerial_haze(distanceHaze);
+    setMapEnvironment({ 'aerial-haze': distanceHaze });
   }, [distanceHaze, ready]);
 
   // Redeem a ?share=<token> link on open. Requires sign-in (the grant is

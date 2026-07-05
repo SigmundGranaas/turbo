@@ -218,12 +218,10 @@ impl DecodeQueue {
         }
     }
 
-    /// Whether `key` is currently in the accept→apply window. The engine
-    /// subtracts these from `pending_tiles` so pull-driven hosts don't
-    /// refetch every tile once per decode latency (the echo loop the sim's
-    /// heavy-roaming gate caught).
     /// Enqueued-but-unapplied count — non-zero must keep render-on-demand
-    /// hosts awake (it is folded into `is_animating`).
+    /// hosts awake (it is folded into `is_animating`). In-flight keys are
+    /// also the accept→apply dedup window (`enqueue` refuses re-entry), so
+    /// a tile is never decoded twice for one delivery.
     pub fn backlog(&self) -> usize {
         self.in_flight.len()
     }
@@ -284,11 +282,6 @@ impl DecodeQueue {
 
     pub fn backlog(&self) -> usize {
         self.in_flight.len()
-    }
-
-    /// See the native impl.
-    pub fn contains(&self, key: &QueueKey) -> bool {
-        self.in_flight.contains(key)
     }
 }
 

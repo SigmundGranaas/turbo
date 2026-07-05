@@ -56,8 +56,8 @@ class TurbomapRasterFillOnDeviceTest {
             // Async FFI: applyScene / pumpLocal / ingest all apply on the NEXT
             // render (wait-free command queue), and tile uploads are rate-limited
             // per frame. So each round renders to apply the prior commands + the
-            // scene and publish a fresh pending list, pumps, renders again so
-            // `pendingTilesJson` reflects the desired set, then ingests it. A dozen
+            // scene and mint a fresh streaming plan, pumps, renders again so
+            // the plan outbox reflects the desired set, then ingests it. A dozen
             // rounds + the readback renders below drain the visible + prefetch set.
             var ingested = 0
             repeat(12) {

@@ -167,6 +167,7 @@ fn layer_type(layer: &Layer) -> &'static str {
         Layer::Circle { .. } => "circle",
         Layer::Symbol { .. } => "symbol",
         Layer::Hillshade { .. } => "hillshade",
+        Layer::Tube { .. } => "tube",
         Layer::Custom { .. } => "custom",
     }
 }

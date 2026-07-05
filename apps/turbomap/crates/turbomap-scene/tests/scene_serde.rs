@@ -317,3 +317,38 @@ fn clouds_declaration_roundtrips_and_requires_a_field_source() {
         Err(SceneError::UnknownSource { .. })
     ));
 }
+
+#[test]
+fn tube_layer_roundtrips_with_a_stable_json_shape() {
+    // The Kotlin + TS hosts hand-author this JSON (plan P5.2): the variant
+    // tag is kebab-case ("tube"), the fields keep their Rust names
+    // (`radius_px`, a plain colour — not a paint). Pin the shape so a serde
+    // rename can't silently strand the hosts.
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "t_route".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"LineString","coordinates":[[5.1,60.3],[5.55,60.48]]}"#.to_string(),
+        },
+    );
+    scene.layers.push(Layer::Tube {
+        id: "route".to_string(),
+        source: "t_route".to_string(),
+        color: Color::rgba(143, 76, 56, 255),
+        radius_px: 8.0,
+    });
+    assert_eq!(scene.validate(), Ok(()));
+    let json = serde_json::to_string(&scene).unwrap();
+    assert!(json.contains(r#""type":"tube""#), "{json}");
+    assert!(json.contains(r#""radius_px":8.0"#), "{json}");
+    let back: Scene = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, scene);
+
+    // A tube over a missing source is invalid like any other layer.
+    let mut bad = scene.clone();
+    bad.sources.clear();
+    assert!(matches!(
+        bad.validate(),
+        Err(SceneError::UnknownSource { .. })
+    ));
+}

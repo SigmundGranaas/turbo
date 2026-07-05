@@ -28,6 +28,14 @@ class TurbomapMapEngine(
      */
     var onMutated: () -> Unit = {}
 
+    /**
+     * The surface controller that owns the Scene document (plan P5.2). Sun,
+     * shadow, and cloud mutations are SCENE state, so they route here and
+     * become scene rebuilds — there are no imperative engine side-doors left.
+     * Null (e.g. the bare contract test) → environment mutations no-op.
+     */
+    internal var environmentHost: TurbomapSurfaceController? = null
+
     /** The host calls this when the surface is resized so [visibleBounds] stays correct. */
     fun onResized(width: Int, height: Int) {
         widthPx = width
@@ -130,22 +138,21 @@ class TurbomapMapEngine(
     }
 
     // ── WeatherCloudOverlay ─────────────────────────────────────────────────
-    // Straight to the native overlay; each redraws via [onMutated] so the
-    // render-on-demand loop picks up the new frame/time.
+    // The overlay's DECLARATION (grid, geo box, visibility) is scene state →
+    // [environmentHost] rebuilds + re-applies the Scene (which also redraws).
+    // Frame data + the playback clock stay native verbs: data is transport
+    // (like tiles) and the clock is control (like the camera).
 
     override fun enableClouds(gridW: Int, gridH: Int) {
-        NativeSurfaceMap.nativeEnableClouds(handle, gridW, gridH)
-        onMutated()
+        environmentHost?.enableClouds(gridW, gridH)
     }
 
     override fun setCloudsVisible(visible: Boolean) {
-        NativeSurfaceMap.nativeSetCloudsVisible(handle, visible)
-        onMutated()
+        environmentHost?.setCloudsVisible(visible)
     }
 
     override fun setCloudGeoBounds(west: Double, south: Double, east: Double, north: Double) {
-        NativeSurfaceMap.nativeSetCloudGeoBounds(handle, west, south, east, north)
-        onMutated()
+        environmentHost?.setCloudGeoBounds(west, south, east, north)
     }
 
     override fun ingestRadarFrame(slot: Int, gridW: Int, gridH: Int, precip: ByteArray, coverage: ByteArray) {
@@ -159,15 +166,14 @@ class TurbomapMapEngine(
     }
 
     // ── TerrainSunOverlay ───────────────────────────────────────────────────
+    // Scene state (the environment's lighting + terrain-shadows) → the host.
 
     override fun setSunTime(unixSeconds: Double) {
-        NativeSurfaceMap.nativeSetSunTime(handle, unixSeconds)
-        onMutated()
+        environmentHost?.setSunTime(unixSeconds)
     }
 
     override fun setTerrainShadows(strength: Float) {
-        NativeSurfaceMap.nativeSetTerrainShadows(handle, strength)
-        onMutated()
+        environmentHost?.setTerrainShadows(strength)
     }
 
     private companion object {

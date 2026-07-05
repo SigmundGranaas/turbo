@@ -25,9 +25,7 @@ use ndk::native_window::NativeWindow;
 use raw_window_handle::{
     AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
-use turbomap_core::{
-    Camera, Color as CoreColor, LatLng as CoreLatLng, MapOptions, PendingTile, TileId,
-};
+use turbomap_core::{Camera, LatLng as CoreLatLng, MapOptions, PendingTile, TileId};
 use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine};
 use turbomap_scene::{LatLng, Scene, ScreenPoint};
 
@@ -334,14 +332,6 @@ impl OnScreen {
                 c.center = LatLng::new(target.lat, target.lng);
                 self.engine.set_camera(c);
             }
-            Cmd::SetRouteTube {
-                id,
-                points,
-                color,
-                radius_m,
-            } => {
-                self.engine.set_route_tube(&id, &points, color, radius_m);
-            }
             Cmd::Fling(vx, vy) => self.engine.fling((vx, vy)),
             Cmd::ZoomFling { v, fx, fy } => self.engine.zoom_fling(v, (fx, fy)),
             Cmd::EaseTo {
@@ -384,11 +374,6 @@ impl OnScreen {
                 self.inset = px;
                 self.engine.set_viewport_inset(px);
             }
-            Cmd::SetTerrainShadows(s) => self.engine.set_terrain_shadows(s),
-            Cmd::SetSunTime(t) => self.engine.set_sun_time(t),
-            Cmd::EnableClouds { w, h } => self.engine.enable_clouds(w, h),
-            Cmd::SetCloudsVisible(v) => self.engine.set_clouds_visible(v),
-            Cmd::SetCloudGeoBounds { w, s, e, n } => self.engine.set_cloud_geo_bounds(w, s, e, n),
             Cmd::IngestRadar {
                 slot,
                 w,
@@ -553,14 +538,6 @@ enum Cmd {
         dx: f64,
         dy: f64,
     },
-    /// Set (or clear, when `points` is empty) a route/track polyline drawn as a
-    /// raised 3D tube. Replaces the old flat geo-json line for route/track.
-    SetRouteTube {
-        id: String,
-        points: Vec<CoreLatLng>,
-        color: CoreColor,
-        radius_m: f64,
-    },
     Fling(f64, f64),
     ZoomFling {
         v: f64,
@@ -597,19 +574,8 @@ enum Cmd {
     },
     CancelAnimation,
     SetViewportInset(f64),
-    SetTerrainShadows(f32),
-    SetSunTime(Option<f64>),
-    EnableClouds {
-        w: u32,
-        h: u32,
-    },
-    SetCloudsVisible(bool),
-    SetCloudGeoBounds {
-        w: f64,
-        s: f64,
-        e: f64,
-        n: f64,
-    },
+    // Environment/content mutations (sun, shadows, clouds config, tubes) have
+    // no Cmds: they are SCENE state (plan P5.2), carried by Cmd::ApplyScene.
     IngestRadar {
         slot: u32,
         w: u32,
@@ -1250,50 +1216,6 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     unsafe { enqueue(handle, Cmd::PanByPixels { dx, dy }) };
 }
 
-/// Set (or clear) a route/track polyline drawn as a raised 3D tube. `coords` is
-/// a flat `[lat0, lng0, lat1, lng1, …]` array (empty clears the tube `id`);
-/// `radius_m` is the tube radius in metres.
-#[no_mangle]
-#[allow(clippy::too_many_arguments)]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetRouteTube(
-    mut env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    id: JString,
-    coords: jni::objects::JDoubleArray,
-    r: jint,
-    g: jint,
-    b: jint,
-    a: jint,
-    radius_m: jdouble,
-) {
-    let id: String = match env.get_string(&id) {
-        Ok(s) => s.into(),
-        Err(_) => return,
-    };
-    let len = env.get_array_length(&coords).unwrap_or(0).max(0) as usize;
-    let mut buf = vec![0f64; len];
-    if len > 0 && env.get_double_array_region(&coords, 0, &mut buf).is_err() {
-        return;
-    }
-    let points: Vec<CoreLatLng> = buf
-        .chunks_exact(2)
-        .map(|c| CoreLatLng::new(c[0], c[1]))
-        .collect();
-    let color = CoreColor::rgba(r as u8, g as u8, b as u8, a as u8);
-    unsafe {
-        enqueue(
-            handle,
-            Cmd::SetRouteTube {
-                id,
-                points,
-                color,
-                radius_m,
-            },
-        )
-    };
-}
-
 /// `[lat, lng, zoom, bearingDeg]`.
 #[no_mangle]
 pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeCamera(
@@ -1603,95 +1525,12 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     }
 }
 
-// ---- weather-cloud overlay ----------------------------------------------
-
-/// Enable the procedural cloud overlay with a `gridW × gridH` radar grid.
-#[no_mangle]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeEnableClouds(
-    _env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    grid_w: jint,
-    grid_h: jint,
-) {
-    unsafe {
-        enqueue(
-            handle,
-            Cmd::EnableClouds {
-                w: grid_w.max(0) as u32,
-                h: grid_h.max(0) as u32,
-            },
-        )
-    };
-}
-
-/// Disable the overlay, or just hide it (`visible == false`) while keeping
-/// uploaded frames.
-#[no_mangle]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetCloudsVisible(
-    _env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    visible: jboolean,
-) {
-    unsafe { enqueue(handle, Cmd::SetCloudsVisible(visible != JNI_FALSE)) };
-}
-
-/// Track the sun to a real UTC instant (`unix_seconds`) at the camera, so
-/// terrain shading + the sky colour match the time of day. A negative value
-/// reverts to the fixed default sun.
-#[no_mangle]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetSunTime(
-    _env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    unix_seconds: jdouble,
-) {
-    let t = if unix_seconds < 0.0 {
-        None
-    } else {
-        Some(unix_seconds)
-    };
-    unsafe { enqueue(handle, Cmd::SetSunTime(t)) };
-}
-
-/// Enable terrain cast shadows (a peak shadows the valley behind it) at
-/// `strength` in `[0,1]`; 0 disables the feature (zero per-frame cost). Only
-/// affects 3D terrain. Distinct from the always-on Lambertian self-shading.
-#[no_mangle]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetTerrainShadows(
-    _env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    strength: jfloat,
-) {
-    unsafe { enqueue(handle, Cmd::SetTerrainShadows(strength)) };
-}
-
-/// Geo-register the radar to the `west/south/east/north` lat-lng box it covers
-/// → the cloud overlay world-locks (pans + zooms with the map).
-#[no_mangle]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetCloudGeoBounds(
-    _env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    west: jdouble,
-    south: jdouble,
-    east: jdouble,
-    north: jdouble,
-) {
-    unsafe {
-        enqueue(
-            handle,
-            Cmd::SetCloudGeoBounds {
-                w: west,
-                s: south,
-                e: east,
-                n: north,
-            },
-        )
-    };
-}
+// ---- weather-cloud overlay: transport + clock only (plan P5.2) -----------
+//
+// WHAT renders (grid, geo bounds, visibility, lighting, shadows) is Scene
+// state — declared in the IR's `environment` and applied via
+// `nativeApplyScene`. Only the frame DATA push (transport, like tiles) and
+// the playback clock (a control verb, like the camera) cross here.
 
 /// Upload a radar frame into `slot` (0 = current, 1 = next) from two
 /// `gridW * gridH` byte planes — `precip` and `coverage`, each 0..=255.
