@@ -1047,3 +1047,29 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   clippy: nothing new; wasm32 builds; **7/7 sim gates** (release,
   627.5 s). Phase 3 (workstream D) is COMPLETE. **Next: E1
   (`Environment` value) — its C2/D2 dependencies are long since met.**
+- _2026-07-05_: **E1 landed + verified — the Environment value, gate
+  satisfied.** `turbomap-core/src/environment.rs` (new): `Environment
+  { time_s, sun, atmosphere, aerial_haze, terrain_lit, basemap_gain,
+  wind, season }`, built once per frame by the atmosphere subsystem
+  (`Map::environment` — THE single derivation site) and consumed by
+  `RenderFrame::build`, which now derives every environmental uniform
+  from it. The "patched in `Map::render`" fields collapse: the frame
+  clock, basemap gain, lit gate and aerial-haze toggle are builder
+  inputs, not post-hoc mutations. **Grep-gate satisfied:** `sun_dir` /
+  `haze_*` / `time` / `basemap_gain` / `lit` are written in exactly one
+  place (`frame.rs::build`); `map.rs` retains only the shadow-field
+  transform writes, which belong to the shadow assembly. `wind` and
+  `season` are declared ahead of their first consumers (E2 wires wind
+  into cloud drift; season waits on M-MODELS) — calm/neutral until a
+  scene or host supplies them. One deliberate scope note: the hillshade
+  overlay's fixed cartographic sun (NW 315°) stays a STYLE parameter,
+  not an Environment sample — tying the 2D relief-shading convention to
+  the day cycle would invert the relief illusion whenever the real sun
+  sits in the south; the 3D terrain path already shares the one
+  Environment sun. **Verification:** pure config-flow refactor — every
+  golden byte-stable (no re-baseline), 54 workspace suites, clippy
+  clean, wasm32 builds, all engine gpu suites + golden crate green under
+  `REQUIRE_GPU=1` (Lavapipe), **7/7 sim gates** (release, 470.5 s).
+  **Next: E2 (clouds tick as a `SimulationSystem`)** — deterministic
+  replay via the D4 `set_time_override` hook, wind-driven drift from the
+  Environment.
