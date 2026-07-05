@@ -347,3 +347,43 @@ download → evict → re-download UX validated there too.
   the engine/ffi/wasm bindings forever. Invariant 7 now holds with ZERO
   exceptions. Verified: full ladder; **8/8 sim gates on the scene-declared
   environment path** (release, 539.9 s); goldens byte-stable.
+- _2026-07-05_: **P6.4 landed + verified — hit-testing on every binding.**
+  Geo-json feature properties ride into engine markers and out through
+  hits (`parse_points_with_props`; a tapped pin answers with its domain
+  id); wasm `hit_test` + JNI `nativeHitTest` (wait-free: exact under
+  `try_lock`, `[]` under contention) share one serializer
+  (`hits_to_json`); the Kotlin contract gains `hitTest`/`MapHit`
+  (compile-unverified — device agent); the reference `ModelEngine`
+  answers circle hits for real (the scene crate now parses geo-json at
+  runtime — serde_json promoted); and `check_hit_test_semantics` pins
+  the contract for every backend: layer id + properties are the pinned
+  surface, `feature_id` stays engine-internal. Full ladder green; 8/8
+  sim gates (release, 697.5 s).
+- _2026-07-05_: **P6.3 landed + verified — the web content plane.**
+  Routes/tracks (halo+stroke `line` layers, dash for unsolved previews),
+  marker pins (kind-coloured circle pairs; every pin a feature carrying
+  its id; selected pin emphasized), and the user-location dot
+  (halo+ring+dot circles) are scene-declared through a `map-core`
+  content store (`mapContent.ts`); the surface subscribes and re-applies
+  the one document. DOM survives only as interactive chrome — waypoint
+  drag handles, popups, the click ring; `RouteOverlay` kept its handles
+  and lost its SVG polyline, `MarkerPins`/`UserLocationLayer` render
+  nothing. Pin taps resolve through the engine's hit test. Gates: tsc,
+  eslint (boundaries hold), 21 vitest incl. the new `sceneContent` shape
+  pins, production build, wasm-pack rebuild, headless-Chromium boot
+  smoke. **Execution note:** apt's binaryen-108 `wasm-opt` corrupts the
+  module ("Table.grow failed" at instantiation) — build `--no-opt`
+  locally; CI downloads a proper binaryen.
+- _2026-07-05_: **P6.2a landed + verified — styles compile to the IR.**
+  `turbomap-style-maplibre` gains `parse_style_layers` (MapLibre JSON →
+  scene layers; covers match/interpolate/fill-extrusion beyond the old
+  VectorStyle parser) + `without_water_fill_layers`; the app's hand
+  styles are IR layer lists (`styles.rs`) with fidelity gates proving
+  the engine compiles them to rules equivalent to the originals; the IR
+  gains `Filter::ZoomRange` (serde-pinned, purely additive) and the
+  engine one shared compile seam (`compile_vector_layer_style`) used by
+  reconcile and the fidelity tests alike. Documented deviations live in
+  the ir.rs docs + tests (streets catch-all as explicit Not-In; legacy
+  width stops interpolate linearly; desktop vector-feature interactivity
+  narrows until the app adopts engine hit-testing in P6.2b). Remaining
+  for P6.2b: the app host rebuild on `TurbomapEngine` (in progress).
