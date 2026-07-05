@@ -410,3 +410,33 @@ download → evict → re-download UX validated there too.
   (road tiers, boundaries, place labels), markers, panel; a
   `TURBO_CLOUDS` boot applied the Field2D scene cleanly. Remaining in
   Phase 6: P6.5 (compositing honesty).
+- _2026-07-05_: **P6.5 landed + verified — one ordered stack; C3's
+  exception is retired.** Circle and tube layers are ordinary core stack
+  slots: `Map::add_circle_layer`/`add_marker_to_layer` (marker instances
+  stay in the ONE store — the hit-test source — grouped per layer, one
+  segmented instance upload, per-slot `markers:<id>` GroundMsaa nodes)
+  and `Map::add_tube_layer` (per-id index ranges into the combined route
+  mesh, per-slot `route-tubes:<id>` nodes); the engine's reconcile diffs
+  the WHOLE scene layer list as one prefix+tail (the P5.2 `tube_layers()`
+  special set and the whole-set circle rebuild are deleted). "Circle
+  below a fill" — C3's canonical inexpressible — is now rendered and
+  pinned by the new `interleave-content` golden (fill occludes circle +
+  tube + line; the circle outside the fill draws above the tube) and by
+  the new conformance clause `check_cross_track_ordering` (cross-kind
+  order held verbatim; cross-kind reorder = one `Moved`). Host verbs
+  `Map::add_marker`/`set_route_tube` keep their fixed top/after-stack
+  tracks (imperative pins, test harnesses — not scene content). The ONE
+  residual, documented on `Layer::Symbol`: label/icon CONTENT renders in
+  the screen-space symbol track above the stack (global collision world);
+  every other kind composites at its declared slot. **Parity proof**: at
+  the baseline commit and at the P6.5 tree, `UPDATE_GOLDEN=1` renders on
+  the same container are BYTE-IDENTICAL for all 21 pre-existing goldens
+  (15 differ from the committed refs only by pre-existing llvmpipe
+  version drift, identically in both runs). **Bonus catch**: the golden
+  exposed `geojson::parse_line` returning world-space mercator that the
+  tube installer re-projected as degrees — every scene-declared tube
+  since P5.2 baked at null island (the P5.2 gates asserted counts, never
+  pixels); fixed + unit-pinned. Full ladder green (workspace, clippy
+  `-D warnings`, wasm check, GPU suites incl. the new golden, 8/8 sim
+  gates release). Phase 6 in-container slices are COMPLETE (P6.6 stays
+  device-gated).

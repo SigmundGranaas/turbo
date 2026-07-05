@@ -294,15 +294,15 @@ pub enum Layer {
         #[serde(default)]
         dash_array: Option<Vec<f32>>,
     },
-    /// **Compositing note (plan C3, documented not hidden):** the wgpu
-    /// engine renders circles as instanced markers in the OVERLAY track —
-    /// above every positional layer (raster/fill/line/hillshade), alongside
-    /// icons and text — not interleaved at this stack position. Relative
-    /// order *among* positional layers and *among* circles is honoured;
-    /// "circle below a fill" is not expressible until the frame-graph work
-    /// (plan D1/D2) gives every contribution a declared slot. Authors
-    /// should treat circles as screen-space overlay content, which is what
-    /// the marker use-cases want anyway.
+    /// Instanced screen-space discs (markers/pins) over a GeoJSON point
+    /// source.
+    ///
+    /// **Compositing (plan P6.5 — C3's exception is retired):** circles
+    /// draw AT THIS STACK POSITION like every other layer — "circle below
+    /// a fill" is expressible and rendered (the wgpu engine gives each
+    /// circle layer its own frame-graph node, `markers:<id>`, at its slot).
+    /// The one remaining ordering exception is `Symbol` label/icon content
+    /// — see [`Layer::Symbol`].
     Circle {
         id: String,
         source: String,
@@ -318,6 +318,18 @@ pub enum Layer {
         color: Paint<Color>,
         radius: Paint<f32>,
     },
+    /// Text labels (and optional icons/shields) for a vector layer's
+    /// features.
+    ///
+    /// **Compositing note (the ONE documented ordering exception, plan
+    /// P6.5):** a symbol layer's *geometry slot* sits in the stack like any
+    /// layer, but its label/icon CONTENT renders in a fixed screen-space
+    /// symbol track above every stack layer (all icons, then all labels),
+    /// because labels collide in one global collision world per frame and
+    /// must stay legible over any content. So "fill above symbol" does not
+    /// occlude the symbol's text. Every other kind — raster, fill,
+    /// fill-extrusion, line, circle, tube, hillshade, custom — composites
+    /// exactly at its declared stack position.
     Symbol {
         id: String,
         source: String,
@@ -387,11 +399,13 @@ pub enum Layer {
         height_only: bool,
     },
     /// A route/track drawn as a raised 3D tube over the terrain (the
-    /// engine's route look since the 3D work): a single lit mesh, occluded
+    /// engine's route look since the 3D work): a lit mesh, occluded
     /// by relief, constant on-screen radius. `source` must be a GeoJSON
     /// LineString/MultiLineString. This is CONTENT — scene-declared like
     /// every layer (plan P5.2); the old imperative `set_route_tube`
-    /// side-door is gone.
+    /// side-door is gone. Composites at this stack position (plan P6.5 —
+    /// its own frame-graph node, `route-tubes:<id>`), so content declared
+    /// above a tube draws over it.
     Tube {
         id: String,
         source: String,

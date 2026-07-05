@@ -406,6 +406,110 @@ pub fn check_hit_test_semantics(engine: &mut dyn MapEngine) {
     );
 }
 
+/// Plan P6.5 — compositing honesty. The scene's layer order is ONE ordered
+/// stack across kinds: a `circle` interleaves with `fill`/`line`/`tube` at
+/// its declared index (C3's "overlay track" exception is retired), so a
+/// cross-kind reorder must be an ordinary minimal `Moved` — never a
+/// remove/re-add of "track" content — and the applied scene must hold the
+/// interleaved order verbatim (index = draw order; pixel truth is pinned by
+/// the `interleave-content` golden).
+///
+/// The one documented residual: `symbol` label/icon CONTENT renders in the
+/// screen-space symbol track above the stack (see `Layer::Symbol` docs);
+/// its slot still diffs/orders like every layer, which this check includes.
+pub fn check_cross_track_ordering(engine: &mut dyn MapEngine) {
+    fn layer_ids(scene: &Scene) -> Vec<&str> {
+        scene.layers.iter().map(|l| l.id()).collect()
+    }
+    // One geo-json source feeds line + circle + tube; fill gets a polygon.
+    let mut scene = raster_scene(&["base"]);
+    scene.sources.insert(
+        "content".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"LineString","coordinates":[[5.1,60.3],[5.32,60.39],[5.55,60.48]]}"#
+                .to_string(),
+        },
+    );
+    scene.sources.insert(
+        "area".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"Polygon","coordinates":[[[5.2,60.34],[5.45,60.34],[5.45,60.45],[5.2,60.45],[5.2,60.34]]]}"#
+                .to_string(),
+        },
+    );
+    let line = Layer::Line {
+        id: "trail".to_string(),
+        source: "content".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(20, 90, 200)),
+        width: Paint::Const(3.0),
+        dash_array: None,
+    };
+    let circle = Layer::Circle {
+        id: "pins".to_string(),
+        source: "content".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(255, 200, 0)),
+        radius: Paint::Const(8.0),
+    };
+    let tube = Layer::Tube {
+        id: "route-3d".to_string(),
+        source: "content".to_string(),
+        color: Color::rgba(143, 76, 56, 255),
+        radius_px: 6.0,
+    };
+    let fill = Layer::Fill {
+        id: "zone".to_string(),
+        source: "area".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(40, 140, 90)),
+        opacity: Paint::Const(1.0),
+    };
+
+    // An interleaved cross-kind stack must be held verbatim: tube below
+    // circle below fill ("circle below a fill" is the exact ordering C3
+    // called inexpressible).
+    let mut a = scene.clone();
+    a.layers
+        .extend([line.clone(), tube.clone(), circle.clone(), fill.clone()]);
+    engine.apply(a.clone());
+    assert_eq!(
+        layer_ids(engine.scene()),
+        vec!["base", "trail", "route-3d", "pins", "zone"],
+        "the applied scene must hold the interleaved cross-kind order"
+    );
+
+    // Moving the circle ABOVE the fill is a pure reorder — one Moved, no
+    // add/remove/update churn. Cross-kind order is ordinary stack order.
+    let mut b = scene;
+    b.layers.extend([line, tube, fill, circle]);
+    let delta = engine.apply(b);
+    assert!(
+        !delta.layers.iter().any(|c| matches!(
+            c,
+            LayerChange::Added { .. } | LayerChange::Removed { .. } | LayerChange::Updated { .. }
+        )),
+        "a cross-kind reorder must not add/remove/update, got {delta:?}"
+    );
+    let moves = delta
+        .layers
+        .iter()
+        .filter(|c| matches!(c, LayerChange::Moved { .. }))
+        .count();
+    assert_eq!(
+        moves, 1,
+        "swapping a circle over a fill must be exactly one Moved, got {delta:?}"
+    );
+    assert_eq!(
+        layer_ids(engine.scene()),
+        vec!["base", "trail", "route-3d", "zone", "pins"],
+        "the reordered cross-kind stack must be held verbatim"
+    );
+}
+
 /// Run the entire suite against engines from `factory`. A fresh engine is
 /// built per check so mutations don't leak between cases.
 pub fn run_all(factory: &dyn Fn() -> Box<dyn MapEngine>) {
@@ -416,6 +520,7 @@ pub fn run_all(factory: &dyn Fn() -> Box<dyn MapEngine>) {
     check_add_then_remove(&mut *factory());
     check_custom_layer_roundtrip(&mut *factory());
     check_reorder_is_minimal(&mut *factory());
+    check_cross_track_ordering(&mut *factory());
     check_repaint_is_update_only(&mut *factory());
     check_source_update_detected(&mut *factory());
     check_environment_diffing(&mut *factory());

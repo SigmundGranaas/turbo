@@ -206,6 +206,9 @@ impl RoutePipeline {
             .write_buffer(&self.index_buffer, 0, bytemuck::cast_slice(indices));
     }
 
+    /// Draw the index range `[start, end)` of the combined mesh — one tube's
+    /// slice (its stack slot) or any concatenation of slices. Clamped to the
+    /// uploaded mesh; empty/degenerate ranges no-op.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn draw(
         &self,
@@ -217,9 +220,12 @@ impl RoutePipeline {
         sun_dir: [f32; 3],
         ambient: f32,
         light_color: [f32; 3],
+        range: std::ops::Range<u32>,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
-        if self.index_count == 0 {
+        let start = range.start.min(self.index_count);
+        let end = range.end.min(self.index_count);
+        if start >= end {
             return;
         }
         self.queue.write_buffer(
@@ -240,7 +246,7 @@ impl RoutePipeline {
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        pass.draw_indexed(0..self.index_count, 0, 0..1);
+        pass.draw_indexed(start..end, 0, 0..1);
     }
 }
 

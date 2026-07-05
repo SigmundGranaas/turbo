@@ -314,13 +314,27 @@ fn parse_positions(coords: &[serde_json::Value]) -> Option<Vec<(f64, f64)>> {
 /// polyline of `(lng, lat)` pairs — the scene-declared route-tube layer's
 /// geometry (plan P5.2). Multiple lines concatenate in document order (a
 /// recorded track split into segments still reads as one route).
+///
+/// GEOGRAPHIC degrees, like [`parse_points`] — NOT the world space
+/// [`ParsedGeometry`] holds internally. The P6.5 `interleave-content`
+/// golden caught this returning world coordinates that the tube installer
+/// then re-projected as if they were degrees, baking every scene-declared
+/// tube at null island (the P5.2 tests only asserted install/remove
+/// counts, never pixels).
 pub fn parse_line(data: &str) -> Vec<(f64, f64)> {
     let Ok(root) = serde_json::from_str::<serde_json::Value>(data) else {
         return Vec::new();
     };
     let mut geo = ParsedGeometry::default();
     collect_geometries(&root, &Default::default(), &mut geo);
-    geo.lines.into_iter().flat_map(|(line, _)| line).collect()
+    geo.lines
+        .into_iter()
+        .flat_map(|(line, _)| line)
+        .map(|(x, y)| {
+            let ll = turbomap_scene::geo::inverse_mercator(x, y);
+            (ll.lng, ll.lat)
+        })
+        .collect()
 }
 
 /// Parse GeoJSON `Point`/`MultiPoint` geometry into `(lng, lat)` pairs —
@@ -595,6 +609,20 @@ mod tests {
         ];
         let subs = clip_polyline(&line, RECT);
         assert!(subs.len() >= 2, "expected disconnected runs, got {subs:?}");
+    }
+
+    #[test]
+    fn parse_line_returns_geographic_degrees() {
+        // The tube installer feeds these to `LatLng` verbatim - a world-space
+        // leak here bakes the whole route at null island (the P6.5 golden's
+        // catch). Pin the round trip.
+        let pts = parse_line(r#"{"type":"LineString","coordinates":[[5.06,60.32],[5.58,60.46]]}"#);
+        assert_eq!(pts.len(), 2);
+        assert!(
+            (pts[0].0 - 5.06).abs() < 1e-9 && (pts[0].1 - 60.32).abs() < 1e-9,
+            "expected (lng, lat) degrees, got {pts:?}"
+        );
+        assert!((pts[1].0 - 5.58).abs() < 1e-9 && (pts[1].1 - 60.46).abs() < 1e-9);
     }
 
     #[test]

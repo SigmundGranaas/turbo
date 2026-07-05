@@ -224,6 +224,10 @@ fn content_has_one_authoring_surface() {
         "fn set_terrain_shadows",
         "fn set_clouds_visible",
         "fn set_route_tube",
+        // The P6.5 slot verbs are core `Map` reconcile plumbing, same rule.
+        "fn add_tube_layer",
+        "fn add_circle_layer",
+        "fn add_marker_to_layer",
         "fn enable_clouds",
         "fn disable_clouds",
         "fn set_cloud_sim",

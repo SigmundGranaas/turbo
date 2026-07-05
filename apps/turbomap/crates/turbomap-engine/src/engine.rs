@@ -155,19 +155,20 @@ impl TurbomapEngine {
     /// Bring the core `Map` in line with the new scene (`self.scene`),
     /// given the previous `old`, doing the *minimal* GPU work.
     ///
-    /// Positional GPU layers (raster/line/fill/hillshade) reconcile by a
-    /// longest-unchanged-prefix + tail rebuild: a layer is "unchanged"
-    /// only if both its definition and its source data are unchanged, so
-    /// appending an overlay or repainting the top layer leaves the rest of
-    /// the stack — and its GPU tile caches — untouched. Circle layers
-    /// (markers) rebuild only when a circle layer or its data changes.
+    /// Every renderable layer kind occupies a slot in the core layer stack
+    /// (plan P6.5 — the IR's order is the composited order, circles and
+    /// tubes included) and reconciles by a longest-unchanged-prefix + tail
+    /// rebuild: a layer is "unchanged" only if both its definition and its
+    /// source data are unchanged, so appending an overlay or repainting the
+    /// top layer leaves the rest of the stack — and its GPU tile caches —
+    /// untouched.
     fn reconcile(&mut self, old: &Scene) {
         let new = self.scene.clone();
         let dirty = dirty_sources(old, &new);
 
-        // --- positional GPU layers: longest-unchanged-prefix + tail rebuild
-        let old_pos = positional_layers(old);
-        let new_pos = positional_layers(&new);
+        // --- stacked layers: longest-unchanged-prefix + tail rebuild
+        let old_pos = stacked_layers(old);
+        let new_pos = stacked_layers(&new);
         let mut prefix = 0;
         while prefix < old_pos.len()
             && prefix < new_pos.len()
@@ -180,6 +181,8 @@ impl TurbomapEngine {
             prefix += 1;
         }
         // Remove the divergent tail (reverse order keeps ids stable).
+        // `remove_layer` also drops slot-owned content (a circle layer's
+        // markers, a tube layer's mesh).
         let current = self.map.layer_ids();
         for id in current.iter().skip(prefix).rev() {
             self.map.remove_layer(id);
@@ -190,28 +193,7 @@ impl TurbomapEngine {
         }
         // Re-install the new tail in order (core appends).
         for layer in new_pos.iter().skip(prefix) {
-            self.install_positional(layer, &new);
-        }
-
-        // --- route tubes: scene content, but each is an overlay MESH keyed
-        // by id (not a core stack layer), so they diff as their own set.
-        // An undeclared id clears (an empty polyline removes the mesh); a
-        // new or changed declaration (or dirty source) re-installs — the
-        // core's set_route_tube is idempotent per id.
-        let old_tubes = tube_layers(old);
-        let new_tubes = tube_layers(&new);
-        for t in &old_tubes {
-            if !new_tubes.iter().any(|n| n.id() == t.id()) {
-                self.map
-                    .set_route_tube(t.id(), &[], CoreColor::rgba(0, 0, 0, 0), 0.0);
-            }
-        }
-        for t in &new_tubes {
-            let unchanged = old_tubes.iter().any(|o| o == t)
-                && t.source().map(|s| !dirty.contains(s)).unwrap_or(true);
-            if !unchanged {
-                self.install_positional(t, &new);
-            }
+            self.install_layer(layer, &new);
         }
         // Terrain is global; if the new scene has no hillshade, drop it.
         if !new
@@ -223,15 +205,6 @@ impl TurbomapEngine {
             self.terrain_source = None;
         }
 
-        // --- circle layers → markers: rebuild only when they or their data change
-        let circles_changed = circle_layers(old) != circle_layers(&new)
-            || circle_layers(&new)
-                .iter()
-                .any(|l| l.source().map(|s| dirty.contains(s)).unwrap_or(false));
-        if circles_changed {
-            self.rebuild_markers(&new);
-        }
-
         // --- unsupported report: a pure scan over the whole scene
         self.unsupported = new
             .layers
@@ -241,8 +214,8 @@ impl TurbomapEngine {
             .collect();
     }
 
-    /// Install one positional layer into the core map (append).
-    fn install_positional(&mut self, layer: &Layer, scene: &Scene) {
+    /// Install one layer into the core map's stack (append).
+    fn install_layer(&mut self, layer: &Layer, scene: &Scene) {
         // Any (re)install of a vector layer invalidates tessellations built
         // against its previous style: bump the layer's style epoch so
         // in-flight decode results are dropped at apply. Entries are never
@@ -303,20 +276,54 @@ impl TurbomapEngine {
                 radius_px,
             } => {
                 // Scene-declared 3D route tube (plan P5.2). The polyline
-                // comes straight from the GeoJSON source; the tube mesh is
-                // not a stack layer, so removal is handled in `reconcile`'s
-                // tube diff, not the positional prefix.
+                // comes straight from the GeoJSON source; since P6.5 the
+                // tube is an ordinary stack layer — it draws at this slot
+                // and the prefix diff owns its removal.
                 if let Some(SourceDef::GeoJson { data }) = scene.sources.get(source) {
                     let points: Vec<CoreLatLng> = crate::geojson::parse_line(data)
                         .into_iter()
                         .map(|(lng, lat)| CoreLatLng::new(lat, lng))
                         .collect();
-                    self.map.set_route_tube(
-                        id,
+                    self.map.add_tube_layer(
+                        id.clone(),
                         &points,
                         CoreColor::rgba(color.r, color.g, color.b, color.a),
                         *radius_px,
                     );
+                }
+            }
+            Layer::Circle {
+                id,
+                source,
+                color,
+                radius,
+                ..
+            } => {
+                // Scene-declared circle layer: a marker-group slot in the
+                // core stack (plan P6.5 — a circle can sit below a fill).
+                // Instances go into the one marker store, which stays the
+                // hit-test source; feature properties ride into each
+                // marker's data (P6.4) so a tap answers with the feature's
+                // domain attributes. `layer` is reserved.
+                if let Some(SourceDef::GeoJson { data }) = scene.sources.get(source) {
+                    let zoom = self.map.camera().zoom;
+                    let c = color.at(zoom);
+                    let r = radius.at(zoom) * self.pixel_ratio;
+                    self.map.add_circle_layer(id.clone());
+                    for ((lng, lat), props) in crate::geojson::parse_points_with_props(data) {
+                        let mut data: HashMap<String, String> = props;
+                        data.insert("layer".to_string(), id.clone());
+                        self.map.add_marker_to_layer(
+                            id,
+                            Marker {
+                                id: MarkerId(0),
+                                lng_lat: CoreLatLng { lng, lat },
+                                radius_px: r,
+                                color: CoreColor::rgba(c.r, c.g, c.b, c.a),
+                                data,
+                            },
+                        );
+                    }
                 }
             }
             Layer::Line {
@@ -395,44 +402,6 @@ impl TurbomapEngine {
                         .expect("Symbol compiles to a vector style");
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
-                }
-            }
-            // Circles and unsupported kinds are handled outside the
-            // positional stack.
-            _ => {}
-        }
-    }
-
-    fn rebuild_markers(&mut self, scene: &Scene) {
-        self.map.clear_markers();
-        let zoom = self.map.camera().zoom;
-        for layer in &scene.layers {
-            let Layer::Circle {
-                id,
-                source,
-                color,
-                radius,
-                ..
-            } = layer
-            else {
-                continue;
-            };
-            if let Some(SourceDef::GeoJson { data }) = scene.sources.get(source) {
-                let c = color.at(zoom);
-                let r = radius.at(zoom) * self.pixel_ratio;
-                // Feature properties ride into the marker's data (P6.4) so a
-                // hit test answers with the feature's domain attributes
-                // (id, name), not just a position. `layer` is reserved.
-                for ((lng, lat), props) in crate::geojson::parse_points_with_props(data) {
-                    let mut data: HashMap<String, String> = props;
-                    data.insert("layer".to_string(), id.clone());
-                    self.map.add_marker(Marker {
-                        id: MarkerId(0),
-                        lng_lat: CoreLatLng { lng, lat },
-                        radius_px: r,
-                        color: CoreColor::rgba(c.r, c.g, c.b, c.a),
-                        data,
-                    });
                 }
             }
         }
@@ -1230,48 +1199,13 @@ fn from_core_camera(c: Camera) -> CameraState {
     }
 }
 
-/// Positional GPU layers in scene order — the ones that occupy a slot in
-/// the core layer stack (everything but circles/symbol/custom).
-fn positional_layers(scene: &Scene) -> Vec<Layer> {
-    scene
-        .layers
-        .iter()
-        .filter(|l| {
-            matches!(
-                l,
-                Layer::Raster { .. }
-                    | Layer::Line { .. }
-                    | Layer::Fill { .. }
-                    | Layer::FillExtrusion { .. }
-                    | Layer::Symbol { .. }
-                    | Layer::Hillshade { .. }
-                    | Layer::Custom { .. }
-            )
-        })
-        .cloned()
-        .collect()
-}
-
-/// The scene's route-tube declarations. Tubes are scene content like any
-/// layer, but each installs an overlay MESH keyed by id — not a core stack
-/// layer — so they must not enter the positional prefix (whose removal
-/// walks the core's `layer_ids`, which never contain a tube). They diff
-/// as their own set in `reconcile`.
-fn tube_layers(scene: &Scene) -> Vec<&Layer> {
-    scene
-        .layers
-        .iter()
-        .filter(|l| matches!(l, Layer::Tube { .. }))
-        .collect()
-}
-
-fn circle_layers(scene: &Scene) -> Vec<Layer> {
-    scene
-        .layers
-        .iter()
-        .filter(|l| matches!(l, Layer::Circle { .. }))
-        .cloned()
-        .collect()
+/// The scene's layers in order — every kind occupies a slot in the core
+/// layer stack (plan P6.5: circle and tube layers included, so the IR's
+/// order is the composited order; the P5.2 special-cased tube set and the
+/// whole-set circle rebuild are gone). This is the whole `layers` vec today;
+/// the seam stays so a future non-stack kind has one place to opt out.
+fn stacked_layers(scene: &Scene) -> Vec<Layer> {
+    scene.layers.to_vec()
 }
 
 /// Source keys whose definition was added or changed between scenes — the

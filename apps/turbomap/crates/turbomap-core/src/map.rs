@@ -11,8 +11,16 @@
 //! 1. The pass clears to the first visible layer's background (vector
 //!    layers' style background; otherwise the shared backdrop).
 //! 2. Each visible layer's geometry draws in order, compositing on top.
-//! 3. After all layer geometry, labels draw per visible vector layer.
-//! 4. Finally, markers paint on top.
+//!    Since plan P6.5 that stack includes circle-marker layers
+//!    ([`Map::add_circle_layer`]) and route-tube layers
+//!    ([`Map::add_tube_layer`]) — every scene-declared content kind draws
+//!    at its stack slot, so the IR's layer order IS the composited order.
+//! 3. After all layer geometry, icon sprites then labels draw per visible
+//!    vector layer (one screen-space symbol track above the stack — the
+//!    one documented ordering exception, see `turbomap-scene`'s
+//!    `Layer::Symbol` docs).
+//! 4. Finally, host-imperative markers ([`Map::add_marker`] — not scene
+//!    content) paint on top.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -317,6 +325,15 @@ enum LayerEntry {
     Vector(Box<VectorLayer>),
     Hillshade(Box<HillshadeLayer>),
     Custom(Box<CustomLayerHolder>),
+    /// A scene-declared circle layer (plan P6.5): the stack slot that draws
+    /// the marker instances grouped under `id` in the [`MarkerManager`].
+    /// The slot owns the *position*; the store owns the data (it stays the
+    /// one hit-test source for every marker).
+    Markers(Box<MarkerGroupLayer>),
+    /// A scene-declared route-tube layer (plan P6.5): the stack slot that
+    /// draws tube `id`'s slice of the combined route mesh, so relief content
+    /// composites at its declared position instead of a fixed track.
+    Tube(Box<TubeLayer>),
 }
 
 /// Per-layer output of the render prep phase (Phase A). Tagged with
@@ -329,6 +346,11 @@ enum PreparedLayer {
     /// Prepared state lives inside the `CustomLayer` impl (its `prepare`
     /// already ran); this tag just keeps the layer in the draw pairing.
     Custom,
+    /// A circle layer's segment index into the frame's shared
+    /// `PreparedMarkers` (the marker pipeline uploads every segment at once).
+    Markers(usize),
+    /// The tube's index range is looked up by id at draw time.
+    Tube,
 }
 
 struct RasterLayer {
@@ -380,6 +402,20 @@ struct CustomLayerHolder {
     visible: bool,
 }
 
+/// A circle layer's stack slot (plan P6.5). Pure position: the markers
+/// themselves live in the [`MarkerManager`] under group `id`.
+struct MarkerGroupLayer {
+    id: String,
+    visible: bool,
+}
+
+/// A route-tube layer's stack slot (plan P6.5). Pure position: the polyline
+/// + baked mesh slice live in [`RouteTubeState`] under `id`.
+struct TubeLayer {
+    id: String,
+    visible: bool,
+}
+
 /// The ordered stack of render layers (raster basemaps, vector overlays,
 /// hillshade), bottom-to-top. Owns the `Vec<LayerEntry>` plus the by-id query
 /// and mutation logic that used to live as a dozen scanning loops on `Map`.
@@ -416,6 +452,8 @@ impl LayerStack {
             LayerEntry::Vector(v) => &v.id,
             LayerEntry::Hillshade(h) => &h.id,
             LayerEntry::Custom(c) => &c.id,
+            LayerEntry::Markers(m) => &m.id,
+            LayerEntry::Tube(t) => &t.id,
         }
     }
 
@@ -465,6 +503,8 @@ impl LayerStack {
             LayerEntry::Vector(v) if v.id == id => Some(v.visible),
             LayerEntry::Hillshade(h) if h.id == id => Some(h.visible),
             LayerEntry::Custom(c) if c.id == id => Some(c.visible),
+            LayerEntry::Markers(m) if m.id == id => Some(m.visible),
+            LayerEntry::Tube(t) if t.id == id => Some(t.visible),
             _ => None,
         })
     }
@@ -476,6 +516,8 @@ impl LayerStack {
                 LayerEntry::Vector(v) => (&v.id, &mut v.visible),
                 LayerEntry::Hillshade(h) => (&h.id, &mut h.visible),
                 LayerEntry::Custom(c) => (&c.id, &mut c.visible),
+                LayerEntry::Markers(m) => (&m.id, &mut m.visible),
+                LayerEntry::Tube(t) => (&t.id, &mut t.visible),
             };
             if lid == id {
                 *lvis = visible;
@@ -491,9 +533,10 @@ impl LayerStack {
                 LayerEntry::Raster(r) => (&r.id, &mut r.fade_in_secs),
                 LayerEntry::Vector(v) => (&v.id, &mut v.fade_in_secs),
                 LayerEntry::Hillshade(h) => (&h.id, &mut h.fade_in_secs),
-                // Custom layers own their look entirely; fade-in is a
-                // tile-layer concept and a silent no-op here.
-                LayerEntry::Custom(_) => continue,
+                // Custom layers own their look entirely; markers/tubes are
+                // instance/mesh content — fade-in is a tile-layer concept
+                // and a silent no-op for all three.
+                LayerEntry::Custom(_) | LayerEntry::Markers(_) | LayerEntry::Tube(_) => continue,
             };
             if lid == id {
                 *fade = secs.max(0.0);
@@ -524,6 +567,8 @@ impl LayerStack {
             LayerEntry::Vector(v) => v.visible,
             LayerEntry::Hillshade(h) => h.visible,
             LayerEntry::Custom(c) => c.visible,
+            LayerEntry::Markers(m) => m.visible,
+            LayerEntry::Tube(t) => t.visible,
         })
     }
 
@@ -536,7 +581,10 @@ impl LayerStack {
             .filter_map(|l| match l {
                 LayerEntry::Raster(r) => Some((r.source.min_zoom(), r.source.max_zoom())),
                 LayerEntry::Vector(v) => Some((v.source.min_zoom(), v.source.max_zoom())),
-                LayerEntry::Hillshade(_) | LayerEntry::Custom(_) => None,
+                LayerEntry::Hillshade(_)
+                | LayerEntry::Custom(_)
+                | LayerEntry::Markers(_)
+                | LayerEntry::Tube(_) => None,
             })
             .collect()
     }
@@ -548,7 +596,10 @@ impl LayerStack {
         self.entries.iter().find_map(|l| match l {
             LayerEntry::Raster(r) => Some(&r.scene),
             LayerEntry::Vector(v) => Some(&v.scene),
-            LayerEntry::Hillshade(_) | LayerEntry::Custom(_) => None,
+            LayerEntry::Hillshade(_)
+            | LayerEntry::Custom(_)
+            | LayerEntry::Markers(_)
+            | LayerEntry::Tube(_) => None,
         })
     }
 }
@@ -690,8 +741,13 @@ impl Subsystem for BasemapSubsystem {
                 // Hillshade reads the shared terrain cache — counted by the
                 // terrain subsystem, not double-counted here. Custom layers
                 // own opaque GPU state; byte accounting arrives when the
-                // trait grows a budget hook.
-                LayerEntry::Hillshade(_) | LayerEntry::Custom(_) => {}
+                // trait grows a budget hook. Marker/tube slots are pure
+                // positions — their data is counted by the overlays
+                // subsystem that stores it.
+                LayerEntry::Hillshade(_)
+                | LayerEntry::Custom(_)
+                | LayerEntry::Markers(_)
+                | LayerEntry::Tube(_) => {}
             }
         }
         r
@@ -706,6 +762,8 @@ impl Subsystem for BasemapSubsystem {
                     LayerEntry::Vector(e) => (&e.id, "vector", e.visible),
                     LayerEntry::Hillshade(e) => (&e.id, "hillshade", e.visible),
                     LayerEntry::Custom(e) => (&e.id, "custom", e.visible),
+                    LayerEntry::Markers(e) => (&e.id, "circle", e.visible),
+                    LayerEntry::Tube(e) => (&e.id, "tube", e.visible),
                 };
                 // Custom layers also report the registry kind they were
                 // bound by — "which contribution is this" is exactly what
@@ -1139,6 +1197,12 @@ pub struct Map {
 struct RouteTubeState {
     /// id → (world-space polyline, color, radius in metres).
     tubes: std::collections::HashMap<String, RouteTube>,
+    /// id → `[start, end)` index range of that tube's slice in the combined
+    /// mesh, rebuilt with it. Slotted tube layers draw their own slice at
+    /// their stack position (plan P6.5); tubes with no stack slot (the
+    /// imperative [`Map::set_route_tube`] path) draw in the legacy
+    /// after-the-stack node.
+    ranges: std::collections::HashMap<String, (u32, u32)>,
     /// Bumped on every terrain ingest; a tube rebuilt at an older generation is
     /// stale (its baked elevations predate newly-loaded DEM) and re-drapes.
     terrain_gen: u64,
@@ -1376,6 +1440,11 @@ impl Map {
     /// `points` are lng/lat; empty clears the tube `id`. `radius_px` is the tube
     /// radius in screen pixels (constant thickness at any zoom). Rebuilt against
     /// the terrain on next render.
+    ///
+    /// This is the *imperative* tube verb (test/dev harnesses): the tube has
+    /// no stack slot and draws in the fixed after-the-stack node. Scene
+    /// content goes through [`Map::add_tube_layer`], which composites the
+    /// tube at its declared stack position (plan P6.5).
     pub fn set_route_tube(&mut self, id: &str, points: &[LatLng], color: Color, radius_px: f64) {
         if points.len() < 2 {
             if self.overlays.route_tubes.tubes.remove(id).is_some() {
@@ -1408,6 +1477,7 @@ impl Map {
         const SEGMENTS: usize = 8;
         if self.overlays.route_tubes.tubes.is_empty() {
             self.overlays.route_pipeline.upload(&[], &[]);
+            self.overlays.route_tubes.ranges.clear();
             self.overlays.route_tubes.built_gen = self.overlays.route_tubes.terrain_gen;
             self.overlays.route_tubes.dirty = false;
             return;
@@ -1436,7 +1506,15 @@ impl Map {
 
         let mut verts: Vec<RouteVertex> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
-        for tube in self.overlays.route_tubes.tubes.values() {
+        let mut ranges: std::collections::HashMap<String, (u32, u32)> =
+            std::collections::HashMap::with_capacity(self.overlays.route_tubes.tubes.len());
+        // Deterministic build order (HashMap iteration is random) so the
+        // per-id index ranges — and the legacy node's blend order — are
+        // stable frame to frame.
+        let mut ids: Vec<&String> = self.overlays.route_tubes.tubes.keys().collect();
+        ids.sort();
+        for id in ids {
+            let tube = &self.overlays.route_tubes.tubes[id];
             // Bake the terrain surface height per centerline point via the
             // Surface query (plan D3); the tube radius + lift above it are
             // applied GPU-side (constant screen size).
@@ -1454,10 +1532,13 @@ impl Map {
                 .collect();
             let (v, i) = build_tube(&tube.points, &world_z, origin, SEGMENTS, tube.color);
             let base = verts.len() as u32;
+            let start = indices.len() as u32;
             verts.extend(v);
             indices.extend(i.into_iter().map(|idx| idx + base));
+            ranges.insert(id.clone(), (start, indices.len() as u32));
         }
         self.overlays.route_pipeline.upload(&verts, &indices);
+        self.overlays.route_tubes.ranges = ranges;
         self.overlays.route_tubes.origin = origin;
         self.overlays.route_tubes.built_gen = self.overlays.route_tubes.terrain_gen;
         self.overlays.route_tubes.dirty = false;
@@ -1942,6 +2023,47 @@ impl Map {
             })));
     }
 
+    /// Append a circle-marker layer (plan P6.5): a stack slot that draws the
+    /// markers added under this layer id ([`Map::add_marker_to_layer`]) at
+    /// its position in the layer order — a circle can sit *below* a fill.
+    /// The markers live in the one marker store, so hit-testing keeps a
+    /// single source regardless of where a marker paints.
+    pub fn add_circle_layer(&mut self, id: impl Into<String>) {
+        self.basemap
+            .layers
+            .push(LayerEntry::Markers(Box::new(MarkerGroupLayer {
+                id: id.into(),
+                visible: true,
+            })));
+    }
+
+    /// Add a marker owned by the circle layer `layer_id` — it draws at that
+    /// layer's stack slot (unlike [`Map::add_marker`]'s host pins, which
+    /// paint in the fixed top track). Removing the layer removes its
+    /// markers. Same id-assignment rules as [`Map::add_marker`].
+    pub fn add_marker_to_layer(&mut self, layer_id: &str, marker: Marker) -> MarkerId {
+        self.overlays.markers.add_to_group(layer_id, marker)
+    }
+
+    /// Append a route-tube layer (plan P6.5): the raised 3D tube over
+    /// `points`, compositing at this stack position (typically above the
+    /// basemap and below any overlay content declared after it). Fewer than
+    /// 2 points installs the slot with an empty mesh (nothing draws).
+    /// Removing the layer removes the mesh.
+    pub fn add_tube_layer(
+        &mut self,
+        id: impl Into<String>,
+        points: &[LatLng],
+        color: Color,
+        radius_px: f64,
+    ) {
+        let id = id.into();
+        self.set_route_tube(&id, points, color, radius_px);
+        self.basemap
+            .layers
+            .push(LayerEntry::Tube(Box::new(TubeLayer { id, visible: true })));
+    }
+
     /// Pin the frame's animation clock (haze drift, custom-layer `time_s`)
     /// to a fixed value; `None` returns to the wall clock. Deterministic
     /// rendering for goldens/replay.
@@ -2016,6 +2138,23 @@ impl Map {
     }
 
     pub fn remove_layer(&mut self, id: &str) {
+        // A circle/tube slot owns content in the overlays subsystem —
+        // removing the layer removes its markers / its tube mesh, so a
+        // scene diff that drops the layer drops the pixels with it.
+        let kind = self.basemap.layers.iter().find_map(|l| match l {
+            LayerEntry::Markers(m) if m.id == id => Some(LayerKind::Circle),
+            LayerEntry::Tube(t) if t.id == id => Some(LayerKind::Tube),
+            _ => None,
+        });
+        match kind {
+            Some(LayerKind::Circle) => self.overlays.markers.remove_group(id),
+            Some(LayerKind::Tube) => {
+                if self.overlays.route_tubes.tubes.remove(id).is_some() {
+                    self.overlays.route_tubes.dirty = true;
+                }
+            }
+            _ => {}
+        }
         // Dropping a layer can widen or narrow the source-derived lock.
         if self.basemap.layers.remove(id) {
             if let Some(l) = self.world_layer_ids.get(id) {
@@ -2341,7 +2480,8 @@ impl Map {
             // A custom layer animates on its own clock; hosts that want
             // continuous animation drive frames themselves (a custom-layer
             // "I'm animating" hook can join the trait when one needs it).
-            LayerEntry::Custom(_) => false,
+            // Marker/tube slots don't fade.
+            LayerEntry::Custom(_) | LayerEntry::Markers(_) | LayerEntry::Tube(_) => false,
         })
     }
 
@@ -2424,8 +2564,12 @@ impl Map {
                 }
                 // Hillshade no longer owns a scene — it iterates the
                 // shared terrain scene at render time. Custom layers get
-                // the camera per frame via `CustomFrameCtx`.
-                LayerEntry::Hillshade(_) | LayerEntry::Custom(_) => {}
+                // the camera per frame via `CustomFrameCtx`; marker/tube
+                // slots project against the live camera each frame.
+                LayerEntry::Hillshade(_)
+                | LayerEntry::Custom(_)
+                | LayerEntry::Markers(_)
+                | LayerEntry::Tube(_) => {}
             }
         }
         if let Some(t) = self.terrain.data.as_mut() {
@@ -2815,7 +2959,10 @@ impl Map {
                     LayerEntry::Vector(v) => {
                         want_scene(&mut lc, &mut wanted, Some(&v.id), &v.scene)
                     }
-                    LayerEntry::Hillshade(_) | LayerEntry::Custom(_) => {}
+                    LayerEntry::Hillshade(_)
+                    | LayerEntry::Custom(_)
+                    | LayerEntry::Markers(_)
+                    | LayerEntry::Tube(_) => {}
                 }
             }
             if let Some(t) = self.terrain.data.as_ref() {
@@ -3345,9 +3492,58 @@ impl Map {
     // its own named graph node (`layer:<id>`) directly in `render`, so the
     // pass report times layers individually and any one can be masked off.
 
-    /// Draw the route/track 3-D tubes into `pass` (after ground layers so the
-    /// terrain occludes them, before screen-space overlays).
-    fn draw_route_tubes(&self, pass: &mut wgpu::RenderPass<'_>, frame: &RenderFrame) {
+    /// Draw one tube layer's slice of the combined route mesh at its stack
+    /// slot (plan P6.5).
+    fn draw_route_tube_slice(
+        &self,
+        id: &str,
+        pass: &mut wgpu::RenderPass<'_>,
+        frame: &RenderFrame,
+    ) {
+        let Some(&(start, end)) = self.overlays.route_tubes.ranges.get(id) else {
+            return;
+        };
+        self.draw_route_tubes_range(start..end, pass, frame);
+    }
+
+    /// Draw every tube WITHOUT a stack slot (the imperative `set_route_tube`
+    /// path) in the legacy after-the-stack node, in deterministic id order.
+    /// No-op when every tube is scene-slotted.
+    fn draw_route_tubes_legacy(&self, pass: &mut wgpu::RenderPass<'_>, frame: &RenderFrame) {
+        if self.overlays.route_tubes.ranges.is_empty() {
+            return;
+        }
+        let slotted: std::collections::HashSet<&str> = self
+            .basemap
+            .layers
+            .iter()
+            .filter_map(|l| match l {
+                LayerEntry::Tube(t) => Some(t.id.as_str()),
+                _ => None,
+            })
+            .collect();
+        let mut ids: Vec<&String> = self
+            .overlays
+            .route_tubes
+            .ranges
+            .keys()
+            .filter(|id| !slotted.contains(id.as_str()))
+            .collect();
+        ids.sort();
+        for id in ids {
+            let (start, end) = self.overlays.route_tubes.ranges[id];
+            self.draw_route_tubes_range(start..end, pass, frame);
+        }
+    }
+
+    /// Draw an index range of the combined route-tube mesh into `pass`
+    /// (depth-tested 3D geometry — terrain occludes it).
+    fn draw_route_tubes_range(
+        &self,
+        range: std::ops::Range<u32>,
+        pass: &mut wgpu::RenderPass<'_>,
+        frame: &RenderFrame,
+    ) {
         let cam_origin = self.cam.camera.center.to_world();
         let vp = self
             .cam
@@ -3385,6 +3581,7 @@ impl Map {
             sun_dir,
             cfg.ambient.max(0.4),
             light,
+            range,
             pass,
         );
     }
@@ -3448,11 +3645,32 @@ impl Map {
         reads: &[],
         writes: &[Res::ColorMsaa],
     };
+    /// The legacy after-the-stack tube node: draws every tube that has NO
+    /// stack slot (the imperative `set_route_tube` path). Scene tubes draw
+    /// per slot as `route-tubes:<id>` (`PASS_TUBE_SLOT`); the shared name
+    /// keeps the `no-route-tubes` debug view masking both.
     const PASS_ROUTE_TUBES: PassDesc = PassDesc {
         name: "route-tubes",
         phase: FramePhase::GroundMsaa,
         reads: &[Res::HeightField],
         writes: &[Res::ColorMsaa, Res::Depth],
+    };
+    /// One tube layer's slice of the combined route mesh, drawn at its stack
+    /// slot (plan P6.5) as the node `route-tubes:<id>`.
+    const PASS_TUBE_SLOT: PassDesc = PassDesc {
+        name: "route-tubes",
+        phase: FramePhase::GroundMsaa,
+        reads: &[Res::HeightField],
+        writes: &[Res::ColorMsaa, Res::Depth],
+    };
+    /// One circle layer's marker instances, drawn at its stack slot (plan
+    /// P6.5) as the node `markers:<id>`. Same pass *name* as the fixed
+    /// host-marker track so `no-markers` masks every marker contribution.
+    const PASS_MARKER_SLOT: PassDesc = PassDesc {
+        name: "markers",
+        phase: FramePhase::GroundMsaa,
+        reads: &[],
+        writes: &[Res::ColorMsaa],
     };
     const PASS_ICONS: PassDesc = PassDesc {
         name: "icons",
@@ -3466,6 +3684,9 @@ impl Map {
         reads: &[],
         writes: &[Res::ColorMsaa],
     };
+    /// The fixed top track for HOST markers (`Map::add_marker` — imperative
+    /// pins, not scene content). Scene circle layers draw per stack slot as
+    /// `markers:<id>` (`PASS_MARKER_SLOT`).
     const PASS_MARKERS: PassDesc = PassDesc {
         name: "markers",
         phase: FramePhase::OverlayMsaa,
@@ -3659,6 +3880,10 @@ impl Map {
         };
         self.symbols.text.begin_frame();
         self.symbols.icons.begin_frame();
+        // Visible circle-layer slots in stack order — each becomes a marker
+        // segment (the pipeline uploads all segments in this order, so the
+        // instance buffer replays exactly the per-slot draw order).
+        let mut marker_groups: Vec<String> = Vec::new();
         for (i, layer) in self.basemap.layers.iter_mut().enumerate() {
             match layer {
                 LayerEntry::Raster(r) if r.visible => {
@@ -3725,36 +3950,58 @@ impl Map {
                     c.layer.prepare(&custom_ctx);
                     prepared_layers.push((i, PreparedLayer::Custom));
                 }
+                LayerEntry::Markers(m) if m.visible => {
+                    prepared_layers.push((i, PreparedLayer::Markers(marker_groups.len())));
+                    marker_groups.push(m.id.clone());
+                }
+                LayerEntry::Tube(t) if t.visible => {
+                    prepared_layers.push((i, PreparedLayer::Tube));
+                }
                 _ => {}
             }
         }
         self.symbols.text.finish_frame();
         self.symbols.icons.finish_frame();
 
-        // Markers last. Pick any scene that's around — they all sync
-        // from the same camera. Prefer the first raster/vector layer
-        // (they have their own scenes); fall back to terrain;
-        // otherwise build a one-off from the Map's state.
+        // Markers: one upload covering every segment — each visible circle
+        // layer's group (in stack order, drawn at their slots) plus the
+        // ungrouped host pins (drawn last, in the fixed top track). Pick any
+        // scene that's around for projection — they all sync from the same
+        // camera. Prefer the first raster/vector layer (they have their own
+        // scenes); fall back to terrain; otherwise build a one-off from the
+        // Map's state.
+        let marker_segments: Vec<Vec<&Marker>> = {
+            let mut segs: Vec<Vec<&Marker>> = marker_groups
+                .iter()
+                .map(|g| self.overlays.markers.in_group(g).collect())
+                .collect();
+            segs.push(self.overlays.markers.ungrouped().collect());
+            segs
+        };
+        // Index of the ungrouped host-pin segment (always the last one).
+        let host_marker_segment = marker_segments.len() - 1;
+        let host_markers_present = !marker_segments[host_marker_segment].is_empty();
         let prepared_markers = if self.overlays.markers.is_empty() {
             None
         } else {
             let p = if let Some(scene) = self.basemap.layers.marker_scene() {
                 self.overlays
                     .marker_pipeline
-                    .prepare(scene, self.overlays.markers.all())
+                    .prepare(scene, &marker_segments)
             } else if let Some(t) = self.terrain.data.as_ref() {
                 self.overlays
                     .marker_pipeline
-                    .prepare(&t.scene, self.overlays.markers.all())
+                    .prepare(&t.scene, &marker_segments)
             } else {
-                // No layers — build a one-off Scene from the Map's state.
+                // No tile layers — build a one-off Scene from the Map's state.
                 let scene = Scene::with_margin(self.cam.camera, self.viewport_px, 0, 22, 0);
                 self.overlays
                     .marker_pipeline
-                    .prepare(&scene, self.overlays.markers.all())
+                    .prepare(&scene, &marker_segments)
             };
             Some(p)
         };
+        drop(marker_segments);
         // Rebuild the route-tube mesh when a polyline changed (now) or when new
         // DEM means the baked elevations are stale (throttled, since a tile burst
         // bumps the generation many times/sec).
@@ -3828,9 +4075,12 @@ impl Map {
                     atmosphere.floor.draw(g, pass)
                 });
             }
+            let prepared_markers_ref = prepared_markers.as_ref();
             for (i, prepared) in prepared_layers {
                 // Tile layers are `layer:<id>` nodes; custom layers get their
-                // own pass kind (`custom:<id>`) in their declared phase.
+                // own pass kind (`custom:<id>`) in their declared phase;
+                // circle/tube layers draw at their slot as `markers:<id>` /
+                // `route-tubes:<id>` (plan P6.5 — IR order IS draw order).
                 let (desc, id) = match &layers[i] {
                     LayerEntry::Raster(r) => (&Self::PASS_LAYER, r.id.clone()),
                     LayerEntry::Vector(v) => (&Self::PASS_LAYER, v.id.clone()),
@@ -3842,6 +4092,8 @@ impl Map {
                         },
                         c.id.clone(),
                     ),
+                    LayerEntry::Markers(m) => (&Self::PASS_MARKER_SLOT, m.id.clone()),
+                    LayerEntry::Tube(t) => (&Self::PASS_TUBE_SLOT, t.id.clone()),
                 };
                 draws.add(desc, Some(id), move |pass| match (&layers[i], &prepared) {
                     (LayerEntry::Raster(r), PreparedLayer::Raster(p)) => {
@@ -3866,11 +4118,23 @@ impl Map {
                     (LayerEntry::Custom(c), PreparedLayer::Custom) => {
                         c.layer.draw(pass);
                     }
+                    (LayerEntry::Markers(_), PreparedLayer::Markers(seg)) => {
+                        if let Some(p) = prepared_markers_ref {
+                            overlays.marker_pipeline.draw(p, *seg, pass);
+                        }
+                    }
+                    (LayerEntry::Tube(t), PreparedLayer::Tube) => {
+                        this.draw_route_tube_slice(&t.id, pass, frame_ref);
+                    }
                     _ => unreachable!("prepared layer kind mismatch"),
                 });
             }
+            // The legacy tube node: imperative (`set_route_tube`) tubes only —
+            // scene tubes drew at their slots above. Registered every frame
+            // (like always) so the pass report keeps its shape; no-op when
+            // every tube is slotted.
             draws.add(&Self::PASS_ROUTE_TUBES, None, move |pass| {
-                this.draw_route_tubes(pass, frame_ref)
+                this.draw_route_tubes_legacy(pass, frame_ref)
             });
             if !prepared_icons.is_empty() {
                 draws.add(&Self::PASS_ICONS, None, move |pass| {
@@ -3886,10 +4150,14 @@ impl Map {
                     }
                 });
             }
-            if let Some(p) = prepared_markers {
-                draws.add(&Self::PASS_MARKERS, None, move |pass| {
-                    overlays.marker_pipeline.draw(&p, pass)
-                });
+            // The fixed top track: host pins only (scene circle layers drew
+            // at their slots above).
+            if host_markers_present {
+                if let Some(p) = prepared_markers_ref {
+                    draws.add(&Self::PASS_MARKERS, None, move |pass| {
+                        overlays.marker_pipeline.draw(p, host_marker_segment, pass)
+                    });
+                }
             }
 
             graph.run_msaa(
@@ -4096,6 +4364,18 @@ impl Map {
                         // cache to report.
                         cache: CacheStats::default(),
                     },
+                    LayerEntry::Markers(m) => LayerMetrics {
+                        id: m.id.clone(),
+                        kind: LayerKind::Circle,
+                        // Instances live in the shared marker store; no cache.
+                        cache: CacheStats::default(),
+                    },
+                    LayerEntry::Tube(t) => LayerMetrics {
+                        id: t.id.clone(),
+                        kind: LayerKind::Tube,
+                        // The mesh lives in the shared route pipeline; no cache.
+                        cache: CacheStats::default(),
+                    },
                 })
                 .collect(),
         };
@@ -4126,8 +4406,12 @@ impl Map {
                     h += v.scene.phase_histogram(&res);
                 }
                 // Hillshade owns no scene/cache — it reads the shared terrain,
-                // which is counted once below. Custom layers stream nothing.
-                LayerEntry::Hillshade(_) | LayerEntry::Custom(_) => {}
+                // which is counted once below. Custom layers stream nothing,
+                // and neither do marker/tube slots (their data arrives whole).
+                LayerEntry::Hillshade(_)
+                | LayerEntry::Custom(_)
+                | LayerEntry::Markers(_)
+                | LayerEntry::Tube(_) => {}
             }
         }
         if let Some(t) = &self.terrain.data {
@@ -4159,6 +4443,10 @@ pub enum LayerKind {
     Vector,
     Hillshade,
     Custom,
+    /// A circle-marker layer's stack slot (plan P6.5).
+    Circle,
+    /// A route-tube layer's stack slot (plan P6.5).
+    Tube,
 }
 
 #[derive(Debug, Clone)]
