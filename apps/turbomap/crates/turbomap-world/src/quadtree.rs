@@ -17,9 +17,7 @@ pub const EQUATOR_M: f64 = 40_075_016.685_578_49;
 
 /// A node of the XYZ pyramid: at zoom `z` there are `2^z` tiles per axis and
 /// `(0, 0, 0)` covers the world.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct QuadKey {
     pub z: u8,
     pub x: u32,
@@ -36,7 +34,11 @@ impl QuadKey {
     /// tile source we address (max_zoom 22 today) with headroom.
     pub fn node_id(self) -> NodeId {
         debug_assert!(self.z <= 28, "quadtree NodeId packs 28 bits per axis");
-        NodeId(((self.z as u64) << 56) | ((self.x as u64 & 0x0FFF_FFFF) << 28) | (self.y as u64 & 0x0FFF_FFFF))
+        NodeId(
+            ((self.z as u64) << 56)
+                | ((self.x as u64 & 0x0FFF_FFFF) << 28)
+                | (self.y as u64 & 0x0FFF_FFFF),
+        )
     }
 
     /// Inverse of [`Self::node_id`].
@@ -150,7 +152,9 @@ mod tests {
         assert_eq!(k.ancestor(5), None);
         let kids = QuadKey::new(3, 2, 3).children().unwrap();
         assert!(kids.contains(&k), "a child of my parent includes me");
-        assert!(kids.iter().all(|c| c.ancestor(1) == Some(QuadKey::new(3, 2, 3))));
+        assert!(kids
+            .iter()
+            .all(|c| c.ancestor(1) == Some(QuadKey::new(3, 2, 3))));
     }
 
     #[test]

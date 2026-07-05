@@ -25,5 +25,5 @@ pub use resolver::{ResolvedSource, SourceResolver};
 
 // Re-export the contract surface so hosts depend on one crate.
 pub use turbomap_scene::{
-    Capabilities, CameraState, Hit, LatLng, MapEngine, Scene, SceneDelta, ScreenPoint,
+    CameraState, Capabilities, Hit, LatLng, MapEngine, Scene, SceneDelta, ScreenPoint,
 };

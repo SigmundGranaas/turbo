@@ -80,7 +80,11 @@ pub fn world_tile(z: u8, x: u32, y: u32) -> Vec<u8> {
             let cx = (i as f64 + 0.5) * feature_spacing;
             let cy = (j as f64 + 0.5) * feature_spacing;
             // Skip lakes wholly outside the buffered rect.
-            if cx + lake_half < bx0 || cx - lake_half > bx1 || cy + lake_half < by0 || cy - lake_half > by1 {
+            if cx + lake_half < bx0
+                || cx - lake_half > bx1
+                || cy + lake_half < by0
+                || cy - lake_half > by1
+            {
                 continue;
             }
             let ring = [
@@ -128,7 +132,11 @@ pub fn world_tile(z: u8, x: u32, y: u32) -> Vec<u8> {
             {
                 continue;
             }
-            let kind = if (i + 2 * j).rem_euclid(3) == 0 { "wood" } else { "park" };
+            let kind = if (i + 2 * j).rem_euclid(3) == 0 {
+                "wood"
+            } else {
+                "park"
+            };
             let ring = [
                 (clamp(lx(cx - park_half)), clamp(ly(cy - park_half))),
                 (clamp(lx(cx + park_half)), clamp(ly(cy - park_half))),
@@ -174,7 +182,10 @@ pub fn world_tile(z: u8, x: u32, y: u32) -> Vec<u8> {
             }
             let wx = i as f64 * spacing;
             roads = roads.line(
-                &[(clamp(lx(wx)), -(BUFFER as i32)), (clamp(lx(wx)), (EXTENT + BUFFER) as i32)],
+                &[
+                    (clamp(lx(wx)), -(BUFFER as i32)),
+                    (clamp(lx(wx)), (EXTENT + BUFFER) as i32),
+                ],
                 &props,
             );
         }
@@ -187,7 +198,10 @@ pub fn world_tile(z: u8, x: u32, y: u32) -> Vec<u8> {
             }
             let wy = j as f64 * spacing;
             roads = roads.line(
-                &[(-(BUFFER as i32), clamp(ly(wy))), ((EXTENT + BUFFER) as i32, clamp(ly(wy)))],
+                &[
+                    (-(BUFFER as i32), clamp(ly(wy))),
+                    ((EXTENT + BUFFER) as i32, clamp(ly(wy))),
+                ],
                 &props,
             );
         }
@@ -243,7 +257,10 @@ mod tests {
         for z in 9..=18u8 {
             let t = decode(&world_tile(z, 1 << (z - 2), 1 << (z - 2))).unwrap();
             let roads = t.layers[2].features.len();
-            assert!(roads >= 4, "z{z} should have a visible grid, got {roads} roads");
+            assert!(
+                roads >= 4,
+                "z{z} should have a visible grid, got {roads} roads"
+            );
         }
     }
 

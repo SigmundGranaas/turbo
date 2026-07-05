@@ -194,7 +194,10 @@ mod tests {
         }
     }
 
-    fn run<F: FnMut() -> Result<u32, TileError>>(p: &RetryPolicy, mut op: F) -> (Result<u32, TileError>, u32) {
+    fn run<F: FnMut() -> Result<u32, TileError>>(
+        p: &RetryPolicy,
+        mut op: F,
+    ) -> (Result<u32, TileError>, u32) {
         let slept = Cell::new(0u32);
         let r = retry_with_sleep(p, &mut op, &is_retryable, |_| slept.set(slept.get() + 1));
         (r, slept.get())
@@ -202,7 +205,10 @@ mod tests {
 
     #[test]
     fn transient_network_failures_are_retried_until_success() {
-        let p = RetryPolicy { max_retries: 3, ..RetryPolicy::none() };
+        let p = RetryPolicy {
+            max_retries: 3,
+            ..RetryPolicy::none()
+        };
         let (res, sleeps) = run(&p, flaky(2, || TileError::Network("reset".into())));
         assert_eq!(res.unwrap(), 3, "succeeds on the third attempt");
         assert_eq!(sleeps, 2, "slept once before each retry");
@@ -210,7 +216,10 @@ mod tests {
 
     #[test]
     fn exhausting_retries_returns_the_last_error() {
-        let p = RetryPolicy { max_retries: 2, ..RetryPolicy::none() };
+        let p = RetryPolicy {
+            max_retries: 2,
+            ..RetryPolicy::none()
+        };
         let (res, sleeps) = run(&p, flaky(99, || TileError::Network("down".into())));
         assert!(matches!(res, Err(TileError::Network(_))));
         assert_eq!(sleeps, 2, "two retries then give up (3 calls total)");
@@ -218,7 +227,10 @@ mod tests {
 
     #[test]
     fn non_retryable_errors_fail_fast() {
-        let p = RetryPolicy { max_retries: 5, ..RetryPolicy::none() };
+        let p = RetryPolicy {
+            max_retries: 5,
+            ..RetryPolicy::none()
+        };
         let (res, sleeps) = run(&p, flaky(99, || TileError::Decode("bad pbf".into())));
         assert!(matches!(res, Err(TileError::Decode(_))));
         assert_eq!(sleeps, 0, "a decode error is permanent — no retries");

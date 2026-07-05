@@ -177,7 +177,10 @@ fn line_width_is_pixel_constant_across_zoom() {
         TARGET_FORMAT,
         (w, h),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
         Box::new(SyntheticResolver),
     )
     .expect("engine");
@@ -209,7 +212,10 @@ fn line_width_is_pixel_constant_across_zoom() {
     // Zoom in 0.6 — same tile level (floor == 9), so no re-fetch.
     engine.set_camera(CameraState::new(LatLng::new(60.39, 5.32), 9.6));
     let drained = engine.pump_tiles();
-    assert_eq!(drained.vector_tiles, 0, "zoom within a level must not re-tessellate");
+    assert_eq!(
+        drained.vector_tiles, 0,
+        "zoom within a level must not re-tessellate"
+    );
     let img1 = render_to_image(&gpu, w, h, |e, v| engine.render(e, v));
     engine.after_submit();
     let t1 = thickness(&img1);
@@ -278,7 +284,10 @@ fn msaa_smooths_polygon_fill_edges() {
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
         Box::new(SyntheticResolver),
     )
     .expect("construct TurbomapEngine");
@@ -307,7 +316,10 @@ fn msaa_smooths_polygon_fill_edges() {
     assert_golden(
         "msaa-diamond",
         &image,
-        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
     );
 }
 
@@ -363,7 +375,10 @@ fn dashed_line_renders_with_gaps() {
         TARGET_FORMAT,
         (w, h),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
         Box::new(SyntheticResolver),
     )
     .expect("engine");
@@ -407,7 +422,10 @@ fn dashed_line_renders_with_gaps() {
     assert_golden(
         "dashed-line",
         &image,
-        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
     );
 }
 
@@ -487,7 +505,10 @@ fn label_importance_ranking_wins_collisions() {
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
         Box::new(SyntheticResolver),
     )
     .expect("construct TurbomapEngine");
@@ -505,13 +526,22 @@ fn label_importance_ranking_wins_collisions() {
         .pixels()
         .filter(|p| p.0[0] > 170 && p.0[1] < 90 && p.0[2] < 90)
         .count();
-    assert!(dark > 60, "the low-rank (important) CAPITAL label should render, dark px = {dark}");
-    assert_eq!(red, 0, "the high-rank (minor) HAMLET label must be suppressed, red px = {red}");
+    assert!(
+        dark > 60,
+        "the low-rank (important) CAPITAL label should render, dark px = {dark}"
+    );
+    assert_eq!(
+        red, 0,
+        "the high-rank (minor) HAMLET label must be suppressed, red px = {red}"
+    );
 
     assert_golden(
         "label-importance",
         &image,
-        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
     );
 }
 
@@ -559,16 +589,28 @@ fn data_driven_match_width_builds_road_hierarchy() {
     let by_kind_color = Paint::Match {
         property: "kind".to_string(),
         cases: vec![
-            MatchCase { value: FilterValue::String("major".into()), result: Color::rgb(230, 150, 30) },
-            MatchCase { value: FilterValue::String("minor".into()), result: Color::rgb(90, 90, 110) },
+            MatchCase {
+                value: FilterValue::String("major".into()),
+                result: Color::rgb(230, 150, 30),
+            },
+            MatchCase {
+                value: FilterValue::String("minor".into()),
+                result: Color::rgb(90, 90, 110),
+            },
         ],
         default: Box::new(Color::rgb(150, 150, 160)),
     };
     let by_kind_width = Paint::Match {
         property: "kind".to_string(),
         cases: vec![
-            MatchCase { value: FilterValue::String("major".into()), result: 11.0f32 },
-            MatchCase { value: FilterValue::String("minor".into()), result: 6.0f32 },
+            MatchCase {
+                value: FilterValue::String("major".into()),
+                result: 11.0f32,
+            },
+            MatchCase {
+                value: FilterValue::String("minor".into()),
+                result: 6.0f32,
+            },
         ],
         default: Box::new(3.0f32),
     };
@@ -588,7 +630,10 @@ fn data_driven_match_width_builds_road_hierarchy() {
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
         Box::new(SyntheticResolver),
     )
     .expect("construct TurbomapEngine");
@@ -619,7 +664,11 @@ fn data_driven_match_width_builds_road_hierarchy() {
     if run > 0 {
         runs.push(run);
     }
-    assert_eq!(runs.len(), 3, "expected 3 road lines in the centre column, got {runs:?}");
+    assert_eq!(
+        runs.len(),
+        3,
+        "expected 3 road lines in the centre column, got {runs:?}"
+    );
     assert!(
         runs[0] > runs[1] && runs[1] > runs[2],
         "width hierarchy must decrease major>minor>local top-to-bottom, got {runs:?}"
@@ -628,7 +677,10 @@ fn data_driven_match_width_builds_road_hierarchy() {
     assert_golden(
         "datadriven-width-hierarchy",
         &image,
-        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
     );
 }
 
@@ -736,9 +788,8 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines() {
 
     // The halo paints white pixels that are NOT the line colour and NOT the
     // dark ink — proof the outline is actually there around the glyphs.
-    let near = |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| {
-        (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol)
-    };
+    let near =
+        |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol);
     let halo_px = image
         .pixels()
         .filter(|p| near(p, [250, 250, 252], 12))
@@ -830,7 +881,10 @@ fn cjk_labels_render_via_fallback_font() {
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 11.0),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
         Box::new(SyntheticResolver),
     )
     .expect("construct TurbomapEngine");
@@ -853,7 +907,10 @@ fn cjk_labels_render_via_fallback_font() {
     assert_golden(
         "cjk-labels-fallback",
         &image,
-        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
     );
 }
 
@@ -930,7 +987,10 @@ fn complex_scripts_render_with_shaping_and_bidi() {
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 11.0),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
         Box::new(SyntheticResolver),
     )
     .expect("construct TurbomapEngine");
@@ -946,12 +1006,18 @@ fn complex_scripts_render_with_shaping_and_bidi() {
         .pixels()
         .filter(|p| (0..3).all(|i| p.0[i].abs_diff([25, 25, 35][i]) <= 50))
         .count();
-    assert!(dark > 150, "shaped multi-script ink should render, dark px = {dark}");
+    assert!(
+        dark > 150,
+        "shaped multi-script ink should render, dark px = {dark}"
+    );
 
     assert_golden(
         "complex-scripts-shaping",
         &image,
-        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
     );
 }
 
@@ -1035,7 +1101,10 @@ fn road_name_follows_the_centerline() {
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 10.0),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
         Box::new(SyntheticResolver),
     )
     .expect("construct TurbomapEngine");
@@ -1087,7 +1156,10 @@ fn road_name_follows_the_centerline() {
     assert_golden(
         "road-name-along-line",
         &image,
-        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
     );
 }
 
@@ -1186,7 +1258,10 @@ fn icons_and_route_shields_render() {
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.392, 5.3225), 12.0),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
         Box::new(SyntheticResolver),
     )
     .expect("construct TurbomapEngine");
@@ -1198,23 +1273,43 @@ fn icons_and_route_shields_render() {
     let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
     engine.after_submit();
 
-    let near = |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| {
-        (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol)
-    };
+    let near =
+        |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol);
     // The POI dot — a red-tinted SDF disc.
-    let red_dot = image.pixels().filter(|p| near(p, [220, 60, 60], 45)).count();
+    let red_dot = image
+        .pixels()
+        .filter(|p| near(p, [220, 60, 60], 45))
+        .count();
     // The shield — a blue-tinted SDF rounded rect.
-    let shield = image.pixels().filter(|p| near(p, [40, 54, 110], 40)).count();
+    let shield = image
+        .pixels()
+        .filter(|p| near(p, [40, 54, 110], 40))
+        .count();
     // The white ref text composited on top of the shield (not paper, not blue).
-    let ref_text = image.pixels().filter(|p| near(p, [248, 249, 252], 12)).count();
-    assert!(red_dot > 30, "tinted POI dot should render, red px = {red_dot}");
-    assert!(shield > 30, "tinted shield should render, blue px = {shield}");
-    assert!(ref_text > 8, "white shield ref should render on top, px = {ref_text}");
+    let ref_text = image
+        .pixels()
+        .filter(|p| near(p, [248, 249, 252], 12))
+        .count();
+    assert!(
+        red_dot > 30,
+        "tinted POI dot should render, red px = {red_dot}"
+    );
+    assert!(
+        shield > 30,
+        "tinted shield should render, blue px = {shield}"
+    );
+    assert!(
+        ref_text > 8,
+        "white shield ref should render on top, px = {ref_text}"
+    );
 
     assert_golden(
         "icons-and-shields",
         &image,
-        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
     );
 }
 
@@ -1292,7 +1387,10 @@ fn symbol_labels_render_over_raster() {
 
     engine.apply(scene);
     let stats = engine.pump_tiles();
-    assert!(stats.vector_tiles > 0, "expected label tiles, got {stats:?}");
+    assert!(
+        stats.vector_tiles > 0,
+        "expected label tiles, got {stats:?}"
+    );
     assert!(engine.unsupported_layers().is_empty());
 
     let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
@@ -1431,7 +1529,7 @@ fn geojson_fill_renders_over_raster() {
             data: r#"{"type":"Polygon","coordinates":[[
                 [5.20,60.34],[5.44,60.34],[5.44,60.46],[5.20,60.46],[5.20,60.34]
             ]]}"#
-            .to_string(),
+                .to_string(),
         },
     );
     scene.layers.push(Layer::Raster {

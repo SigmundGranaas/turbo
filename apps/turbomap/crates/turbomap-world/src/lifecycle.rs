@@ -113,7 +113,12 @@ impl Lifecycle {
     /// - `Retained` → `Resident` (it was already on the GPU; wanting it back
     ///   costs nothing — this is the retention win)
     /// - wanted phases → refresh priority/recency, clear staleness
-    pub fn want(&mut self, key: ChunkKey, priority: u64, frame: u64) -> Result<Phase, LifecycleError> {
+    pub fn want(
+        &mut self,
+        key: ChunkKey,
+        priority: u64,
+        frame: u64,
+    ) -> Result<Phase, LifecycleError> {
         if let Some(e) = self.entries.get_mut(&key) {
             e.priority = priority;
             e.last_touch = frame;
@@ -168,7 +173,10 @@ impl Lifecycle {
     /// `Desired` → `Fetching`; mints the attempt's [`RequestId`].
     pub fn fetch_started(&mut self, key: ChunkKey) -> Result<RequestId, LifecycleError> {
         let next = RequestId(self.next_request);
-        let e = self.entries.get_mut(&key).ok_or(LifecycleError::UnknownChunk)?;
+        let e = self
+            .entries
+            .get_mut(&key)
+            .ok_or(LifecycleError::UnknownChunk)?;
         if e.phase != Phase::Desired {
             return Err(LifecycleError::WrongPhase {
                 op: "fetch_started",
@@ -182,8 +190,15 @@ impl Lifecycle {
     }
 
     /// `Fetching` → `Decoding` (bytes handed to a codec).
-    pub fn decode_started(&mut self, key: ChunkKey, request: RequestId) -> Result<(), LifecycleError> {
-        let e = self.entries.get_mut(&key).ok_or(LifecycleError::UnknownChunk)?;
+    pub fn decode_started(
+        &mut self,
+        key: ChunkKey,
+        request: RequestId,
+    ) -> Result<(), LifecycleError> {
+        let e = self
+            .entries
+            .get_mut(&key)
+            .ok_or(LifecycleError::UnknownChunk)?;
         if e.request != Some(request) {
             return Err(LifecycleError::StaleRequest);
         }
@@ -207,13 +222,20 @@ impl Lifecycle {
         bytes: u64,
         frame: u64,
     ) -> Result<(), LifecycleError> {
-        let e = self.entries.get_mut(&key).ok_or(LifecycleError::UnknownChunk)?;
+        let e = self
+            .entries
+            .get_mut(&key)
+            .ok_or(LifecycleError::UnknownChunk)?;
         if e.request != Some(request) {
             return Err(LifecycleError::StaleRequest);
         }
         match e.phase {
             Phase::Fetching | Phase::Decoding => {
-                e.phase = if e.stale { Phase::Retained } else { Phase::Resident };
+                e.phase = if e.stale {
+                    Phase::Retained
+                } else {
+                    Phase::Resident
+                };
                 e.stale = false;
                 e.request = None;
                 e.bytes = bytes;
@@ -230,7 +252,10 @@ impl Lifecycle {
     /// A fetch/decode attempt failed. Still-wanted chunks return to `Desired`
     /// (retry policy lives above the table); stale ones are forgotten.
     pub fn failed(&mut self, key: ChunkKey, request: RequestId) -> Result<(), LifecycleError> {
-        let e = self.entries.get_mut(&key).ok_or(LifecycleError::UnknownChunk)?;
+        let e = self
+            .entries
+            .get_mut(&key)
+            .ok_or(LifecycleError::UnknownChunk)?;
         if e.request != Some(request) {
             return Err(LifecycleError::StaleRequest);
         }
@@ -244,7 +269,10 @@ impl Lifecycle {
                 }
                 Ok(())
             }
-            actual => Err(LifecycleError::WrongPhase { op: "failed", actual }),
+            actual => Err(LifecycleError::WrongPhase {
+                op: "failed",
+                actual,
+            }),
         }
     }
 
@@ -276,7 +304,10 @@ impl Lifecycle {
                 }
                 Ok(())
             }
-            actual => Err(LifecycleError::WrongPhase { op: "evicted", actual }),
+            actual => Err(LifecycleError::WrongPhase {
+                op: "evicted",
+                actual,
+            }),
         }
     }
 
@@ -399,7 +430,10 @@ impl Lifecycle {
     /// still-wanted attempts return to `Desired` so the next plan can
     /// restart them.
     pub fn cancelled(&mut self, key: ChunkKey, request: RequestId) -> Result<(), LifecycleError> {
-        let e = self.entries.get_mut(&key).ok_or(LifecycleError::UnknownChunk)?;
+        let e = self
+            .entries
+            .get_mut(&key)
+            .ok_or(LifecycleError::UnknownChunk)?;
         if e.request != Some(request) {
             return Err(LifecycleError::StaleRequest);
         }
@@ -447,7 +481,9 @@ impl Lifecycle {
     fn wanted_missing_count(&self) -> usize {
         self.entries
             .values()
-            .filter(|e| !e.stale && matches!(e.phase, Phase::Desired | Phase::Fetching | Phase::Decoding))
+            .filter(|e| {
+                !e.stale && matches!(e.phase, Phase::Desired | Phase::Fetching | Phase::Decoding)
+            })
             .count()
     }
 }
@@ -556,7 +592,10 @@ mod tests {
         t.want(key(1), 10, 0).unwrap();
         t.want(key(9), 10, 0).unwrap();
         assert_eq!(
-            t.pending(10).iter().map(|(k, _)| k.node.0).collect::<Vec<_>>(),
+            t.pending(10)
+                .iter()
+                .map(|(k, _)| k.node.0)
+                .collect::<Vec<_>>(),
             vec![1, 9, 5]
         );
         assert_eq!(t.pending(2).len(), 2);
@@ -595,7 +634,10 @@ mod tests {
         let _r = t.fetch_started(key(3)).unwrap();
         t.unwant(key(3)).unwrap();
         assert_eq!(t.delivered_unrequested(key(3), 16, 2), Phase::Retained);
-        assert!(t.cancelable().is_empty(), "delivery clears the cancel entry");
+        assert!(
+            t.cancelable().is_empty(),
+            "delivery clears the cancel entry"
+        );
         assert_eq!(t.resident_bytes(), 64 + 32 + 16);
     }
 
@@ -689,8 +731,7 @@ mod tests {
                 // so the governed quantity is wanted-missing = in-motion
                 // phases minus the cancel list.
                 let h = t.histogram();
-                let wanted_missing =
-                    h.desired + h.fetching + h.decoding - t.cancelable().len();
+                let wanted_missing = h.desired + h.fetching + h.decoding - t.cancelable().len();
                 assert!(wanted_missing <= 16, "capacity breached: {h:?}");
                 let total = h.desired + h.fetching + h.decoding + h.resident + h.retained;
                 assert_eq!(total, t.entries.len());
@@ -706,7 +747,11 @@ mod tests {
             (t.pending(32), t.histogram(), t.resident_bytes())
         }
         for seed in [1u64, 0x9E37_79B9, 42, 7_777_777] {
-            assert_eq!(run(seed, 500), run(seed, 500), "seed {seed} not deterministic");
+            assert_eq!(
+                run(seed, 500),
+                run(seed, 500),
+                "seed {seed} not deterministic"
+            );
         }
     }
 }

@@ -89,7 +89,11 @@ impl TurboMap {
                 force_fallback_adapter: false,
             })
             .await
-            .map_err(|e| js_err(format!("no compatible GPU adapter (WebGPU unavailable?): {e}")))?;
+            .map_err(|e| {
+                js_err(format!(
+                    "no compatible GPU adapter (WebGPU unavailable?): {e}"
+                ))
+            })?;
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -215,12 +219,14 @@ impl TurboMap {
     /// re-pends if still wanted. `id` from the plan JSON (session-scoped
     /// counter, exact in a JS number).
     pub fn report_fetch_failed(&mut self, id: f64) {
-        self.engine.fetch_failed(turbomap_world::RequestId(id as u64));
+        self.engine
+            .fetch_failed(turbomap_world::RequestId(id as u64));
     }
 
     /// Report a `cancel` as honoured (or a `start` the host declined).
     pub fn report_fetch_cancelled(&mut self, id: f64) {
-        self.engine.fetch_cancelled(turbomap_world::RequestId(id as u64));
+        self.engine
+            .fetch_cancelled(turbomap_world::RequestId(id as u64));
     }
 
     /// Tiles the engine is waiting on, as a JSON array of
@@ -261,13 +267,13 @@ impl TurboMap {
 
     /// Push a fetched DEM tile (encoded Terrain-RGB / Terrarium image).
     pub fn ingest_terrain_tile(&mut self, z: u8, x: u32, y: u32, bytes: &[u8]) -> bool {
-        self.engine.ingest_terrain_encoded(TileId::new(z, x, y), bytes)
+        self.engine
+            .ingest_terrain_encoded(TileId::new(z, x, y), bytes)
     }
 
     /// Push a fetched vector tile (raw MVT protobuf bytes).
     pub fn ingest_vector_tile(&mut self, layer: &str, z: u8, x: u32, y: u32, bytes: &[u8]) -> bool {
-        self.engine
-            .ingest_mvt(layer, TileId::new(z, x, y), bytes)
+        self.engine.ingest_mvt(layer, TileId::new(z, x, y), bytes)
     }
 
     /// Render one frame to the canvas. Advances any in-flight camera animation
@@ -373,7 +379,10 @@ impl TurboMap {
         // screen-space delta regardless of any open panel/sheet.
         let target = cam
             .pixel_to_world(
-                (vp.0 / 2.0 - self.inset_right / 2.0 - dx, vp.1 / 2.0 - self.inset / 2.0 - dy),
+                (
+                    vp.0 / 2.0 - self.inset_right / 2.0 - dx,
+                    vp.1 / 2.0 - self.inset / 2.0 - dy,
+                ),
                 vp,
             )
             .to_lat_lng();

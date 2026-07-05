@@ -101,8 +101,7 @@ impl VectorTileSource for GeoJsonVectorSource {
                 vec![line.clone()]
             };
             for sub in subpaths {
-                let local: Vec<(i32, i32)> =
-                    sub.iter().map(|&(wx, wy)| to_local(wx, wy)).collect();
+                let local: Vec<(i32, i32)> = sub.iter().map(|&(wx, wy)| to_local(wx, wy)).collect();
                 if local.len() >= 2 {
                     features.push(Feature {
                         id: features.len() as u64,
@@ -635,7 +634,11 @@ mod tests {
             ]
         }"#;
         let pts = parse_points(data);
-        assert_eq!(pts.len(), 3, "two from points/multipoint + ignores the line");
+        assert_eq!(
+            pts.len(),
+            3,
+            "two from points/multipoint + ignores the line"
+        );
         assert_eq!(pts[0], (5.32, 60.39));
     }
 

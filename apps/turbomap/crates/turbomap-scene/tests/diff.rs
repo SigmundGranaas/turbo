@@ -52,7 +52,13 @@ fn append_layer_is_added_at_end() {
     let old = scene(vec![raster("a")]);
     let new = scene(vec![raster("a"), raster("b")]);
     let d = diff(&old, &new);
-    assert_eq!(d.layers, vec![LayerChange::Added { id: "b".into(), index: 1 }]);
+    assert_eq!(
+        d.layers,
+        vec![LayerChange::Added {
+            id: "b".into(),
+            index: 1
+        }]
+    );
 }
 
 #[test]
@@ -60,7 +66,13 @@ fn insert_layer_in_middle_reports_correct_index() {
     let old = scene(vec![raster("a"), raster("c")]);
     let new = scene(vec![raster("a"), raster("b"), raster("c")]);
     let d = diff(&old, &new);
-    assert_eq!(d.layers, vec![LayerChange::Added { id: "b".into(), index: 1 }]);
+    assert_eq!(
+        d.layers,
+        vec![LayerChange::Added {
+            id: "b".into(),
+            index: 1
+        }]
+    );
 }
 
 #[test]
@@ -155,12 +167,11 @@ fn add_and_remove_in_one_diff() {
     let old = scene(vec![raster("a"), raster("b")]);
     let new = scene(vec![raster("a"), raster("c")]);
     let d = diff(&old, &new);
-    assert!(d
-        .layers
-        .contains(&LayerChange::Removed { id: "b".into() }));
-    assert!(d
-        .layers
-        .contains(&LayerChange::Added { id: "c".into(), index: 1 }));
+    assert!(d.layers.contains(&LayerChange::Removed { id: "b".into() }));
+    assert!(d.layers.contains(&LayerChange::Added {
+        id: "c".into(),
+        index: 1
+    }));
 }
 
 #[test]
@@ -172,5 +183,8 @@ fn an_environment_edit_is_an_environment_only_delta() {
     let d = diff(&a, &b);
     assert_eq!(d.environment.as_ref(), Some(&b.environment));
     assert!(d.sources.is_empty() && d.layers.is_empty());
-    assert!(diff(&b, &b).is_empty(), "identical environments must not dirty the delta");
+    assert!(
+        diff(&b, &b).is_empty(),
+        "identical environments must not dirty the delta"
+    );
 }

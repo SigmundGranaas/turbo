@@ -486,7 +486,10 @@ impl Scene {
                         reason: "a chain needs at least one provider".to_string(),
                     });
                 }
-                if providers.iter().any(|p| matches!(p, SourceDef::Chain { .. })) {
+                if providers
+                    .iter()
+                    .any(|p| matches!(p, SourceDef::Chain { .. }))
+                {
                     return Err(SceneError::InvalidChain {
                         source: id.clone(),
                         reason: "chains cannot nest".to_string(),
@@ -496,8 +499,7 @@ impl Scene {
                 if kind.is_none() || providers.iter().any(|p| chain_kind(p) != kind) {
                     return Err(SceneError::InvalidChain {
                         source: id.clone(),
-                        reason: "providers must all be raster, all vector, or all DEM"
-                            .to_string(),
+                        reason: "providers must all be raster, all vector, or all DEM".to_string(),
                     });
                 }
             }
@@ -533,7 +535,10 @@ impl std::fmt::Display for SceneError {
                 write!(f, "layer '{layer}' references unknown source '{source}'")
             }
             SceneError::InvalidChain { source, reason } => {
-                write!(f, "source '{source}' has an invalid provider chain: {reason}")
+                write!(
+                    f,
+                    "source '{source}' has an invalid provider chain: {reason}"
+                )
             }
         }
     }

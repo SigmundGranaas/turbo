@@ -23,7 +23,7 @@ use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine
 use turbomap_golden::{render_to_image, Gpu};
 use turbomap_scene::style::MatchCase;
 use turbomap_scene::{
-    Color, DemEncoding, Filter, FilterValue, Layer, LatLng, Paint, Scene, SourceDef,
+    Color, DemEncoding, Filter, FilterValue, LatLng, Layer, Paint, Scene, SourceDef,
     SymbolPlacement, TextAnchor,
 };
 
@@ -138,7 +138,11 @@ pub fn basemap_scene() -> Scene {
         source: "world".to_string(),
         source_layer: Some("roads".to_string()),
         filter: Filter::Always,
-        color: Paint::Const(Color::rgb(ROAD_CASING_SRGB[0], ROAD_CASING_SRGB[1], ROAD_CASING_SRGB[2])),
+        color: Paint::Const(Color::rgb(
+            ROAD_CASING_SRGB[0],
+            ROAD_CASING_SRGB[1],
+            ROAD_CASING_SRGB[2],
+        )),
         width: road_width_by_class(&[("major", 12.0), ("minor", 8.0), ("local", 5.5)], 4.0),
         dash_array: None,
     });
@@ -422,14 +426,16 @@ impl Sim {
         for key in due {
             match &key {
                 TileKey::Raster(layer, tile) => {
-                    self.engine.ingest_raster_encoded(layer, *tile, &self.land_png);
+                    self.engine
+                        .ingest_raster_encoded(layer, *tile, &self.land_png);
                 }
                 TileKey::Vector(layer, tile) => {
                     let bytes = world_tile(tile.z, tile.x, tile.y);
                     self.engine.ingest_mvt(layer, *tile, &bytes);
                 }
                 TileKey::Terrain(tile) => {
-                    self.engine.ingest_terrain_encoded(*tile, &dem_tile_png(*tile));
+                    self.engine
+                        .ingest_terrain_encoded(*tile, &dem_tile_png(*tile));
                 }
             }
             self.in_flight.remove(&key);
@@ -497,9 +503,7 @@ pub fn fraction_near(img: &RgbaImage, rgb: [u8; 3], tol: u8) -> f64 {
     let total = (img.width() * img.height()) as f64;
     let hits = img
         .pixels()
-        .filter(|p| {
-            (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol)
-        })
+        .filter(|p| (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol))
         .count();
     hits as f64 / total
 }

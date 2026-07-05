@@ -27,7 +27,7 @@ pub mod scene;
 pub mod style;
 
 pub use diff::{diff, LayerChange, SceneDelta, SourceChange};
-pub use engine::{Capabilities, CameraState, Hit, MapEngine};
+pub use engine::{CameraState, Capabilities, Hit, MapEngine};
 pub use geo::{LatLng, ScreenPoint};
 pub use model_engine::ModelEngine;
 pub use scene::{

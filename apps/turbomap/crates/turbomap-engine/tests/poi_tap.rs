@@ -36,7 +36,8 @@ fn pick_food_poi() -> (String, f64, f64) {
     let src = PMTilesSource::open(fixture_path()).expect("fixture");
     for x in 8432..=8436u32 {
         for y in 4721..=4726u32 {
-            let Ok(tile) = <PMTilesSource as VectorTileSource>::request(&src, TileId::new(14, x, y))
+            let Ok(tile) =
+                <PMTilesSource as VectorTileSource>::request(&src, TileId::new(14, x, y))
             else {
                 continue;
             };
@@ -57,7 +58,8 @@ fn pick_food_poi() -> (String, f64, f64) {
                     };
                     if let Geometry::Point(points) = &f.geometry {
                         if let Some(&p) = points.first() {
-                            let (wx, wy) = tile_local_to_world(TileId::new(14, x, y), layer.extent, p);
+                            let (wx, wy) =
+                                tile_local_to_world(TileId::new(14, x, y), layer.extent, p);
                             let ll = WorldPoint::new(wx, wy).to_lat_lng();
                             return (name.clone(), ll.lat, ll.lng);
                         }
@@ -89,7 +91,11 @@ fn tapping_a_poi_returns_its_name_and_class() {
         (width, height),
         // Centre the camera on the POI so it lands at screen centre.
         CameraState::new(LatLng::new(lat, lng), 15.0),
-        MapOptions { fade_in_secs: 0.0, pixel_ratio: 2.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            pixel_ratio: 2.0,
+            ..Default::default()
+        },
         Box::new(BergenResolver),
     )
     .expect("construct TurbomapEngine");
@@ -105,14 +111,19 @@ fn tapping_a_poi_returns_its_name_and_class() {
         .find(|h| h.properties.get("name") == Some(&name))
         .unwrap_or_else(|| panic!("tap should report POI '{name}'; got {hits:?}"));
 
-    assert!(hit.layer_id.starts_with("poi-"), "attributed to a POI layer");
+    assert!(
+        hit.layer_id.starts_with("poi-"),
+        "attributed to a POI layer"
+    );
     assert!(hit.properties.contains_key("class"), "carries the class");
     assert_eq!(hit.properties.get("name"), Some(&name));
 
     // A tap on empty water far from any POI returns no feature.
     let empty = engine.hit_test(ScreenPoint::new(8.0, height as f64 - 8.0), 4.0);
     assert!(
-        empty.iter().all(|h| h.properties.get("name") != Some(&name)),
+        empty
+            .iter()
+            .all(|h| h.properties.get("name") != Some(&name)),
         "the POI isn't reported from across the map"
     );
 }

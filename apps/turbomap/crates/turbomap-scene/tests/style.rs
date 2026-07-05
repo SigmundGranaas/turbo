@@ -14,8 +14,14 @@ fn const_paint_ignores_zoom() {
 fn zoom_curve_interpolates_and_clamps() {
     let p = Paint::Zoom {
         stops: vec![
-            ZoomStop { zoom: 10.0, value: 1.0f32 },
-            ZoomStop { zoom: 14.0, value: 5.0f32 },
+            ZoomStop {
+                zoom: 10.0,
+                value: 1.0f32,
+            },
+            ZoomStop {
+                zoom: 14.0,
+                value: 5.0f32,
+            },
         ],
     };
     assert_eq!(p.at(8.0), 1.0, "below first stop clamps");
@@ -29,9 +35,18 @@ fn zoom_curve_interpolates_and_clamps() {
 fn zoom_curve_with_three_stops_picks_right_segment() {
     let p = Paint::Zoom {
         stops: vec![
-            ZoomStop { zoom: 0.0, value: 0.0f64 },
-            ZoomStop { zoom: 10.0, value: 10.0 },
-            ZoomStop { zoom: 20.0, value: 0.0 },
+            ZoomStop {
+                zoom: 0.0,
+                value: 0.0f64,
+            },
+            ZoomStop {
+                zoom: 10.0,
+                value: 10.0,
+            },
+            ZoomStop {
+                zoom: 20.0,
+                value: 0.0,
+            },
         ],
     };
     assert_eq!(p.at(5.0), 5.0);
@@ -48,8 +63,14 @@ fn color_interpolates_per_channel() {
 fn paint_color_zoom_curve() {
     let p = Paint::Zoom {
         stops: vec![
-            ZoomStop { zoom: 0.0, value: Color::rgb(0, 0, 0) },
-            ZoomStop { zoom: 10.0, value: Color::rgb(100, 0, 0) },
+            ZoomStop {
+                zoom: 0.0,
+                value: Color::rgb(0, 0, 0),
+            },
+            ZoomStop {
+                zoom: 10.0,
+                value: Color::rgb(100, 0, 0),
+            },
         ],
     };
     assert_eq!(p.at(5.0), Color::rgb(50, 0, 0));
@@ -59,8 +80,14 @@ fn paint_color_zoom_curve() {
 fn paint_roundtrips_through_json() {
     let p = Paint::Zoom {
         stops: vec![
-            ZoomStop { zoom: 10.0, value: 2.0f32 },
-            ZoomStop { zoom: 16.0, value: 6.0f32 },
+            ZoomStop {
+                zoom: 10.0,
+                value: 2.0f32,
+            },
+            ZoomStop {
+                zoom: 16.0,
+                value: 6.0f32,
+            },
         ],
     };
     let json = serde_json::to_string(&p).unwrap();
@@ -89,8 +116,14 @@ fn match_paint_roundtrips_through_json() {
     let p: Paint<f32> = Paint::Match {
         property: "level".to_string(),
         cases: vec![
-            MatchCase { value: FilterValue::Number(1.0), result: 2.0 },
-            MatchCase { value: FilterValue::Bool(true), result: 5.0 },
+            MatchCase {
+                value: FilterValue::Number(1.0),
+                result: 2.0,
+            },
+            MatchCase {
+                value: FilterValue::Bool(true),
+                result: 5.0,
+            },
         ],
         default: Box::new(1.0),
     };

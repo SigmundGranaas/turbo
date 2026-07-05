@@ -15,7 +15,7 @@
 //! exercises so that *every* engine agrees there.
 
 use crate::diff::{diff, SceneDelta};
-use crate::engine::{Capabilities, CameraState, Hit, MapEngine};
+use crate::engine::{CameraState, Capabilities, Hit, MapEngine};
 use crate::geo::{inverse_mercator, mercator_normalized, LatLng, ScreenPoint};
 use crate::scene::Scene;
 

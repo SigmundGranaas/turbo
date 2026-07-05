@@ -66,8 +66,11 @@ fn gpu_or_skip() -> Option<Gpu> {
 fn tiny_png() -> Vec<u8> {
     let img = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 255, 255, 255]));
     let mut bytes = Vec::new();
-    img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
-        .expect("encode png");
+    img.write_to(
+        &mut std::io::Cursor::new(&mut bytes),
+        image::ImageFormat::Png,
+    )
+    .expect("encode png");
     bytes
 }
 
@@ -84,8 +87,7 @@ fn plan_start_deliver_cancel_acknowledge_loop_keeps_the_table_honest() {
 
     // Re-planning immediately does NOT restart in-flight attempts.
     let replan = e.streaming_plan(64);
-    let started: std::collections::HashSet<u64> =
-        plan.start.iter().map(|r| r.id.0).collect();
+    let started: std::collections::HashSet<u64> = plan.start.iter().map(|r| r.id.0).collect();
     assert!(
         replan.start.iter().all(|r| !started.contains(&r.id.0)),
         "a live attempt must not be handed out twice"
@@ -111,7 +113,10 @@ fn plan_start_deliver_cancel_acknowledge_loop_keeps_the_table_honest() {
     let failed_tile = tile_of(&second.fetch);
     let replan2 = e.streaming_plan(64);
     assert!(
-        replan2.start.iter().any(|r| tile_of(&r.fetch) == failed_tile),
+        replan2
+            .start
+            .iter()
+            .any(|r| tile_of(&r.fetch) == failed_tile),
         "a failed still-wanted fetch re-pends on the next plan"
     );
 

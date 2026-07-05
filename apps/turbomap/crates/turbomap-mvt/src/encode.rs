@@ -267,7 +267,10 @@ mod tests {
             .layer("roads", 4096)
             .line(
                 &[(0, 100), (2000, 150), (4095, 90)],
-                &[("kind", Value::String("road".into())), ("lanes", Value::Int(2))],
+                &[
+                    ("kind", Value::String("road".into())),
+                    ("lanes", Value::Int(2)),
+                ],
             )
             .finish()
             .layer("water", 4096)
@@ -295,7 +298,10 @@ mod tests {
             roads.features[0].geometry,
             Geometry::LineString(vec![vec![(0, 100), (2000, 150), (4095, 90)]])
         );
-        assert_eq!(roads.features[0].properties.get("lanes"), Some(&Value::Int(2)));
+        assert_eq!(
+            roads.features[0].properties.get("lanes"),
+            Some(&Value::Int(2))
+        );
 
         let water = &tile.layers[2];
         match &water.features[0].geometry {
@@ -360,7 +366,10 @@ mod tests {
         let b = vec![(3000, 50), (3200, 80), (3500, 60)];
         let bytes = TileEncoder::new()
             .layer("roads", 4096)
-            .lines(&[a.clone(), b.clone()], &[("class", Value::String("primary".into()))])
+            .lines(
+                &[a.clone(), b.clone()],
+                &[("class", Value::String("primary".into()))],
+            )
             .finish()
             .finish();
         let tile = decode(&bytes).expect("decode");
@@ -374,15 +383,24 @@ mod tests {
     fn properties_are_interned_not_duplicated() {
         let bytes = TileEncoder::new()
             .layer("roads", 4096)
-            .line(&[(0, 0), (10, 10)], &[("kind", Value::String("road".into()))])
-            .line(&[(0, 5), (10, 15)], &[("kind", Value::String("road".into()))])
+            .line(
+                &[(0, 0), (10, 10)],
+                &[("kind", Value::String("road".into()))],
+            )
+            .line(
+                &[(0, 5), (10, 15)],
+                &[("kind", Value::String("road".into()))],
+            )
             .finish()
             .finish();
         let tile = decode(&bytes).expect("decode");
         // Both features share the single interned key/value pair.
         assert_eq!(tile.layers[0].features.len(), 2);
         for f in &tile.layers[0].features {
-            assert_eq!(f.properties.get("kind"), Some(&Value::String("road".into())));
+            assert_eq!(
+                f.properties.get("kind"),
+                Some(&Value::String("road".into()))
+            );
         }
     }
 }

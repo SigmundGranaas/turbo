@@ -69,7 +69,9 @@ pub struct BytesRangeReader {
 
 impl BytesRangeReader {
     pub fn new(data: Vec<u8>) -> Self {
-        Self { data: Arc::new(data) }
+        Self {
+            data: Arc::new(data),
+        }
     }
 }
 
@@ -79,7 +81,9 @@ impl RangeReader for BytesRangeReader {
         let end = start
             .checked_add(len)
             .filter(|&e| e <= self.data.len())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "range past end of archive"))?;
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::UnexpectedEof, "range past end of archive")
+            })?;
         Ok(self.data[start..end].to_vec())
     }
 }
@@ -372,12 +376,11 @@ mod tests {
         let payload = b"hello pmtiles brotli".to_vec();
         let mut compressed = Vec::new();
         {
-            let mut w =
-                brotli::CompressorWriter::new(&mut compressed, 4096, 5, 22);
+            let mut w = brotli::CompressorWriter::new(&mut compressed, 4096, 5, 22);
             w.write_all(&payload).unwrap();
         }
-        let out = maybe_decompress(&compressed, Compression::Brotli)
-            .expect("brotli decode is supported");
+        let out =
+            maybe_decompress(&compressed, Compression::Brotli).expect("brotli decode is supported");
         assert_eq!(out, payload);
     }
 
@@ -537,8 +540,8 @@ mod tests {
             data: bytes,
             reads: std::sync::atomic::AtomicUsize::new(0),
         });
-        let from_range = PMTilesSource::from_reader(Box::new(CountingReaderHandle(counting.clone())))
-            .unwrap();
+        let from_range =
+            PMTilesSource::from_reader(Box::new(CountingReaderHandle(counting.clone()))).unwrap();
 
         let id = TileId::new(0, 0, 0);
         let a = <PMTilesSource as TileSource>::request(&from_file, id).unwrap();

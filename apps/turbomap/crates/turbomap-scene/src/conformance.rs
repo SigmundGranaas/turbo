@@ -231,7 +231,9 @@ pub fn check_environment_diffing(engine: &mut dyn MapEngine) {
     engine.apply(base.clone());
 
     let mut lit = base.clone();
-    lit.environment.lighting = LightingDef::TimeTracked { unix_seconds: 1_750_000_000.0 };
+    lit.environment.lighting = LightingDef::TimeTracked {
+        unix_seconds: 1_750_000_000.0,
+    };
     lit.environment.terrain_shadows = 0.85;
     let delta = engine.apply(lit.clone());
     assert_eq!(
@@ -239,11 +241,20 @@ pub fn check_environment_diffing(engine: &mut dyn MapEngine) {
         Some(&lit.environment),
         "an environment edit must surface as delta.environment"
     );
-    assert!(delta.sources.is_empty(), "environment edit must not churn sources");
-    assert!(delta.layers.is_empty(), "environment edit must not churn layers");
+    assert!(
+        delta.sources.is_empty(),
+        "environment edit must not churn sources"
+    );
+    assert!(
+        delta.layers.is_empty(),
+        "environment edit must not churn layers"
+    );
 
     let again = engine.apply(lit);
-    assert!(again.is_empty(), "reapplying the same environment must be a no-op");
+    assert!(
+        again.is_empty(),
+        "reapplying the same environment must be a no-op"
+    );
 }
 
 /// Updating a `Field2D` source's definition is a source `Updated` with no
@@ -252,13 +263,17 @@ pub fn check_field_source_update(engine: &mut dyn MapEngine) {
     let mut scene = raster_scene(&["base-l"]);
     scene.sources.insert(
         "radar".to_string(),
-        SourceDef::Field2D { bounds: [4.0, 57.0, 31.0, 71.0] },
+        SourceDef::Field2D {
+            bounds: [4.0, 57.0, 31.0, 71.0],
+        },
     );
     engine.apply(scene.clone());
 
     scene.sources.insert(
         "radar".to_string(),
-        SourceDef::Field2D { bounds: [3.0, 56.0, 32.0, 72.0] },
+        SourceDef::Field2D {
+            bounds: [3.0, 56.0, 32.0, 72.0],
+        },
     );
     let delta = engine.apply(scene);
     assert_eq!(

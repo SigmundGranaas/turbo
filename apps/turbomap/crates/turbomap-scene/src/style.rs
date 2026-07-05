@@ -46,7 +46,11 @@ impl Interpolate for f64 {
 
 impl Interpolate for Color {
     fn interpolate(a: Self, b: Self, t: f64) -> Self {
-        let lerp = |x: u8, y: u8| (x as f64 + (y as f64 - x as f64) * t).round().clamp(0.0, 255.0) as u8;
+        let lerp = |x: u8, y: u8| {
+            (x as f64 + (y as f64 - x as f64) * t)
+                .round()
+                .clamp(0.0, 255.0) as u8
+        };
         Color {
             r: lerp(a.r, b.r),
             g: lerp(a.g, b.g),

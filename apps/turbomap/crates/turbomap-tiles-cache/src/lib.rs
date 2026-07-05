@@ -151,7 +151,11 @@ impl DiskCache {
                     continue;
                 }
                 let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-                out.push(Entry { path, mtime, size: meta.len() });
+                out.push(Entry {
+                    path,
+                    mtime,
+                    size: meta.len(),
+                });
             }
         }
     }
@@ -169,7 +173,9 @@ mod tests {
     use tempfile::TempDir;
 
     fn rel(z: u8, x: u32, y: u32) -> PathBuf {
-        Path::new(&z.to_string()).join(x.to_string()).join(y.to_string())
+        Path::new(&z.to_string())
+            .join(x.to_string())
+            .join(y.to_string())
     }
 
     #[test]
@@ -206,8 +212,14 @@ mod tests {
         sleep(Duration::from_millis(10));
         // A third write triggers eviction; tile (1,0) is now the oldest.
         cache.write(&rel(0, 2, 0), &blob).unwrap();
-        assert!(cache.read(&rel(0, 0, 0)).is_some(), "touched entry survives");
-        assert!(cache.read(&rel(0, 1, 0)).is_none(), "untouched oldest evicted");
+        assert!(
+            cache.read(&rel(0, 0, 0)).is_some(),
+            "touched entry survives"
+        );
+        assert!(
+            cache.read(&rel(0, 1, 0)).is_none(),
+            "untouched oldest evicted"
+        );
     }
 
     #[test]

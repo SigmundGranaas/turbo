@@ -16,7 +16,10 @@ use turbomap_core::TileId;
 /// Serialise `tiles` into a complete `.pmtiles` (v3) byte vector. Tiles
 /// may arrive in any order; they are stored in Hilbert-id order as the
 /// spec requires. Duplicate tile ids are rejected.
-pub fn write_archive(tile_type: TileType, tiles: &[(TileId, Vec<u8>)]) -> Result<Vec<u8>, &'static str> {
+pub fn write_archive(
+    tile_type: TileType,
+    tiles: &[(TileId, Vec<u8>)],
+) -> Result<Vec<u8>, &'static str> {
     if tiles.is_empty() {
         return Err("archive needs at least one tile");
     }

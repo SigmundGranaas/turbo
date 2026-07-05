@@ -321,8 +321,7 @@ mod tests {
     fn n50_topo() -> String {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../../tileserver/styles/n50-topo.json");
-        std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
     }
 
     #[test]
@@ -425,7 +424,10 @@ mod tests {
     #[test]
     fn css_colors_parse() {
         assert_eq!(color_from_css("#fff"), Some(Color::rgb(255, 255, 255)));
-        assert_eq!(color_from_css("#a0522d"), Some(Color::rgb(0xa0, 0x52, 0x2d)));
+        assert_eq!(
+            color_from_css("#a0522d"),
+            Some(Color::rgb(0xa0, 0x52, 0x2d))
+        );
         assert_eq!(
             color_from_css("#11223344"),
             Some(Color::rgba(0x11, 0x22, 0x33, 0x44))

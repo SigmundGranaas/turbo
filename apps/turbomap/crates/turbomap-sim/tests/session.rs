@@ -7,9 +7,7 @@ use std::time::Duration;
 
 use turbomap_core::MapOptions;
 use turbomap_engine::{CameraState, LatLng, MapEngine};
-use turbomap_sim::{
-    basemap_scene, basemap_scene_3d, fraction_near, session, PerfSummary, Sim,
-};
+use turbomap_sim::{basemap_scene, basemap_scene_3d, fraction_near, session, PerfSummary, Sim};
 
 const W: u32 = 480;
 const H: u32 = 320;
@@ -39,12 +37,8 @@ fn cold_load_paints_every_subsystem() {
     // Centred on a major crossroads, so the amber arterial grid is in
     // view alongside minor roads, lakes, and labels — every styling path
     // on one screen.
-    let Some(mut sim) = (match Sim::new(
-        640,
-        420,
-        Sim::camera_at_major_crossroads(11.0),
-        no_fade(),
-    ) {
+    let Some(mut sim) = (match Sim::new(640, 420, Sim::camera_at_major_crossroads(11.0), no_fade())
+    {
         Some(sim) => Some(sim),
         None => {
             if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
@@ -58,7 +52,11 @@ fn cold_load_paints_every_subsystem() {
     };
     sim.engine.apply(basemap_scene());
     let settled = sim.run_until_stable(120, 0.001);
-    assert!(settled.is_some(), "cold load must settle, stats: {:?}", sim.stats.last());
+    assert!(
+        settled.is_some(),
+        "cold load must settle, stats: {:?}",
+        sim.stats.last()
+    );
 
     let img = sim.last.as_ref().expect("a rendered frame");
     // Screen-space assertions compare against the ONSCREEN_* constants (the
@@ -77,10 +75,22 @@ fn cold_load_paints_every_subsystem() {
 
     assert!(land > 0.25, "land raster should dominate, got {land:.3}");
     assert!(water > 0.005, "lakes should be visible, got {water:.4}");
-    assert!(landuse > 0.005, "landuse (parks/woods) should be visible, got {landuse:.4}");
-    assert!(road_white > 0.005, "minor roads should be visible, got {road_white:.4}");
-    assert!(road_major > 0.0005, "major (amber) roads should be visible, got {road_major:.5}");
-    assert!(blank < 0.01, "nothing should remain unloaded, got {blank:.4}");
+    assert!(
+        landuse > 0.005,
+        "landuse (parks/woods) should be visible, got {landuse:.4}"
+    );
+    assert!(
+        road_white > 0.005,
+        "minor roads should be visible, got {road_white:.4}"
+    );
+    assert!(
+        road_major > 0.0005,
+        "major (amber) roads should be visible, got {road_major:.5}"
+    );
+    assert!(
+        blank < 0.01,
+        "nothing should remain unloaded, got {blank:.4}"
+    );
     // Labels: dark ink that is neither casing nor land. Count loosely.
     let ink = fraction_near(img, session::LABEL_SRGB, 25);
     assert!(ink > 0.0002, "place labels should be visible, got {ink:.5}");
@@ -101,10 +111,7 @@ fn zoom_journey_never_shows_a_blank_map() {
     sim.latency_frames = 3;
     let from = sim.camera();
     sim.engine.ease_to(
-        CameraState {
-            zoom: 13.0,
-            ..from
-        },
+        CameraState { zoom: 13.0, ..from },
         Duration::from_millis(700),
     );
 
@@ -128,7 +135,10 @@ fn zoom_journey_never_shows_a_blank_map() {
         worst_blank < 0.35,
         "map must never blank out during a zoom, worst was {worst_blank:.3}"
     );
-    assert!((sim.camera().zoom - 13.0).abs() < 1e-9, "animation must land");
+    assert!(
+        (sim.camera().zoom - 13.0).abs() < 1e-9,
+        "animation must land"
+    );
 
     // And it must settle afterwards.
     assert!(
@@ -206,9 +216,15 @@ fn heavy_roaming_under_a_tight_cache_budget_keeps_reloading_tiles() {
     sim.engine.apply(basemap_scene());
 
     let start = sim.camera();
-    assert!(sim.run_until_stable(200, 0.002).is_some(), "start must settle");
+    assert!(
+        sim.run_until_stable(200, 0.002).is_some(),
+        "start must settle"
+    );
     let start_blank = sim.step().blank_frac;
-    assert!(start_blank < 0.05, "start should be covered, blank={start_blank:.3}");
+    assert!(
+        start_blank < 0.05,
+        "start should be covered, blank={start_blank:.3}"
+    );
 
     // Roam far east across several distinct regions, settling at each so the
     // cache fills with new tiles and the cold start-area tiles get evicted.
@@ -272,7 +288,10 @@ fn long_roaming_session_keeps_caches_within_budget() {
     sim.engine.apply(basemap_scene());
 
     let start = sim.camera();
-    assert!(sim.run_until_stable(200, 0.002).is_some(), "start must settle");
+    assert!(
+        sim.run_until_stable(200, 0.002).is_some(),
+        "start must settle"
+    );
 
     // A long, churny session: 80 regions on a wandering path, each settled so
     // the cache fully turns over. Far more tiles than the budget can hold.
@@ -363,8 +382,7 @@ fn frame_cost_stays_within_budget() {
     let summary = PerfSummary::from_stats(&sim.stats);
     eprintln!("perf: {summary:?}");
     // Persist for inspection/CI artifact.
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/sim-reports");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/sim-reports");
     let _ = std::fs::create_dir_all(&dir);
     let _ = std::fs::write(
         dir.join("frame-budget.json"),
@@ -400,7 +418,7 @@ fn terrain_cast_shadows_do_not_stall_the_render_thread_while_panning() {
     sim.engine.pitch_by(45.0); // 3D, but a modest tilt so the footprint-sized
                                // shadow grid overlaps the visible terrain well
     sim.set_sun(90.0, 16.0); // a LOW sun so the synthetic relief self-occludes
-    // Settle: load the DEM + raster tiles and let any animation finish.
+                             // Settle: load the DEM + raster tiles and let any animation finish.
     for _ in 0..80 {
         let (in_flight, animating) = {
             let s = sim.step();

@@ -106,7 +106,12 @@ fn a_real_shaped_tileset_maps_losslessly_onto_the_chunk_model() {
     assert_eq!(keys.len(), 5);
 
     // Bounding volumes: all three forms survived bit-exactly.
-    let BoundingVolume::Region { west, north, max_height_m, .. } = arena[root.0 as usize].meta.bounds
+    let BoundingVolume::Region {
+        west,
+        north,
+        max_height_m,
+        ..
+    } = arena[root.0 as usize].meta.bounds
     else {
         panic!("root is a region");
     };
@@ -158,5 +163,8 @@ fn a_real_shaped_tileset_maps_losslessly_onto_the_chunk_model() {
         arena[east_leaf.0 as usize].content_uri.as_deref(),
         Some("east/leaf.glb")
     );
-    assert_eq!(arena[root.0 as usize].content_uri.as_deref(), Some("root.glb"));
+    assert_eq!(
+        arena[root.0 as usize].content_uri.as_deref(),
+        Some("root.glb")
+    );
 }

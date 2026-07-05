@@ -6,9 +6,7 @@ use serde::{Deserialize, Serialize};
 /// A world layer — one streamable dataset (basemap vectors, imagery, DEM,
 /// radar field, …). Stable, host-visible identity; the human-readable name
 /// and provider chain live in the layer catalog, not on the hot-path key.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct WorldLayerId(pub u16);
 
 /// A node's identity inside its layer's tree — **opaque** to everything but
@@ -16,16 +14,12 @@ pub struct WorldLayerId(pub u16);
 /// ([`crate::quadtree::QuadKey::node_id`]); for an explicit tree it is an
 /// index into the fetched tree arena. Never `(z, x, y)` in public signatures:
 /// that assumption is exactly what this crate exists to remove.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NodeId(pub u64);
 
 /// The engine-wide address of one chunk of one layer — the key the lifecycle
 /// table, caches, and the streaming plan speak.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ChunkKey {
     pub layer: WorldLayerId,
     pub node: NodeId,

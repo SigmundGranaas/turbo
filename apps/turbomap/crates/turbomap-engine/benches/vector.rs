@@ -4,7 +4,9 @@
 //! of the whole route).
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use turbomap_core::{tessellate, Color, Filter, Paint, Rule, TileId, VectorStyle, VectorTileSource};
+use turbomap_core::{
+    tessellate, Color, Filter, Paint, Rule, TileId, VectorStyle, VectorTileSource,
+};
 use turbomap_engine::GeoJsonVectorSource;
 use turbomap_scene::geo::mercator_normalized;
 use turbomap_scene::LatLng;

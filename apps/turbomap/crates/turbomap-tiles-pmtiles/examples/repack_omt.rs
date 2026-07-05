@@ -29,7 +29,10 @@ fn keep_list() -> HashMap<&'static str, Vec<&'static str>> {
         ("landcover", vec!["class", "subclass"]),
         ("landuse", vec!["class"]),
         ("park", vec!["class"]),
-        ("transportation", vec!["class", "subclass", "brunnel", "ramp"]),
+        (
+            "transportation",
+            vec!["class", "subclass", "brunnel", "ramp"],
+        ),
         ("building", vec!["render_height", "render_min_height"]),
         ("boundary", vec!["admin_level", "maritime"]),
         ("place", vec!["class", "name", "rank"]),
@@ -43,18 +46,26 @@ fn keep_list() -> HashMap<&'static str, Vec<&'static str>> {
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let in_dir = args.next().expect("usage: repack_omt <tile-dir> <out.pmtiles>");
-    let out_path = args.next().expect("usage: repack_omt <tile-dir> <out.pmtiles>");
+    let in_dir = args
+        .next()
+        .expect("usage: repack_omt <tile-dir> <out.pmtiles>");
+    let out_path = args
+        .next()
+        .expect("usage: repack_omt <tile-dir> <out.pmtiles>");
     let keep = keep_list();
 
     let mut tiles: Vec<(TileId, Vec<u8>)> = Vec::new();
     let mut bytes_in = 0usize;
     for z_entry in std::fs::read_dir(&in_dir).expect("read tile dir") {
         let z_dir = z_entry.expect("dir entry").path();
-        let Some(z) = name_of(&z_dir).and_then(|s| s.parse::<u8>().ok()) else { continue };
+        let Some(z) = name_of(&z_dir).and_then(|s| s.parse::<u8>().ok()) else {
+            continue;
+        };
         for x_entry in std::fs::read_dir(&z_dir).expect("read z dir") {
             let x_dir = x_entry.expect("dir entry").path();
-            let Some(x) = name_of(&x_dir).and_then(|s| s.parse::<u32>().ok()) else { continue };
+            let Some(x) = name_of(&x_dir).and_then(|s| s.parse::<u32>().ok()) else {
+                continue;
+            };
             for y_entry in std::fs::read_dir(&x_dir).expect("read x dir") {
                 let y_file = y_entry.expect("dir entry").path();
                 let Some(y) = name_of(&y_file)
@@ -91,7 +102,9 @@ fn repack_tile(raw: &[u8], keep: &HashMap<&str, Vec<&str>>) -> Vec<u8> {
     let tile = decode(raw).expect("decode raw OMT tile");
     let mut out = TileEncoder::new();
     for layer in &tile.layers {
-        let Some(fields) = keep.get(layer.name.as_str()) else { continue };
+        let Some(fields) = keep.get(layer.name.as_str()) else {
+            continue;
+        };
         let mut enc = out.layer(&layer.name, layer.extent);
         for feature in &layer.features {
             let props: Vec<(&str, turbomap_mvt::Value)> = fields

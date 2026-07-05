@@ -126,7 +126,10 @@ fn omt_tile(z: u8, x: u32, y: u32) -> Vec<u8> {
             }
             let wx = i as f64 * spacing;
             roads = roads.line(
-                &[(clamp(lx(wx)), -(BUFFER as i32)), (clamp(lx(wx)), (EXTENT + BUFFER) as i32)],
+                &[
+                    (clamp(lx(wx)), -(BUFFER as i32)),
+                    (clamp(lx(wx)), (EXTENT + BUFFER) as i32),
+                ],
                 &props,
             );
         }
@@ -138,7 +141,10 @@ fn omt_tile(z: u8, x: u32, y: u32) -> Vec<u8> {
             }
             let wy = j as f64 * spacing;
             roads = roads.line(
-                &[(-(BUFFER as i32), clamp(ly(wy))), ((EXTENT + BUFFER) as i32, clamp(ly(wy)))],
+                &[
+                    (-(BUFFER as i32), clamp(ly(wy))),
+                    ((EXTENT + BUFFER) as i32, clamp(ly(wy))),
+                ],
                 &props,
             );
         }
@@ -157,7 +163,10 @@ fn omt_tile(z: u8, x: u32, y: u32) -> Vec<u8> {
             continue;
         }
         boundary = boundary.line(
-            &[(-(BUFFER as i32), clamp(ly(wy))), ((EXTENT + BUFFER) as i32, clamp(ly(wy)))],
+            &[
+                (-(BUFFER as i32), clamp(ly(wy))),
+                ((EXTENT + BUFFER) as i32, clamp(ly(wy))),
+            ],
             &[("admin_level", Value::Int(4))],
         );
     }
@@ -301,8 +310,14 @@ fn omt_scene() -> Scene {
         width: Paint::Match {
             property: "class".to_string(),
             cases: vec![
-                MatchCase { value: FilterValue::String("motorway".into()), result: 7.0f32 },
-                MatchCase { value: FilterValue::String("primary".into()), result: 4.0f32 },
+                MatchCase {
+                    value: FilterValue::String("motorway".into()),
+                    result: 7.0f32,
+                },
+                MatchCase {
+                    value: FilterValue::String("primary".into()),
+                    result: 4.0f32,
+                },
             ],
             default: Box::new(2.0f32),
         },
@@ -369,7 +384,10 @@ fn bundled_pmtiles_scene_is_fully_offline_via_the_production_resolver() {
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), f64::from(FIXTURE_ZOOM)),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
         Box::new(turbomap_engine::HostDrivenResolver),
     )
     .expect("construct TurbomapEngine");
@@ -399,13 +417,24 @@ fn bundled_pmtiles_scene_is_fully_offline_via_the_production_resolver() {
     engine.after_submit();
 
     // Coverage census — the map is genuinely there, not just "no errors".
-    let near = |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| {
-        (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol)
-    };
-    let water = image.pixels().filter(|p| near(p, [166, 204, 222], 14)).count();
-    let motorway = image.pixels().filter(|p| near(p, [233, 164, 80], 25)).count();
-    assert!(water > 200, "bundled water must render offline, got {water}");
-    assert!(motorway > 200, "bundled roads must render offline, got {motorway}");
+    let near =
+        |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol);
+    let water = image
+        .pixels()
+        .filter(|p| near(p, [166, 204, 222], 14))
+        .count();
+    let motorway = image
+        .pixels()
+        .filter(|p| near(p, [233, 164, 80], 25))
+        .count();
+    assert!(
+        water > 200,
+        "bundled water must render offline, got {water}"
+    );
+    assert!(
+        motorway > 200,
+        "bundled roads must render offline, got {motorway}"
+    );
 }
 
 fn pending_zoom(p: &turbomap_core::PendingTile) -> u8 {
@@ -461,7 +490,10 @@ fn a_chained_source_renders_offline_and_surfaces_detail_to_the_host() {
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), f64::from(FIXTURE_ZOOM)),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
         Box::new(turbomap_engine::HostDrivenResolver),
     )
     .expect("construct TurbomapEngine");
@@ -477,7 +509,10 @@ fn a_chained_source_renders_offline_and_surfaces_detail_to_the_host() {
     // zoom may pend. (A production baseline bundles the coarse zooms too,
     // which is exactly what the pure-bundle test above proves.)
     let stats = engine.pump_tiles();
-    assert!(stats.vector_tiles >= 4, "bundle must serve the coarse view, got {stats:?}");
+    assert!(
+        stats.vector_tiles >= 4,
+        "bundle must serve the coarse view, got {stats:?}"
+    );
     let unserved_visible: Vec<_> = engine
         .pending_tiles()
         .iter()
@@ -490,11 +525,16 @@ fn a_chained_source_renders_offline_and_surfaces_detail_to_the_host() {
     );
     let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
     engine.after_submit();
-    let near = |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| {
-        (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol)
-    };
-    let water = image.pixels().filter(|p| near(p, [166, 204, 222], 14)).count();
-    assert!(water > 200, "chained source must render the bundle offline, got {water}");
+    let near =
+        |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol);
+    let water = image
+        .pixels()
+        .filter(|p| near(p, [166, 204, 222], 14))
+        .count();
+    assert!(
+        water > 200,
+        "chained source must render the bundle offline, got {water}"
+    );
 
     // Past the bundle: the same source surfaces detail tiles as pending —
     // the host's fetch signal, exactly as if the chain weren't there.
@@ -527,8 +567,13 @@ fn omt_schema_renders_from_a_pmtiles_archive() {
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), f64::from(FIXTURE_ZOOM)),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
-        Box::new(OmtPmtilesResolver { archive: build_fixture_archive() }),
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
+        Box::new(OmtPmtilesResolver {
+            archive: build_fixture_archive(),
+        }),
     )
     .expect("construct TurbomapEngine");
 
@@ -543,26 +588,44 @@ fn omt_schema_renders_from_a_pmtiles_archive() {
     let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
     engine.after_submit();
 
-    let near = |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| {
-        (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol)
-    };
-    let water = image.pixels().filter(|p| near(p, [166, 204, 222], 14)).count();
-    let park = image.pixels().filter(|p| near(p, [201, 224, 192], 14)).count();
-    let motorway = image.pixels().filter(|p| near(p, [233, 164, 80], 25)).count();
-    let boundary = image.pixels().filter(|p| near(p, [140, 110, 160], 30)).count();
+    let near =
+        |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol);
+    let water = image
+        .pixels()
+        .filter(|p| near(p, [166, 204, 222], 14))
+        .count();
+    let park = image
+        .pixels()
+        .filter(|p| near(p, [201, 224, 192], 14))
+        .count();
+    let motorway = image
+        .pixels()
+        .filter(|p| near(p, [233, 164, 80], 25))
+        .count();
+    let boundary = image
+        .pixels()
+        .filter(|p| near(p, [140, 110, 160], 30))
+        .count();
     let ink = image.pixels().filter(|p| near(p, [70, 74, 84], 30)).count();
-    eprintln!(
-        "omt: water={water} park={park} motorway={motorway} boundary={boundary} ink={ink}"
-    );
+    eprintln!("omt: water={water} park={park} motorway={motorway} boundary={boundary} ink={ink}");
     assert!(water > 200, "OMT water lakes should render, got {water}");
     assert!(park > 150, "OMT landuse parks should render, got {park}");
-    assert!(motorway > 200, "OMT motorway class should render, got {motorway}");
-    assert!(boundary > 60, "dashed admin boundary should render, got {boundary}");
+    assert!(
+        motorway > 200,
+        "OMT motorway class should render, got {motorway}"
+    );
+    assert!(
+        boundary > 60,
+        "dashed admin boundary should render, got {boundary}"
+    );
     assert!(ink > 40, "OMT place labels should render, got {ink}");
 
     assert_golden(
         "omt-pmtiles-bergen",
         &image,
-        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
     );
 }

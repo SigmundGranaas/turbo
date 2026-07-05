@@ -29,9 +29,7 @@ use serde::{Deserialize, Serialize};
 
 /// Why a chunk is wanted — the coarse fetch law. Variant order IS the fetch
 /// order.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Tier {
     /// The cheap coarse backdrop: a handful of chunks that guarantee the
     /// screen is never empty. Fetched first, always.
@@ -73,8 +71,16 @@ pub const MOTION_GAIN: f32 = 0.3;
 /// `[-1, 1]`; 0 (stationary or perpendicular) is the identity — the parity
 /// case.
 pub fn effective_distance_sq(distance_sq: f32, alignment: f32) -> f32 {
-    let a = if alignment.is_finite() { alignment.clamp(-1.0, 1.0) } else { 0.0 };
-    let d = if distance_sq.is_finite() { distance_sq.max(0.0) } else { f32::MAX };
+    let a = if alignment.is_finite() {
+        alignment.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    };
+    let d = if distance_sq.is_finite() {
+        distance_sq.max(0.0)
+    } else {
+        f32::MAX
+    };
     d * (1.0 - MOTION_GAIN * a)
 }
 
@@ -116,7 +122,12 @@ mod tests {
                 .wrapping_add(1_442_695_040_888_963_407);
             state
         };
-        let tiers = [Tier::Overview, Tier::Visible, Tier::SurfaceForVisible, Tier::Prefetch];
+        let tiers = [
+            Tier::Overview,
+            Tier::Visible,
+            Tier::SurfaceForVisible,
+            Tier::Prefetch,
+        ];
         let mut items: Vec<(Tier, f32)> = (0..512)
             .map(|_| {
                 let t = tiers[(next() % 4) as usize];
@@ -134,10 +145,7 @@ mod tests {
 
         let mut by_score = items.clone();
         by_score.sort_by_key(|&(t, d)| score(t, d));
-        items.sort_by(|a, b| {
-            a.0.cmp(&b.0)
-                .then(a.1.partial_cmp(&b.1).expect("finite"))
-        });
+        items.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.partial_cmp(&b.1).expect("finite")));
         // Compare as (tier, distance) sequences: equal-score ties may permute
         // equal items, which is exactly what the oracle allows too.
         let a: Vec<(Tier, u32)> = by_score.iter().map(|&(t, d)| (t, d.to_bits())).collect();

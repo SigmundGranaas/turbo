@@ -117,11 +117,15 @@ fn pmtiles_sources_roundtrip_with_kebab_case_tags() {
     let mut scene = Scene::new();
     scene.sources.insert(
         "baseline".to_string(),
-        SourceDef::PmtilesVector { location: "/data/norway-z10.pmtiles".to_string() },
+        SourceDef::PmtilesVector {
+            location: "/data/norway-z10.pmtiles".to_string(),
+        },
     );
     scene.sources.insert(
         "sat".to_string(),
-        SourceDef::PmtilesRaster { location: "https://cdn.example/planet.pmtiles".to_string() },
+        SourceDef::PmtilesRaster {
+            location: "https://cdn.example/planet.pmtiles".to_string(),
+        },
     );
     scene.sources.insert(
         "dem".to_string(),
@@ -157,7 +161,9 @@ fn chain_roundtrips_and_validates() {
         "basemap".to_string(),
         SourceDef::Chain {
             providers: vec![
-                SourceDef::PmtilesVector { location: "/data/norway-z8.pmtiles".to_string() },
+                SourceDef::PmtilesVector {
+                    location: "/data/norway-z8.pmtiles".to_string(),
+                },
                 SourceDef::VectorXyz {
                     tiles: vec!["https://tiles.example/{z}/{x}/{y}.pbf".to_string()],
                     min_zoom: 0,
@@ -193,8 +199,12 @@ fn chain_rejects_empty_nested_and_mixed_kinds() {
     assert!(matches!(
         case(SourceDef::Chain {
             providers: vec![
-                SourceDef::PmtilesVector { location: "/a.pmtiles".to_string() },
-                SourceDef::PmtilesRaster { location: "/b.pmtiles".to_string() },
+                SourceDef::PmtilesVector {
+                    location: "/a.pmtiles".to_string()
+                },
+                SourceDef::PmtilesRaster {
+                    location: "/b.pmtiles".to_string()
+                },
             ],
         }),
         Err(SceneError::InvalidChain { .. })
@@ -202,7 +212,9 @@ fn chain_rejects_empty_nested_and_mixed_kinds() {
     // GeoJSON needs no fallback chain — rejected for kind, not silently allowed.
     assert!(matches!(
         case(SourceDef::Chain {
-            providers: vec![SourceDef::GeoJson { data: "{}".to_string() }],
+            providers: vec![SourceDef::GeoJson {
+                data: "{}".to_string()
+            }],
         }),
         Err(SceneError::InvalidChain { .. })
     ));
@@ -215,7 +227,10 @@ fn environment_roundtrips_and_pre_c1_documents_stay_valid() {
     use turbomap_scene::{EnvironmentDef, LightingDef};
     let mut scene = sample_scene();
     scene.environment = EnvironmentDef {
-        lighting: LightingDef::Fixed { azimuth_deg: 135.0, altitude_deg: 30.0 },
+        lighting: LightingDef::Fixed {
+            azimuth_deg: 135.0,
+            altitude_deg: 30.0,
+        },
         terrain_shadows: 0.85,
         terrain_lit: true,
         aerial_haze: false,
@@ -237,10 +252,15 @@ fn field2d_roundtrips_and_cannot_chain() {
     let mut scene = Scene::new();
     scene.sources.insert(
         "radar".to_string(),
-        SourceDef::Field2D { bounds: [4.0, 57.0, 31.0, 71.0] },
+        SourceDef::Field2D {
+            bounds: [4.0, 57.0, 31.0, 71.0],
+        },
     );
     let json = serde_json::to_string(&scene).unwrap();
-    assert!(json.contains("\"type\":\"field2d\"") || json.contains("\"type\":\"field-2d\""), "{json}");
+    assert!(
+        json.contains("\"type\":\"field2d\"") || json.contains("\"type\":\"field-2d\""),
+        "{json}"
+    );
     let back: Scene = serde_json::from_str(&json).unwrap();
     assert_eq!(back, scene);
 
@@ -248,10 +268,15 @@ fn field2d_roundtrips_and_cannot_chain() {
     bad.sources.insert(
         "c".to_string(),
         SourceDef::Chain {
-            providers: vec![SourceDef::Field2D { bounds: [0.0, 0.0, 1.0, 1.0] }],
+            providers: vec![SourceDef::Field2D {
+                bounds: [0.0, 0.0, 1.0, 1.0],
+            }],
         },
     );
-    assert!(matches!(bad.validate(), Err(SceneError::InvalidChain { .. })));
+    assert!(matches!(
+        bad.validate(),
+        Err(SceneError::InvalidChain { .. })
+    ));
 }
 
 #[test]
@@ -260,7 +285,9 @@ fn clouds_declaration_roundtrips_and_requires_a_field_source() {
     let mut scene = Scene::new();
     scene.sources.insert(
         "radar".to_string(),
-        SourceDef::Field2D { bounds: [4.0, 57.0, 31.0, 71.0] },
+        SourceDef::Field2D {
+            bounds: [4.0, 57.0, 31.0, 71.0],
+        },
     );
     scene.environment.clouds = Some(CloudsDef {
         source: "radar".to_string(),
@@ -274,10 +301,18 @@ fn clouds_declaration_roundtrips_and_requires_a_field_source() {
 
     // A clouds block pointing at a missing or non-field source is invalid.
     scene.sources.remove("radar");
-    assert!(matches!(scene.validate(), Err(SceneError::UnknownSource { .. })));
+    assert!(matches!(
+        scene.validate(),
+        Err(SceneError::UnknownSource { .. })
+    ));
     scene.sources.insert(
         "radar".to_string(),
-        SourceDef::GeoJson { data: "{}".to_string() },
+        SourceDef::GeoJson {
+            data: "{}".to_string(),
+        },
     );
-    assert!(matches!(scene.validate(), Err(SceneError::UnknownSource { .. })));
+    assert!(matches!(
+        scene.validate(),
+        Err(SceneError::UnknownSource { .. })
+    ));
 }
