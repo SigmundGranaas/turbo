@@ -1,24 +1,15 @@
-import { useRef, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import { useProjectedLayer, viewportDpr } from './useProjectedLayer';
 import { useMapEngine } from './MapEngineContext';
+import { setMapLine } from './mapContent';
 import type { LatLng } from '../geo';
 
-// Cap projected vertices per frame so a dense route stays cheap to reproject.
-const MAX_VERTS = 400;
-
-function downsample(coords: LatLng[]): LatLng[] {
-  if (coords.length <= MAX_VERTS) return coords;
-  const step = Math.ceil(coords.length / MAX_VERTS);
-  const out: LatLng[] = [];
-  for (let i = 0; i < coords.length; i += step) out.push(coords[i]);
-  if (out[out.length - 1] !== coords[coords.length - 1]) out.push(coords[coords.length - 1]);
-  return out;
-}
-
-/** The planned/preview route drawn as an SVG polyline over the map, with
- *  waypoint stop rings. Vertices are projected every frame via `map.project`
- *  (the design's `RouteLine`) — terrain-aware, so the line + stops drape on the
- *  3D relief. Pointer-transparent by default so it never blocks the map.
+/** The planned/preview route (or a selected track). The LINE is map content:
+ *  it's published to the content plane (`setMapLine`) and the engine draws it
+ *  as a scene-declared `line` layer, draped on the 3D relief (plan P6.3).
+ *  This component keeps only the interactive chrome: the waypoint stop rings,
+ *  which stay DOM/SVG because they are drag handles (pointer capture, cursor,
+ *  live drag feedback) — positioned per frame via the projection hook.
  *
  *  When `onWaypointDrag` is supplied the stop rings become draggable handles:
  *  dragging one re-places that waypoint via the terrain-aware `unproject_ground`
@@ -29,6 +20,7 @@ export function RouteOverlay({
   waypoints,
   dashed,
   color = 'var(--primary)',
+  contentKey = 'route',
   onWaypointDrag,
 }: {
   coords: LatLng[];
@@ -36,19 +28,24 @@ export function RouteOverlay({
   dashed?: boolean;
   /** Line + waypoint stroke colour (defaults to the theme primary). */
   color?: string;
+  /** Content-plane key — lets independent owners (route planner, selected
+   *  track) each publish one line without clobbering the other. */
+  contentKey?: string;
   /** When set, waypoint rings are draggable; called with the final position on
    *  release (one call per drag, so the solver re-runs once). */
   onWaypointDrag?: (index: number, p: LatLng) => void;
 }) {
   const engine = useMapEngine();
-  const haloRef = useRef<SVGPathElement>(null);
-  const lineRef = useRef<SVGPathElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const stopRefs = useRef<(SVGCircleElement | null)[]>([]);
-  const coordsRef = useRef(coords);
   const wpRef = useRef(waypoints);
-  coordsRef.current = downsample(coords);
   wpRef.current = waypoints;
+
+  // Publish the line to the content plane; clear it on unmount/empty.
+  useEffect(() => {
+    setMapLine(contentKey, coords.length >= 2 ? { coords, color, dashed } : null);
+  }, [coords, color, dashed, contentKey]);
+  useEffect(() => () => setMapLine(contentKey, null), [contentKey]);
 
   // The ring currently being dragged — the per-frame projection skips it so the
   // manual (pointer-driven) position isn't overwritten. The latest ground point
@@ -57,14 +54,6 @@ export function RouteOverlay({
   const dragLatLng = useRef<LatLng | null>(null);
 
   useProjectedLayer((eng, dpr) => {
-    let d = '';
-    const pts = coordsRef.current;
-    for (let i = 0; i < pts.length; i++) {
-      const p = eng.project(pts[i].lat, pts[i].lng);
-      if (p) d += `${d ? 'L' : 'M'}${(p[0] / dpr).toFixed(1)} ${(p[1] / dpr).toFixed(1)}`;
-    }
-    haloRef.current?.setAttribute('d', d);
-    lineRef.current?.setAttribute('d', d);
     wpRef.current.forEach((w, i) => {
       const c = stopRefs.current[i];
       if (!c || i === dragIdx.current) return; // leave the dragged ring under the finger
@@ -111,16 +100,6 @@ export function RouteOverlay({
 
   return (
     <svg ref={svgRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 5 }}>
-      <path ref={haloRef} fill="none" stroke="rgba(255,255,255,.7)" strokeWidth={9} strokeLinejoin="round" strokeLinecap="round" />
-      <path
-        ref={lineRef}
-        fill="none"
-        stroke={color}
-        strokeWidth={5}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        strokeDasharray={dashed ? '2 10' : undefined}
-      />
       {waypoints.map((_, i) => (
         <circle
           key={i}

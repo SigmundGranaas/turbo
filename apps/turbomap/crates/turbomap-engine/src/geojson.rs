@@ -327,38 +327,74 @@ pub fn parse_line(data: &str) -> Vec<(f64, f64)> {
 /// used to drive circle/marker layers, which are positioned in geographic
 /// coordinates (not the world space lines use).
 pub fn parse_points(data: &str) -> Vec<(f64, f64)> {
+    parse_points_with_props(data)
+        .into_iter()
+        .map(|(p, _)| p)
+        .collect()
+}
+
+/// [`parse_points`] plus each point's stringified feature properties — the
+/// attributes a hit test surfaces (plan P6.4: a tapped scene circle answers
+/// with its domain id/name, not just a position). Points inside one
+/// `MultiPoint` share their feature's properties.
+pub fn parse_points_with_props(data: &str) -> Vec<PointWithProps> {
     let Ok(root) = serde_json::from_str::<serde_json::Value>(data) else {
         return Vec::new();
     };
     let mut out = Vec::new();
-    collect_points(&root, &mut out);
+    collect_points(&root, &HashMap::new(), &mut out);
     out
 }
 
-fn collect_points(value: &serde_json::Value, out: &mut Vec<(f64, f64)>) {
+/// A `(lng, lat)` point plus its feature's stringified properties.
+pub type PointWithProps = ((f64, f64), HashMap<String, String>);
+
+/// Stringify a GeoJSON `properties` object for hit-test payloads.
+fn parse_props_strings(value: Option<&serde_json::Value>) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    if let Some(obj) = value.and_then(|v| v.as_object()) {
+        for (k, v) in obj {
+            let s = match v {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Bool(b) => b.to_string(),
+                serde_json::Value::Number(n) => n.to_string(),
+                _ => continue,
+            };
+            out.insert(k.clone(), s);
+        }
+    }
+    out
+}
+
+fn collect_points(
+    value: &serde_json::Value,
+    props: &HashMap<String, String>,
+    out: &mut Vec<PointWithProps>,
+) {
     match value.get("type").and_then(|t| t.as_str()) {
         Some("FeatureCollection") => {
             if let Some(features) = value.get("features").and_then(|f| f.as_array()) {
                 for f in features {
-                    collect_points(f, out);
+                    collect_points(f, props, out);
                 }
             }
         }
         Some("Feature") => {
+            let feature_props = parse_props_strings(value.get("properties"));
             if let Some(geom) = value.get("geometry") {
-                collect_points(geom, out);
+                collect_points(geom, &feature_props, out);
             }
         }
         Some("Point") => {
             if let Some(p) = value.get("coordinates").and_then(point_lng_lat) {
-                out.push(p);
+                out.push((p, props.clone()));
             }
         }
         Some("MultiPoint") => {
             if let Some(points) = value.get("coordinates").and_then(|c| c.as_array()) {
                 for p in points {
                     if let Some(p) = point_lng_lat(p) {
-                        out.push(p);
+                        out.push((p, props.clone()));
                     }
                 }
             }
@@ -653,6 +689,25 @@ mod tests {
             "two from points/multipoint + ignores the line"
         );
         assert_eq!(pts[0], (5.32, 60.39));
+    }
+
+    #[test]
+    fn points_carry_their_feature_properties() {
+        let data = r#"{"type":"FeatureCollection","features":[
+            {"type":"Feature","properties":{"id":"mk-1","name":"Bergen","rank":3},
+             "geometry":{"type":"Point","coordinates":[5.32,60.39]}},
+            {"type":"Feature","properties":{"id":"mk-2"},
+             "geometry":{"type":"MultiPoint","coordinates":[[6.0,61.0],[7.0,62.0]]}}
+        ]}"#;
+        let pts = parse_points_with_props(data);
+        assert_eq!(pts.len(), 3);
+        assert_eq!(pts[0].0, (5.32, 60.39));
+        assert_eq!(pts[0].1.get("id").map(String::as_str), Some("mk-1"));
+        assert_eq!(pts[0].1.get("name").map(String::as_str), Some("Bergen"));
+        assert_eq!(pts[0].1.get("rank").map(String::as_str), Some("3"));
+        // MultiPoint members share their feature's properties.
+        assert_eq!(pts[1].1.get("id").map(String::as_str), Some("mk-2"));
+        assert_eq!(pts[2].1.get("id").map(String::as_str), Some("mk-2"));
     }
 
     #[test]

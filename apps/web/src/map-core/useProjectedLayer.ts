@@ -11,8 +11,10 @@ export const viewportDpr = (): number => Math.min(window.devicePixelRatio || 1, 
  *  React state — so the camera can move at 60fps without re-rendering the tree.
  *  No-op until the engine has booted; cleans up its rAF on unmount.
  *
- *  This is the one shared shape behind the marker pins, the route/track line,
- *  and the user-location dot (it replaced three near-identical rAF loops). */
+ *  Map CONTENT (pins, route lines, the location dot) is scene-declared and
+ *  drawn by the engine (plan P6.3) — this hook is only for interactive chrome
+ *  anchored to a geo point: waypoint drag handles, the click ring, popup
+ *  anchors. */
 export function useProjectedLayer(draw: (engine: MapEngine, dpr: number) => void): void {
   const engine = useMapEngine();
   const drawRef = useRef(draw);

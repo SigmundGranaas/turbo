@@ -323,15 +323,15 @@ impl TurbomapEngine {
                 id,
                 source,
                 source_layer,
-                filter,
                 color,
-                width,
                 dash_array,
+                ..
             } => {
                 if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
                     let zoom = self.map.camera().zoom;
                     let name = geojson_or_declared(scene, source, source_layer);
-                    let style = line_style(name, filter, color, width, zoom, self.pixel_ratio);
+                    let style = compile_vector_layer_style(layer, name, zoom, self.pixel_ratio)
+                        .expect("Line compiles to a vector style");
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     // A `[dash, gap]` array makes the layer dashed (pixels).
                     if let Some((d, g)) = dash_to_pair(dash_array) {
@@ -352,14 +352,14 @@ impl TurbomapEngine {
                 id,
                 source,
                 source_layer,
-                filter,
                 color,
-                opacity,
+                ..
             } => {
                 if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
                     let zoom = self.map.camera().zoom;
                     let name = geojson_or_declared(scene, source, source_layer);
-                    let style = fill_style(name, filter, color, opacity, zoom);
+                    let style = compile_vector_layer_style(layer, name, zoom, self.pixel_ratio)
+                        .expect("Fill compiles to a vector style");
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
                     if !color.is_data_driven() {
@@ -371,24 +371,13 @@ impl TurbomapEngine {
                 id,
                 source,
                 source_layer,
-                filter,
-                color,
-                height_m,
-                height_property,
-                min_height_property,
+                ..
             } => {
                 if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
                     let zoom = self.map.camera().zoom;
                     let name = geojson_or_declared(scene, source, source_layer);
-                    let style = fill_extrusion_style(
-                        name,
-                        filter,
-                        color,
-                        height_m,
-                        height_property,
-                        min_height_property,
-                        zoom,
-                    );
+                    let style = compile_vector_layer_style(layer, name, zoom, self.pixel_ratio)
+                        .expect("FillExtrusion compiles to a vector style");
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
                 }
@@ -397,43 +386,13 @@ impl TurbomapEngine {
                 id,
                 source,
                 source_layer,
-                filter,
-                text_field,
-                text_size,
-                color,
-                halo_color,
-                halo_width,
-                sort_key,
-                placement,
-                icon_image,
-                icon_size,
-                icon_color,
-                text_anchor,
-                letter_spacing,
-                font_weight,
+                ..
             } => {
                 if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
                     let zoom = self.map.camera().zoom;
                     let name = geojson_or_declared(scene, source, source_layer);
-                    let style = symbol_style(
-                        name,
-                        filter,
-                        text_field,
-                        text_size,
-                        color,
-                        halo_color,
-                        halo_width,
-                        sort_key,
-                        *placement,
-                        icon_image,
-                        icon_size,
-                        icon_color,
-                        zoom,
-                        self.pixel_ratio,
-                        *text_anchor,
-                        *letter_spacing,
-                        *font_weight,
-                    );
+                    let style = compile_vector_layer_style(layer, name, zoom, self.pixel_ratio)
+                        .expect("Symbol compiles to a vector style");
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
                 }
@@ -461,13 +420,18 @@ impl TurbomapEngine {
             if let Some(SourceDef::GeoJson { data }) = scene.sources.get(source) {
                 let c = color.at(zoom);
                 let r = radius.at(zoom) * self.pixel_ratio;
-                for (lng, lat) in crate::geojson::parse_points(data) {
+                // Feature properties ride into the marker's data (P6.4) so a
+                // hit test answers with the feature's domain attributes
+                // (id, name), not just a position. `layer` is reserved.
+                for ((lng, lat), props) in crate::geojson::parse_points_with_props(data) {
+                    let mut data: HashMap<String, String> = props;
+                    data.insert("layer".to_string(), id.clone());
                     self.map.add_marker(Marker {
                         id: MarkerId(0),
                         lng_lat: CoreLatLng { lng, lat },
                         radius_px: r,
                         color: CoreColor::rgba(c.r, c.g, c.b, c.a),
-                        data: HashMap::from([("layer".to_string(), id.clone())]),
+                        data,
                     });
                 }
             }
@@ -939,6 +903,66 @@ pub fn streaming_plan_to_json(plan: &turbomap_core::map::StreamingPlan) -> Strin
     )
 }
 
+/// JSON for hit-test results (plan P6.4), top-most first:
+/// `[{"layer":"...","feature_id":"..."|null,"properties":{"k":"v",...}}]`.
+/// One wire shape for every string-typed binding (JNI, wasm); properties are
+/// key-sorted so the output is deterministic.
+pub fn hits_to_json(hits: &[turbomap_scene::Hit]) -> String {
+    fn js(s: &str) -> String {
+        serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string())
+    }
+    let items: Vec<String> = hits
+        .iter()
+        .map(|h| {
+            let mut props: Vec<_> = h.properties.iter().collect();
+            props.sort();
+            let props: Vec<String> = props
+                .into_iter()
+                .map(|(k, v)| format!("{}:{}", js(k), js(v)))
+                .collect();
+            format!(
+                "{{\"layer\":{},\"feature_id\":{},\"properties\":{{{}}}}}",
+                js(&h.layer_id),
+                h.feature_id
+                    .as_deref()
+                    .map(js)
+                    .unwrap_or_else(|| "null".to_string()),
+                props.join(",")
+            )
+        })
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
+#[cfg(test)]
+mod hit_json_tests {
+    use super::hits_to_json;
+    use turbomap_scene::Hit;
+
+    #[test]
+    fn hits_serialize_with_sorted_props_and_null_feature_ids() {
+        let hits = vec![
+            Hit {
+                layer_id: "pins".into(),
+                feature_id: Some("41".into()),
+                properties: [("name", "Bergen"), ("id", "mk-1")]
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+            },
+            Hit {
+                layer_id: "water".into(),
+                feature_id: None,
+                properties: Default::default(),
+            },
+        ];
+        assert_eq!(
+            hits_to_json(&hits),
+            r#"[{"layer":"pins","feature_id":"41","properties":{"id":"mk-1","name":"Bergen"}},{"layer":"water","feature_id":null,"properties":{}}]"#
+        );
+    }
+}
+
 #[cfg(test)]
 mod plan_json_tests {
     use super::streaming_plan_to_json;
@@ -1289,6 +1313,97 @@ fn is_supportable(
     }
 }
 
+/// Compile one IR vector layer (`Fill`/`FillExtrusion`/`Line`/`Symbol`)
+/// into the core `VectorStyle` the renderer tessellates against — exactly
+/// the lowering `reconcile` performs when installing the layer.
+/// `layer_name` is the resolved MVT source-layer name (GeoJSON sources use
+/// the fixed synthetic layer name). Returns `None` for non-vector layers.
+///
+/// Hidden: this is the P6.2 fidelity-gate seam — style-translation tests
+/// assert IR-compiled rules against hand-built / MapLibre-parsed
+/// `VectorStyle`s without booting a GPU. It is not a host contract.
+#[doc(hidden)]
+pub fn compile_vector_layer_style(
+    layer: &Layer,
+    layer_name: String,
+    zoom: f64,
+    pixel_ratio: f32,
+) -> Option<VectorStyle> {
+    match layer {
+        Layer::Fill {
+            filter,
+            color,
+            opacity,
+            ..
+        } => Some(fill_style(layer_name, filter, color, opacity, zoom)),
+        Layer::FillExtrusion {
+            filter,
+            color,
+            height_m,
+            height_property,
+            min_height_property,
+            ..
+        } => Some(fill_extrusion_style(
+            layer_name,
+            filter,
+            color,
+            height_m,
+            height_property,
+            min_height_property,
+            zoom,
+        )),
+        Layer::Line {
+            filter,
+            color,
+            width,
+            ..
+        } => Some(line_style(
+            layer_name,
+            filter,
+            color,
+            width,
+            zoom,
+            pixel_ratio,
+        )),
+        Layer::Symbol {
+            filter,
+            text_field,
+            text_size,
+            color,
+            halo_color,
+            halo_width,
+            sort_key,
+            placement,
+            icon_image,
+            icon_size,
+            icon_color,
+            text_anchor,
+            letter_spacing,
+            font_weight,
+            ..
+        } => Some(symbol_style(
+            layer_name,
+            filter,
+            text_field,
+            text_size,
+            color,
+            halo_color,
+            halo_width,
+            sort_key,
+            *placement,
+            icon_image,
+            icon_size,
+            icon_color,
+            zoom,
+            pixel_ratio,
+            *text_anchor,
+            *letter_spacing,
+            *font_weight,
+        )),
+        _ => None,
+    }
+}
+
 /// GeoJSON sources emit a fixed layer name; MVT sources use the layer's
 /// declared source-layer.
 fn geojson_or_declared(scene: &Scene, source: &str, declared: &Option<String>) -> String {
@@ -1335,6 +1450,36 @@ fn color_rules(
     }
 }
 
+/// Split a layer filter into its feature predicate and its tile-zoom
+/// window. [`Filter::ZoomRange`] at the top level (or anywhere inside a
+/// top-level [`Filter::All`], intersecting when repeated) lowers onto the
+/// compiled rules' `min_zoom..=max_zoom` band; any other placement leaves
+/// the range where it is, and [`map_filter`] rejects it loudly.
+fn split_zoom_window(filter: &Filter) -> (Filter, u8, u8) {
+    match filter {
+        Filter::ZoomRange { min, max } => (Filter::Always, *min, *max),
+        Filter::All(fs) => {
+            let (mut min, mut max) = (0u8, 22u8);
+            let mut rest: Vec<Filter> = Vec::new();
+            for f in fs {
+                if let Filter::ZoomRange { min: lo, max: hi } = f {
+                    min = min.max(*lo);
+                    max = max.min(*hi);
+                } else {
+                    rest.push(f.clone());
+                }
+            }
+            let feature = match rest.len() {
+                0 => Filter::Always,
+                1 => rest.remove(0),
+                _ => Filter::All(rest),
+            };
+            (feature, min, max)
+        }
+        other => (other.clone(), 0, 22),
+    }
+}
+
 /// Build a core `VectorStyle` from a Scene `Fill` layer. Opacity folds
 /// into each colour's alpha (core fill paint has no separate opacity).
 fn fill_style(
@@ -1344,8 +1489,9 @@ fn fill_style(
     opacity: &Paint<f32>,
     zoom: f64,
 ) -> VectorStyle {
+    let (feature_filter, min_zoom, max_zoom) = split_zoom_window(filter);
     let op = opacity.at(zoom);
-    let rules = color_rules(filter, color, zoom)
+    let rules = color_rules(&feature_filter, color, zoom)
         .into_iter()
         .map(|(f, c)| {
             let a = (c.a as f32 * op).round().clamp(0.0, 255.0) as u8;
@@ -1355,8 +1501,8 @@ fn fill_style(
                 paint: CorePaint::Fill {
                     color: CoreColor::rgba(c.r, c.g, c.b, a),
                 },
-                min_zoom: 0,
-                max_zoom: 22,
+                min_zoom,
+                max_zoom,
                 interactive: false,
             }
         })
@@ -1381,8 +1527,9 @@ fn fill_extrusion_style(
     min_height_property: &Option<String>,
     zoom: f64,
 ) -> VectorStyle {
+    let (feature_filter, min_zoom, max_zoom) = split_zoom_window(filter);
     let h = height_m.at(zoom);
-    let rules = color_rules(filter, color, zoom)
+    let rules = color_rules(&feature_filter, color, zoom)
         .into_iter()
         .map(|(f, c)| CoreRule {
             source_layer: layer_name.clone(),
@@ -1393,8 +1540,8 @@ fn fill_extrusion_style(
                 height_property: height_property.clone(),
                 min_height_property: min_height_property.clone(),
             },
-            min_zoom: 0,
-            max_zoom: 22,
+            min_zoom,
+            max_zoom,
             interactive: false,
         })
         .collect();
@@ -1427,6 +1574,7 @@ fn symbol_style(
     letter_spacing: f32,
     font_weight: f32,
 ) -> VectorStyle {
+    let (feature_filter, min_zoom, max_zoom) = split_zoom_window(filter);
     let hc = halo_color.at(zoom);
     let core_halo = CoreColor::rgba(hc.r, hc.g, hc.b, hc.a);
     // Halo width already scales with font size on screen (it is in glyph
@@ -1443,7 +1591,7 @@ fn symbol_style(
     });
     // Text colour is data-driven too (e.g. a different colour per place
     // class), so it expands to per-feature rules like lines/fills.
-    let rules = color_rules(filter, color, zoom)
+    let rules = color_rules(&feature_filter, color, zoom)
         .into_iter()
         .map(|(f, c)| CoreRule {
             source_layer: layer_name.clone(),
@@ -1461,8 +1609,8 @@ fn symbol_style(
                 letter_spacing,
                 weight: font_weight,
             },
-            min_zoom: 0,
-            max_zoom: 22,
+            min_zoom,
+            max_zoom,
             // Symbol layers carrying an icon are POI markers — retain their
             // features so a tap can report the place. Plain text labels
             // (place/street names) aren't tappable, so they stay light.
@@ -1632,14 +1780,15 @@ fn line_style(
     zoom: f64,
     pixel_ratio: f32,
 ) -> VectorStyle {
-    let rules = line_rules(filter, color, width, zoom, pixel_ratio)
+    let (feature_filter, min_zoom, max_zoom) = split_zoom_window(filter);
+    let rules = line_rules(&feature_filter, color, width, zoom, pixel_ratio)
         .into_iter()
         .map(|(f, c, w)| CoreRule {
             source_layer: layer_name.clone(),
             filter: f,
             paint: CorePaint::Line { color: c, width: w },
-            min_zoom: 0,
-            max_zoom: 22,
+            min_zoom,
+            max_zoom,
             interactive: false,
         })
         .collect();
@@ -1662,6 +1811,17 @@ fn map_filter(filter: &Filter) -> CoreFilter {
         Filter::Not(inner) => CoreFilter::Not(Box::new(map_filter(inner))),
         Filter::All(fs) => CoreFilter::All(fs.iter().map(map_filter).collect()),
         Filter::Any(fs) => CoreFilter::Any(fs.iter().map(map_filter).collect()),
+        Filter::ZoomRange { min, max } => {
+            // Only meaningful at the top of a layer filter (or inside a
+            // top-level `All`), where `split_zoom_window` lowers it onto the
+            // rule's zoom band before this mapping runs. Nested under
+            // `Not`/`Any` it has no per-feature meaning — warn, match all.
+            log::warn!(
+                "Filter::ZoomRange({min}..={max}) nested under Not/Any cannot compile to a \
+                 zoom band; treating it as match-all"
+            );
+            CoreFilter::Always
+        }
     }
 }
 
@@ -1705,7 +1865,43 @@ fn fetch_decode_dem(src: &dyn TileSource, tile: TileId) -> Option<turbomap_core:
 
 #[cfg(test)]
 mod tests {
-    use super::line_width_scale;
+    use super::{line_width_scale, split_zoom_window};
+    use turbomap_scene::{Filter, FilterValue};
+
+    #[test]
+    fn zoom_windows_split_off_the_layer_filter() {
+        let eq = || Filter::Eq("kind".into(), FilterValue::String("city".into()));
+
+        // No window anywhere: full band, filter untouched.
+        assert_eq!(split_zoom_window(&eq()), (eq(), 0, 22));
+        assert_eq!(split_zoom_window(&Filter::Always), (Filter::Always, 0, 22));
+
+        // Bare window: the whole filter is the band.
+        assert_eq!(
+            split_zoom_window(&Filter::ZoomRange { min: 6, max: 14 }),
+            (Filter::Always, 6, 14)
+        );
+
+        // Window + predicate inside All: band extracted, single remaining
+        // predicate unwrapped (compiled rules must equal a hand-built
+        // `Filter::Eq`, not `All([Eq])` — the fidelity gate compares them).
+        assert_eq!(split_zoom_window(&eq().within_zoom(9, 22)), (eq(), 9, 22));
+
+        // Repeated windows intersect.
+        assert_eq!(
+            split_zoom_window(&Filter::All(vec![
+                Filter::ZoomRange { min: 4, max: 14 },
+                Filter::ZoomRange { min: 8, max: 22 },
+                eq(),
+            ])),
+            (eq(), 8, 14)
+        );
+
+        // Nested under Not/Any the window is NOT extracted (map_filter
+        // rejects it loudly instead).
+        let nested = Filter::Not(Box::new(Filter::ZoomRange { min: 0, max: 5 }));
+        assert_eq!(split_zoom_window(&nested), (nested.clone(), 0, 22));
+    }
 
     #[test]
     fn line_width_scale_is_flat_below_reference_and_grows_above() {

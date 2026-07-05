@@ -170,4 +170,44 @@ pub enum Filter {
     All(Vec<Filter>),
     /// Any sub-filter matches.
     Any(Vec<Filter>),
+    /// Matches only within a tile-zoom window (both ends inclusive) — the
+    /// IR form of a core rule's `min_zoom..=max_zoom` band and of MapLibre's
+    /// layer `minzoom`/`maxzoom`. Compilers honour it at the top level of a
+    /// layer filter or inside a top-level [`Filter::All`], where it lowers
+    /// onto the rule's zoom band; nested under `Not`/`Any` it has no
+    /// per-feature meaning and engines treat it as match-all (loudly).
+    /// Compose with [`Filter::within_zoom`].
+    ZoomRange {
+        #[serde(default)]
+        min: u8,
+        #[serde(default = "full_range_max_zoom")]
+        max: u8,
+    },
+}
+
+fn full_range_max_zoom() -> u8 {
+    22
+}
+
+impl Filter {
+    /// Compose `self` with a tile-zoom window: matches when `self` matches
+    /// AND the tile zoom is within `min..=max`. A full-range window returns
+    /// `self` unchanged; a window over [`Filter::Always`] becomes a bare
+    /// [`Filter::ZoomRange`]. The range joins an existing top-level `All`
+    /// (prepended) so compilers keep finding it at the top level.
+    #[must_use]
+    pub fn within_zoom(self, min: u8, max: u8) -> Filter {
+        if min == 0 && max >= 22 {
+            return self;
+        }
+        let range = Filter::ZoomRange { min, max };
+        match self {
+            Filter::Always => range,
+            Filter::All(mut fs) => {
+                fs.insert(0, range);
+                Filter::All(fs)
+            }
+            other => Filter::All(vec![range, other]),
+        }
+    }
 }

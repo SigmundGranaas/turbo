@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.core.turbomap.android
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.MapEngine
+import com.sigmundgranaas.turbo.expressive.domain.MapHit
 import com.sigmundgranaas.turbo.expressive.domain.TerrainSunOverlay
 import com.sigmundgranaas.turbo.expressive.domain.WeatherCloudOverlay
 
@@ -86,6 +87,11 @@ class TurbomapMapEngine(
     override fun toScreen(point: LatLng): Pair<Float, Float> {
         val r = NativeSurfaceMap.nativeProject(handle, point.lat, point.lng)
         return if (r.size >= 3 && r[2] == 1.0) r[0].toFloat() to r[1].toFloat() else 0f to 0f
+    }
+
+    override fun hitTest(xPx: Float, yPx: Float, tolPx: Float): List<MapHit> {
+        val json = NativeSurfaceMap.nativeHitTest(handle, xPx.toDouble(), yPx.toDouble(), tolPx.toDouble())
+        return parseHits(json)
     }
 
     override fun visibleBounds(): GeoBounds {
@@ -181,4 +187,22 @@ class TurbomapMapEngine(
         const val EASE_DURATION_MS = 450 // fly-to / locate / frame-to
         const val ZOOM_DURATION_MS = 250 // rail zoom step
     }
+}
+
+/** Parse the JNI hit-test JSON (`[{"layer","feature_id","properties"}]`). */
+private fun parseHits(json: String): List<MapHit> = try {
+    val arr = org.json.JSONArray(json)
+    (0 until arr.length()).map { i ->
+        val o = arr.getJSONObject(i)
+        val props = o.optJSONObject("properties")
+        MapHit(
+            layer = o.optString("layer"),
+            featureId = if (o.isNull("feature_id")) null else o.optString("feature_id"),
+            properties = props?.let { p ->
+                p.keys().asSequence().associateWith { k -> p.optString(k) }
+            } ?: emptyMap(),
+        )
+    }
+} catch (_: org.json.JSONException) {
+    emptyList()
 }

@@ -318,6 +318,68 @@ fn clouds_declaration_roundtrips_and_requires_a_field_source() {
     ));
 }
 
+// ---- zoom-window filters (plan P6.2: MapLibre minzoom/maxzoom in the IR) --
+
+#[test]
+fn zoom_range_filter_roundtrips_with_a_stable_json_shape() {
+    // The variant tag is kebab-case like every other Filter form; hosts
+    // hand-author this JSON, so pin the shape.
+    let f = Filter::ZoomRange { min: 9, max: 14 };
+    let json = serde_json::to_string(&f).unwrap();
+    assert_eq!(json, r#"{"zoom-range":{"min":9,"max":14}}"#);
+    let back: Filter = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, f);
+
+    // Omitted bounds default to the full 0..=22 band.
+    let sparse: Filter = serde_json::from_str(r#"{"zoom-range":{"min":11}}"#).unwrap();
+    assert_eq!(sparse, Filter::ZoomRange { min: 11, max: 22 });
+    let empty: Filter = serde_json::from_str(r#"{"zoom-range":{}}"#).unwrap();
+    assert_eq!(empty, Filter::ZoomRange { min: 0, max: 22 });
+
+    // A layer carrying a zoom-windowed filter round-trips through a Scene.
+    let mut scene = sample_scene();
+    scene.layers.push(Layer::Line {
+        id: "banded".to_string(),
+        source: "route".to_string(),
+        source_layer: None,
+        filter: Filter::Eq(
+            "kind".to_string(),
+            turbomap_scene::FilterValue::String("major".to_string()),
+        )
+        .within_zoom(8, 22),
+        color: Paint::Const(Color::rgb(200, 100, 50)),
+        width: Paint::Const(3.0),
+        dash_array: None,
+    });
+    let json = serde_json::to_string(&scene).unwrap();
+    let back: Scene = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, scene);
+}
+
+#[test]
+fn within_zoom_composes_and_elides_full_range_windows() {
+    use turbomap_scene::FilterValue;
+    let eq = || Filter::Eq("k".to_string(), FilterValue::String("v".to_string()));
+
+    // A full-range window is the identity — no wrapper noise.
+    assert_eq!(eq().within_zoom(0, 22), eq());
+    // Over Always the window IS the filter.
+    assert_eq!(
+        Filter::Always.within_zoom(2, 6),
+        Filter::ZoomRange { min: 2, max: 6 }
+    );
+    // Over a feature predicate the window joins an All, range first.
+    assert_eq!(
+        eq().within_zoom(14, 22),
+        Filter::All(vec![Filter::ZoomRange { min: 14, max: 22 }, eq()])
+    );
+    // Over an existing All the range is prepended, keeping it top-level.
+    assert_eq!(
+        Filter::All(vec![eq()]).within_zoom(3, 22),
+        Filter::All(vec![Filter::ZoomRange { min: 3, max: 22 }, eq()])
+    );
+}
+
 #[test]
 fn tube_layer_roundtrips_with_a_stable_json_shape() {
     // The Kotlin + TS hosts hand-author this JSON (plan P5.2): the variant

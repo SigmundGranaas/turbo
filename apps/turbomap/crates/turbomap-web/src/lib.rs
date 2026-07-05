@@ -436,6 +436,15 @@ impl TurboMap {
         vec![lat, lng, if hit { 1.0 } else { 0.0 }]
     }
 
+    /// Features under a screen point (device px) within `tolerance_px`,
+    /// top-most first, as a JSON array (plan P6.4):
+    /// `[{"layer":"...","feature_id":"...","properties":{...}}, ...]`.
+    /// Scene circles answer with their geo-json feature properties, so a
+    /// tapped pin resolves to its domain id without host-side geometry math.
+    pub fn hit_test(&self, x: f64, y: f64, tolerance_px: f64) -> String {
+        turbomap_engine::hits_to_json(&self.engine.hit_test(ScreenPoint::new(x, y), tolerance_px))
+    }
+
     // Environment (lighting, shadows, haze, basemap gain) is scene state:
     // declare it in the scene IR's `environment` block and re-apply the scene
     // (plan P5.2 — one content plane). There are deliberately no imperative

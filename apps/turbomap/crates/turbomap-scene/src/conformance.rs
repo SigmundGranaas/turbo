@@ -12,7 +12,7 @@
 
 use crate::diff::{LayerChange, SourceChange};
 use crate::engine::{CameraState, MapEngine};
-use crate::geo::LatLng;
+use crate::geo::{LatLng, ScreenPoint};
 use crate::scene::{Layer, Scene, SourceDef};
 use crate::style::{Color, Filter, Paint};
 
@@ -340,6 +340,72 @@ pub fn check_projection_roundtrips(engine: &mut dyn MapEngine) {
     }
 }
 
+/// Plan P6.4: scene-declared point content answers hit tests with its
+/// geo-json feature properties. The pinned contract: a tap on a `circle`
+/// layer's point (top-down camera) yields a hit whose `layer_id` is the
+/// circle layer and whose `properties` carry the feature's attributes; a tap
+/// far from any content yields none. `feature_id` is engine-internal and
+/// deliberately NOT pinned.
+pub fn check_hit_test_semantics(engine: &mut dyn MapEngine) {
+    engine.resize(512, 512);
+    engine.set_camera(CameraState {
+        center: LatLng::new(60.39, 5.32),
+        zoom: 12.0,
+        pitch_deg: 0.0,
+        bearing_deg: 0.0,
+    });
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "pins-src".into(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"FeatureCollection","features":[
+                {"type":"Feature","properties":{"id":"mk-1","name":"Bergen"},
+                 "geometry":{"type":"Point","coordinates":[5.32,60.39]}}]}"#
+                .into(),
+        },
+    );
+    scene.layers.push(Layer::Circle {
+        id: "pins".into(),
+        source: "pins-src".into(),
+        source_layer: None,
+        filter: Filter::default(),
+        color: Paint::constant(Color {
+            r: 229,
+            g: 57,
+            b: 53,
+            a: 255,
+        }),
+        radius: Paint::constant(8.0),
+    });
+    engine.apply(scene);
+
+    let centre = engine
+        .project(LatLng::new(60.39, 5.32))
+        .expect("pin projects on-screen top-down");
+    let hits = engine.hit_test(centre, 12.0);
+    let hit = hits
+        .iter()
+        .find(|h| h.layer_id == "pins")
+        .unwrap_or_else(|| panic!("a tap on the pin must hit the circle layer; got {hits:?}"));
+    assert_eq!(
+        hit.properties.get("id").map(String::as_str),
+        Some("mk-1"),
+        "geo-json feature properties must ride into the hit: {hit:?}"
+    );
+    assert_eq!(
+        hit.properties.get("name").map(String::as_str),
+        Some("Bergen"),
+        "geo-json feature properties must ride into the hit: {hit:?}"
+    );
+
+    let far = ScreenPoint::new(centre.x + 200.0, centre.y + 200.0);
+    let miss = engine.hit_test(far, 12.0);
+    assert!(
+        miss.iter().all(|h| h.layer_id != "pins"),
+        "a tap 200px away must not hit the pin: {miss:?}"
+    );
+}
+
 /// Run the entire suite against engines from `factory`. A fresh engine is
 /// built per check so mutations don't leak between cases.
 pub fn run_all(factory: &dyn Fn() -> Box<dyn MapEngine>) {
@@ -355,4 +421,5 @@ pub fn run_all(factory: &dyn Fn() -> Box<dyn MapEngine>) {
     check_environment_diffing(&mut *factory());
     check_field_source_update(&mut *factory());
     check_projection_roundtrips(&mut *factory());
+    check_hit_test_semantics(&mut *factory());
 }

@@ -103,6 +103,12 @@ internal object NativeSurfaceMap {
      */
     external fun nativeUnprojectGround(handle: Long, xPx: Double, yPx: Double): DoubleArray
 
+    /** Features under a screen point (device px) within tolPx, top-most first,
+     *  as JSON `[{"layer":..,"feature_id":..,"properties":{..}}, ...]` (plan
+     *  P6.4). Wait-free: `[]` under render-lock contention — re-ask on the
+     *  next tap if needed. */
+    external fun nativeHitTest(handle: Long, xPx: Double, yPx: Double, tolPx: Double): String
+
     // ── Host-driven tile IO: the STREAMING PLAN ────────────────────────────
     /**
      * Grant [freeLanes] fetch lanes and drain every plan minted since the last

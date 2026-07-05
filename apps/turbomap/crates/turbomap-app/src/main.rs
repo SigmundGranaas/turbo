@@ -4,6 +4,7 @@ mod input;
 mod map_host;
 mod runtime;
 mod schedule;
+mod styles;
 mod surface;
 mod ui;
 

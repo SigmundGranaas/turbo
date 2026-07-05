@@ -16,6 +16,8 @@ workspace = true
 
 [dependencies]
 turbomap-core = { path = "../turbomap-core" }
+# The app authors content as Scene IR (plan P6.2) — see `styles.rs`.
+turbomap-scene = { path = "../turbomap-scene" }
 # Direct dep (already transitive via core) so the desktop "Clouds" debug
 # panel can build a synthetic radar sequence + select pipeline debug views
 # without booting a device. See `app.rs`.
@@ -40,3 +42,7 @@ egui-winit.workspace = true
 [dev-dependencies]
 # Used by the dem-probe example only; not pulled into the desktop bin.
 reqwest = { workspace = true }
+# The P6.2 fidelity gate in `styles.rs` compiles the hand-authored IR
+# layers through the engine's scene→VectorStyle lowering (pure functions —
+# no GPU booted) and compares against the styles app.rs hand-built so far.
+turbomap-engine = { path = "../turbomap-engine" }

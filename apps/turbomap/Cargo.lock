@@ -3886,6 +3886,8 @@ dependencies = [
  "reqwest",
  "turbomap-clouds",
  "turbomap-core",
+ "turbomap-engine",
+ "turbomap-scene",
  "turbomap-style-maplibre",
  "turbomap-tiles-http",
  "wgpu",
@@ -4022,6 +4024,8 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "turbomap-core",
+ "turbomap-engine",
+ "turbomap-scene",
 ]
 
 [[package]]

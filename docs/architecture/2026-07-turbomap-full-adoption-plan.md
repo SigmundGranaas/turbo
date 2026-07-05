@@ -270,35 +270,37 @@ as D1 (port 1:1, prove equivalence, then extend).
 
 ---
 
-## 9. P6.6 — Android offline joins the provider chain (M, device-gated)
+## 9. P6.6 — Android offline: one store, gated (M, device-gated)
 
-**Goal:** one streaming stack on the device. Offline packs are a provider
-the scene declares, served through the engine's cache/lifecycle — not a
-parallel host-side store.
+**Premise revision (2026-07-05, survey):** the plan's original framing
+("a second, parallel streaming stack that must join the engine's provider
+chain") was partially WRONG. The architecture explicitly assigns tile IO —
+"auth, caching, offline" — to the host (`host_resolver.rs` module docs), and
+the Android host already implements exactly the right shape: ONE shared
+`TileStore` (the map's fetch loop reads through it before OkHttp — literally
+`chain [offline, remote]` semantics evaluated at the transport — and
+`WgpuOfflineTileManager` pre-populates the same store), one layer/template
+vocabulary (`MapStyles` feeds both the scene builder and `defaultLanes`), no
+OkHttp disk cache anywhere. The declarative `SourceDef::Chain` (B6.2) is the
+IN-PROCESS platforms' story (desktop/wasm); forcing it across JNI would
+invert the architecture's IO division for no benefit.
 
-**Changes**
-- The scene Android builds declares `chain [offline, remote]` per tile
-  source (`SourceDef::Chain` — shipped in B6.2, currently unused by any
-  product host).
-- `TileStore.kt`'s role collapses: either (a) the engine's `DiskCache`
-  becomes the one on-device store and the offline downloader pre-populates
-  *it* (preferred — budgets/eviction/trace come free), or (b) `TileStore`
-  is wrapped as a host-resolved provider stub in the chain. Decide by
-  measuring on device; (a) unless the JNI file-access story blocks it.
-- `OfflineDownloadService` keeps its region/zoom enumeration but writes into
-  the one store; its progress/size accounting reads the same numbers the
-  engine trace publishes.
-- `invariants.rs`-style architecture test on the Kotlin side: one disk store
-  (no second cache class reachable from the map host).
+**What the slice therefore delivers** (Kotlin, compile-unverified here):
+- `OneTileStoreArchitectureTest` (JVM source-scan, same ratchet rule as
+  `invariants.rs`): no OkHttp disk `.cache(` may appear beside the one
+  `TileStore` in `turbomap-android` or `core/map`; the read-through line and
+  the shared store dir are tripwired.
+- `TurbomapOfflineOnDeviceTest` — the AIRPLANE-MODE gate: phase 1 drains a
+  surface session's streaming plan and "downloads" every requested tile into
+  a `TileStore` (the downloader's exact write path); phase 2 boots a FRESH
+  surface over the same scene + camera against an unresolvable host
+  (`offline.invalid`) and serves ONLY `store.get` — a store miss fails
+  (pinning invariant 5, deterministic selection, across sessions), and the
+  frame must reach ≥85 % basemap coverage. This also closes most of B6's
+  deferred offline-cold-start gate with existing content.
 
-**Gates / done:** JVM test — a "downloaded" region renders with the remote
-provider stubbed to refuse (zero plan starts escape to remote at covered
-zooms); on-device airplane-mode androidTest over a real downloaded region
-(this also closes most of B6's deferred offline-cold-start gate with
-existing content instead of a new bundle); the on-device agent validates
-download → evict → re-download UX.
-
----
+**Gates / done:** both tests green on device (on-device agent); the
+download → evict → re-download UX validated there too.
 
 ## 10. Explicitly out of scope for Phase 6
 
@@ -323,3 +325,25 @@ download → evict → re-download UX.
 ## 12. Progress log
 
 - _2026-07-05_: Plan authored from the full-adoption audit (this doc §0).
+
+- _2026-07-05_: **P6.0 landed + verified — the ladder is CI.** The build
+  workflow triggers on this branch and gains the GPU lane (Lavapipe,
+  `REQUIRE_GPU=1`, the `gpu-tests` features plain `cargo test` silently
+  skips) and a wasm32 check lane; `turbomap_sim.yml` runs the 8 release
+  behavioural gates nightly + on dispatch. `tests/invariants.rs` makes the
+  manual grep-gates executable with a ratchet rule (allowlists only
+  shrink): no `.pending_tiles(` calls; image/MVT wire decodes confined to
+  the codec + transport side with core/scene/world format-blind;
+  `DemEncoding` out of the render path; `decode_elevation` single-homed.
+  **First CI run in the campaign's history: run 136, all lanes green on
+  GitHub runners (5.5 min)** — Phases 0–5 landed 55+ commits with zero CI
+  because every lane was main-only.
+- _2026-07-05_: **P6.1 landed + verified — the sim authors scenes.** `Sim`
+  owns its Scene document like every real host: `set_sun` /
+  `set_terrain_shadows` / `set_clouds_visible` edit the environment block
+  (fixed lighting, `terrain_shadows`, `CloudsDef::visible`) and re-apply;
+  the three `#[doc(hidden)]` engine verbs are deleted and
+  `content_has_one_authoring_surface` forbids the entire setter family on
+  the engine/ffi/wasm bindings forever. Invariant 7 now holds with ZERO
+  exceptions. Verified: full ladder; **8/8 sim gates on the scene-declared
+  environment path** (release, 539.9 s); goldens byte-stable.

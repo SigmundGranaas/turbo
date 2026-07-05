@@ -1336,6 +1336,37 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     }
 }
 
+/// Features under a screen point (device px) within `tolPx`, top-most first,
+/// as JSON `[{"layer":..,"feature_id":..,"properties":{..}}, ...]` (plan
+/// P6.4). Scene circles answer with their geo-json feature properties, so a
+/// tapped pin resolves to its domain id. Wait-free: exact when the render
+/// lock is free, `[]` under contention — a tap is a settled gesture, so the
+/// lock is almost always free; the host may simply re-ask.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeHitTest(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    x: jdouble,
+    y: jdouble,
+    tol_px: jdouble,
+) -> jni::sys::jstring {
+    let json = unsafe {
+        with_surface(handle, |s| {
+            if let Ok(on) = s.render.try_lock() {
+                let hits = MapEngine::hit_test(&on.engine, ScreenPoint::new(x, y), tol_px);
+                turbomap_engine::hits_to_json(&hits)
+            } else {
+                "[]".to_string()
+            }
+        })
+    }
+    .unwrap_or_else(|| "[]".to_string());
+    env.new_string(json)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
 /// Tiles the engine is waiting on, as a JSON array
 /// `[{"kind":"raster","layer":"basemap","z":..,"x":..,"y":..}, ...]` — the host
 /// fetches each (it owns the URL templates + offline) and pushes bytes back.

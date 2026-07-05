@@ -12,5 +12,12 @@ workspace = true
 
 [dependencies]
 turbomap-core = { path = "../turbomap-core" }
+turbomap-scene = { path = "../turbomap-scene" }
 serde_json = "1"
 thiserror.workspace = true
+
+[dev-dependencies]
+# The P6.2 fidelity gate compiles the emitted Scene IR layers through the
+# engine's scene→VectorStyle lowering (a pure function — no GPU booted) and
+# compares the rules against `parse_style`'s core VectorStyle output.
+turbomap-engine = { path = "../turbomap-engine" }
