@@ -21,6 +21,7 @@ use web_time::Instant;
 
 use crate::{
     camera::{Camera, CameraAnimation, FlingAnimation, ZoomBounds, ZoomFlingAnimation, ZoomLock},
+    environment::Environment,
     error::MapError,
     geo::{LatLng, WorldPoint},
     hit::geometry_hit,
@@ -1630,6 +1631,29 @@ impl Map {
     /// at the camera's current location.
     fn effective_sun(&self) -> SunPosition {
         self.atmosphere.lighting.sun_at(self.cam.camera.center)
+    }
+
+    /// Build the frame's [`Environment`] — THE single derivation site for
+    /// every environmental input (plan E1): the clock, the one sun, the
+    /// sun-derived palette, the host look gates, and (ahead of their first
+    /// consumers) wind + season. `RenderFrame::build` turns it into
+    /// uniforms; nothing patches lighting state in after the fact.
+    fn environment(&self) -> Environment {
+        let sun = self.effective_sun();
+        Environment {
+            time_s: self
+                .time_override
+                .unwrap_or_else(|| self.start.elapsed().as_secs_f32()),
+            sun,
+            atmosphere: crate::sun::atmosphere(sun),
+            aerial_haze: self.atmosphere.aerial_haze,
+            terrain_lit: self.atmosphere.terrain_lit,
+            basemap_gain: self.atmosphere.basemap_gain,
+            // Calm + neutral until a scene/host supplies them (E2 wires
+            // wind into cloud drift; season waits on M-MODELS styling).
+            wind: [0.0, 0.0],
+            season: 0.5,
+        }
     }
 
     /// Push a DECODED DEM tile (real heights — see
@@ -3403,11 +3427,14 @@ impl Map {
         // All per-frame render globals — metres-to-world, the sun-lit
         // atmosphere, the aerial-perspective haze, the sky uniform and the
         // raster/vector terrain configs — derived once from the camera +
-        // sun + terrain. See [`RenderFrame`].
+        // the frame's ENVIRONMENT (plan E1: one value, sampled by everyone)
+        // + terrain. See [`RenderFrame`] and [`Environment`].
+        let env = self.environment();
+        let frame_time_s = env.time_s;
         let mut frame = RenderFrame::build(
             &self.cam.camera,
             self.viewport_px,
-            self.effective_sun(),
+            &env,
             TerrainFrameInputs {
                 present: self.terrain.data.is_some(),
                 exaggeration: self
@@ -3425,20 +3452,6 @@ impl Map {
             },
             self.atmosphere.sky_enabled,
         );
-        // Stamp the renderer wall clock so the procedural low haze drifts ("rolls
-        // in") and its patchiness moves over time.
-        let frame_time_s = self
-            .time_override
-            .unwrap_or_else(|| self.start.elapsed().as_secs_f32());
-        frame.raster_terrain_cfg.time = frame_time_s;
-        // Per-basemap brightness lift (host sets it from the active layer, e.g.
-        // satellite). Only takes effect on the 3D sun-lit path (gated in raster).
-        frame.raster_terrain_cfg.basemap_gain = self.atmosphere.basemap_gain;
-        frame.raster_terrain_cfg.lit = self.atmosphere.terrain_lit;
-        // Host "Distance haze" toggle: 0 the gate so aerial perspective is off.
-        if !self.atmosphere.aerial_haze {
-            frame.raster_terrain_cfg.haze_density = 0.0;
-        }
         // The frame graph: mask snapshot + per-pass bookkeeping for this frame.
         let mut graph = FrameGraph::new(self.pass_mask.clone());
 

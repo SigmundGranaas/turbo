@@ -13,7 +13,7 @@
 //! state is now a single typed thing instead of a scatter of `let`s.
 
 use crate::camera::Camera;
-use crate::sun::{self, SunPosition};
+use crate::environment::Environment;
 
 use super::floor::FloorGlobals;
 use super::raster::TerrainConfig;
@@ -55,12 +55,15 @@ pub(crate) struct RenderFrame {
 }
 
 impl RenderFrame {
-    /// Compute the frame's render globals. Lifted verbatim from the head of
-    /// `Map::render`; see the field docs for what each drives.
+    /// Compute the frame's render globals — every environmental uniform
+    /// derives from the [`Environment`] built once per frame (plan E1):
+    /// this is the ONLY place `sun_dir`, the haze fields, the frame clock,
+    /// the basemap gain and the lit gate are written. See the field docs
+    /// for what each drives.
     pub fn build(
         camera: &Camera,
         viewport_px: (u32, u32),
-        sun: SunPosition,
+        env: &Environment,
         terrain: TerrainFrameInputs,
         sky_enabled: bool,
     ) -> Self {
@@ -70,8 +73,10 @@ impl RenderFrame {
         let earth_circumference_m: f32 = 40_075_017.0;
         let meters_to_world = (lat.cos().abs() as f32 / earth_circumference_m).max(1e-12);
 
-        // Sun + time-of-day palette: one light for the whole scene.
-        let atmos = sun::atmosphere(sun);
+        // Sun + time-of-day palette: one light for the whole scene, resolved
+        // once in the Environment.
+        let sun = env.sun;
+        let atmos = &env.atmosphere;
 
         // Sun glow intensity, fading out as the sun sets (gone a touch below the
         // horizon). Shared by the sky pass and the water reflection so both dim
@@ -94,7 +99,12 @@ impl RenderFrame {
         // eye-distance + bounded near field replaces the hack that the
         // center-distance model needed. A pitch ramp gates haze to 0 on the
         // flat 2D map (it's a tilt-only depth cue).
-        let haze_density = aerial_haze_density(camera.pitch_deg);
+        // The host "distance haze" toggle zeroes the gate outright.
+        let haze_density = if env.aerial_haze {
+            aerial_haze_density(camera.pitch_deg)
+        } else {
+            0.0
+        };
         // Bluish atmospheric tint for the far distance — the horizon colour alone
         // is near-white (reads grey over dark imagery), so pull it toward the
         // saturated blue zenith. At golden hour both go warm, so dusk haze warms
@@ -196,14 +206,13 @@ impl RenderFrame {
             shadow_strength: 0.0,
             shadow_texel_world: 0.0,
             shadow_softness: 1.0,
-            // Stamped in `Map::render` from the renderer's wall clock (this
-            // pure builder has no clock); drives the haze drift.
-            time: 0.0,
-            // Patched in `Map::render` from `Map::basemap_gain` (this builder
-            // doesn't see the active basemap). 1.0 = no change.
-            basemap_gain: 1.0,
-            // Patched in `Map::render` from `Map::terrain_lit` (host "sun mode").
-            lit: true,
+            // The Environment's frame clock; drives the haze drift (and the
+            // custom layers' `time_s` shares the same value).
+            time: env.time_s,
+            // Basemap brightness lift under the sun-lit path.
+            basemap_gain: env.basemap_gain,
+            // Host "sun mode" gate.
+            lit: env.terrain_lit,
         };
 
         // Vector drape params, derived from the raster config.

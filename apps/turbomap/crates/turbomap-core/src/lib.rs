@@ -9,6 +9,7 @@
 pub mod camera;
 pub mod capacity;
 pub mod dem;
+pub mod environment;
 pub mod error;
 pub mod fb_probe;
 pub mod geo;
@@ -34,6 +35,7 @@ pub mod vector;
 
 pub use camera::{Camera, CameraAnimation, FiniteF64, ZoomBounds, ZoomLock, TILE_SIZE_PX};
 pub use dem::{decode_dem_rgba, decode_elevation, DemEncoding};
+pub use environment::Environment;
 pub use error::{MapError, TileError};
 pub use geo::{LatLng, WorldPoint, MAX_LATITUDE_DEG};
 pub use lighting::{Lighting, LightingMode};
