@@ -1112,3 +1112,38 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   behind the D3 seam) needs tileserver-side TIN work; M-MODELS (glTF
   codec + InstanceSet) is engine-side; or host-side C2a (setter
   demotion) behind the device gate.**
+- _2026-07-05_: **Phase 5 opened — kill the old implementation (owner
+  directive).** The Flutter app is being retired; web + Android are the
+  product. Survey (verified today): MapLibre is ALREADY fully removed
+  from `apps/android` (turbomap is the only renderer, mounted
+  unconditionally; the architecture test forbids `org.maplibre`
+  reappearing); the web app is turbomap-only and fully on Scene IR + the
+  streaming plan; iOS is a separate MapKit app (out of scope here). What
+  remains of "the old implementation" is inside our own stack:
+  (1) the legacy `pending_tiles` pull-push — still the transport for the
+  Android JNI host (`turbomap-ffi/src/surface.rs` + `TurbomapMapView.kt`
+  reconcile loop), the sim host, the golden trace harness, and examples;
+  (2) the imperative content side-doors (C2a) — clouds/sun/route/terrain
+  knobs as commands on Android (JNI + uniffi `Cmd`s) and five
+  environment knobs on web, duplicating the Scene IR;
+  (3) `apps/flutter` itself. **The slices:**
+  **P5.1 — one transport:** every in-repo host onto
+  `streaming_plan`/`report_fetch_failed`/`report_fetch_cancelled`
+  (Android JNI surface + Kotlin fetch loop, sim, golden trace,
+  examples, ffi tests), then DELETE the pull-push: `Map::pending_tiles`,
+  the engine/ffi/web shims, `Scene::pending_tiles`. Gates: full ladder;
+  sim gates green on the plan transport; grep-gate `pending_tiles` → 0
+  hits outside turbomap-world internals.
+  **P5.2 — one content plane (C2a, unblocked by the Flutter retirement):**
+  route tubes become Scene IR; hosts declare the environment in their
+  scenes (web's 5 knobs, Android's clouds/sun/route); the engine's
+  imperative CONTENT setters are deleted, keeping control-plane verbs
+  (camera/gestures, `set_cloud_time` scrub, `set_sun_time` clock,
+  `ingest_field` transport, debug hooks). Gates: conformance +
+  scene-vs-imperative parity collapses to scene-only; goldens stable.
+  **P5.3 — remove `apps/flutter`** + workflow references.
+  **Left for the on-device agent:** real-GPU/gesture/thermal validation
+  of the Android host on the new transport, the offline manager against
+  the plan-driven fetch loop, and the iOS direction. Kotlin changes land
+  compile-clean to the best of container ability (no Android SDK here) —
+  flagged explicitly in commits for the device pass.
