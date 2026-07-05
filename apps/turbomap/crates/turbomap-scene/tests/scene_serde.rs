@@ -293,6 +293,7 @@ fn clouds_declaration_roundtrips_and_requires_a_field_source() {
         source: "radar".to_string(),
         grid: [128, 128],
         visible: true,
+        animate: true,
     });
     assert_eq!(scene.validate(), Ok(()));
     let json = serde_json::to_string(&scene).unwrap();

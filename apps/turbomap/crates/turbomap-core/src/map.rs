@@ -52,6 +52,7 @@ use crate::{
         TextureCache, BACKGROUND_CLEAR,
     },
     scene::Scene,
+    simulation::SimulationSystem,
     source::TileSource,
     style::{Color, HillshadeStyle, VectorStyle},
     subsystem::{BudgetReport, DebugActivation, DebugViewDesc, Subsystem},
@@ -74,6 +75,15 @@ struct CloudOverlay {
     /// Radar grid dimensions the two data textures were allocated for.
     grid: (u32, u32),
     enabled: bool,
+    /// Sim-driven clock (plan E2): the atmosphere's `tick` derives the
+    /// drift clock, the one sun and the radar crossfade from the frame's
+    /// `Environment`. `set_cloud_time` flips this off — the host owns the
+    /// clock then (the time-slider scrub path).
+    sim: bool,
+    /// Frame-clock stamp of the last slot-1 radar ingest; the sim advects
+    /// (crossfades) toward the new frame from here. Pure function of
+    /// (ingest time, clock) — deterministic under a pinned clock.
+    advect_start: Option<f32>,
     /// Geographic box the radar covers, in normalised-Mercator world coords
     /// `(min, max)` (x: west→east, y: north→south). When set, the overlay is
     /// world-locked: each screen pixel is mapped into this box so the clouds
@@ -890,8 +900,11 @@ impl Subsystem for AtmosphereSubsystem {
     fn inspect(&self) -> String {
         let clouds = match &self.clouds {
             Some(c) => format!(
-                "{{\"enabled\":{},\"grid\":[{},{}],\"world_locked\":{}}}",
+                "{{\"enabled\":{},\"sim\":{},\"time\":{},\"blend\":{},\"grid\":[{},{}],\"world_locked\":{}}}",
                 c.enabled,
+                c.sim,
+                c.params.time,
+                c.params.blend,
                 c.grid.0,
                 c.grid.1,
                 c.radar_geo.is_some(),
@@ -927,6 +940,48 @@ impl Subsystem for AtmosphereSubsystem {
                 activation: DebugActivation::Param("set_cloud_params(debug_view)"),
             },
         ]
+    }
+}
+
+/// How long the sim crossfades toward a newly ingested "next" radar frame
+/// (slot 1). Real feeds re-ingest faster than this; the demo cadence keeps
+/// the advection visibly smooth. Pure function of (ingest stamp, clock), so
+/// replay under a pinned clock is exact.
+const RADAR_ADVECT_SECS: f32 = 30.0;
+
+/// The weather-cloud simulation (plan E2): clouds tick from the frame's
+/// Environment — the same clock, sun and wind everything else samples —
+/// instead of waiting for a host to scrub `set_cloud_time` every frame.
+/// Deliberately STATELESS between frames (every output is a pure function
+/// of `env` + the radar ingest stamps), so `dt_s` goes unused and a pinned
+/// clock replays the exact frame.
+impl SimulationSystem for AtmosphereSubsystem {
+    fn tick(&mut self, _dt_s: f32, env: &Environment) -> bool {
+        let Some(c) = self.clouds.as_mut() else {
+            return false;
+        };
+        if !(c.enabled && c.sim) {
+            return false;
+        }
+        // Drift/boil ride the Environment clock.
+        c.params.time = env.time_s;
+        // Wind-driven drift: a scene/host-supplied wind overrides the
+        // tuned default; calm (the current default Environment) leaves it.
+        if env.wind != [0.0, 0.0] {
+            c.params.wind = env.wind;
+        }
+        // The ONE Environment sun lights the clouds — self-shadow azimuth
+        // (compass → world xy: x=E, y=S) and elevation stay coherent with
+        // terrain shading, the sky and aerial perspective by construction.
+        let az = env.sun.azimuth_deg.to_radians();
+        c.params.sun_dir = [az.sin(), -az.cos()];
+        c.params.sun_elevation = (env.sun.altitude_deg / 90.0).clamp(0.0, 1.0);
+        // Radar advection: crossfade toward the most recent "next" frame
+        // from the moment it arrived.
+        if let Some(t0) = c.advect_start {
+            c.params.blend = ((env.time_s - t0) / RADAR_ADVECT_SECS).clamp(0.0, 1.0);
+        }
+        true
     }
 }
 
@@ -1036,10 +1091,13 @@ pub struct Map {
     /// config each render to drift the procedural haze (so it "rolls in" and
     /// its patchiness moves over time). Animates while frames are produced.
     start: Instant,
-    /// Pins the frame's animation clock (haze drift, custom-layer time) to a
-    /// fixed value — deterministic goldens and, later, E2's replay gate
-    /// ("same (fields, time, seed) ⇒ identical frame"). `None` = wall clock.
+    /// Pins the frame's animation clock (haze drift, custom-layer time, the
+    /// cloud sim) to a fixed value — deterministic goldens and E2's replay
+    /// gate ("same (fields, time, seed) ⇒ identical frame"). `None` = wall
+    /// clock.
     time_override: Option<f32>,
+    /// The previous frame's clock, for the simulation tick's `dt`.
+    last_frame_clock: Option<f32>,
     /// Camera-eye world position at the previous `pending_tiles()` call — the
     /// finite-difference travel direction that feeds the priority score's
     /// motion term (stream WHERE WE'RE HEADING). `None` until the first call;
@@ -1249,6 +1307,7 @@ impl Map {
             last_frame_metrics: FrameMetrics::default(),
             start: Instant::now(),
             time_override: None,
+            last_frame_clock: None,
             last_priority_eye: std::cell::Cell::new(None),
             // Dual-write phase: effectively-unbounded capacity so the table
             // observes without interfering; the real governor activates when
@@ -1431,6 +1490,10 @@ impl Map {
             params: CloudParams::default(),
             grid: (grid_w, grid_h),
             enabled: true,
+            // Weather moves by default: the sim drives the clock until a
+            // host scrubs (`set_cloud_time`).
+            sim: true,
+            advect_start: None,
             radar_geo,
         });
     }
@@ -1473,19 +1536,43 @@ impl Map {
     /// The frame's dimensions must match the grid passed to
     /// [`Map::enable_clouds`]. No-op if clouds aren't enabled.
     pub fn ingest_radar_frame(&mut self, slot: u32, frame: &RadarFrame) {
-        if let Some(c) = &self.atmosphere.clouds {
+        let now = self.frame_clock();
+        if let Some(c) = &mut self.atmosphere.clouds {
             c.scene.upload(&self.queue, slot as usize, frame);
+            // A new "next" frame restarts the sim's advection crossfade
+            // from the moment it arrived (slot 0 is the current timestep —
+            // rewinding the blend for it would pop already-faded weather).
+            if slot == 1 {
+                c.advect_start = Some(now);
+            }
         }
     }
 
     /// Set the per-frame animation state: `time` is a free-running clock
     /// (seconds) driving cloud drift/boil; `blend` in `0..=1` crossfades
     /// the slot-0 radar frame into the slot-1 frame — this is what a time
-    /// slider scrubs (and can run backward). No-op if clouds aren't enabled.
+    /// slider scrubs (and can run backward). Calling this hands the clock
+    /// to the host (the sim stops driving it — see [`Map::set_cloud_sim`]).
+    /// No-op if clouds aren't enabled.
     pub fn set_cloud_time(&mut self, time: f32, blend: f32) {
         if let Some(c) = &mut self.atmosphere.clouds {
+            c.sim = false;
             c.params.time = time;
             c.params.blend = blend.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Hand the cloud clock to the simulation (plan E2, the default): the
+    /// overlay drifts on the Environment's frame clock, shades under the
+    /// one Environment sun, and crossfades toward newly ingested radar
+    /// frames — all deterministic under [`Map::set_time_override`]. While
+    /// active the sim counts as animation, so render-on-demand hosts keep
+    /// pumping frames without manual redraw nudges. `false` freezes the
+    /// sim where it is (a host scrub via [`Map::set_cloud_time`] also
+    /// takes the clock). No-op if clouds aren't enabled.
+    pub fn set_cloud_sim(&mut self, sim: bool) {
+        if let Some(c) = &mut self.atmosphere.clouds {
+            c.sim = sim;
         }
     }
 
@@ -1638,12 +1725,20 @@ impl Map {
     /// sun-derived palette, the host look gates, and (ahead of their first
     /// consumers) wind + season. `RenderFrame::build` turns it into
     /// uniforms; nothing patches lighting state in after the fact.
+    /// The frame clock: the renderer wall clock, or the pinned
+    /// [`Map::set_time_override`] value. Everything time-driven — the
+    /// Environment, haze drift, custom layers, the cloud sim and its radar
+    /// advection stamps — reads this one clock, which is what makes replay
+    /// deterministic.
+    fn frame_clock(&self) -> f32 {
+        self.time_override
+            .unwrap_or_else(|| self.start.elapsed().as_secs_f32())
+    }
+
     fn environment(&self) -> Environment {
         let sun = self.effective_sun();
         Environment {
-            time_s: self
-                .time_override
-                .unwrap_or_else(|| self.start.elapsed().as_secs_f32()),
+            time_s: self.frame_clock(),
             sun,
             atmosphere: crate::sun::atmosphere(sun),
             aerial_haze: self.atmosphere.aerial_haze,
@@ -2223,6 +2318,17 @@ impl Map {
         if self.cam.active.is_some() {
             return true;
         }
+        // An active simulation (the cloud sim driving its own clock) IS
+        // animation — render-on-demand hosts keep pumping frames, which is
+        // what deleted the host-side request_redraw wart (plan E2).
+        if self
+            .atmosphere
+            .clouds
+            .as_ref()
+            .is_some_and(|c| c.enabled && c.sim)
+        {
+            return true;
+        }
         // Any layer with a fading tile keeps the animation flag set. Raster fade
         // is keyed on first-on-screen time (tracked in the pipeline), so the
         // signal must come from there — not the cache's ingest age — or a fading
@@ -2232,8 +2338,8 @@ impl Map {
             LayerEntry::Vector(v) => v.cache.any_younger_than(v.fade_in_secs),
             LayerEntry::Hillshade(_) => false,
             // A custom layer animates on its own clock; hosts that want
-            // continuous animation drive frames themselves (same contract
-            // as the cloud overlay until E2 lands sim-driven redraws).
+            // continuous animation drive frames themselves (a custom-layer
+            // "I'm animating" hook can join the trait when one needs it).
             LayerEntry::Custom(_) => false,
         })
     }
@@ -3431,6 +3537,14 @@ impl Map {
         // + terrain. See [`RenderFrame`] and [`Environment`].
         let env = self.environment();
         let frame_time_s = env.time_s;
+        // Tick the simulation systems under this frame's Environment (plan
+        // E2: the cloud sim derives drift, sun and radar advection from the
+        // same value every render pass samples). dt is informational — the
+        // systems are pure functions of the clock, which is what makes
+        // `set_time_override` replay exact.
+        let frame_dt_s = (frame_time_s - self.last_frame_clock.unwrap_or(frame_time_s)).max(0.0);
+        self.last_frame_clock = Some(frame_time_s);
+        let _sim_active = SimulationSystem::tick(&mut self.atmosphere, frame_dt_s, &env);
         let mut frame = RenderFrame::build(
             &self.cam.camera,
             self.viewport_px,

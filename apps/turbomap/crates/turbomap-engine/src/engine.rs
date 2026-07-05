@@ -734,6 +734,12 @@ impl TurbomapEngine {
         self.map.set_clouds_visible(visible);
     }
 
+    /// Hand the cloud clock to the engine's simulation (plan E2) or take
+    /// it back for host scrubbing. See [`turbomap_core::Map::set_cloud_sim`].
+    pub fn set_cloud_sim(&mut self, sim: bool) {
+        self.map.set_cloud_sim(sim);
+    }
+
     /// Track the sun (terrain shading + sky colour) to a real UTC instant
     /// at the camera location, so the scene's light matches the time of
     /// day. `None` reverts to the fixed default.
@@ -1044,6 +1050,12 @@ impl TurbomapEngine {
     }
 
     /// Inspection escape hatch: the wrapped core map.
+    /// Mutable access to the core map — debug/test hooks (pass isolation,
+    /// clock pinning) that deliberately aren't part of the engine surface.
+    pub fn map_mut(&mut self) -> &mut Map {
+        &mut self.map
+    }
+
     pub fn map(&self) -> &Map {
         &self.map
     }
@@ -1107,6 +1119,7 @@ impl MapEngine for TurbomapEngine {
                         self.map.enable_clouds(clouds.grid[0], clouds.grid[1]);
                         self.map.set_cloud_geo_bounds(west, south, east, north);
                         self.map.set_clouds_visible(clouds.visible);
+                        self.map.set_cloud_sim(clouds.animate);
                         self.cloud_field_source = Some(clouds.source.clone());
                     } else {
                         self.map.disable_clouds();

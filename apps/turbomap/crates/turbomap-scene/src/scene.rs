@@ -72,6 +72,12 @@ pub struct CloudsDef {
     pub grid: [u32; 2],
     #[serde(default = "default_true")]
     pub visible: bool,
+    /// Drive the overlay from the engine's cloud simulation (plan E2):
+    /// drift on the frame clock, shading under the one Environment sun,
+    /// crossfade toward newly ingested radar frames. `false` = the host
+    /// scrubs the clock (`set_cloud_time`).
+    #[serde(default = "default_true")]
+    pub animate: bool,
 }
 
 fn default_true() -> bool {

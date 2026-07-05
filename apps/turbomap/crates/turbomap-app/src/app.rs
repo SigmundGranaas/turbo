@@ -729,13 +729,10 @@ impl RunningState {
             self.scheduler.notice_egui_repaint();
         }
 
-        // Cloud drift/boil animation isn't part of `Map::is_animating`
-        // (which tracks camera + tile fades), so it won't keep the
-        // scheduler awake on its own. Drive a fresh frame directly while
-        // the panel's animate toggle is on.
-        if self.ui_state.clouds.enabled && self.ui_state.clouds.animate {
-            self.window.request_redraw();
-        }
+        // Cloud animation needs no manual redraw nudge: with the panel's
+        // animate toggle on, the ENGINE's cloud sim drives the clock (plan
+        // E2) and an active sim counts as `Map::is_animating`, which keeps
+        // the scheduler pumping frames through the normal workload path.
     }
 
     /// Push the cloud debug-panel state into the Map for this frame.
@@ -762,14 +759,18 @@ impl RunningState {
             self.cloud_uploaded = Some((a, b));
         }
 
-        if self.ui_state.clouds.animate {
-            // Fixed per-frame step (panel renders at vsync while animating).
-            // Exact rate is irrelevant for a look-debug tool; `speed` scales it.
-            self.ui_state.clouds.time += 0.016 * self.ui_state.clouds.speed;
-        }
-
         map.set_cloud_params(self.ui_state.clouds.params);
-        map.set_cloud_time(self.ui_state.clouds.time, self.ui_state.clouds.blend);
+        if self.ui_state.clouds.animate {
+            // The engine's cloud sim owns the clock (plan E2): drift rides
+            // the frame clock, shading follows the one Environment sun, and
+            // the sim keeps `Map::is_animating` true so frames keep coming.
+            // (The panel's time/blend sliders + sun knobs are inert while
+            // animating — the Environment is authoritative in sim mode.)
+            map.set_cloud_sim(true);
+        } else {
+            // Host-scrubbed: the panel's sliders own time + crossfade.
+            map.set_cloud_time(self.ui_state.clouds.time, self.ui_state.clouds.blend);
+        }
     }
 }
 

@@ -270,6 +270,57 @@ fn dem_tile_png(tile: TileId) -> Vec<u8> {
     out
 }
 
+/// The basemap city under a live storm (plan E2): a Field2D radar source +
+/// the scene-declared cloud overlay in sim mode, sun pinned low so cloud
+/// self-shadowing has a direction to respond to.
+pub fn storm_scene() -> Scene {
+    let mut scene = basemap_scene();
+    // The box places the camera (60.39, 5.32) at field-uv ≈ (0.7, 0.35) —
+    // dead under the synthetic storm's broad mass — so the overlay is
+    // unmissable in view at city zooms.
+    scene.sources.insert(
+        "radar".to_string(),
+        SourceDef::Field2D {
+            bounds: [3.5, 59.2, 6.1, 61.0],
+        },
+    );
+    scene.environment.clouds = Some(turbomap_scene::CloudsDef {
+        source: "radar".to_string(),
+        grid: [96, 96],
+        visible: true,
+        animate: true,
+    });
+    scene.environment.lighting = turbomap_scene::LightingDef::Fixed {
+        azimuth_deg: 225.0,
+        altitude_deg: 30.0,
+    };
+    scene
+}
+
+/// A drifting frontal band + broad mass (the blocky raster a radar feed
+/// serves); `phase` slides the front. Returns `(precip, coverage)` grids
+/// for `ingest_field`.
+pub fn synthetic_radar(grid: u32, phase: f32) -> (Vec<u8>, Vec<u8>) {
+    let (w, h) = (grid, grid);
+    let mut precip = vec![0u8; (w * h) as usize];
+    let mut coverage = vec![0u8; (w * h) as usize];
+    let front = -0.2 + phase * 1.3;
+    for y in 0..h {
+        for x in 0..w {
+            let nx = (x as f32 + 0.5) / w as f32;
+            let ny = (y as f32 + 0.5) / h as f32;
+            let band = (-((nx + (ny - 0.5) * 0.3 - front).powi(2)) / (2.0 * 0.10 * 0.10)).exp();
+            let mass = (-((nx - 0.7).powi(2) + (ny - 0.35).powi(2)) / (2.0 * 0.16 * 0.16)).exp();
+            let cov = (band * 0.85 + mass * 0.8).clamp(0.0, 1.0);
+            let pr = (band * band * 0.7).clamp(0.0, 1.0);
+            let i = (y * w + x) as usize;
+            coverage[i] = (cov * 255.0) as u8;
+            precip[i] = (pr * 255.0) as u8;
+        }
+    }
+    (precip, coverage)
+}
+
 /// Mean perceptual luminance (Rec. 709) over the last rendered frame, `[0,255]`.
 /// Used to prove cast shadows darken the terrain.
 pub fn mean_luma(img: &RgbaImage) -> f64 {

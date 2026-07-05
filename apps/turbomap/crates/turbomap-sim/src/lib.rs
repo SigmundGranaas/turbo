@@ -27,5 +27,6 @@ pub mod world;
 
 pub use perf::PerfSummary;
 pub use session::{
-    basemap_scene, basemap_scene_3d, diff_fraction, fraction_near, mean_luma, FrameStats, Sim,
+    basemap_scene, basemap_scene_3d, diff_fraction, fraction_near, mean_luma, storm_scene,
+    synthetic_radar, FrameStats, Sim,
 };
