@@ -1073,3 +1073,42 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   **Next: E2 (clouds tick as a `SimulationSystem`)** — deterministic
   replay via the D4 `set_time_override` hook, wind-driven drift from the
   Environment.
+- _2026-07-05_: **E2 landed + verified — clouds tick as a
+  `SimulationSystem`, gates satisfied. Phase 4 (workstream E) is
+  COMPLETE.** `turbomap-core/src/simulation.rs` (new): `trait
+  SimulationSystem { tick(dt, env) -> still_active }`; the atmosphere
+  subsystem implements it for the clouds. Drift/boil ride the
+  Environment's frame clock; self-shadow azimuth + elevation derive from
+  the ONE Environment sun each tick (coherent with terrain shading and
+  the sky by construction); a scene/host wind overrides the tuned drift
+  default; and the radar crossfade advects toward the most recently
+  ingested "next" frame from its arrival stamp. Everything is a pure
+  function of `(fields, clock)` — deliberately NO accumulated per-frame
+  state — so `set_time_override` replays the exact frame. **Determinism
+  gate:** the new `clouds_sim` engine test proves byte-identical replay
+  at a pinned clock, that advancing the clock moves the weather with
+  zero host input, and (via pass masking) that the cloud CONTRIBUTION
+  responds to the Environment sun; golden `clouds-sim-storm` pins the
+  look. An active sim counts as `Map::is_animating`, so render-on-demand
+  hosts keep pumping frames through their normal workload path — the
+  desktop app's manual `request_redraw` wart (the exact one this slice
+  names) is deleted; its animate toggle hands the clock to the sim
+  (`set_cloud_sim`) instead of stepping a fake 16 ms clock.
+  `set_cloud_time` still scrubs (takes the clock back), so time-slider
+  hosts and every existing golden are untouched. `CloudsDef` gains
+  `animate` (default true) — sim-vs-scrub is scene-declarative — and the
+  atmosphere's inspect reports `{sim, time, blend}`. **Storm gate:** a
+  new 8th sim behavioural gate (`storm_sim_keeps_animating_coherently_
+  within_budget`) runs a scene-declared storm over the synthetic city:
+  it keeps animating with a settled camera and zero host input, visibly
+  veils the city (the first cut aimed the radar box so the view sampled
+  a thin corner and the gate caught it — diff exactly 0.0000 — before
+  the box was re-aimed to put the storm mass over the camera), and the
+  frame-cost budget holds with the sim on. **Verification:** 8/8 sim
+  gates (release, 595.0 s); 54 workspace suites; all engine gpu suites +
+  golden crate green under `REQUIRE_GPU=1` (every pre-existing golden
+  unchanged); clippy clean; wasm32 builds. **Workstreams B, C, D and E
+  are now complete. Next: the gated milestones — M-TIN (mesh Surface
+  behind the D3 seam) needs tileserver-side TIN work; M-MODELS (glTF
+  codec + InstanceSet) is engine-side; or host-side C2a (setter
+  demotion) behind the device gate.**
