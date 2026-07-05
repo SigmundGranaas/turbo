@@ -967,3 +967,51 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   true}, basemap {545 MB of 1 GiB budget, 3209 entries}. **Next: D3
   (Surface seam + DEM decode out of WGSL) or D4 (Layer::Custom real) —
   both now unblocked.**
+- _2026-07-05_: **D3 landed + verified — the Surface seam, and the DEM
+  codec leaves WGSL. Gate satisfied.** `turbomap-core/src/surface.rs`
+  (new): `trait Surface { elevation_at, normal_at, sample_height_rows /
+  height_grid, ground_binding }` — the 2.5D ground authority
+  (architecture §III.1.e), implemented by the terrain heightfield
+  (`HeightfieldSurface` = the impl on `Terrain`; per-pipeline vertex
+  displacement stays its private detail). Marker anchoring, route-tube
+  draping, the camera pitch clamp, ground hit-testing and the
+  cast-shadow/AO heightfield assembly consume Surface queries ONLY —
+  swap the impl + the terrain codec and every consumer follows (the
+  M-TIN gate opens). `inspect` now reports the live representation
+  (`"ground_binding":"heightfield"`). The DEM decode moved to ingest:
+  `dem::decode_dem_rgba` (the codec) turns Terrain-RGB/Terrarium bytes
+  into real heights + a coverage mask once, off the render thread; DEM
+  textures upload as **Rg16Float** (`.r` metres, `.g` coverage) — one
+  deliberate deviation from the plan's R16Float, same bytes/texel as the
+  old RGBA8, because the hillshade overlay keys transparency-over-water
+  off the coverage channel exactly as it keyed off alpha (pure R16F
+  would have hillshaded the sea). `decode_elevation` is deleted from
+  every shader; encoding uniform slots became pads; `DemEncoding` is
+  gone from `TerrainOptions`/`HillshadeStyle`/`frame.rs`/the render path
+  — it lives only in the codec, the `TileSource::dem_encoding()`
+  contract, and scene IR declarations (resolver maps scene → source).
+  Grep-gate: `DemEncoding` in core = dem.rs + source.rs + lib.rs
+  re-export only; zero hits under `core/src/render/`; `RasterFormat`
+  stays confined to source/provider contracts as before.
+  **Golden churn, reviewed per ground rule 2 (the plan predicted this):**
+  `hillshade-bergen` re-baselined — and the diff is the argument for
+  D3: the old reference is covered in concentric contour banding because
+  the post-filter in-shader decode amplifies R/G-channel filtering error
+  by up to thousands of metres per LSB; decoding to metres at ingest
+  kills the amplification and the smooth Gaussian the source encodes
+  finally comes through. Every other golden — including both 3D terrain
+  scenes (`omt-bergen-3d`, `omt-real-bergen`) — passes unchanged within
+  tolerance, and the CPU-side analytics (shadow field, marker anchoring)
+  keep full f32 precision (the f16 rounding exists only in the GPU
+  textures). **Verification:** 211 core unit tests (incl. new codec +
+  height-grid tests); 53 workspace suites; clippy: nothing new (the only
+  warnings are pre-existing demo-app lines); wasm32 builds; full engine
+  gpu ladder + golden crate + D2 registry meta-test green under
+  `REQUIRE_GPU=1` (Lavapipe); **7/7 sim gates** (release, 730.6 s) incl.
+  the terrain-stall gate D3 names; Sjunkhatten session (real Kartverket
+  topo + kart-api DEM, 51 steps) panic-free with median frame CPU
+  5.23 ms vs D2's 5.38 ms, `inspect.json` showing the seam live. The
+  harness's cast-shadow proof still fails at the default pose (1104 px
+  darkened vs >=1500; pre-existing D1 baseline finding (b), marginally
+  better than the 1044 px recorded then — still parked). **Next: D4
+  (`Layer::Custom` real) — E1 also unblocked.**
