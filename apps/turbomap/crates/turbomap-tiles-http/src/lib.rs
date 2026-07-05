@@ -245,6 +245,13 @@ impl HttpRasterSource {
     pub fn url_for(&self, tile: TileId) -> String {
         expand_template(&self.url_template, tile)
     }
+
+    /// The configured URL template, exactly as passed to [`Self::new`].
+    /// Scene-host callers (plan P6.2) declare their sources in the IR by
+    /// template, so the template must be readable back off a preset.
+    pub fn url_template(&self) -> &str {
+        &self.url_template
+    }
 }
 
 fn expand_template(template: &str, tile: TileId) -> String {
@@ -434,6 +441,43 @@ impl HttpVectorTileSource {
     pub fn url_for(&self, tile: TileId) -> String {
         expand_template(&self.url_template, tile)
     }
+
+    /// The configured URL template, exactly as passed to [`Self::new`].
+    /// Scene-host callers (plan P6.2) declare their sources in the IR by
+    /// template, so the template must be readable back off a preset.
+    pub fn url_template(&self) -> &str {
+        &self.url_template
+    }
+
+    /// Fetch one tile's raw MVT protobuf bytes — no decode. This is the
+    /// transport seam for engine-host callers (plan P6.2/B4.2): the engine's
+    /// codec owns MVT decode + tessellation, so the host pump must hand
+    /// bytes through untouched. Shares the disk cache and retry policy with
+    /// [`VectorTileSource::request`]; a corrupt cache entry is returned
+    /// as-is (the codec drops undecodable bytes and the tile re-pends —
+    /// the host's retry/backoff owns policy).
+    pub fn request_bytes(&self, tile: TileId) -> Result<Vec<u8>, TileError> {
+        if tile.z < self.min_zoom || tile.z > self.max_zoom {
+            return Err(TileError::ZoomOutOfRange(tile.z));
+        }
+        let rel = Self::tile_rel_path(tile);
+        if let Some(ref cache) = self.cache {
+            if let Some(bytes) = cache.read(&rel) {
+                return Ok(bytes);
+            }
+        }
+        let url = self.url_for(tile);
+        let bytes = retry::retry(&self.retry, FetchError::is_transient, || {
+            fetch_bytes(&self.client, &url)
+        })
+        .map_err(FetchError::into_tile_error)?;
+        if let Some(ref cache) = self.cache {
+            if let Err(e) = cache.write(&rel, &bytes) {
+                log::warn!("vector cache write failed for {tile:?}: {e}");
+            }
+        }
+        Ok(bytes)
+    }
 }
 
 /// Fetch a small text document (e.g. a MapLibre `style.json`) over HTTP.
@@ -621,6 +665,11 @@ mod tests {
 
         let decoded = source.request(tile).expect("cache hit must succeed");
         assert_eq!(decoded.layers.len(), 0, "EMPTY_MVT decodes to 0 layers");
+
+        // The raw-bytes seam (P6.2 engine hosts) reads the same cache and
+        // returns the bytes untouched — no decode.
+        let bytes = source.request_bytes(tile).expect("cache hit must succeed");
+        assert_eq!(bytes, EMPTY_MVT);
     }
 
     #[test]

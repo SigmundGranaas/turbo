@@ -16,6 +16,9 @@ export interface MapEnvironment {
   'terrain-shadows': number;
   'terrain-lit': boolean;
   'aerial-haze': boolean;
+  /** The analytic sky/atmosphere pass (P6.2). Optional — serde defaults an
+   *  omitted key to true, matching a freshly constructed engine. */
+  sky?: boolean;
   'basemap-gain': number;
 }
 
@@ -25,6 +28,7 @@ let mapEnvironment: MapEnvironment = {
   'terrain-shadows': 0,
   'terrain-lit': true,
   'aerial-haze': true,
+  sky: true,
   'basemap-gain': 1.0,
 };
 let envListener: (() => void) | undefined;

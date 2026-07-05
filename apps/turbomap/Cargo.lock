@@ -3884,6 +3884,7 @@ dependencies = [
  "pollster",
  "rayon",
  "reqwest",
+ "serde_json",
  "turbomap-clouds",
  "turbomap-core",
  "turbomap-engine",

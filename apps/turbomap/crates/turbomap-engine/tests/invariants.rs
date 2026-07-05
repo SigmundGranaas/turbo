@@ -114,9 +114,6 @@ fn formats_die_at_the_codec_image() {
         // The engine's synchronous local pump (goldens/tests fast path).
         // TODO(P6.2): fold `fetch_decode` into the codec and delete this line.
         "crates/turbomap-engine/src/engine.rs",
-        // Desktop legacy worker decode — P6.2 deletes it; the allowlist
-        // shrinking is that slice's gate.
-        "crates/turbomap-app/src/runtime.rs",
         // Golden harness decodes rendered PNGs to compare them — output side,
         // not tile ingestion.
         "crates/turbomap-golden/src/trace.rs",
@@ -255,4 +252,26 @@ fn content_has_one_authoring_surface() {
     }
 }
 
-// P6.2 adds here: zero `map_mut` outside `crates/turbomap-engine/`.
+/// P6.2's gate, permanent: the engine owns the core `Map`. The desktop app
+/// was the last host holding a `&mut Map` — it is a Scene host now, so no
+/// crate outside `turbomap-engine` may reach the wrapped map. (The engine's
+/// own GPU tests may: `map_mut` stays as the in-crate `#[doc(hidden)]`
+/// debug/test hook.) No allowlist — the count is zero and stays zero.
+#[test]
+fn engine_owns_the_map_no_map_mut_outside() {
+    let files: Vec<_> = rust_sources()
+        .into_iter()
+        .filter(|(p, _)| {
+            let rp = rel(p);
+            !rp.starts_with("crates/turbomap-engine/")
+                && !rp.contains("/tests/")
+                && !rp.contains("/examples/")
+        })
+        .collect();
+    assert_no_hits(
+        &files,
+        ".map_mut(",
+        &[],
+        "the engine owns the map (P6.2): hosts author Scenes, not Map calls",
+    );
+}

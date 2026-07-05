@@ -1,15 +1,21 @@
-//! winit `ApplicationHandler` driving the vector map. The body
-//! here is intentionally thin: anything substantive lives in
-//! one of `gpu`, `surface`, `schedule`, `map_host`, or `ui`.
+//! winit `ApplicationHandler` driving the map as an ordinary **Scene host**
+//! on `TurbomapEngine` (plan P6.2 — the last imperative host is gone). The
+//! app owns a [`SceneState`] document and a fetch pipeline; every content
+//! mutation edits the document, rebuilds the [`Scene`], and re-applies —
+//! the engine diffs. Camera moves go through the engine's control-plane
+//! verbs. The body here is intentionally thin: anything substantive lives
+//! in one of `gpu`, `surface`, `schedule`, `map_host`, `styles`, or `ui`.
 
 use std::sync::Arc;
 use std::time::Instant;
 
-use turbomap_clouds::{DebugView, SyntheticStorm};
-use turbomap_core::{
-    Camera, CloudParams, Color, Filter, HitResult, LatLng, Map, MapOptions, Marker, MarkerId,
-    Paint, RadarFrame, RasterFormat, Rule, SunPosition, TileSource, VectorStyle, VectorTileSource,
+use turbomap_clouds::{DebugView, RadarFrame, SyntheticStorm};
+use turbomap_core::{CloudParams, MapOptions, TileSource, VectorTileSource};
+use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, ScreenPoint, TurbomapEngine};
+use turbomap_scene::{
+    CloudsDef, Color, Filter, LatLng, Layer, LightingDef, Paint, Scene, SourceDef,
 };
+use turbomap_tiles_http::{HttpRasterSource, HttpVectorTileSource};
 
 use winit::{
     application::ApplicationHandler,
@@ -20,124 +26,303 @@ use winit::{
     window::{Window, WindowId},
 };
 
-/// Vector-tile worker thread count. See `map_host` for the
-/// raster + DEM pool sizes (4 + 3 respectively).
+/// Vector-tile worker thread count (raster: 4, DEM: 3 — see `resumed`).
 const FETCH_WORKERS: usize = 6;
 
+// Scene ids — the stable contract between the scene builder, the fetch
+// pipeline's plan handling, and the panel's checkbox state.
+const RASTER_LAYER_ID: &str = "basemap";
+const HILLSHADE_LAYER_ID: &str = "hillshade";
+const RASTER_SOURCE: &str = "basemap";
+const DEM_SOURCE: &str = "dem";
+const VECTOR_SOURCE: &str = "vector";
+const RADAR_SOURCE: &str = "radar";
+/// Prefix shared by every marker circle layer (`marker-rings-N` /
+/// `marker-dots-N`) — `dispatch_click` recognises marker hits by it.
+const MARKER_LAYER_PREFIX: &str = "marker-";
+
+/// Cyan — visually distinct from the demo Norwegian-city markers so
+/// user-added points are easy to spot.
+const USER_MARKER_COLOR: Color = Color::rgba(0x00, 0xB8, 0xD4, 0xFF);
+
+/// The app's tile endpoints: the concrete HTTP fetchers the pumps run
+/// (with their disk caches), paired with the [`SourceDef`]s that declare
+/// the same endpoints to the Scene. `run()` builds both from one URL
+/// template so they can't drift.
+pub struct SourceSet {
+    pub raster: Arc<HttpRasterSource>,
+    pub raster_def: SourceDef,
+    /// Optional DEM endpoint for terrain + the hillshade layer. `None`
+    /// (no `TURBO_API_URL`) means the scene declares no hillshade at all.
+    pub dem: Option<Arc<HttpRasterSource>>,
+    pub dem_def: Option<SourceDef>,
+    pub vector: Arc<HttpVectorTileSource>,
+    pub vector_def: SourceDef,
+}
+
 pub struct TurbomapApp {
-    raster_source: Arc<dyn TileSource>,
-    /// Optional DEM source for the GPU hillshade layer. When `None`,
-    /// the demo skips adding the hillshade layer.
-    dem_source: Option<Arc<dyn TileSource>>,
-    vector_source: Arc<dyn VectorTileSource>,
-    style: VectorStyle,
-    initial_camera: Camera,
+    sources: SourceSet,
+    /// The vector overlay as Scene IR layers (styles.rs lists, or the
+    /// served MapLibre style lowered via `parse_style_layers`).
+    vector_layers: Vec<Layer>,
+    initial_camera: CameraState,
     state: Option<RunningState>,
 }
 
 struct RunningState {
     window: Arc<Window>,
-    /// Owns the wgpu surface + its configuration. Hides the
-    /// macOS-specific Outdated/Lost recovery and the
-    /// "configure invalidates the drawable pool" trap. See
-    /// `surface.rs`.
+    /// Owns the wgpu surface + its configuration. See `surface.rs`.
     surface: crate::surface::RenderSurface,
-    /// Decides *when* to render. Pure state machine. Hides
-    /// the resize-burst quiet window and the dirty-bit
-    /// bookkeeping that used to be scattered across half a
-    /// dozen fields. See `schedule.rs`.
+    /// Decides *when* to render. Pure state machine. See `schedule.rs`.
     scheduler: crate::schedule::RenderScheduler,
-    /// All GPU-side handles in one place. The surface itself
-    /// was already moved out at startup and lives in
-    /// `surface` above; `gpu` still owns the device, queue,
-    /// adapter, format, etc. See `gpu.rs`.
+    /// All GPU-side handles in one place. See `gpu.rs`.
     gpu: crate::gpu::GpuContext,
-    /// `Map` + three fetch pumps + the inflight / failed
-    /// bookkeeping for tile loading. See `map_host.rs`.
-    host: crate::map_host::MapHost,
-    /// Pointer position, drag anchor, click-vs-pan
-    /// disambiguation. See `input.rs`. The event handler
-    /// translates winit events into `Gesture`s and forwards
-    /// them to `host.map_mut()`.
+    /// The renderer behind the `MapEngine` contract — owns the core map,
+    /// the codec (decode off the render thread), and the streaming plan.
+    engine: TurbomapEngine,
+    /// The plan-driven raw-bytes fetch loop. See `map_host.rs`.
+    fetch: crate::map_host::FetchPipeline,
+    /// The scene DOCUMENT — the app's single content-authoring surface.
+    /// Every mutation rebuilds `scene_state.scene()` and re-applies.
+    scene_state: SceneState,
+    /// Pointer position, drag anchor, click-vs-pan disambiguation. See
+    /// `input.rs`.
     pointer: crate::input::PointerState,
-    /// Egui panel + renderer wrapped into one object. The
-    /// borrow-checker enforces that retired font-atlas
-    /// textures are freed AFTER `queue.submit`, not before
-    /// (the previous version of this code documented that
-    /// invariant in a comment and got it wrong twice). See
-    /// `ui.rs`.
+    /// Egui panel + renderer wrapped into one object. See `ui.rs`.
     ui: crate::ui::UiOverlay,
-    /// Mirror of the UI panel's slider values. Lives in
-    /// `App` because the panel mutates `Map` via these and
-    /// the closure that builds the egui frame can't own
-    /// both. Updated each frame, persists across them.
+    /// Mirror of the UI panel's widget values. `build_ui` mutates ONLY
+    /// this (plus camera via engine verbs); `sync_scene_from_ui` folds the
+    /// content-shaped bits into `scene_state` each frame.
     ui_state: UiState,
-    /// True while the pointer is over an egui widget. Suppresses
-    /// pan/click handling for that frame so dragging a slider doesn't
-    /// also pan the map underneath.
+    /// True while the pointer is over an egui widget. Suppresses pan/click
+    /// handling for that frame so dragging a slider doesn't also pan the
+    /// map underneath.
     egui_wants_pointer: bool,
-    /// Monotonic frame counter, used as the diagnostic
-    /// framebuffer-dump filename when `TURBOMAP_DUMP_DIR` is
-    /// set in the environment.
+    /// Monotonic frame counter, used as the diagnostic framebuffer-dump
+    /// filename when `TURBOMAP_DUMP_DIR` is set in the environment.
     frame_counter: u32,
+    /// `TURBOMAP_DUMP_DIR`, read once at startup. `Some` = dump every
+    /// rendered frame to `<dir>/frame_<n>.png` (slow; diagnostics only).
+    dump_dir: Option<String>,
     /// Synthetic radar sequence backing the cloud debug scene. Generated
     /// once at startup; the panel's frame-A/B sliders pick pairs out of it.
     cloud_frames: Vec<RadarFrame>,
     /// Which `(frame_a, frame_b)` pair is currently uploaded to the GPU,
-    /// so `apply_clouds` only re-uploads textures when the selection moves.
+    /// so `sync_clouds` only re-uploads textures when the selection moves.
     cloud_uploaded: Option<(usize, usize)>,
 }
 
-/// UI-bound state. Cached so the panel survives across frames; the
-/// map's actual layer fade / visibility is the source of truth and
-/// this struct just mirrors it for the slider widgets.
+/// One marker: a named point with a colour. Serialised into the scene's
+/// GeoJSON marker source; the name rides into hit-test properties so a
+/// click can identify (and remove) the marker it landed on.
+#[derive(Debug, Clone)]
+struct MarkerSpec {
+    name: String,
+    pos: LatLng,
+    color: Color,
+}
+
+/// The scene-declared cloud overlay's document state (TURBO_CLOUDS debug
+/// scene). Frame DATA is transport (`engine.ingest_field`), not here.
+#[derive(Debug, Clone)]
+struct CloudSceneState {
+    /// `[west, south, east, north]` — anchors the radar field.
+    bounds: [f64; 4],
+    grid: [u32; 2],
+    visible: bool,
+    animate: bool,
+}
+
+/// The complete content description the app owns — `scene()` lowers it to
+/// the IR document the engine consumes. Layer-visibility toggles are
+/// expressed as layer inclusion (removal-and-refetch; the disk caches make
+/// re-adding cheap).
+struct SceneState {
+    raster_def: SourceDef,
+    dem_def: Option<SourceDef>,
+    vector_def: SourceDef,
+    vector_layers: Vec<Layer>,
+    raster_visible: bool,
+    hillshade_visible: bool,
+    vector_visible: bool,
+    /// Analytic sky pass — scene environment state (IR `environment.sky`).
+    sky: bool,
+    markers: Vec<MarkerSpec>,
+    /// Monotonic counter naming click-added markers (`user-N`).
+    next_user_marker: u32,
+    clouds: Option<CloudSceneState>,
+}
+
+impl SceneState {
+    /// Lower the document to the Scene IR. Pure — called on every content
+    /// mutation; the engine's diff keeps the GPU work minimal.
+    fn scene(&self) -> Scene {
+        let mut scene = Scene::new();
+        scene
+            .sources
+            .insert(RASTER_SOURCE.to_string(), self.raster_def.clone());
+        if let Some(dem) = &self.dem_def {
+            scene.sources.insert(DEM_SOURCE.to_string(), dem.clone());
+        }
+        scene
+            .sources
+            .insert(VECTOR_SOURCE.to_string(), self.vector_def.clone());
+
+        // Layer stack (back → front): raster basemap, terrain/hillshade,
+        // vector overlay, marker circles (overlay track).
+        if self.raster_visible {
+            scene.layers.push(Layer::Raster {
+                id: RASTER_LAYER_ID.to_string(),
+                source: RASTER_SOURCE.to_string(),
+                opacity: Paint::Const(1.0),
+            });
+        }
+        if self.dem_def.is_some() {
+            // The DEM stays registered even with the relief overlay off
+            // (it drives terrain displacement / water reflection):
+            // `height_only` expresses the overlay toggle without dropping
+            // the terrain source.
+            scene.layers.push(Layer::Hillshade {
+                id: HILLSHADE_LAYER_ID.to_string(),
+                source: DEM_SOURCE.to_string(),
+                exaggeration: 1.5,
+                height_only: !self.hillshade_visible,
+            });
+        }
+        if self.vector_visible {
+            scene.layers.extend(self.vector_layers.iter().cloned());
+        }
+        self.push_marker_layers(&mut scene);
+
+        if let Some(c) = &self.clouds {
+            scene.sources.insert(
+                RADAR_SOURCE.to_string(),
+                SourceDef::Field2D { bounds: c.bounds },
+            );
+            scene.environment.clouds = Some(CloudsDef {
+                source: RADAR_SOURCE.to_string(),
+                grid: c.grid,
+                visible: c.visible,
+                animate: c.animate,
+            });
+        }
+        // A fixed low sun so terrain lighting is in frame from the first
+        // render (the same 145°/18° the imperative host pinned).
+        scene.environment.lighting = LightingDef::Fixed {
+            azimuth_deg: 145.0,
+            altitude_deg: 18.0,
+        };
+        scene.environment.sky = self.sky;
+        scene
+    }
+
+    /// Markers → GeoJSON circle layers: one source + white-ring/dot layer
+    /// pair per marker colour (the engine's circle layers paint one colour
+    /// each — `Paint::Match` has no per-feature path in the marker track).
+    /// All rings go under all dots so overlapping markers stack cleanly.
+    fn push_marker_layers(&self, scene: &mut Scene) {
+        if self.markers.is_empty() {
+            return;
+        }
+        let mut groups: Vec<(Color, Vec<&MarkerSpec>)> = Vec::new();
+        for m in &self.markers {
+            match groups.iter_mut().find(|(c, _)| *c == m.color) {
+                Some((_, v)) => v.push(m),
+                None => groups.push((m.color, vec![m])),
+            }
+        }
+        for (i, (_, group)) in groups.iter().enumerate() {
+            scene.sources.insert(
+                format!("markers-{i}"),
+                SourceDef::GeoJson {
+                    data: markers_geojson(group),
+                },
+            );
+        }
+        for (i, _) in groups.iter().enumerate() {
+            scene.layers.push(Layer::Circle {
+                id: format!("marker-rings-{i}"),
+                source: format!("markers-{i}"),
+                source_layer: None,
+                filter: Filter::Always,
+                color: Paint::Const(Color::rgb(0xFF, 0xFF, 0xFF)),
+                radius: Paint::Const(11.0),
+            });
+        }
+        for (i, (color, _)) in groups.iter().enumerate() {
+            scene.layers.push(Layer::Circle {
+                id: format!("marker-dots-{i}"),
+                source: format!("markers-{i}"),
+                source_layer: None,
+                filter: Filter::Always,
+                color: Paint::Const(*color),
+                radius: Paint::Const(8.0),
+            });
+        }
+    }
+}
+
+/// A FeatureCollection of point features with a `name` property each —
+/// what the engine's circle layers consume and what hit tests report back.
+fn markers_geojson(markers: &[&MarkerSpec]) -> String {
+    let features: Vec<serde_json::Value> = markers
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "type": "Feature",
+                "properties": { "name": m.name },
+                "geometry": { "type": "Point", "coordinates": [m.pos.lng, m.pos.lat] }
+            })
+        })
+        .collect();
+    serde_json::json!({ "type": "FeatureCollection", "features": features }).to_string()
+}
+
+/// UI-bound state. `build_ui` edits this and nothing else (camera moves go
+/// straight through engine verbs); `sync_scene_from_ui` diffs it against
+/// the scene document once per frame.
 #[derive(Debug, Clone)]
 struct UiState {
     raster_visible: bool,
     hillshade_visible: bool,
-    /// Analytic sky pass (Map::set_sky_enabled). Off by default for water debug.
+    /// Analytic sky pass. Off by default for water debug.
     sky_visible: bool,
     vector_visible: bool,
-    fade_in_secs: f32,
-    /// Smoothed + sampled frame-timing display. The raw
-    /// per-frame numbers change every render — at 120 Hz
-    /// vsync that's 120 text-width changes per second which
-    /// rearranges the panel layout and makes the drop shadow
-    /// jitter. We sample at ~5 Hz and pad the formatted
-    /// string to a fixed width so the panel is layout-stable.
-    metrics_display: MetricsDisplay,
     /// Procedural cloud-overlay debug controls. See [`CloudUiState`].
     clouds: CloudUiState,
 }
 
-#[derive(Debug, Clone)]
-struct MetricsDisplay {
-    text: String,
-    last_update: Instant,
-    /// Rolling sum of per-frame samples since the last
-    /// display update, used to compute the mean shown to
-    /// the user.
-    cpu_sum_ms: f64,
-    gpu_sum_ms: f64,
-    sample_count: u32,
-    gpu_sample_count: u32,
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            raster_visible: true,
+            // Off by default — water debug isolates the surface; the DEM
+            // source stays registered (height_only terrain) but the grey
+            // relief overlay is hidden. Re-enable via the layers checkbox.
+            hillshade_visible: false,
+            sky_visible: false,
+            vector_visible: true,
+            clouds: CloudUiState::default(),
+        }
+    }
 }
 
-/// Mirror of the procedural cloud overlay's debug-scene controls. The Map
-/// owns the real `CloudParams`; this struct holds what the panel edits and
-/// `RunningState::apply_clouds` pushes into the Map each frame. The
-/// camera-driven fields (world-lock affine, inv-view-proj, slab altitude)
-/// are recomputed inside `Map::render` from the live camera, so the look
-/// knobs we set here are never clobbered.
+/// Mirror of the procedural cloud overlay's debug-scene controls. The
+/// scene document owns visible/animate (rebuild + re-apply on change);
+/// frame selection re-uploads via `ingest_field`; time/blend scrub through
+/// `set_cloud_time`; the LOOK knobs ride the engine's S7 debug surface
+/// (`debug_cloud_params`). The camera-driven fields (world-lock affine,
+/// inv-view-proj, slab altitude) are recomputed inside the engine's render
+/// from the live camera, so the look knobs we set here are never clobbered.
 #[derive(Debug, Clone)]
 struct CloudUiState {
-    /// Master on/off (drives `Map::set_clouds_visible`).
+    /// Master on/off (scene `CloudsDef::visible`).
     enabled: bool,
-    /// Auto-advance the drift/boil clock each frame (`time`).
+    /// Engine cloud sim drives the clock (scene `CloudsDef::animate`).
     animate: bool,
     /// Multiplier on the per-frame `time` advance when `animate`.
     speed: f32,
-    /// Drift/boil clock in seconds (scrubbable; auto-advanced when animating).
+    /// Drift/boil clock in seconds (scrubbable when not animating).
     time: f32,
     /// Crossfade `0..1` between synthetic radar frame A (slot 0) and B (slot 1).
     blend: f32,
@@ -146,16 +331,16 @@ struct CloudUiState {
     /// Index into the synthetic storm sequence uploaded to slot 1.
     frame_b: usize,
     /// Look knobs + debug-view selector. Camera/affine fields are ignored
-    /// (overwritten per frame by `Map::render`).
+    /// (overwritten per frame by the renderer).
     params: CloudParams,
 }
 
 impl Default for CloudUiState {
     fn default() -> Self {
         Self {
-            // Off by default: the cloud overlay rendered as a grid of white blobs
-            // over open water and confounded water debugging. Re-enable in the
-            // "weather clouds" panel section.
+            // Off by default: the cloud overlay rendered as a grid of white
+            // blobs over open water and confounded water debugging.
+            // Re-enable in the "weather clouds" panel section.
             enabled: false,
             animate: true,
             speed: 1.0,
@@ -168,94 +353,11 @@ impl Default for CloudUiState {
     }
 }
 
-impl MetricsDisplay {
-    /// One-second sample window. At 120 Hz that's ~120
-    /// per-frame samples averaged into one displayed value;
-    /// the value updates exactly once per second so the
-    /// panel doesn't visibly twitch.
-    const SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
-
-    fn new() -> Self {
-        Self {
-            text: "frame: cpu  -.-- ms · gpu  -.-- ms".into(),
-            last_update: Instant::now() - Self::SAMPLE_INTERVAL,
-            cpu_sum_ms: 0.0,
-            gpu_sum_ms: 0.0,
-            sample_count: 0,
-            gpu_sample_count: 0,
-        }
-    }
-
-    /// Add one frame's sample. Updates the displayed string
-    /// at most once per `SAMPLE_INTERVAL` from the mean of
-    /// all samples accumulated in the window. The mean
-    /// dampens per-frame variance so the value doesn't
-    /// twitch between adjacent digits at 120 Hz, which is
-    /// what produced the visible flicker.
-    fn refresh(&mut self, cpu_ms: f64, gpu_ms: Option<f64>) {
-        self.cpu_sum_ms += cpu_ms;
-        self.sample_count += 1;
-        if let Some(g) = gpu_ms {
-            self.gpu_sum_ms += g;
-            self.gpu_sample_count += 1;
-        }
-        let now = Instant::now();
-        if now.duration_since(self.last_update) < Self::SAMPLE_INTERVAL {
-            return;
-        }
-        self.last_update = now;
-        let cpu_mean = self.cpu_sum_ms / self.sample_count.max(1) as f64;
-        let gpu_mean = if self.gpu_sample_count > 0 {
-            format!("{:>5.2}", self.gpu_sum_ms / self.gpu_sample_count as f64)
-        } else {
-            " n/a ".into()
-        };
-        self.text = format!("frame: cpu {:>5.2} ms · gpu {} ms", cpu_mean, gpu_mean);
-        self.cpu_sum_ms = 0.0;
-        self.gpu_sum_ms = 0.0;
-        self.sample_count = 0;
-        self.gpu_sample_count = 0;
-    }
-}
-
-impl Default for UiState {
-    fn default() -> Self {
-        Self {
-            raster_visible: true,
-            // Off by default — water debug isolates the surface; the DEM source
-            // stays registered (drives the water terrain-reflection) but the grey
-            // relief overlay is hidden. Re-enable via the layers checkbox.
-            hillshade_visible: false,
-            sky_visible: false,
-            vector_visible: true,
-            // DIAG: was 0.4. With fade-in active, each newly
-            // loaded tile's alpha animates from 0→1 over this
-            // window — every frame during the fade has a
-            // slightly different alpha, so pixels change per
-            // frame whether the camera moved or not. Setting
-            // to 0 makes new tiles snap to fully opaque
-            // immediately, eliminating per-tile animation
-            // as a flicker source.
-            fade_in_secs: 0.0,
-            metrics_display: MetricsDisplay::new(),
-            clouds: CloudUiState::default(),
-        }
-    }
-}
-
 impl TurbomapApp {
-    pub fn new(
-        raster_source: Arc<dyn TileSource>,
-        dem_source: Option<Arc<dyn TileSource>>,
-        vector_source: Arc<dyn VectorTileSource>,
-        style: VectorStyle,
-        initial_camera: Camera,
-    ) -> Self {
+    pub fn new(sources: SourceSet, vector_layers: Vec<Layer>, initial_camera: CameraState) -> Self {
         Self {
-            raster_source,
-            dem_source,
-            vector_source,
-            style,
+            sources,
+            vector_layers,
             initial_camera,
             state: None,
         }
@@ -287,96 +389,115 @@ impl ApplicationHandler for TurbomapApp {
             gpu.max_texture_dimension_2d(),
         );
 
-        let mut map = Map::new(
+        // The engine host boundary: URL sources resolve to stubs
+        // (`HostDrivenResolver`); THIS app fetches the bytes (see
+        // `map_host.rs`) and pushes them back via `ingest_*`.
+        let mut engine = TurbomapEngine::new(
             gpu.device.clone(),
             gpu.queue.clone(),
             gpu.surface_format,
             render_surface.size(),
             self.initial_camera,
             MapOptions::default(),
+            Box::new(HostDrivenResolver),
         )
-        .expect("create map");
-        // Layer stack (back → front):
-        //   1. Kartverket grey topo raster basemap
-        //   2. (optional) GPU hillshade from our own DEM endpoint
-        //   3. VersaTiles OSM vector overlay (roads + labels)
-        map.add_raster_layer(crate::map_host::RASTER_LAYER_ID, self.raster_source.clone());
-        if let Some(dem) = &self.dem_source {
-            // Register the DEM at Map level. From here, the hillshade
-            // overlay just describes the *look* (sun direction,
-            // shadow/highlight colours); the shared TerrainCache owns
-            // the data and any future displacement-aware pipeline
-            // will see the same tiles.
-            map.set_terrain_source(dem.clone(), turbomap_core::TerrainOptions::default());
-            map.add_hillshade_layer(
-                crate::map_host::HILLSHADE_LAYER_ID,
-                turbomap_core::HillshadeStyle::default(),
-            );
-        }
-        map.add_vector_layer(
-            crate::map_host::VECTOR_LAYER_ID,
-            self.vector_source.clone(),
-            self.style.clone(),
-        );
+        .expect("create engine");
 
-        // A fixed low sun so terrain lighting is in frame from the first render.
-        map.set_sun_position(Some(SunPosition {
-            azimuth_deg: 145.0,
-            altitude_deg: 18.0,
-        }));
-        // Minimal scene by default: no sky, no hillshade overlay (DEM stays).
-        map.set_sky_enabled(false);
-        if self.dem_source.is_some() {
-            map.set_layer_visibility(crate::map_host::HILLSHADE_LAYER_ID, false);
-        }
-
-        // Demo city markers — off by default; set
-        // TURBO_MARKERS=1 to drop them for hit-test testing.
-        if std::env::var("TURBO_MARKERS").is_ok() {
-            for (name, lat, lng, color) in [
+        // Demo city markers — off by default; set TURBO_MARKERS=1 to drop
+        // them for hit-test testing.
+        let markers: Vec<MarkerSpec> = if std::env::var("TURBO_MARKERS").is_ok() {
+            [
                 ("Bergen", 60.39, 5.32, Color::rgb(0xE5, 0x39, 0x35)),
                 ("Oslo", 59.91, 10.75, Color::rgb(0x1E, 0x88, 0xE5)),
                 ("Trondheim", 63.43, 10.39, Color::rgb(0x43, 0xA0, 0x47)),
                 ("Tromsø", 69.65, 18.96, Color::rgb(0xFD, 0xD8, 0x35)),
-            ] {
-                let mut data = std::collections::HashMap::new();
-                data.insert("name".to_owned(), name.to_owned());
-                map.add_marker(Marker {
-                    id: MarkerId(0),
-                    lng_lat: LatLng::new(lat, lng),
-                    radius_px: 10.0,
-                    color,
-                    data,
-                });
-            }
-        }
-
-        // Procedural cloud overlay — OFF by default for the clean water-debug
-        // base (it rendered as a confounding blob grid over the sea). Set
-        // TURBO_CLOUDS=1 to set up the synthetic-storm debug scene again.
-        let cloud_frames: Vec<RadarFrame> = if std::env::var("TURBO_CLOUDS").is_ok() {
-            let storm = SyntheticStorm::default();
-            let frames = storm.generate();
-            map.enable_clouds(storm.width, storm.height);
-            let last = frames.len().saturating_sub(1);
-            map.ingest_radar_frame(0, &frames[0]);
-            map.ingest_radar_frame(1, &frames[1.min(last)]);
-            let c = self.initial_camera.center;
-            map.set_cloud_geo_bounds(c.lng - 4.0, c.lat - 2.0, c.lng + 4.0, c.lat + 2.0);
-            frames
+            ]
+            .into_iter()
+            .map(|(name, lat, lng, color)| MarkerSpec {
+                name: name.to_string(),
+                pos: LatLng::new(lat, lng),
+                color,
+            })
+            .collect()
         } else {
             Vec::new()
         };
 
-        let host = crate::map_host::build(
-            map,
-            self.vector_source.clone(),
-            self.raster_source.clone(),
-            self.dem_source.clone(),
-            self.style.clone(),
-            FETCH_WORKERS,
-            4,
-            3,
+        // Procedural cloud overlay — OFF by default for the clean
+        // water-debug base. TURBO_CLOUDS=1 declares the synthetic-storm
+        // debug scene (Field2D source + CloudsDef; frames upload below).
+        let (cloud_frames, clouds): (Vec<RadarFrame>, Option<CloudSceneState>) =
+            if std::env::var("TURBO_CLOUDS").is_ok() {
+                let storm = SyntheticStorm::default();
+                let frames = storm.generate();
+                let c = self.initial_camera.center;
+                let clouds = CloudSceneState {
+                    bounds: [c.lng - 4.0, c.lat - 2.0, c.lng + 4.0, c.lat + 2.0],
+                    grid: [storm.width, storm.height],
+                    visible: false,
+                    animate: true,
+                };
+                (frames, Some(clouds))
+            } else {
+                (Vec::new(), None)
+            };
+
+        let ui_state = UiState::default();
+        let scene_state = SceneState {
+            raster_def: self.sources.raster_def.clone(),
+            dem_def: self.sources.dem_def.clone(),
+            vector_def: self.sources.vector_def.clone(),
+            vector_layers: self.vector_layers.clone(),
+            raster_visible: ui_state.raster_visible,
+            hillshade_visible: ui_state.hillshade_visible,
+            vector_visible: ui_state.vector_visible,
+            sky: ui_state.sky_visible,
+            markers,
+            next_user_marker: 1,
+            clouds,
+        };
+        let scene = scene_state.scene();
+        if let Err(e) = scene.validate() {
+            log::warn!("scene failed validation: {e}");
+        }
+        engine.apply(scene);
+        let unsupported = engine.unsupported_layers();
+        if !unsupported.is_empty() {
+            log::warn!("engine skipped unsupported layers: {unsupported:?}");
+        }
+
+        // Initial radar frame pair for the declared cloud field (data is
+        // transport — pushed like tiles, not part of the document).
+        let cloud_uploaded = if cloud_frames.is_empty() {
+            None
+        } else {
+            let b = 1.min(cloud_frames.len() - 1);
+            upload_radar_frame(&mut engine, 0, &cloud_frames[0]);
+            upload_radar_frame(&mut engine, 1, &cloud_frames[b]);
+            Some((0, b))
+        };
+
+        // Raw-bytes fetch pumps over the app's HTTP sources (disk caches
+        // included). The engine's codec owns every decode.
+        let vector = self.sources.vector.clone();
+        let raster = self.sources.raster.clone();
+        let fetch = crate::map_host::FetchPipeline::new(
+            crate::runtime::BytesPump::new("vector", FETCH_WORKERS, move |tile| {
+                vector.request_bytes(tile).map_err(|e| e.to_string())
+            }),
+            crate::runtime::BytesPump::new("raster", 4, move |tile| {
+                raster
+                    .request(tile)
+                    .map(|t| t.bytes)
+                    .map_err(|e| e.to_string())
+            }),
+            self.sources.dem.clone().map(|dem| {
+                crate::runtime::BytesPump::new("dem", 3, move |tile| {
+                    dem.request(tile)
+                        .map(|t| t.bytes)
+                        .map_err(|e| e.to_string())
+                })
+            }),
         );
 
         let ui = crate::ui::UiOverlay::new(&gpu.device, gpu.surface_format, &window);
@@ -386,18 +507,17 @@ impl ApplicationHandler for TurbomapApp {
             surface: render_surface,
             scheduler: crate::schedule::RenderScheduler::new(),
             gpu,
-            host,
+            engine,
+            fetch,
+            scene_state,
             pointer: crate::input::PointerState::default(),
             ui,
-            ui_state: UiState::default(),
+            ui_state,
             egui_wants_pointer: false,
             frame_counter: 0,
-            cloud_uploaded: if cloud_frames.is_empty() {
-                None
-            } else {
-                Some((0, 1.min(cloud_frames.len().saturating_sub(1))))
-            },
+            dump_dir: std::env::var("TURBOMAP_DUMP_DIR").ok(),
             cloud_frames,
+            cloud_uploaded,
         });
         window.request_redraw();
     }
@@ -408,14 +528,11 @@ impl ApplicationHandler for TurbomapApp {
         };
         // egui sees every event first so it can update its own state
         // (cursor position, key state, viewport size). We never
-        // short-circuit on `consumed` — window-state events like
-        // Resized or CloseRequested MUST still reach our match below.
-        // An earlier version returned early when egui said "consumed",
-        // which silently dropped Resized events during live resize on
-        // macOS and froze the surface. Instead we let the match run,
-        // and gate the input-specific branches (pointer / keyboard)
-        // on `egui_wants_pointer` / `egui_wants_keyboard` so dragging
-        // a slider doesn't also pan the map underneath.
+        // short-circuit on `consumed` — window-state events like Resized or
+        // CloseRequested MUST still reach our match below. Instead we let
+        // the match run and gate the input-specific branches on
+        // `egui_wants_pointer` / `egui_wants_keyboard` so dragging a slider
+        // doesn't also pan the map underneath.
         let overlay_resp = state.ui.on_window_event(&state.window, &event);
         state.egui_wants_pointer = overlay_resp.egui_used_pointer;
         let egui_wants_keyboard = state.ui.wants_keyboard();
@@ -428,9 +545,8 @@ impl ApplicationHandler for TurbomapApp {
                 if size.width == 0 || size.height == 0 {
                     return;
                 }
-                // No configure here. The scheduler will hold
-                // the size for ~30 ms; on_redraw applies it
-                // when the burst settles. See `schedule.rs`.
+                // No configure here. The scheduler will hold the size for
+                // ~30 ms; on_redraw applies it when the burst settles.
                 state.scheduler.notice_resize(size.width, size.height);
                 state.window.request_redraw();
             }
@@ -440,7 +556,7 @@ impl ApplicationHandler for TurbomapApp {
                     return;
                 }
                 if let Some(crate::input::Gesture::Pan { dx, dy }) = gesture {
-                    state.host.map_mut().pan_by_pixels(dx, dy);
+                    state.engine.pan_by_pixels(dx, dy);
                     state.window.request_redraw();
                 }
             }
@@ -473,11 +589,11 @@ impl ApplicationHandler for TurbomapApp {
                     MouseScrollDelta::LineDelta(_, y) => {
                         let factor = 2.0_f64.powf(y as f64 * 0.25);
                         let focus = state.focus_or_centre();
-                        state.host.map_mut().zoom_around(factor, focus);
+                        state.engine.zoom_around(factor, focus);
                         state.window.request_redraw();
                     }
                     MouseScrollDelta::PixelDelta(p) => {
-                        state.host.map_mut().pan_by_pixels(p.x, p.y);
+                        state.engine.pan_by_pixels(p.x, p.y);
                         state.window.request_redraw();
                     }
                 }
@@ -489,7 +605,7 @@ impl ApplicationHandler for TurbomapApp {
                 let factor = 1.0 + delta;
                 if factor > 0.0 {
                     let focus = state.focus_or_centre();
-                    state.host.map_mut().zoom_around(factor, focus);
+                    state.engine.zoom_around(factor, focus);
                     state.window.request_redraw();
                 }
             }
@@ -497,10 +613,7 @@ impl ApplicationHandler for TurbomapApp {
                 if state.egui_wants_pointer {
                     return;
                 }
-                state
-                    .host
-                    .map_mut()
-                    .pan_by_pixels(delta.x as f64, delta.y as f64);
+                state.engine.pan_by_pixels(delta.x as f64, delta.y as f64);
                 state.window.request_redraw();
             }
             WindowEvent::KeyboardInput {
@@ -513,10 +626,9 @@ impl ApplicationHandler for TurbomapApp {
                     },
                 ..
             } if !egui_wants_keyboard => {
-                // Camera tilt + bearing controls — exercise the new
-                // perspective camera. W/S nudge pitch ±5°, A/D rotate
-                // bearing ±15°, R resets to top-down north-up.
-                let mut camera = state.host.map().camera();
+                // Camera tilt + bearing controls — W/S nudge pitch ±5°, A/D
+                // rotate bearing ±15°, R resets to top-down north-up.
+                let mut camera = state.engine.camera();
                 let mut changed = false;
                 match code {
                     KeyCode::KeyW => {
@@ -543,7 +655,7 @@ impl ApplicationHandler for TurbomapApp {
                     _ => {}
                 }
                 if changed {
-                    state.host.map_mut().set_camera(camera);
+                    state.engine.set_camera(camera);
                     state.window.request_redraw();
                 }
             }
@@ -554,25 +666,15 @@ impl ApplicationHandler for TurbomapApp {
         }
     }
 
-    /// winit calls this once per loop tick (Poll mode) or before
-    /// each sleep (Wait mode). We use it as the *guaranteed* tick
-    /// that drives rendering whenever something has happened on a
-    /// worker thread — tile fetches, animation, anything that the
-    /// event-driven `RedrawRequested` path might miss because
-    /// macOS isn't delivering the event yet (e.g. the window
-    /// hasn't been made key, the tab is in the background, etc).
-    ///
-    /// Each tick we hand the scheduler the current workload
-    /// snapshot and act on its decision. All the "when should
-    /// we render?" logic lives in `schedule.rs`; here we just
-    /// translate that decision into winit calls. See the
+    /// winit calls this once per loop tick. Each tick we hand the scheduler
+    /// the current workload snapshot and act on its decision; see the
     /// module-level docs of `schedule` for the rules.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         use winit::event_loop::ControlFlow;
         let Some(state) = self.state.as_mut() else {
             return;
         };
-        let workload = state.host.workload();
+        let workload = state.fetch.workload(&state.engine);
         match state.scheduler.schedule(Instant::now(), workload) {
             crate::schedule::Schedule::Render => {
                 state.window.request_redraw();
@@ -596,80 +698,152 @@ impl RunningState {
             .unwrap_or((w as f64 * 0.5, h as f64 * 0.5))
     }
 
-    /// A click was detected at `pos`. If it lands on a marker, delete it;
-    /// otherwise place a new user marker there. Vector features under the
-    /// click are still logged for visibility.
+    /// A click was detected at `pos`. If it lands on a marker circle,
+    /// delete that marker from the scene document; otherwise unproject and
+    /// add a new user marker there. Everything under the click is logged
+    /// for visibility.
     fn dispatch_click(&mut self, pos: (f64, f64)) {
-        let hits = self.host.map().hit_test(pos, 6.0);
-
-        // hit_test returns markers first, top-down. The topmost one wins
-        // on a click — match how the user sees the stack.
-        let marker_hit = hits.iter().find_map(|h| match h {
-            HitResult::Marker(m) => Some(m.id),
-            _ => None,
-        });
-
-        if let Some(id) = marker_hit {
-            self.host.map_mut().remove_marker(id);
-            log::info!("removed marker {:?}", id);
-        } else {
-            let lng_lat = self.host.map().screen_to_lng_lat(pos);
-            let id = self.host.map_mut().add_marker(Marker {
-                id: MarkerId(0),
-                lng_lat,
-                radius_px: 8.0,
-                // Cyan — visually distinct from the demo Norwegian-city
-                // markers so user-added points are easy to spot.
-                color: Color::rgb(0x00, 0xB8, 0xD4),
-                data: std::collections::HashMap::new(),
-            });
+        let point = ScreenPoint { x: pos.0, y: pos.1 };
+        let hits = self.engine.hit_test(point, 6.0);
+        for h in &hits {
             log::info!(
-                "added marker {:?} at lat={:.4}, lng={:.4}",
-                id,
-                lng_lat.lat,
-                lng_lat.lng
+                "hit: layer={} feature={:?} props={:?}",
+                h.layer_id,
+                h.feature_id,
+                h.properties
             );
         }
 
-        // For visibility: anything *else* we hit (other markers stacked,
-        // features) gets logged but doesn't affect the add/delete action.
-        for hit in &hits {
-            match hit {
-                HitResult::Marker(m) if Some(m.id) != marker_hit => {}
-                _ => {}
+        // hit_test returns markers first, top-down. The topmost one wins on
+        // a click — match how the user sees the stack. Markers identify by
+        // their `name` property (unique: cities + `user-N`).
+        let marker_name = hits
+            .iter()
+            .find(|h| h.layer_id.starts_with(MARKER_LAYER_PREFIX))
+            .and_then(|h| h.properties.get("name").cloned());
+
+        if let Some(name) = marker_name {
+            self.scene_state.markers.retain(|m| m.name != name);
+            log::info!("removed marker {name:?}");
+        } else {
+            let Some(pos) = self.engine.unproject(point) else {
+                return;
+            };
+            let name = format!("user-{}", self.scene_state.next_user_marker);
+            self.scene_state.next_user_marker += 1;
+            log::info!(
+                "added marker {name:?} at lat={:.4}, lng={:.4}",
+                pos.lat,
+                pos.lng
+            );
+            self.scene_state.markers.push(MarkerSpec {
+                name,
+                pos,
+                color: USER_MARKER_COLOR,
+            });
+        }
+        // Content changed → rebuild + re-apply (the engine diffs; only the
+        // marker circles rebuild).
+        self.engine.apply(self.scene_state.scene());
+        // Marker set changed → redraw needed (we won't get a redraw request
+        // otherwise since the camera didn't move).
+        self.window.request_redraw();
+    }
+
+    /// Fold the panel's content-shaped edits into the scene document and
+    /// re-apply if anything moved. Camera edits already went through engine
+    /// verbs inside `build_ui`; this handles everything the SCENE owns.
+    fn sync_scene_from_ui(&mut self) {
+        let ui = &self.ui_state;
+        let s = &mut self.scene_state;
+        let mut changed = false;
+        if s.raster_visible != ui.raster_visible {
+            s.raster_visible = ui.raster_visible;
+            changed = true;
+        }
+        if s.hillshade_visible != ui.hillshade_visible {
+            s.hillshade_visible = ui.hillshade_visible;
+            changed = true;
+        }
+        if s.vector_visible != ui.vector_visible {
+            s.vector_visible = ui.vector_visible;
+            changed = true;
+        }
+        if s.sky != ui.sky_visible {
+            s.sky = ui.sky_visible;
+            changed = true;
+        }
+        if let Some(c) = s.clouds.as_mut() {
+            if c.visible != ui.clouds.enabled {
+                c.visible = ui.clouds.enabled;
+                changed = true;
+            }
+            if c.animate != ui.clouds.animate {
+                c.animate = ui.clouds.animate;
+                changed = true;
             }
         }
-        // Marker set changed → redraw needed (we won't get a redraw
-        // request otherwise since the camera didn't move).
-        self.window.request_redraw();
+        if changed {
+            self.engine.apply(self.scene_state.scene());
+        }
+    }
+
+    /// Push the cloud debug-panel's DATA and DEBUG state into the engine:
+    /// re-upload the radar texture pair only when the frame-A/B selection
+    /// changes, scrub the clock when not animating (the engine's sim owns
+    /// it otherwise, plan E2), and forward the look knobs through the S7
+    /// debug surface. Visible/animate are scene state — `sync_scene_from_ui`
+    /// already folded them into the document.
+    fn sync_clouds(&mut self) {
+        let ui = &self.ui_state.clouds;
+        if self.scene_state.clouds.is_none() || self.cloud_frames.is_empty() || !ui.enabled {
+            return;
+        }
+        let last = self.cloud_frames.len() - 1;
+        let a = ui.frame_a.min(last);
+        let b = ui.frame_b.min(last);
+        if self.cloud_uploaded != Some((a, b)) {
+            upload_radar_frame(&mut self.engine, 0, &self.cloud_frames[a]);
+            upload_radar_frame(&mut self.engine, 1, &self.cloud_frames[b]);
+            self.cloud_uploaded = Some((a, b));
+        }
+        self.engine.debug_cloud_params(ui.params);
+        if !ui.animate {
+            // Host-scrubbed: the panel's sliders own time + crossfade. (In
+            // animate mode the engine's cloud sim owns the clock and these
+            // sliders are inert — the Environment is authoritative.)
+            self.engine.set_cloud_time(ui.time, ui.blend);
+        }
     }
 
     fn on_redraw(&mut self) {
         let now = Instant::now();
-        // Bail out if we're still in a resize-event burst. The
-        // scheduler tracks the timeline; on_redraw just asks.
-        // Skipping here is the foundational architectural rule
-        // that prevents drawable-pool exhaustion (see
+        // Bail out if we're still in a resize-event burst — the
+        // foundational rule that prevents drawable-pool exhaustion (see
         // `surface.rs` and `schedule.rs` headers).
         if self.scheduler.in_resize_burst(now) {
             return;
         }
-        // If a resize just settled, apply it BEFORE acquiring a
-        // drawable. The scheduler hands us the latest stored
-        // size; we reconfigure both the surface and the map.
+        // If a resize just settled, apply it BEFORE acquiring a drawable.
         if let Some((width, height)) = self.scheduler.take_settled_resize(now) {
+            self.surface.resize_to(width, height);
             let (w, h) = self.surface.size();
-            self.host.resize(w, h);
+            self.engine.resize(w, h);
         }
 
-        // 0–2. All tile-pipeline work — animation tick, channel
-        //      drains, recently-failed GC, fetch dispatch — lives
-        //      in `MapHost`. See `map_host.rs`.
-        self.host.tick(now);
-        self.host.drain_workers();
-        self.host.dispatch_fetches();
+        // 0. Content sync (panel → scene document → engine.apply) BEFORE
+        //    rendering, so this frame draws with the current panel values.
+        self.sync_scene_from_ui();
+        self.sync_clouds();
 
-        // 3. Acquire the drawable for this frame.
+        // 1. Camera animation tick + the tile transport loop: GC retry
+        //    backoff, drain worker bytes into ingest, take a plan.
+        self.engine.tick_now();
+        self.fetch.tick(now);
+        self.fetch.drain(&mut self.engine);
+        self.fetch.dispatch(&mut self.engine);
+
+        // 2. Acquire the drawable for this frame.
         let actual = self.window.inner_size();
         let window_size = (actual.width.max(1), actual.height.max(1));
         let Some(frame) = self.surface.acquire(window_size) else {
@@ -682,25 +856,16 @@ impl RunningState {
                 label: Some("turbomap-frame"),
             });
 
-        // 3b. Sync the cloud debug-scene panel state into the Map (frame
-        //     upload on selection change, look knobs, animation clock)
-        //     BEFORE rendering, so this frame draws with the current panel
-        //     values. The camera-driven cloud fields are recomputed inside
-        //     `Map::render`, so the order is safe.
-        self.apply_clouds();
+        // 3. Render the map onto the drawable (decoded tiles apply inside
+        //    under the per-frame budget).
+        self.engine.render(&mut encoder, &frame.view);
 
-        // 4. Render the map onto the drawable.
-        self.host.render(&mut encoder, &frame.view);
-
-        // 5. egui on top. The borrow-checker keeps `Map` /
-        //    `ui_state` / the panel closure alive across the
-        //    egui frame in one place; `ui.frame` returns a
-        //    `PendingUi` that we must hand back to
-        //    `ui.present` AFTER the queue submit so the GPU
+        // 4. egui on top. `ui.frame` returns a `PendingUi` that we must
+        //    hand back to `ui.present` AFTER the queue submit so the GPU
         //    isn't still sampling textures we're freeing.
         let cloud_frame_count = self.cloud_frames.len();
         let ui_state = &mut self.ui_state;
-        let map_for_ui = self.host.map_mut();
+        let engine = &mut self.engine;
         let pending = self.ui.frame(
             &self.gpu.device,
             &self.gpu.queue,
@@ -708,102 +873,92 @@ impl RunningState {
             &mut encoder,
             &frame.view,
             frame.size,
-            |ctx| build_ui(ctx, ui_state, map_for_ui, cloud_frame_count),
+            |ctx| build_ui(ctx, ui_state, engine, cloud_frame_count),
         );
 
-        // 6. Submit, present, then let UI free retired
-        //    textures. Map's GPU timestamp readback is armed
-        //    here for next frame's metrics.
-        //
-        //    DIAG: if `TURBOMAP_DUMP_DIR` is set, dump the
-        //    just-rendered framebuffer to a PNG before
-        //    present. This is the GPU's actual output —
-        //    diffs across these PNGs are ground truth for
-        //    "the GPU rendered different pixels", separate
-        //    from anything macOS does at composite time.
+        // 5. DIAG: if `TURBOMAP_DUMP_DIR` is set, copy the just-rendered
+        //    framebuffer into a readback buffer inside this submission and
+        //    save it after the submit. This is the GPU's actual output —
+        //    ground truth for "what did the app render".
+        let dump = self.dump_dir.is_some().then(|| {
+            encode_frame_dump(
+                &self.gpu.device,
+                &frame.texture.texture,
+                frame.size,
+                &mut encoder,
+            )
+        });
+        let dump_size = frame.size;
+        let dump_format = self.surface.format();
+
+        // 6. Submit, present, then let UI free retired textures. The
+        //    engine's GPU timestamp readback is armed here for next frame's
+        //    metrics.
         self.frame_counter = self.frame_counter.wrapping_add(1);
         self.gpu.queue.submit([encoder.finish()]);
-        self.host.after_submit();
+        self.engine.after_submit();
         frame.present();
         if self.ui.present(pending) {
             self.scheduler.notice_egui_repaint();
         }
-
-        // Cloud animation needs no manual redraw nudge: with the panel's
-        // animate toggle on, the ENGINE's cloud sim drives the clock (plan
-        // E2) and an active sim counts as `Map::is_animating`, which keeps
-        // the scheduler pumping frames through the normal workload path.
-    }
-
-    /// Push the cloud debug-panel state into the Map for this frame.
-    ///
-    /// Re-uploads the radar texture pair only when the frame-A/B selection
-    /// changes (texture upload is the one non-trivial cost here), advances
-    /// the drift clock when animating, and forwards the look knobs +
-    /// debug-view selector. The world-lock affine, inverse-view-projection
-    /// and slab altitude are deliberately *not* set here — `Map::render`
-    /// recomputes them from the live camera every frame.
-    fn apply_clouds(&mut self) {
-        let map = self.host.map_mut();
-        map.set_clouds_visible(self.ui_state.clouds.enabled);
-        if !self.ui_state.clouds.enabled || self.cloud_frames.is_empty() {
-            return;
+        if let (Some(dir), Some((buffer, padded))) = (self.dump_dir.clone(), dump) {
+            save_dump_to_png(
+                &self.gpu.device,
+                buffer,
+                padded,
+                dump_size,
+                dump_format,
+                &dir,
+                self.frame_counter,
+            );
         }
 
-        let last = self.cloud_frames.len() - 1;
-        let a = self.ui_state.clouds.frame_a.min(last);
-        let b = self.ui_state.clouds.frame_b.min(last);
-        if self.cloud_uploaded != Some((a, b)) {
-            map.ingest_radar_frame(0, &self.cloud_frames[a]);
-            map.ingest_radar_frame(1, &self.cloud_frames[b]);
-            self.cloud_uploaded = Some((a, b));
-        }
-
-        map.set_cloud_params(self.ui_state.clouds.params);
-        if self.ui_state.clouds.animate {
-            // The engine's cloud sim owns the clock (plan E2): drift rides
-            // the frame clock, shading follows the one Environment sun, and
-            // the sim keeps `Map::is_animating` true so frames keep coming.
-            // (The panel's time/blend sliders + sun knobs are inert while
-            // animating — the Environment is authoritative in sim mode.)
-            map.set_cloud_sim(true);
-        } else {
-            // Host-scrubbed: the panel's sliders own time + crossfade.
-            map.set_cloud_time(self.ui_state.clouds.time, self.ui_state.clouds.blend);
-        }
+        // Cloud animation needs no manual redraw nudge: with the scene's
+        // animate flag on, the ENGINE's cloud sim drives the clock (plan
+        // E2) and an active sim counts as `is_animating`, which keeps the
+        // scheduler pumping frames through the normal workload path.
     }
 }
 
-// Re-export the layer ids from `map_host` so `build_ui`'s
-// callers can refer to them without depending on the host
-// module directly. Layer IDs are stable contract between
-// `MapHost::dispatch_fetches` and the panel's checkbox state.
-const RASTER_LAYER_ID_PUB: &str = crate::map_host::RASTER_LAYER_ID;
-const HILLSHADE_LAYER_ID_PUB: &str = crate::map_host::HILLSHADE_LAYER_ID;
-const VECTOR_LAYER_ID_PUB: &str = crate::map_host::VECTOR_LAYER_ID;
+/// Convert one synthetic [`RadarFrame`] into the two byte planes the
+/// engine's field-ingest transport takes, and push it into `slot`.
+fn upload_radar_frame(engine: &mut TurbomapEngine, slot: u32, frame: &RadarFrame) {
+    let n = (frame.width * frame.height) as usize;
+    let mut precip = Vec::with_capacity(n);
+    let mut coverage = Vec::with_capacity(n);
+    for cell in &frame.cells {
+        precip.push((cell.precip.clamp(0.0, 1.0) * 255.0).round() as u8);
+        coverage.push((cell.coverage.clamp(0.0, 1.0) * 255.0).round() as u8);
+    }
+    engine.ingest_field(
+        RADAR_SOURCE,
+        slot,
+        frame.width,
+        frame.height,
+        &precip,
+        &coverage,
+    );
+}
 
-/// Builds the egui side panel. Called inside `Context::run` so the
-/// widget tree is rebuilt each frame from the current state. Mutates
-/// the Map directly on slider/checkbox change — no diff step.
-fn build_ui(ctx: &egui::Context, ui: &mut UiState, map: &mut Map, cloud_frame_count: usize) {
-    // Custom frame with NO shadow + fully opaque background.
-    // egui's default Window has a soft drop-shadow rendered as
-    // an alpha gradient that, when blended against the map
-    // underneath each frame, produces 1-5/255 per-pixel
-    // variance (verified by frame-diff analysis of a recorded
-    // screen video). That variance is the visible flicker the
-    // user reported — text edges + shadow gradient changing
-    // subtly per frame as egui's sub-pixel positioning
-    // rounds differently.
-    let frame = egui::Frame::window(&ctx.style())
+/// Builds the egui side panel. Called inside `Context::run` so the widget
+/// tree is rebuilt each frame from the current state. Mutates ONLY
+/// `UiState` (content — folded into the scene document by
+/// `sync_scene_from_ui`) and the camera (control plane — engine verbs).
+fn build_ui(
+    ctx: &egui::Context,
+    ui: &mut UiState,
+    engine: &mut TurbomapEngine,
+    cloud_frame_count: usize,
+) {
+    // Custom frame with NO shadow + fully opaque background. egui's default
+    // drop-shadow alpha gradient blended against the map produced visible
+    // per-pixel flicker (verified by frame-diff analysis).
+    let frame = egui::Frame::window(&ctx.global_style())
         .shadow(egui::epaint::Shadow::NONE)
         .fill(egui::Color32::from_rgb(28, 28, 30));
     // Bound the panel to a FIXED width and scroll its contents within the
-    // window height. Without this the window auto-sized to its (now tall)
-    // content — overflowing the screen and reflowing per frame, which read as
-    // heavy flicker. A fixed width + capped scroll area keeps the geometry
-    // stable frame-to-frame.
-    let max_h = (ctx.screen_rect().height() - 48.0).max(200.0);
+    // window height so the geometry is stable frame-to-frame.
+    let max_h = (ctx.content_rect().height() - 48.0).max(200.0);
     egui::Window::new("turbomap")
         .default_pos([12.0, 12.0])
         .resizable(false)
@@ -816,22 +971,15 @@ fn build_ui(ctx: &egui::Context, ui: &mut UiState, map: &mut Map, cloud_frame_co
                 .auto_shrink([false, false])
                 .max_height(max_h)
                 .show(panel, |panel| {
-                    // Frame-metric label removed. Updating the label
-                    // every frame (or even every second) made the
-                    // panel — and the map blended underneath through
-                    // its semi-transparent background — visibly
-                    // twitch. Diagnostics moved to `RUST_LOG=info`.
-                    let _ = map.last_frame_metrics();
-
+                    // Frame-metric label removed: updating it per frame made
+                    // the panel visibly twitch. Diagnostics via RUST_LOG.
                     panel.separator();
 
-                    let mut camera = map.camera();
+                    let mut camera = engine.camera();
                     let mut camera_changed = false;
-                    // 3D terrain is now wired up — the hillshade layer renders
-                    // as a subdivided heightmap mesh, so tilt shows real
-                    // mountains rising off the basemap. Capped at 65° because
-                    // the basemap + vector layers are still flat (z=0) and
-                    // visibly separate from the hillshade above that angle.
+                    // Capped at 65° because the basemap + vector layers are
+                    // still flat (z=0) and visibly separate from the
+                    // hillshade above that angle.
                     panel.horizontal(|row| {
                         row.label("pitch");
                         let mut p = camera.pitch_deg as f32;
@@ -867,56 +1015,27 @@ fn build_ui(ctx: &egui::Context, ui: &mut UiState, map: &mut Map, cloud_frame_co
                         }
                     });
                     if camera_changed {
-                        map.set_camera(camera);
+                        engine.set_camera(camera);
                     }
 
                     if panel.button("reset camera (top-down, north-up)").clicked() {
-                        let mut c = map.camera();
+                        let mut c = engine.camera();
                         c.pitch_deg = 0.0;
                         c.bearing_deg = 0.0;
-                        map.set_camera(c);
+                        engine.set_camera(c);
                     }
 
                     panel.separator();
                     panel.label("layers");
-                    let prev_raster = ui.raster_visible;
-                    let prev_hill = ui.hillshade_visible;
-                    let prev_vec = ui.vector_visible;
+                    // Checkboxes edit UiState only; `sync_scene_from_ui`
+                    // rebuilds + re-applies the scene next frame. (The old
+                    // fade-in slider is gone: layer fade-in is a Map-level
+                    // render option, not scene content — nothing in the IR
+                    // declares it, so the panel no longer fakes ownership.)
                     panel.checkbox(&mut ui.raster_visible, "basemap (raster)");
                     panel.checkbox(&mut ui.hillshade_visible, "hillshade (turbo DEM)");
                     panel.checkbox(&mut ui.vector_visible, "vector (roads/water)");
-                    if panel
-                        .checkbox(&mut ui.sky_visible, "sky (atmosphere)")
-                        .changed()
-                    {
-                        map.set_sky_enabled(ui.sky_visible);
-                    }
-                    if ui.raster_visible != prev_raster {
-                        map.set_layer_visibility(RASTER_LAYER_ID_PUB, ui.raster_visible);
-                    }
-                    if ui.hillshade_visible != prev_hill {
-                        map.set_layer_visibility(HILLSHADE_LAYER_ID_PUB, ui.hillshade_visible);
-                    }
-                    if ui.vector_visible != prev_vec {
-                        map.set_layer_visibility(VECTOR_LAYER_ID_PUB, ui.vector_visible);
-                    }
-
-                    panel.separator();
-                    panel.horizontal(|row| {
-                        row.label("fade-in");
-                        if row
-                            .add(
-                                egui::Slider::new(&mut ui.fade_in_secs, 0.0..=1.5)
-                                    .suffix(" s")
-                                    .step_by(0.05),
-                            )
-                            .changed()
-                        {
-                            map.set_layer_fade_in(RASTER_LAYER_ID_PUB, ui.fade_in_secs);
-                            map.set_layer_fade_in(HILLSHADE_LAYER_ID_PUB, ui.fade_in_secs);
-                            map.set_layer_fade_in(VECTOR_LAYER_ID_PUB, ui.fade_in_secs);
-                        }
-                    });
+                    panel.checkbox(&mut ui.sky_visible, "sky (atmosphere)");
 
                     panel.separator();
                     build_cloud_controls(panel, &mut ui.clouds, cloud_frame_count);
@@ -925,8 +1044,8 @@ fn build_ui(ctx: &egui::Context, ui: &mut UiState, map: &mut Map, cloud_frame_co
 }
 
 /// The procedural-cloud debug-scene controls. Edits `CloudUiState` only;
-/// `RunningState::apply_clouds` pushes the values into the Map each frame.
-/// Lives in its own fn so the giant `build_ui` closure stays readable.
+/// `RunningState::sync_scene_from_ui` / `sync_clouds` push the values into
+/// the scene document / the engine each frame.
 fn build_cloud_controls(panel: &mut egui::Ui, c: &mut CloudUiState, frame_count: usize) {
     egui::CollapsingHeader::new("weather clouds")
         .default_open(false)
@@ -1015,20 +1134,12 @@ fn build_cloud_controls(panel: &mut egui::Ui, c: &mut CloudUiState, frame_count:
         });
 }
 
-/// Dump the just-rendered surface texture to `<dir>/frame_<id>.png`.
+/// Dump support, part 1: encode a `copy_texture_to_buffer` of the frame
+/// into the caller's encoder. Returns the readback buffer + padded stride.
 ///
-/// This is a diagnostic. When the user reports flicker, we need
-/// to know whether the GPU is producing different pixels each
-/// frame, or whether the GPU output is stable but the macOS
-/// compositor is choosing between stale swap-chain images. This
-/// function shows the GPU's actual output, byte-exact, on disk.
-///
-/// Sync readback: encodes a `copy_texture_to_buffer`, submits a
-/// separate command buffer (since the caller's main encoder is
-/// still being used), maps the readback buffer with `Wait`
-/// polling. Slow — only intended for diagnostic runs, gated on
-/// `TURBOMAP_DUMP_DIR`.
-#[allow(dead_code)] // kept for future render-output diagnostics
+/// This is a diagnostic (gated on `TURBOMAP_DUMP_DIR`): it shows the GPU's
+/// actual output, byte-exact, on disk — separate from anything the OS
+/// compositor does at present time.
 fn encode_frame_dump(
     device: &wgpu::Device,
     src: &wgpu::Texture,
@@ -1038,7 +1149,7 @@ fn encode_frame_dump(
     let (width, height) = size;
     let bytes_per_pixel = 4u32;
     let unpadded_bytes_per_row = width * bytes_per_pixel;
-    let padded_bytes_per_row = ((unpadded_bytes_per_row + 255) / 256) * 256;
+    let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(256) * 256;
     let buffer_size = (padded_bytes_per_row * height) as u64;
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("dump-readback"),
@@ -1070,7 +1181,10 @@ fn encode_frame_dump(
     (buffer, padded_bytes_per_row)
 }
 
-#[allow(clippy::too_many_arguments, dead_code)] // kept for future render-output diagnostics
+/// Dump support, part 2: after the submit, map the readback buffer and
+/// write `<dir>/frame_<id>.png`. Sync readback with `Poll` spinning — slow,
+/// diagnostics only.
+#[allow(clippy::too_many_arguments)]
 fn save_dump_to_png(
     device: &wgpu::Device,
     buffer: wgpu::Buffer,
@@ -1087,9 +1201,9 @@ fn save_dump_to_png(
     buffer_slice.map_async(wgpu::MapMode::Read, move |r| {
         let _ = tx.send(r);
     });
-    // Spin polling so the surface keeps advancing. `Maintain::Wait`
-    // hangs because it blocks on ALL future submissions, including
-    // ones the render loop hasn't sent yet.
+    // Spin polling so the surface keeps advancing. `Maintain::Wait` hangs
+    // because it blocks on ALL future submissions, including ones the
+    // render loop hasn't sent yet.
     let started = std::time::Instant::now();
     loop {
         let _ = device.poll(wgpu::PollType::Poll);
@@ -1102,9 +1216,6 @@ fn save_dump_to_png(
         }
     }
     let data = buffer_slice.get_mapped_range();
-    // DIAG: dump first 16 bytes to see what we actually copied
-    let head: Vec<u8> = data.iter().take(16).copied().collect();
-    log::info!("dump frame {} first 16 bytes: {:?}", frame_id, head);
     // Strip the row padding into a contiguous RGBA buffer.
     let mut rgba = Vec::with_capacity((unpadded_bytes_per_row * height) as usize);
     for row in 0..height {
@@ -1114,7 +1225,7 @@ fn save_dump_to_png(
     }
     drop(data);
     buffer.unmap();
-    // The surface format is BGRA8UnormSrgb — swap to RGBA for PNG.
+    // BGRA surfaces need a swizzle to RGBA for PNG.
     if matches!(
         format,
         wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
@@ -1130,245 +1241,42 @@ fn save_dump_to_png(
     }
 }
 
-/// A minimal but readable style for VersaTiles' OpenMapTiles schema. Tuned
-/// for "looks like a map" — water blue, parks green, roads grey with
-/// motorways slightly emphasised, buildings light grey, boundaries dark.
-/// Water-only style for debugging the realistic-water surface in isolation:
-/// just the water-body fills, nothing else. Covers both schemas —
-/// OMT/kart-api "water" and VersaTiles "ocean" + "water_polygons"
-/// (the same set `VectorStyle::without_water_fills` strips).
-fn water_only_style() -> VectorStyle {
-    let water = |layer: &str| Rule {
-        source_layer: layer.into(),
-        filter: Filter::Always,
-        paint: Paint::Fill {
-            color: Color::rgb(0x9E, 0xC2, 0xDF),
-        },
-        min_zoom: 0,
-        max_zoom: 22,
-        interactive: false,
-    };
-    VectorStyle {
-        background: Color::rgba(0, 0, 0, 0),
-        rules: vec![water("water"), water("ocean"), water("water_polygons")],
+/// Scene-IR encoding for a core DEM source's declared wire encoding.
+fn scene_dem_encoding(e: turbomap_core::DemEncoding) -> turbomap_scene::DemEncoding {
+    match e {
+        turbomap_core::DemEncoding::MapboxRgb => turbomap_scene::DemEncoding::MapboxRgb,
+        turbomap_core::DemEncoding::Terrarium => turbomap_scene::DemEncoding::Terrarium,
     }
 }
 
-fn versatiles_demo_style() -> VectorStyle {
-    // VersaTiles uses the "Shortbread" schema, not OpenMapTiles. Layer
-    // names are pluralised (streets, buildings, boundaries, place_labels),
-    // and properties use `kind` instead of `class`.
-    VectorStyle {
-        // Transparent background — the raster basemap underneath shows
-        // through unless a vector rule paints a pixel.
-        background: Color::rgba(0, 0, 0, 0),
-        rules: vec![
-            // Broad-area fills (land / sites / ocean / water_polygons) are
-            // intentionally omitted: the Kartverket grey topo basemap
-            // already covers them. The vector overlay's job here is to
-            // contribute roads, boundaries, and labels on top.
-            // Rivers / streams.
-            Rule {
-                source_layer: "water_lines".into(),
-                filter: Filter::Always,
-                paint: Paint::Line {
-                    color: Color::rgb(0x9E, 0xC2, 0xDF),
-                    width: 20.0,
-                },
-                min_zoom: 8,
-                max_zoom: 22,
-                interactive: false,
-            },
-            // Buildings (high zoom only).
-            Rule {
-                source_layer: "buildings".into(),
-                filter: Filter::Always,
-                paint: Paint::Fill {
-                    color: Color::rgb(0xDC, 0xD2, 0xC1),
-                },
-                min_zoom: 14,
-                max_zoom: 22,
-                interactive: true,
-            },
-            // Streets: motorways/trunks emphasised, primary tier middle,
-            // residential/service everything-else at high zoom.
-            Rule {
-                source_layer: "streets".into(),
-                filter: Filter::In("kind".into(), vec!["motorway".into(), "trunk".into()]),
-                paint: Paint::Line {
-                    color: Color::rgb(0xE8, 0x9C, 0x4C),
-                    width: 35.0,
-                },
-                min_zoom: 6,
-                max_zoom: 22,
-                interactive: true,
-            },
-            Rule {
-                source_layer: "streets".into(),
-                filter: Filter::In(
-                    "kind".into(),
-                    vec!["primary".into(), "secondary".into(), "tertiary".into()],
-                ),
-                paint: Paint::Line {
-                    color: Color::rgb(0xCE, 0xB9, 0x8B),
-                    width: 22.0,
-                },
-                min_zoom: 8,
-                max_zoom: 22,
-                interactive: true,
-            },
-            Rule {
-                source_layer: "streets".into(),
-                filter: Filter::Always,
-                paint: Paint::Line {
-                    color: Color::rgb(0xBD, 0xB3, 0xA1),
-                    width: 12.0,
-                },
-                min_zoom: 11,
-                max_zoom: 22,
-                interactive: true,
-            },
-            // Country / state boundaries.
-            Rule {
-                source_layer: "boundaries".into(),
-                filter: Filter::Always,
-                paint: Paint::Line {
-                    color: Color::rgb(0x70, 0x60, 0x60),
-                    width: 10.0,
-                },
-                min_zoom: 0,
-                max_zoom: 22,
-                interactive: false,
-            },
-            // Place labels — Shortbread uses `kind` and pluralises the
-            // layer name. country/state at low zoom, city/town/village at
-            // higher zoom.
-            Rule {
-                source_layer: "place_labels".into(),
-                filter: Filter::Eq("kind".into(), "country".into()),
-                paint: Paint::Text {
-                    text_field: "name".into(),
-                    font_size_px: 18.0,
-                    color: Color::rgb(0x33, 0x33, 0x33),
-                    halo_color: Color::rgb(0xff, 0xff, 0xff),
-                    halo_width: 1.0,
-                    rank_field: None,
-                    along_line: false,
-                    icon: None,
-                    left_anchor: false,
-                    letter_spacing: 0.0,
-                    weight: 1.3,
-                },
-                min_zoom: 2,
-                max_zoom: 6,
-                interactive: true,
-            },
-            Rule {
-                source_layer: "place_labels".into(),
-                filter: Filter::In("kind".into(), vec!["state".into(), "province".into()]),
-                paint: Paint::Text {
-                    text_field: "name".into(),
-                    font_size_px: 14.0,
-                    color: Color::rgb(0x44, 0x44, 0x44),
-                    halo_color: Color::rgb(0xff, 0xff, 0xff),
-                    halo_width: 1.0,
-                    rank_field: None,
-                    along_line: false,
-                    icon: None,
-                    left_anchor: false,
-                    letter_spacing: 0.0,
-                    weight: 1.3,
-                },
-                min_zoom: 4,
-                max_zoom: 8,
-                interactive: true,
-            },
-            Rule {
-                source_layer: "place_labels".into(),
-                filter: Filter::Eq("kind".into(), "city".into()),
-                paint: Paint::Text {
-                    text_field: "name".into(),
-                    font_size_px: 15.0,
-                    color: Color::rgb(0x22, 0x22, 0x22),
-                    halo_color: Color::rgb(0xff, 0xff, 0xff),
-                    halo_width: 1.0,
-                    rank_field: None,
-                    along_line: false,
-                    icon: None,
-                    left_anchor: false,
-                    letter_spacing: 0.0,
-                    weight: 1.3,
-                },
-                min_zoom: 6,
-                max_zoom: 14,
-                interactive: true,
-            },
-            Rule {
-                source_layer: "place_labels".into(),
-                filter: Filter::Eq("kind".into(), "town".into()),
-                paint: Paint::Text {
-                    text_field: "name".into(),
-                    font_size_px: 12.0,
-                    color: Color::rgb(0x33, 0x33, 0x33),
-                    halo_color: Color::rgb(0xff, 0xff, 0xff),
-                    halo_width: 1.0,
-                    rank_field: None,
-                    along_line: false,
-                    icon: None,
-                    left_anchor: false,
-                    letter_spacing: 0.0,
-                    weight: 1.3,
-                },
-                min_zoom: 9,
-                max_zoom: 14,
-                interactive: true,
-            },
-            Rule {
-                source_layer: "place_labels".into(),
-                filter: Filter::In(
-                    "kind".into(),
-                    vec!["village".into(), "suburb".into(), "neighbourhood".into()],
-                ),
-                paint: Paint::Text {
-                    text_field: "name".into(),
-                    font_size_px: 11.0,
-                    color: Color::rgb(0x44, 0x44, 0x44),
-                    halo_color: Color::rgb(0xff, 0xff, 0xff),
-                    halo_width: 1.0,
-                    rank_field: None,
-                    along_line: false,
-                    icon: None,
-                    left_anchor: false,
-                    letter_spacing: 0.0,
-                    weight: 1.3,
-                },
-                min_zoom: 12,
-                max_zoom: 14,
-                interactive: true,
-            },
-            // Street labels — Shortbread has a separate layer for street
-            // names, with `kind`=primary/secondary/etc.
-            Rule {
-                source_layer: "street_labels".into(),
-                filter: Filter::Always,
-                paint: Paint::Text {
-                    text_field: "name".into(),
-                    font_size_px: 10.0,
-                    color: Color::rgb(0x55, 0x55, 0x55),
-                    halo_color: Color::rgb(0xff, 0xff, 0xff),
-                    halo_width: 1.0,
-                    rank_field: None,
-                    along_line: false,
-                    icon: None,
-                    left_anchor: false,
-                    letter_spacing: 0.0,
-                    weight: 0.7,
-                },
-                min_zoom: 14,
-                max_zoom: 22,
-                interactive: true,
-            },
-        ],
+/// One [`SourceDef`] declaring the same endpoint an [`HttpRasterSource`]
+/// fetches from — template + zoom bounds read back off the source so the
+/// scene document and the fetcher can't drift.
+fn raster_source_def(s: &HttpRasterSource) -> SourceDef {
+    SourceDef::RasterXyz {
+        tiles: vec![s.url_template().to_string()],
+        tile_size: 256,
+        min_zoom: TileSource::min_zoom(s),
+        max_zoom: TileSource::max_zoom(s),
+        attribution: s.attribution().map(str::to_string),
+    }
+}
+
+fn dem_source_def(s: &HttpRasterSource) -> SourceDef {
+    SourceDef::DemXyz {
+        tiles: vec![s.url_template().to_string()],
+        encoding: scene_dem_encoding(s.dem_encoding()),
+        min_zoom: TileSource::min_zoom(s),
+        max_zoom: TileSource::max_zoom(s),
+        halo: s.dem_halo_px(),
+    }
+}
+
+fn vector_source_def(s: &HttpVectorTileSource) -> SourceDef {
+    SourceDef::VectorXyz {
+        tiles: vec![s.url_template().to_string()],
+        min_zoom: VectorTileSource::min_zoom(s),
+        max_zoom: VectorTileSource::max_zoom(s),
     }
 }
 
@@ -1380,36 +1288,39 @@ pub fn run() {
         .join("turbomap");
     log::info!("tile caches under {}", cache_root.display());
 
-    // Vector layer + style. With TURBO_BASEMAP_URL set (e.g.
-    // http://localhost:8090), the demo renders OUR OWN N50 basemap with the
-    // tileserver's served MapLibre style — the self-hosted path. Without it,
-    // the VersaTiles OSM overlay + built-in demo style (the original MVP).
+    // Vector layer + style, authored as Scene IR. With TURBO_BASEMAP_URL
+    // set (e.g. http://localhost:8090), the demo renders OUR OWN N50
+    // basemap with the tileserver's served MapLibre style lowered to IR
+    // layers — the self-hosted path. Without it, the VersaTiles OSM overlay
+    // + built-in demo layers (see `styles.rs`).
     let basemap_base = std::env::var("TURBO_BASEMAP_URL").ok();
-    // Full road/label overlay by default. TURBO_WATER_ONLY=1 switches to the
-    // water-fills-only debug style (isolates water rendering — kept from the
-    // water work as a debugging tool; it was briefly the DEFAULT, a leftover
-    // that shipped the demo as a nearly-empty map).
+    // Full road/label overlay by default. TURBO_WATER_ONLY=1 switches to
+    // the water-fills-only debug style (isolates water rendering).
     let full_style = std::env::var("TURBO_WATER_ONLY").is_err();
-    let (vector_source, style): (Arc<dyn VectorTileSource>, VectorStyle) = match &basemap_base {
+    let (vector, vector_layers): (Arc<HttpVectorTileSource>, Vec<Layer>) = match &basemap_base {
         Some(base) => {
             log::info!("vector basemap from {base}/v1/basemap (MVT)");
             let src = turbomap_tiles_http::HttpVectorTileSource::turbo_basemap(base)
                 .expect("build turbo basemap source")
                 .with_cache_dir(cache_root.join("turbo-basemap"));
-            let style = if full_style {
+            let layers = if full_style {
                 let style_json =
                     turbomap_tiles_http::fetch_text(&format!("{base}/v1/basemap/style.json"))
                         .expect("fetch /v1/basemap/style.json");
-                turbomap_style_maplibre::parse_style(&style_json)
-                    .expect("parse served MapLibre style")
-                    // Style decision for this raster-hybrid host: the
-                    // Kartverket raster underneath shows the water; drop the
-                    // served style's flat water fills (keeps lines/labels).
-                    .without_water_fills()
+                // Style decision for this raster-hybrid host: the Kartverket
+                // raster underneath shows the water — drop the served
+                // style's flat water fills (keeps lines/labels). The style's
+                // background colour is ignored for the same reason (the
+                // raster bed IS the background; `parse_style_background`
+                // exists for pure-vector hosts).
+                turbomap_style_maplibre::without_water_fill_layers(
+                    turbomap_style_maplibre::parse_style_layers(&style_json, VECTOR_SOURCE)
+                        .expect("parse served MapLibre style"),
+                )
             } else {
-                water_only_style()
+                crate::styles::water_only_layers(VECTOR_SOURCE)
             };
-            (Arc::new(src), style)
+            (Arc::new(src), layers)
         }
         None => (
             Arc::new(
@@ -1418,18 +1329,18 @@ pub fn run() {
                     .with_cache_dir(cache_root.join("versatiles-osm")),
             ),
             if full_style {
-                versatiles_demo_style()
+                crate::styles::versatiles_demo_layers(VECTOR_SOURCE)
             } else {
-                water_only_style()
+                crate::styles::water_only_layers(VECTOR_SOURCE)
             },
         ),
     };
 
-    // Raster basemap: Kartverket grey topo by default (neutral, lets the vector
-    // colours pop). Override with TURBO_RASTER_URL=<{z}/{y}/{x} template> for a
-    // satellite/aerial bed under the water — e.g. Esri World Imagery:
-    //   https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}
-    let raster_source: Arc<dyn TileSource> = match std::env::var("TURBO_RASTER_URL").ok() {
+    // Raster basemap: Kartverket grey topo by default (neutral, lets the
+    // vector colours pop). Override with TURBO_RASTER_URL=<{z}/{y}/{x}
+    // template> for a satellite/aerial bed — e.g. Esri World Imagery.
+    // Cached on disk so scene rebuilds (layer toggles) refetch from disk.
+    let raster: Arc<HttpRasterSource> = match std::env::var("TURBO_RASTER_URL").ok() {
         Some(tmpl) => {
             let lower = tmpl.to_lowercase();
             let fmt = if lower.contains("arcgis")
@@ -1437,50 +1348,50 @@ pub fn run() {
                 || lower.ends_with(".jpg")
                 || lower.ends_with(".jpeg")
             {
-                RasterFormat::Jpeg
+                turbomap_core::RasterFormat::Jpeg
             } else {
-                RasterFormat::Png
+                turbomap_core::RasterFormat::Png
             };
             log::info!("raster basemap from TURBO_RASTER_URL ({fmt:?}): {tmpl}");
             Arc::new(
                 turbomap_tiles_http::HttpRasterSource::new(tmpl, "turbomap-app/0.1", 0, 19, fmt)
-                    .expect("build raster source from TURBO_RASTER_URL"),
+                    .expect("build raster source from TURBO_RASTER_URL")
+                    .with_cache_dir(cache_root.join("raster-custom")),
             )
         }
         None => Arc::new(
             turbomap_tiles_http::HttpRasterSource::kartverket_topo_grey()
-                .expect("build Kartverket grey source"),
+                .expect("build Kartverket grey source")
+                .with_cache_dir(cache_root.join("kartverket-topo-grey")),
         ),
     };
 
-    // Optional GPU hillshade from our own tileserver's
-    // `/v1/dem/rgb/{z}/{x}/{y}.png` endpoint. Set TURBO_API_URL to
-    // enable (e.g. http://localhost:8080).
-    let dem_source: Option<Arc<dyn TileSource>> =
-        std::env::var("TURBO_API_URL").ok().and_then(|base| {
-            log::info!("enabling hillshade layer from {base}/v1/dem/rgb/{{z}}/{{x}}/{{y}}.png");
-            turbomap_tiles_http::HttpRasterSource::turbo_terrain_rgb(&base)
-                .map(|s| Arc::new(s) as Arc<dyn TileSource>)
-                .map_err(|e| log::warn!("DEM source build failed: {e}"))
-                .ok()
-        });
+    // Optional DEM from our own tileserver's `/v1/dem/rgb/{z}/{x}/{y}.png`
+    // endpoint (Mapbox Terrain-RGB, halo=1). Set TURBO_API_URL to enable.
+    let dem: Option<Arc<HttpRasterSource>> = std::env::var("TURBO_API_URL").ok().and_then(|base| {
+        log::info!("enabling hillshade layer from {base}/v1/dem/rgb/{{z}}/{{x}}/{{y}}.png");
+        turbomap_tiles_http::HttpRasterSource::turbo_terrain_rgb(&base)
+            .map(|s| Arc::new(s.with_cache_dir(cache_root.join("turbo-dem"))))
+            .map_err(|e| log::warn!("DEM source build failed: {e}"))
+            .ok()
+    });
 
-    let initial_camera = Camera::new(LatLng::new(60.39, 5.32), 11.0);
-    let mut app = TurbomapApp::new(
-        raster_source,
-        dem_source,
-        vector_source,
-        style,
-        initial_camera,
-    );
+    let sources = SourceSet {
+        raster_def: raster_source_def(&raster),
+        dem_def: dem.as_deref().map(dem_source_def),
+        vector_def: vector_source_def(&vector),
+        raster,
+        dem,
+        vector,
+    };
+
+    let initial_camera = CameraState::new(LatLng::new(60.39, 5.32), 11.0);
+    let mut app = TurbomapApp::new(sources, vector_layers, initial_camera);
 
     let event_loop = winit::event_loop::EventLoop::new().expect("event loop");
-    // `Poll` keeps the runloop ticking even when no OS events are
-    // queued, so tile-fetch worker completions get drained promptly
-    // even before the user moves the mouse. `Wait` (the previous
-    // setting) starved the redraw cycle on macOS during cold startup
-    // — workers completed in ~400 ms but the main thread never saw
-    // their channel messages until something else woke the loop.
+    // `Poll` keeps the runloop ticking even when no OS events are queued,
+    // so tile-fetch worker completions get drained promptly even before the
+    // user moves the mouse.
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
     event_loop.run_app(&mut app).expect("run_app");
 }

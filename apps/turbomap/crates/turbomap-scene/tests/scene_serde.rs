@@ -234,17 +234,27 @@ fn environment_roundtrips_and_pre_c1_documents_stay_valid() {
         terrain_shadows: 0.85,
         terrain_lit: true,
         aerial_haze: false,
+        sky: false,
         basemap_gain: 0.9,
         clouds: None,
     };
     let json = serde_json::to_string(&scene).unwrap();
     assert!(json.contains("\"mode\":\"fixed\""), "{json}");
+    // The sky flag (P6.2) serialises under its kebab key.
+    assert!(json.contains("\"sky\":false"), "{json}");
     let back: Scene = serde_json::from_str(&json).unwrap();
     assert_eq!(back, scene);
 
-    // A pre-C1 document (no environment key) parses to the neutral default.
+    // A pre-C1 document (no environment key) parses to the neutral default
+    // — including sky on (a pre-P6.2 environment block without the key
+    // must not silently turn the atmosphere off).
     let old: Scene = serde_json::from_str(r#"{"sources":{},"layers":[]}"#).unwrap();
     assert_eq!(old.environment, EnvironmentDef::default());
+    assert!(old.environment.sky);
+    let sparse: Scene =
+        serde_json::from_str(r#"{"sources":{},"layers":[],"environment":{"basemap-gain":0.8}}"#)
+            .unwrap();
+    assert!(sparse.environment.sky, "omitted sky defaults to true");
 }
 
 #[test]

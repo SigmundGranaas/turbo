@@ -335,7 +335,7 @@ fn parse_interpolate<T>(
         return Err(unsupported(id, "interpolate input (only [\"zoom\"])"));
     }
     let rest = &a[3..];
-    if rest.len() < 2 || rest.len() % 2 != 0 {
+    if rest.len() < 2 || !rest.len().is_multiple_of(2) {
         return Err(unsupported(id, "interpolate stop pairs"));
     }
     let mut out = Vec::with_capacity(rest.len() / 2);
@@ -363,7 +363,7 @@ fn parse_match_paint<T: Clone>(
         None => return Err(unsupported(id, "match without input")),
     };
     let body = &a[2..];
-    if body.len() < 3 || body.len() % 2 == 0 {
+    if body.len() < 3 || body.len().is_multiple_of(2) {
         return Err(unsupported(
             id,
             "match arity (want label/output pairs + fallback)",

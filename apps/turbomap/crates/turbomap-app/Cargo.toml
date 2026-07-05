@@ -16,8 +16,13 @@ workspace = true
 
 [dependencies]
 turbomap-core = { path = "../turbomap-core" }
-# The app authors content as Scene IR (plan P6.2) — see `styles.rs`.
+# The app authors content as Scene IR (plan P6.2) — see `styles.rs` and
+# `SceneState::scene` in `app.rs`.
 turbomap-scene = { path = "../turbomap-scene" }
+# The app IS an engine host (plan P6.2): it owns a `TurbomapEngine`,
+# applies Scene documents, and drives the streaming plan. The engine's
+# codec owns every tile decode; the app pumps raw bytes only.
+turbomap-engine = { path = "../turbomap-engine" }
 # Direct dep (already transitive via core) so the desktop "Clouds" debug
 # panel can build a synthetic radar sequence + select pipeline debug views
 # without booting a device. See `app.rs`.
@@ -32,8 +37,11 @@ crossbeam-channel.workspace = true
 rayon.workspace = true
 pollster.workspace = true
 dirs.workspace = true
-# JPEG on top of the workspace's PNG: the scenario harness's satellite basemap
-# (Esri World Imagery) serves JPEG tiles, which won't decode with png-only.
+# The marker GeoJSON source is authored with serde_json (plan P6.2).
+serde_json.workspace = true
+# ONLY for the diagnostic framebuffer dump (`TURBOMAP_DUMP_DIR`) — render
+# OUTPUT encoding, not tile ingestion (tile decode lives in the engine's
+# codec since P6.2). JPEG stays on for the scenario harness examples.
 image = { workspace = true, features = ["jpeg"] }
 egui.workspace = true
 egui-wgpu.workspace = true
@@ -42,7 +50,3 @@ egui-winit.workspace = true
 [dev-dependencies]
 # Used by the dem-probe example only; not pulled into the desktop bin.
 reqwest = { workspace = true }
-# The P6.2 fidelity gate in `styles.rs` compiles the hand-authored IR
-# layers through the engine's scene→VectorStyle lowering (pure functions —
-# no GPU booted) and compares against the styles app.rs hand-built so far.
-turbomap-engine = { path = "../turbomap-engine" }

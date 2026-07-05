@@ -102,6 +102,11 @@ pub struct EnvironmentDef {
     pub terrain_lit: bool,
     /// Distance haze / aerial perspective.
     pub aerial_haze: bool,
+    /// The analytic sky/atmosphere pass. On by default (matches a freshly
+    /// constructed engine); a host debugging surface rendering declares
+    /// `sky: false` to isolate the map from the atmosphere.
+    #[serde(default = "default_true")]
+    pub sky: bool,
     /// Basemap brightness multiplier; 1 = neutral.
     pub basemap_gain: f32,
     /// The weather-cloud overlay; `None` = disabled (plan C2).
@@ -115,6 +120,7 @@ impl Default for EnvironmentDef {
             terrain_shadows: 0.0,
             terrain_lit: true,
             aerial_haze: true,
+            sky: true,
             basemap_gain: 1.0,
             clouds: None,
         }

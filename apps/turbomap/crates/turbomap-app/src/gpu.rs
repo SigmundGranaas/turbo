@@ -30,6 +30,9 @@ pub struct GpuContext {
     /// Otherwise unused after construction.
     #[allow(dead_code)]
     pub instance: wgpu::Instance,
+    /// Held for future capability queries (features/limits probing);
+    /// nothing reads it after construction today.
+    #[allow(dead_code)]
     pub adapter: wgpu::Adapter,
     pub device: Arc<wgpu::Device>,
     pub queue: Arc<wgpu::Queue>,

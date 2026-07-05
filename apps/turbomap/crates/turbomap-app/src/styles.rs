@@ -21,10 +21,6 @@
 //!    tier excludes the named tiers explicitly. Same feature → same
 //!    paint, proven by the probe test.
 
-// Not yet referenced from app.rs — the P6.2 scene-host rewrite (landing
-// separately) swaps the hand-built VectorStyles for these layer lists.
-#![allow(dead_code)]
-
 use turbomap_scene::{Color, Filter, FilterValue, Layer, Paint, SymbolPlacement, TextAnchor};
 
 fn kind_in(values: &[&str]) -> Filter {

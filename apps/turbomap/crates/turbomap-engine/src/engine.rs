@@ -757,6 +757,20 @@ impl TurbomapEngine {
         self.map.set_cloud_time(time, blend);
     }
 
+    /// The atmosphere subsystem's S7 DEBUG surface: replace the cloud
+    /// overlay's renderer look-tuning parameters (feature scale, erosion,
+    /// softness, intensity, extinction, debug-view selector, …) for the
+    /// desktop debug panel. This is look-TUNING of the renderer, not scene
+    /// content — WHAT renders (source, bounds, visibility, sim mode) stays
+    /// declared by `environment.clouds`, and the camera/time/sun-driven
+    /// fields of the struct are overwritten every frame from the
+    /// Environment, so nothing authored here can contradict the Scene.
+    /// Deliberately `debug_*`-named and hidden: not a host contract.
+    #[doc(hidden)]
+    pub fn debug_cloud_params(&mut self, params: turbomap_core::CloudParams) {
+        self.map.set_cloud_params(params);
+    }
+
     /// Animated focus-invariant zoom over `duration` — the smooth double-tap
     /// zoom. Drive with [`tick_now`](Self::tick_now).
     pub fn zoom_around_animated(
@@ -1021,6 +1035,10 @@ impl TurbomapEngine {
     /// Inspection escape hatch: the wrapped core map.
     /// Mutable access to the core map — debug/test hooks (pass isolation,
     /// clock pinning) that deliberately aren't part of the engine surface.
+    /// Hidden since P6.2: no host reaches the map anymore (the invariants
+    /// suite forbids `map_mut` outside this crate); only the engine's own
+    /// GPU tests still use it.
+    #[doc(hidden)]
     pub fn map_mut(&mut self) -> &mut Map {
         &mut self.map
     }
@@ -1068,6 +1086,7 @@ impl MapEngine for TurbomapEngine {
             self.map.set_terrain_shadows(env.terrain_shadows);
             self.map.set_terrain_lit(env.terrain_lit);
             self.map.set_aerial_haze(env.aerial_haze);
+            self.map.set_sky_enabled(env.sky);
             self.map.set_basemap_gain(env.basemap_gain);
             // The weather-cloud overlay (plan C2): declared, not enabled by
             // side-door. The Field2D source anchors it geographically; frame
