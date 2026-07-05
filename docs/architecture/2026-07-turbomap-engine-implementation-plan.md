@@ -1015,3 +1015,35 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   darkened vs >=1500; pre-existing D1 baseline finding (b), marginally
   better than the 1044 px recorded then — still parked). **Next: D4
   (`Layer::Custom` real) — E1 also unblocked.**
+- _2026-07-05_: **D4 landed + verified — `Layer::Custom` is real, gate
+  satisfied.** A custom layer is a registered render contribution bound
+  to a declared phase of the frame's single MSAA pass, exactly as
+  architecture §III.3 promised. Core: `trait CustomLayer { phase,
+  prepare, draw }` + `CustomLayerInit` (pass-compatibility parameters) +
+  `CustomFrameCtx` (RTC view-projection, camera pose, overridable clock)
+  in `turbomap-core/src/render/custom.rs`; `Map::add_custom_layer` slots
+  it into the ordinary layer stack where it draws as its own frame-graph
+  node (`custom:<id>` — maskable, timed, claimed by the basemap
+  subsystem, `bound_kind` surfaced in inspect). `Map::set_time_override`
+  pins the frame clock (haze drift + custom-layer time) — deterministic
+  goldens now, and the exact hook E2's replay gate needs. Engine:
+  `register_custom_layer_kind` factories; `Layer::Custom { id, kind }`
+  binds at apply, unknown kinds degrade to the unsupported report, and
+  `capabilities().custom_layers` is finally TRUE — in the wgpu engine
+  AND the reference `ModelEngine`, with the conformance suite's new
+  `check_custom_layer_roundtrip` pinning the IR semantics for every
+  backend (the "conformance keeps ModelEngine honest" clause). The
+  built-in `flow-field` demo kind (one Rust+WGSL impl in the engine
+  crate, registered by default) is the portability proof: an animated,
+  world-anchored, fully GPU-procedural streak field; the wasm32 web host
+  compiles the identical impl (`CustomLayer`'s `Send` bound is
+  conditional on threads existing — wgpu's own `WasmNotSend` pattern —
+  found because the wasm lane broke on the naive bound), and the gate
+  test proves pinned-clock byte-determinism, the `custom:flow` pass
+  node, and unknown-kind degradation, with the new `custom-flow-field`
+  golden pinning the render. **Verification:** 54 workspace suites; all
+  engine gpu suites + golden crate + registry meta-test green under
+  `REQUIRE_GPU=1` (Lavapipe); every pre-existing golden unchanged;
+  clippy: nothing new; wasm32 builds; **7/7 sim gates** (release,
+  627.5 s). Phase 3 (workstream D) is COMPLETE. **Next: E1
+  (`Environment` value) — its C2/D2 dependencies are long since met.**
