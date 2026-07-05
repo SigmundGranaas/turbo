@@ -387,3 +387,26 @@ download → evict → re-download UX validated there too.
   width stops interpolate linearly; desktop vector-feature interactivity
   narrows until the app adopts engine hit-testing in P6.2b). Remaining
   for P6.2b: the app host rebuild on `TurbomapEngine` (in progress).
+- _2026-07-05_: **P6.2b landed + verified — the desktop app is an
+  ordinary Scene host; `map_mut` closes. Slice P6.2 is COMPLETE.** The
+  app owns a `SceneState` document and applies one Scene through
+  `TurbomapEngine` (mutation = rebuild + apply); clicks resolve through
+  `engine.hit_test`; the per-frame `apply_clouds` push is gone (clouds
+  scene-declared, frames via `ingest_field`, scrub via `set_cloud_time`,
+  look knobs on ONE doc-hidden `debug_cloud_params` S7 debug hook);
+  `MapHost` shrank to a byte-transport `FetchPipeline` on
+  `streaming_plan`; host-side image decode/tessellation/DEM decode are
+  DELETED and the invariants image allowlist shrank with them; the new
+  `engine_owns_the_map_no_map_mut_outside` gate closes the structural
+  side-door. The IR gained `sky` (the one thing the app authored that
+  the Scene couldn't express). Deviations recorded in the commit:
+  markers group per colour (the marker path evaluates `Paint::at`, not
+  per-feature Match); hillshade toggle flips `height_only` (keeps the
+  DEM registered); raster/DEM sources gained disk caches. Verified:
+  full ladder green (8/8 sim gates, release, 687.2 s; goldens
+  byte-stable; clippy now covers turbomap-app with `-D warnings`), web
+  tsc + 21 vitest, and an xvfb boot smoke: 30 dumped frames, zero
+  panics — full Kartverket raster + the IR-compiled VersaTiles overlay
+  (road tiers, boundaries, place labels), markers, panel; a
+  `TURBO_CLOUDS` boot applied the Field2D scene cleanly. Remaining in
+  Phase 6: P6.5 (compositing honesty).
