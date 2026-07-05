@@ -1,7 +1,7 @@
 #!/bin/bash
-# Session-start hook for Claude Code on the web. Sets up both the Flutter
-# app (apps/flutter) and the .NET API (apps/api) so either side is ready
-# to build and test on first invocation.
+# Session-start hook for Claude Code on the web. Sets up the .NET API
+# (apps/api) so it is ready to build and test on first invocation.
+# (The Flutter app was removed in P5.3 — web + Android are the product.)
 #
 # Idempotent: every install step probes for the artefact first, so the
 # hook is safe to re-run.
@@ -9,44 +9,6 @@ set -euo pipefail
 
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
-fi
-
-FLUTTER_VERSION="3.41.2"
-FLUTTER_DIR="/opt/flutter"
-
-# ---------------------------------------------------------------------------
-# 1. SQLite (used by Flutter tests) and Flutter SDK.
-# ---------------------------------------------------------------------------
-if ! dpkg -s sqlite3 libsqlite3-dev >/dev/null 2>&1; then
-  apt-get update -qq || true
-  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sqlite3 libsqlite3-dev
-fi
-
-if [ ! -x "$FLUTTER_DIR/bin/flutter" ]; then
-  ARCHIVE="flutter_linux_${FLUTTER_VERSION}-stable.tar.xz"
-  URL="https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/${ARCHIVE}"
-  TMP_DIR="$(mktemp -d)"
-  curl -fsSL "$URL" -o "$TMP_DIR/$ARCHIVE"
-  mkdir -p "$(dirname "$FLUTTER_DIR")"
-  tar -xf "$TMP_DIR/$ARCHIVE" -C "$(dirname "$FLUTTER_DIR")"
-  rm -rf "$TMP_DIR"
-fi
-
-git config --global --add safe.directory "$FLUTTER_DIR"
-
-export PATH="$FLUTTER_DIR/bin:$PATH"
-echo "export PATH=\"$FLUTTER_DIR/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"
-
-# All `flutter` invocations must run from apps/flutter. Running from the repo
-# root makes flutter treat the root as a project and scatter generated
-# scaffolding (android/, ios/, .dart_tool/, .flutter-plugins-dependencies)
-# across the working tree.
-if [ -f "$CLAUDE_PROJECT_DIR/apps/flutter/pubspec.yaml" ]; then
-  cd "$CLAUDE_PROJECT_DIR/apps/flutter"
-  flutter config --no-analytics >/dev/null
-  flutter precache --universal --linux --web --no-android --no-ios --no-macos --no-windows
-  flutter pub get
-  cd "$CLAUDE_PROJECT_DIR"
 fi
 
 # ---------------------------------------------------------------------------

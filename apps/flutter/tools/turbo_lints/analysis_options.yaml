@@ -1,6 +1,0 @@
-analyzer:
-  errors:
-    # The custom_lint_builder API surface uses ErrorReporter; the migration to
-    # DiagnosticReporter is in flight in newer custom_lint versions. Suppress
-    # the deprecation info inside this plugin until we upgrade.
-    deprecated_member_use: ignore
