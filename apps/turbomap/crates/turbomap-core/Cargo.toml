@@ -24,3 +24,4 @@ ab_glyph.workspace = true
 rustybuzz.workspace = true
 unicode-bidi.workspace = true
 web-time.workspace = true
+half.workspace = true

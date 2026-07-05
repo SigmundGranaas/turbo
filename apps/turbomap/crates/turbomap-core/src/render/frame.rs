@@ -13,7 +13,6 @@
 //! state is now a single typed thing instead of a scatter of `let`s.
 
 use crate::camera::Camera;
-use crate::dem::DemEncoding;
 use crate::sun::{self, SunPosition};
 
 use super::floor::FloorGlobals;
@@ -27,7 +26,6 @@ use super::sky::SkyGlobals;
 pub(crate) struct TerrainFrameInputs {
     pub present: bool,
     pub exaggeration: f32,
-    pub encoding: DemEncoding,
     /// DEM tile halo in pixels (0 when no terrain / no halo).
     pub halo_px: u32,
 }
@@ -44,8 +42,6 @@ pub(crate) struct RenderFrame {
     /// Combined z-scale for the vector pipeline's drape (meters_to_world ×
     /// exaggeration). 0 → vector geometry stays flat.
     pub vec_terrain_zscale: f32,
-    /// DEM encoding tag for the vector shader (0 = MapboxRgb, 1 = Terrarium).
-    pub vec_terrain_encoding: u32,
     /// DEM halo inset in UV space for the vector shader's tile sampling.
     pub vec_terrain_halo_uv: f32,
     /// Sky uniform, present only when the camera is tilted enough to expose
@@ -187,10 +183,6 @@ impl RenderFrame {
             } else {
                 1.0
             },
-            encoding: match terrain.encoding {
-                DemEncoding::MapboxRgb => 0u32,
-                DemEncoding::Terrarium => 1u32,
-            },
             sun_dir: sun.world_dir(),
             ambient: atmos.ambient,
             haze_color: haze_tint,
@@ -217,7 +209,6 @@ impl RenderFrame {
         // Vector drape params, derived from the raster config.
         let vec_terrain_zscale =
             raster_terrain_cfg.meters_to_world * raster_terrain_cfg.exaggeration;
-        let vec_terrain_encoding = raster_terrain_cfg.encoding;
         let vec_terrain_halo_uv = {
             let halo = terrain.halo_px;
             if halo == 0 {
@@ -231,7 +222,6 @@ impl RenderFrame {
             meters_to_world,
             raster_terrain_cfg,
             vec_terrain_zscale,
-            vec_terrain_encoding,
             vec_terrain_halo_uv,
             sky_globals,
             floor_globals,

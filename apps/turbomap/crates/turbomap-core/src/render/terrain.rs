@@ -8,17 +8,21 @@
 //! lookup that pipelines call per draw, and route DEM ingest through
 //! one path.
 //!
-//! The cache stores 258×258 PNG tiles in `Rgba8Unorm` (linear, raw
-//! Terrain-RGB bytes) — same shape the hillshade pipeline has been
-//! consuming. Halo is required: without it, vertex displacement at
-//! adjacent tile edges samples different DEM cells and the mesh
-//! cracks.
+//! The cache stores decoded ELEVATIONS as `Rg16Float` textures — `.r` is
+//! metres, `.g` the source's coverage mask (1 = data, 0 = "no data"; the
+//! hillshade overlay keys transparency-over-water off it, exactly as it
+//! keyed off the alpha channel before). Ingest hands us real heights (the
+//! RGB→metres decode is the codec's job, [`crate::dem::decode_dem_rgba`],
+//! run off the render thread), and the shaders sample `.r` directly (plan
+//! slice D3 — no per-vertex decode, no encoding uniform). Tiles are
+//! typically 258×258: halo is required, since without it vertex
+//! displacement at adjacent tile edges samples different DEM cells and the
+//! mesh cracks.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::dem::{decode_elevation, DemEncoding};
-use crate::geo::WorldPoint;
+use crate::dem::DecodedDem;
 use crate::scene::Scene;
 use crate::source::TileSource;
 use crate::tile::TileId;
@@ -53,21 +57,10 @@ impl Terrain {
             options,
         }
     }
-
-    /// World-space displaced height (z) of the ground at `world`, matching the
-    /// terrain mesh: `elevation · meters_to_world · exaggeration`. 0 when no
-    /// covering DEM tile is resident yet. `meters_to_world` is supplied by the
-    /// caller (it depends on the camera-centre latitude — the same value the
-    /// per-frame mesh displacement uses), so overlays align with the surface.
-    pub(crate) fn ground_world_z(&self, world: WorldPoint, meters_to_world: f32) -> f32 {
-        // Stable sampler: markers anchored here must not flicker as DEM tiles
-        // load/evict (the per-frame churn snapped their screen position).
-        match self.cache.elevation_at_world_stable((world.x, world.y)) {
-            Some(elev) => elev * meters_to_world * self.options.exaggeration,
-            None => 0.0,
-        }
-    }
 }
+
+// `Terrain`'s ground queries live behind the `Surface` trait — the
+// `HeightfieldSurface` impl in `crate::surface` (plan slice D3).
 
 /// Resolution (per side) of the CPU-side elevation grid kept per DEM
 /// tile. The GPU keeps the full 256² texture for crisp displacement; the
@@ -110,8 +103,6 @@ pub struct TerrainOptions {
     /// commonly run at 1.3–2.0 because realistic relief is hard to
     /// see at small map scales.
     pub exaggeration: f32,
-    /// Encoding of the DEM source. Defaults to Mapbox Terrain-RGB.
-    pub encoding: DemEncoding,
     /// Maximum source elevation, used to size the depth range. The
     /// camera near/far planes are derived from this so we have
     /// reasonable depth precision over the heightmap. Norway's
@@ -123,7 +114,6 @@ impl Default for TerrainOptions {
     fn default() -> Self {
         Self {
             exaggeration: 1.5,
-            encoding: DemEncoding::MapboxRgb,
             max_elevation_m: 3_000.0,
         }
     }
@@ -186,11 +176,13 @@ impl TerrainShared {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: wgpu::TextureFormat::Rg16Float,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        // Mapbox Terrain-RGB encoding of 0 m elevation: (1, 134, 160).
+        // 0 m elevation, full coverage — heights are stored decoded, so the
+        // flat placeholder is literally (0 m, covered).
+        let zero_covered: [half::f16; 2] = [half::f16::ZERO, half::f16::ONE];
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &placeholder_tex,
@@ -198,7 +190,7 @@ impl TerrainShared {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &[1, 134, 160, 255],
+            bytemuck::cast_slice(&zero_covered),
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4),
@@ -242,8 +234,6 @@ pub(crate) struct TerrainCache {
     #[allow(dead_code)]
     pub(crate) sampler: Arc<wgpu::Sampler>,
     halo_px: u32,
-    /// DEM encoding, needed to decode raw bytes into the CPU height grid.
-    encoding: DemEncoding,
     /// CPU-side elevations, kept in lock-step with the GPU cache (evicted
     /// tiles are dropped here too). Lets the host anchor markers + drape
     /// paths on the surface without a GPU read-back.
@@ -268,7 +258,6 @@ impl TerrainCache {
         shared: &TerrainShared,
         budget_bytes: usize,
         halo_px: u32,
-        encoding: DemEncoding,
     ) -> Self {
         let cache = TextureCache::new(
             device,
@@ -276,8 +265,12 @@ impl TerrainCache {
             shared.bind_group_layout.clone(),
             shared.sampler.clone(),
             budget_bytes,
-            // Raw byte values — gamma curve must not be applied.
-            wgpu::TextureFormat::Rgba8Unorm,
+            // Decoded (metres, coverage) as filterable half floats — the
+            // shaders sample `.r` directly. (f16 is exact to 1 m up to
+            // 2048 m and 2 m up to 4096 m: within the DEM sources' own
+            // error, and float filtering of real heights is at least as
+            // correct as the old filtered-then-decoded Terrain-RGB bytes.)
+            wgpu::TextureFormat::Rg16Float,
             // No mipmaps. Vertex displacement needs the base-level
             // height; mipping would smooth peaks at distance.
             false,
@@ -287,7 +280,6 @@ impl TerrainCache {
             bind_group_layout: shared.bind_group_layout.clone(),
             sampler: shared.sampler.clone(),
             halo_px,
-            encoding,
             heights: HashMap::new(),
             sticky_elev: std::sync::Mutex::new(HashMap::new()),
         }
@@ -297,33 +289,34 @@ impl TerrainCache {
         self.halo_px
     }
 
-    /// Ingest a DEM tile. Returns the ids evicted to stay within budget,
-    /// so the caller drops them from the terrain scene's "ingested" set
-    /// and they get re-requested when next desired.
-    pub(crate) fn ingest(
-        &mut self,
-        tile: TileId,
-        rgba: &[u8],
-        width: u32,
-        height: u32,
-    ) -> Vec<TileId> {
-        let evicted = self.cache.insert(tile, rgba, width, height);
+    /// Ingest a DECODED DEM tile (the codec already ran — see
+    /// [`crate::dem::decode_dem_rgba`]). Uploads `(metres, coverage)` as an
+    /// `Rg16Float` texture and keeps the CPU grid in lock-step. Returns the
+    /// ids evicted to stay within budget, so the caller drops them from the
+    /// terrain scene's "ingested" set and they get re-requested when next
+    /// desired.
+    pub(crate) fn ingest(&mut self, tile: TileId, dem: &DecodedDem) -> Vec<TileId> {
+        let (width, height) = (dem.width, dem.height);
+        let px = (width as usize).saturating_mul(height as usize);
+        if width == 0 || height == 0 || dem.heights_m.len() < px || dem.coverage.len() < px {
+            return Vec::new();
+        }
+        let mut texels: Vec<half::f16> = Vec::with_capacity(px * 2);
+        for i in 0..px {
+            texels.push(half::f16::from_f32(dem.heights_m[i]));
+            texels.push(half::f16::from_f32(dem.coverage[i] as f32));
+        }
+        let evicted = self
+            .cache
+            .insert(tile, bytemuck::cast_slice(&texels), width, height);
         // Keep a CPU-side elevation grid in lock-step with the GPU cache.
-        if let Some(ht) = self.decode_height_tile(rgba, width, height) {
+        if let Some(ht) = height_grid_from_heights(&dem.heights_m, width, height, self.halo_px) {
             self.heights.insert(tile, ht);
         }
         for e in &evicted {
             self.heights.remove(e);
         }
         evicted
-    }
-
-    /// Decode raw DEM bytes into a downsampled, halo-trimmed elevation
-    /// grid. `width`/`height` include the halo ring (e.g. 258 for a
-    /// 256-tile with 1 px halo); we sample the geographic interior only,
-    /// so adjacent tiles' grids line up at their shared edge.
-    fn decode_height_tile(&self, rgba: &[u8], width: u32, height: u32) -> Option<HeightTile> {
-        decode_height_grid(rgba, width, height, self.halo_px, self.encoding)
     }
 
     /// Age of the cached tile in seconds, or `None` if not present.
@@ -416,11 +409,8 @@ impl TerrainCache {
     /// plane, sampled from the deepest DEM tile currently resident that
     /// covers the point (so markers/paths anchor to the finest available
     /// detail). `None` when no covering tile is loaded yet — the caller
-    /// then treats it as flat (z=0), same as the 2D map.
-    // Single-sample entry point (the bulk shadow/AO grid now uses `sample_grid`,
-    // and marker projection uses the sticky variant) — kept as the documented
-    // point query the doc links reference.
-    #[allow(dead_code)]
+    /// then treats it as flat (z=0), same as the 2D map. The raw
+    /// (non-sticky) point query — `Surface::normal_at` differentiates it.
     pub(crate) fn elevation_at_world(&self, world: (f64, f64)) -> Option<f32> {
         self.sample_deepest(world).map(|(_, e)| e)
     }
@@ -466,25 +456,14 @@ impl TerrainCache {
         None
     }
 
-    /// Bulk elevation sampler for the cast-shadow / AO heightfield: the same
-    /// "deepest resident wins" lookup as [`elevation_at_world`], but with the
+    /// Bulk elevation sampler for the cast-shadow / AO heightfield
+    /// (`Surface::sample_height_rows` answers from this): the same "deepest
+    /// resident wins" lookup as [`elevation_at_world`], but with the
     /// finest-zoom ceiling resolved once for the whole call rather than per
-    /// sample. `f` receives each `(index, elevation)`; missing samples yield
-    /// `None`. This is the loop that was burning ~655k miss-probes per rebuild.
-    pub(crate) fn sample_grid<F: FnMut(usize, Option<f32>)>(
-        &self,
-        origin: (f64, f64),
-        cell: f64,
-        dim: usize,
-        f: F,
-    ) {
-        self.sample_grid_rows(origin, cell, dim, 0, dim, f);
-    }
-
-    /// As [`Self::sample_grid`] but only rows `[row0, row1)` — lets the caller
-    /// AMORTISE a big field across several frames (sample a chunk of rows per
-    /// frame) so no single frame eats the whole 256² walk. `idx` is still the
-    /// full-grid `j*dim + i`, so chunks write into one shared buffer.
+    /// sample (the naive loop burnt ~655k miss-probes per rebuild). Rows
+    /// `[row0, row1)` only, so the caller can AMORTISE a big field across
+    /// several frames; `idx` is still the full-grid `j*dim + i`, so chunks
+    /// write into one shared buffer.
     pub(crate) fn sample_grid_rows<F: FnMut(usize, Option<f32>)>(
         &self,
         origin: (f64, f64),
@@ -547,25 +526,24 @@ pub(crate) struct TerrainBinding<'a> {
     pub halo_px: u32,
 }
 
-/// Pure DEM-bytes → elevation-grid decode (no GPU), extracted from
-/// `TerrainCache::decode_height_tile` so its bounds handling is unit-testable
-/// against adversarial dimensions. Returns `None` on any input that can't
-/// yield a valid interior grid — never panics, never indexes out of bounds.
-fn decode_height_grid(
-    rgba: &[u8],
+/// Downsample a full-resolution decoded height grid (metres, halo included)
+/// into the halo-trimmed CPU `HeightTile`. `width`/`height` include the halo
+/// ring (e.g. 258 for a 256-tile with 1 px halo); we sample the geographic
+/// interior only, so adjacent tiles' grids line up at their shared edge.
+/// Returns `None` on any input that can't yield a valid interior grid —
+/// never panics, never indexes out of bounds.
+fn height_grid_from_heights(
+    heights_m: &[f32],
     width: u32,
     height: u32,
     halo: u32,
-    encoding: DemEncoding,
 ) -> Option<HeightTile> {
-    // Length check in `usize` — `width * height * 4` in u32 overflows for a
+    // Length check in `usize` — `width * height` in u32 overflows for a
     // malformed tile claiming huge dimensions (e.g. 65536² wraps to 0), which
     // would pass a naive u32 guard and then index past the buffer below. usize
     // math on 64-bit can't wrap here.
-    let required = (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|px| px.checked_mul(4))?;
-    if width == 0 || height == 0 || rgba.len() < required {
+    let required = (width as usize).checked_mul(height as usize)?;
+    if width == 0 || height == 0 || heights_m.len() < required {
         return None;
     }
     // Interior pixel span (exclusive upper bound).
@@ -588,16 +566,7 @@ fn decode_height_grid(
             let px = px.min(hi_x - 1);
             // usize index to match the usize length guard — a u32 `py * width`
             // would overflow for a large (validated) width.
-            let i = (py as usize * width as usize + px as usize) * 4;
-            // Mapbox Terrain-RGB marks "no data" (sea / out of coverage) as
-            // alpha 0; treat as sea level so markers and paths over water sit
-            // at 0 m, not at a -10 km cliff.
-            let elev = if rgba[i + 3] < 128 {
-                0.0
-            } else {
-                decode_elevation(encoding, rgba[i], rgba[i + 1], rgba[i + 2])
-            };
-            grid[gy * n + gx] = elev;
+            grid[gy * n + gx] = heights_m[py as usize * width as usize + px as usize];
         }
     }
     Some(HeightTile { grid })
@@ -605,26 +574,27 @@ fn decode_height_grid(
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_height_grid, DemEncoding, HeightTile, CPU_HEIGHT_DIM};
+    use super::{height_grid_from_heights, HeightTile, CPU_HEIGHT_DIM};
 
     #[test]
-    fn decode_height_grid_rejects_malformed_dimensions_without_panicking() {
-        let enc = DemEncoding::MapboxRgb;
-        // Huge dims whose u32 byte-count (w*h*4) overflows to a small number —
+    fn height_grid_rejects_malformed_dimensions_without_panicking() {
+        // Huge dims whose u32 count (w*h) overflows to a small number —
         // the bug a naive guard let through. Must be rejected, not indexed.
-        assert!(decode_height_grid(&[0u8; 16], 65536, 65536, 0, enc).is_none());
-        assert!(decode_height_grid(&[0u8; 16], u32::MAX, u32::MAX, 1, enc).is_none());
+        assert!(height_grid_from_heights(&[0.0; 16], 65536, 65536, 0).is_none());
+        assert!(height_grid_from_heights(&[0.0; 16], u32::MAX, u32::MAX, 1).is_none());
         // Buffer shorter than the claimed dimensions.
-        assert!(decode_height_grid(&[0u8; 16], 256, 256, 0, enc).is_none());
+        assert!(height_grid_from_heights(&[0.0; 16], 256, 256, 0).is_none());
         // Degenerate dims.
-        assert!(decode_height_grid(&[0u8; 16], 0, 10, 0, enc).is_none());
-        assert!(decode_height_grid(&[0u8; 16], 10, 0, 0, enc).is_none());
+        assert!(height_grid_from_heights(&[0.0; 16], 0, 10, 0).is_none());
+        assert!(height_grid_from_heights(&[0.0; 16], 10, 0, 0).is_none());
         // Halo larger than the tile → empty interior, rejected.
-        assert!(decode_height_grid(&[0u8; 258 * 258 * 4], 8, 8, 64, enc).is_none());
-        // A well-formed buffer decodes to a full grid.
-        let ok = decode_height_grid(&[10u8; 258 * 258 * 4], 258, 258, 1, enc);
+        assert!(height_grid_from_heights(&[0.0; 258 * 258], 8, 8, 64).is_none());
+        // A well-formed buffer downsamples to a full grid.
+        let ok = height_grid_from_heights(&[123.0; 258 * 258], 258, 258, 1);
         assert!(ok.is_some());
-        assert_eq!(ok.unwrap().grid.len(), CPU_HEIGHT_DIM * CPU_HEIGHT_DIM);
+        let grid = ok.unwrap().grid;
+        assert_eq!(grid.len(), CPU_HEIGHT_DIM * CPU_HEIGHT_DIM);
+        assert!(grid.iter().all(|&h| h == 123.0));
     }
 
     /// A grid that ramps 0 → (n-1) west-to-east, constant north-south.

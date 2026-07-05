@@ -11,8 +11,20 @@
 
 use std::sync::Arc;
 
-use turbomap_core::{RasterTile, TileError, TileId, TileSource, VectorTile, VectorTileSource};
+use turbomap_core::{
+    DemEncoding, RasterTile, TileError, TileId, TileSource, VectorTile, VectorTileSource,
+};
 use turbomap_scene::SourceDef;
+
+/// Scene IR encoding → the core codec's enum. Lives at the resolve
+/// boundary: the Scene declares the source's contract, the ingest-side
+/// codec consumes it (plan D3 — nothing render-side sees an encoding).
+fn core_encoding(e: turbomap_scene::DemEncoding) -> DemEncoding {
+    match e {
+        turbomap_scene::DemEncoding::MapboxRgb => DemEncoding::MapboxRgb,
+        turbomap_scene::DemEncoding::Terrarium => DemEncoding::Terrarium,
+    }
+}
 
 use crate::geojson::GeoJsonVectorSource;
 use crate::resolver::{ResolvedSource, SourceResolver};
@@ -25,6 +37,9 @@ struct RemoteRasterStub {
     /// terrain mesh reads this so it crops to the interior 256² and uses the
     /// halo ring to stitch crack-free edges across tile boundaries.
     dem_halo: u32,
+    /// DEM RGB→metres encoding the Scene declared for this source; the
+    /// ingest codec reads it via `TileSource::dem_encoding`.
+    dem_encoding: DemEncoding,
 }
 
 impl TileSource for RemoteRasterStub {
@@ -41,6 +56,9 @@ impl TileSource for RemoteRasterStub {
     }
     fn dem_halo_px(&self) -> u32 {
         self.dem_halo
+    }
+    fn dem_encoding(&self) -> DemEncoding {
+        self.dem_encoding
     }
 }
 
@@ -76,16 +94,19 @@ impl SourceResolver for HostDrivenResolver {
                 min_zoom: *min_zoom,
                 max_zoom: *max_zoom,
                 dem_halo: 0,
+                dem_encoding: DemEncoding::MapboxRgb,
             })),
             SourceDef::DemXyz {
                 min_zoom,
                 max_zoom,
                 halo,
+                encoding,
                 ..
             } => ResolvedSource::Dem(Arc::new(RemoteRasterStub {
                 min_zoom: *min_zoom,
                 max_zoom: *max_zoom,
                 dem_halo: *halo,
+                dem_encoding: core_encoding(*encoding),
             })),
             SourceDef::VectorXyz {
                 min_zoom, max_zoom, ..
@@ -127,10 +148,15 @@ impl SourceResolver for HostDrivenResolver {
                 }
             },
             #[cfg(not(target_arch = "wasm32"))]
-            SourceDef::PmtilesDem { location, halo, .. } => match open_pmtiles(location) {
+            SourceDef::PmtilesDem {
+                location,
+                halo,
+                encoding,
+            } => match open_pmtiles(location) {
                 Ok(src) => ResolvedSource::Dem(Arc::new(WithDemHalo {
                     inner: src,
                     halo: *halo,
+                    encoding: core_encoding(*encoding),
                 })),
                 Err(e) => {
                     log::warn!("pmtiles dem source {location:?} failed to open: {e}");
@@ -201,15 +227,30 @@ impl TileSource for ChainedTileSource {
     }
     /// The chain covers the union of its providers' ranges.
     fn min_zoom(&self) -> u8 {
-        self.providers.iter().map(|p| p.min_zoom()).min().unwrap_or(0)
+        self.providers
+            .iter()
+            .map(|p| p.min_zoom())
+            .min()
+            .unwrap_or(0)
     }
     fn max_zoom(&self) -> u8 {
-        self.providers.iter().map(|p| p.max_zoom()).max().unwrap_or(0)
+        self.providers
+            .iter()
+            .map(|p| p.max_zoom())
+            .max()
+            .unwrap_or(0)
     }
     /// Providers of one DEM pyramid must agree on halo; the first speaks
     /// for the chain (a disagreement would be a data-pipeline bug upstream).
     fn dem_halo_px(&self) -> u32 {
         self.providers.first().map(|p| p.dem_halo_px()).unwrap_or(0)
+    }
+    /// Same contract as the halo: one pyramid, one encoding.
+    fn dem_encoding(&self) -> DemEncoding {
+        self.providers
+            .first()
+            .map(|p| p.dem_encoding())
+            .unwrap_or(DemEncoding::MapboxRgb)
     }
 }
 
@@ -233,10 +274,18 @@ impl VectorTileSource for ChainedVectorSource {
         Err(last)
     }
     fn min_zoom(&self) -> u8 {
-        self.providers.iter().map(|p| p.min_zoom()).min().unwrap_or(0)
+        self.providers
+            .iter()
+            .map(|p| p.min_zoom())
+            .min()
+            .unwrap_or(0)
     }
     fn max_zoom(&self) -> u8 {
-        self.providers.iter().map(|p| p.max_zoom()).max().unwrap_or(0)
+        self.providers
+            .iter()
+            .map(|p| p.max_zoom())
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -295,7 +344,11 @@ mod tests {
         };
         match HostDrivenResolver.resolve("dem", &def) {
             ResolvedSource::Dem(src) => {
-                assert_eq!(src.dem_halo_px(), 1, "halo comes from the Scene, not the archive");
+                assert_eq!(
+                    src.dem_halo_px(),
+                    1,
+                    "halo comes from the Scene, not the archive"
+                );
                 assert_eq!(src.request(TileId::new(3, 1, 2)).unwrap().bytes, b"dem-ish");
             }
             _ => panic!("pmtiles-dem must resolve to a Dem source"),
@@ -355,6 +408,9 @@ mod tests {
 struct WithDemHalo {
     inner: turbomap_tiles_pmtiles::PMTilesSource,
     halo: u32,
+    /// Scene-declared RGB→metres encoding (the archive header has no
+    /// encoding field either).
+    encoding: DemEncoding,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -372,5 +428,8 @@ impl TileSource for WithDemHalo {
     }
     fn dem_halo_px(&self) -> u32 {
         self.halo
+    }
+    fn dem_encoding(&self) -> DemEncoding {
+        self.encoding
     }
 }

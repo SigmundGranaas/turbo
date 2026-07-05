@@ -40,6 +40,15 @@ pub trait TileSource: Send + Sync {
         RasterFormat::Png
     }
 
+    /// For DEM sources only: how the tile's RGB channels encode elevation.
+    /// The ingest-side codec ([`crate::dem::decode_dem_rgba`]) uses this to
+    /// turn fetched bytes into metres before they reach the renderer — the
+    /// render path itself never sees an encoding (plan slice D3). Defaults
+    /// to Mapbox Terrain-RGB, by far the common case.
+    fn dem_encoding(&self) -> crate::dem::DemEncoding {
+        crate::dem::DemEncoding::MapboxRgb
+    }
+
     /// For DEM sources only: how many pixels of halo (overscan) the
     /// returned tile carries on every side beyond the canonical 256×256
     /// tile envelope. `0` (the default) is back-compat — the consumer

@@ -51,6 +51,9 @@ serde_json = "1"
 # on native. Lets camera-animation timing in core/engine compile + run in the
 # WASM web host without panicking ("time not implemented on this platform").
 web-time = "1"
+# f32 → f16 packing for the R16Float DEM height textures (plan D3). Tiny,
+# already in the tree via transitive deps.
+half = { version = "2", features = ["bytemuck"] }
 # FFI bindings for Kotlin/Swift hosts. "cli" is needed by the bundled
 # uniffi-bindgen binary that generates the foreign-language sources.
 uniffi = { version = "0.29", features = ["cli"] }

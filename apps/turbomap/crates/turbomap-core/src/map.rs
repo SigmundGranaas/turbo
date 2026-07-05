@@ -54,6 +54,7 @@ use crate::{
     style::{Color, HillshadeStyle, VectorStyle},
     subsystem::{BudgetReport, DebugActivation, DebugViewDesc, Subsystem},
     sun::SunPosition,
+    surface::Surface,
     tessellate::{self, IconRequest, InteractiveFeature, LabelRequest, Mesh},
     tile::TileId,
     vector::{GeomType, Value as VectorValue, VectorTile, VectorTileSource},
@@ -707,18 +708,25 @@ impl Subsystem for TerrainSubsystem {
         }
     }
     fn inspect(&self) -> String {
-        let (present, exaggeration, finest) = match &self.data {
+        let (present, exaggeration, finest, binding) = match &self.data {
             Some(t) => (
                 true,
                 t.options.exaggeration,
                 Some(t.cache.finest_resident_zoom()),
+                // The ground representation behind the Surface seam (plan
+                // D3) — "heightfield" today, "mesh" when M-TIN lands.
+                Some((t as &dyn Surface).ground_binding().kind()),
             ),
-            None => (false, 1.0f32, None),
+            None => (false, 1.0f32, None, None),
         };
         format!(
             "{{\"present\":{present},\"exaggeration\":{exaggeration},\
+             \"ground_binding\":{},\
              \"finest_resident_zoom\":{},\"shadow_strength\":{},\
              \"shadow_field_assembled\":{}}}",
+            binding
+                .map(|b| format!("\"{b}\""))
+                .unwrap_or_else(|| "null".into()),
             finest
                 .map(|z: u8| z.to_string())
                 .unwrap_or_else(|| "null".into()),
@@ -1328,8 +1336,9 @@ impl Map {
         let mut verts: Vec<RouteVertex> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
         for tube in self.overlays.route_tubes.tubes.values() {
-            // Bake the terrain surface height per centerline point; the tube
-            // radius + lift above it are applied GPU-side (constant screen size).
+            // Bake the terrain surface height per centerline point via the
+            // Surface query (plan D3); the tube radius + lift above it are
+            // applied GPU-side (constant screen size).
             let world_z: Vec<f32> = tube
                 .points
                 .iter()
@@ -1337,7 +1346,7 @@ impl Map {
                     self.terrain
                         .data
                         .as_ref()
-                        .and_then(|t| t.cache.elevation_at_world_stable((x, y)))
+                        .and_then(|t| (t as &dyn Surface).elevation_at(WorldPoint::new(x, y)))
                         .map(|e| (e as f64 * m2w * exagg) as f32)
                         .unwrap_or(0.0)
                 })
@@ -1470,7 +1479,6 @@ impl Map {
             &self.terrain.shared,
             self.options.cache_budget_bytes,
             halo,
-            options.encoding,
         );
         // Cap the DEM LOD at its native resolution. The source is ~10 m/px
         // (DTM10 ≈ z13–z14 at these latitudes); refining the relief mesh past
@@ -1584,14 +1592,15 @@ impl Map {
         self.atmosphere.lighting.sun_at(self.cam.camera.center)
     }
 
-    /// Push decoded RGBA back into the shared terrain heightmap.
+    /// Push a DECODED DEM tile (real heights — see
+    /// [`crate::dem::decode_dem_rgba`]) into the shared terrain heightmap.
     /// Host drives this from the same fetch pump it uses for raster
     /// tiles. Silently no-ops when no terrain source is registered
     /// (e.g. host sent us a stale tile after `clear_terrain`).
-    pub fn ingest_terrain_tile(&mut self, tile: TileId, rgba: &[u8], width: u32, height: u32) {
+    pub fn ingest_terrain_tile(&mut self, tile: TileId, dem: &crate::dem::DecodedDem) {
         let mut delivered: Option<Vec<TileId>> = None;
         if let Some(t) = self.terrain.data.as_mut() {
-            let evicted = t.cache.ingest(tile, rgba, width, height);
+            let evicted = t.cache.ingest(tile, dem);
             // New elevation data → route tubes baked before this are stale and
             // should re-drape onto the now-finer terrain.
             self.overlays.route_tubes.terrain_gen =
@@ -1599,7 +1608,10 @@ impl Map {
             delivered = Some(evicted);
         }
         if let Some(evicted) = delivered {
-            self.lifecycle_delivered(None, tile, rgba.len() as u64, &evicted);
+            // Account the resident payload as the GPU texel bytes (f16
+            // height + coverage), matching what the cache actually holds.
+            let bytes = (dem.heights_m.len() * 4) as u64;
+            self.lifecycle_delivered(None, tile, bytes, &evicted);
         }
     }
 
@@ -2369,7 +2381,8 @@ impl Map {
     /// when no terrain is registered or no covering DEM tile is resident
     /// yet. `meters_to_world` is taken at the camera-centre latitude, the
     /// same value the per-frame mesh displacement uses, so overlays align
-    /// with the drawn surface.
+    /// with the drawn surface. Elevation comes from the [`Surface`] query
+    /// (plan D3) — this function never knows the ground is a texture.
     fn ground_world_z(&self, world: WorldPoint) -> f32 {
         let Some(t) = self.terrain.data.as_ref() else {
             return 0.0;
@@ -2378,7 +2391,11 @@ impl Map {
         // per-frame mesh displacement uses, so overlays land on the surface.
         let lat = self.cam.camera.center.lat.to_radians();
         let m2w = (lat.cos().abs() as f32 / 40_075_017.0).max(1e-12);
-        t.ground_world_z(world, m2w)
+        let surface: &dyn Surface = t;
+        match surface.elevation_at(world) {
+            Some(elev_m) => elev_m * m2w * t.options.exaggeration,
+            None => 0.0,
+        }
     }
 
     // ---- tile orchestration --------------------------------------------
@@ -2615,8 +2632,13 @@ impl Map {
     /// the data goes to the shared terrain cache, so this just forwards
     /// to [`Map::ingest_terrain_tile`]. The `layer_id` argument is
     /// kept for source compatibility but ignored.
-    pub fn ingest_hillshade(&mut self, _layer_id: &str, tile: TileId, rgba: &[u8], w: u32, h: u32) {
-        self.ingest_terrain_tile(tile, rgba, w, h);
+    pub fn ingest_hillshade(
+        &mut self,
+        _layer_id: &str,
+        tile: TileId,
+        dem: &crate::dem::DecodedDem,
+    ) {
+        self.ingest_terrain_tile(tile, dem);
     }
 
     /// Whether a raster layer already holds `tile` resident. The engine's
@@ -3006,11 +3028,14 @@ impl Map {
                 if !animating {
                     let t0 = Instant::now();
                     let mut heights = vec![0.0f32; dim * dim];
-                    terrain.cache.sample_grid(
+                    let surface: &dyn Surface = terrain;
+                    surface.sample_height_rows(
                         (origin_abs[0], origin_abs[1]),
                         cell,
                         dim,
-                        |idx, e| {
+                        0,
+                        dim,
+                        &mut |idx, e| {
                             heights[idx] = e.unwrap_or(0.0) * zscale;
                         },
                     );
@@ -3052,11 +3077,10 @@ impl Map {
             const CHUNK_ROWS: usize = 64;
             let row1 = (b.next_row + CHUNK_ROWS).min(dim);
             let (o, c, zs, row0) = (b.origin_abs, b.cell, b.zscale, b.next_row);
-            terrain
-                .cache
-                .sample_grid_rows((o[0], o[1]), c, dim, row0, row1, |idx, e| {
-                    b.heights[idx] = e.unwrap_or(0.0) * zs;
-                });
+            let surface: &dyn Surface = terrain;
+            surface.sample_height_rows((o[0], o[1]), c, dim, row0, row1, &mut |idx, e| {
+                b.heights[idx] = e.unwrap_or(0.0) * zs;
+            });
             b.next_row = row1;
             if b.next_row >= dim {
                 debug_shadow_relief(
@@ -3292,12 +3316,6 @@ impl Map {
                     .as_ref()
                     .map(|t| t.options.exaggeration)
                     .unwrap_or(1.0),
-                encoding: self
-                    .terrain
-                    .data
-                    .as_ref()
-                    .map(|t| t.options.encoding)
-                    .unwrap_or(crate::dem::DemEncoding::MapboxRgb),
                 halo_px: self
                     .terrain
                     .data
@@ -3416,7 +3434,6 @@ impl Map {
                         v.dash,
                         v.width_scale,
                         frame.vec_terrain_zscale,
-                        frame.vec_terrain_encoding,
                         frame.vec_terrain_halo_uv,
                         terrain_cell.as_deref_mut().map(|t| &mut t.cache),
                     );

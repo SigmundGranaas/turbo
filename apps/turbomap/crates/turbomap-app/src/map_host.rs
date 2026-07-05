@@ -59,6 +59,9 @@ pub struct MapHost {
     /// hillshade layer just won't render until DEM is wired
     /// in.
     dem_pump: Option<RasterFetchPump>,
+    /// The DEM source's declared RGB→metres encoding, captured at build so
+    /// the apply site can run the DEM codec (plan D3) on decoded bytes.
+    dem_encoding: turbomap_core::DemEncoding,
     /// `(layer_id, tile_id)` — the layer prefix lets raster
     /// and hillshade fetch the same (z,x,y) concurrently
     /// without one silently masking the other (an earlier
@@ -78,12 +81,14 @@ impl MapHost {
         vector_pump: VectorFetchPump,
         raster_pump: RasterFetchPump,
         dem_pump: Option<RasterFetchPump>,
+        dem_encoding: turbomap_core::DemEncoding,
     ) -> Self {
         Self {
             map,
             vector_pump,
             raster_pump,
             dem_pump,
+            dem_encoding,
             inflight: HashSet::new(),
             recently_failed: HashMap::new(),
             attempts: HashMap::new(),
@@ -199,7 +204,13 @@ impl MapHost {
                         self.inflight.remove(&(TERRAIN_KEY, id));
                         self.attempts.remove(&(TERRAIN_KEY, id));
                         self.recently_failed.remove(&id);
-                        self.map.ingest_terrain_tile(id, &rgba, width, height);
+                        // The DEM codec runs at ingest (plan D3): raw
+                        // Terrain-RGB → real heights + coverage.
+                        if let Some(dem) =
+                            turbomap_core::decode_dem_rgba(&rgba, width, height, self.dem_encoding)
+                        {
+                            self.map.ingest_terrain_tile(id, &dem);
+                        }
                     }
                     RasterOutcome::Failed(id) => {
                         self.inflight.remove(&(TERRAIN_KEY, id));
@@ -339,6 +350,10 @@ pub fn build(
 ) -> MapHost {
     let vector_pump = VectorFetchPump::new(vector_source, style, vector_workers);
     let raster_pump = RasterFetchPump::new(raster_source, raster_workers);
+    let dem_encoding = dem_source
+        .as_ref()
+        .map(|d| d.dem_encoding())
+        .unwrap_or(turbomap_core::DemEncoding::MapboxRgb);
     let dem_pump = dem_source.map(|d| RasterFetchPump::new(d, dem_workers));
-    MapHost::new(map, vector_pump, raster_pump, dem_pump)
+    MapHost::new(map, vector_pump, raster_pump, dem_pump, dem_encoding)
 }

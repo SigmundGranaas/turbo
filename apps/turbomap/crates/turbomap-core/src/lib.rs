@@ -26,13 +26,14 @@ pub mod sprite;
 pub mod style;
 pub mod subsystem;
 pub mod sun;
+pub(crate) mod surface;
 pub mod tessellate;
 pub mod text;
 pub mod tile;
 pub mod vector;
 
 pub use camera::{Camera, CameraAnimation, FiniteF64, ZoomBounds, ZoomLock, TILE_SIZE_PX};
-pub use dem::{decode_elevation, DemEncoding};
+pub use dem::{decode_dem_rgba, decode_elevation, DemEncoding};
 pub use error::{MapError, TileError};
 pub use geo::{LatLng, WorldPoint, MAX_LATITUDE_DEG};
 pub use lighting::{Lighting, LightingMode};

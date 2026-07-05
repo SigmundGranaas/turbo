@@ -18,7 +18,7 @@ use turbomap_core::{
     VectorTileSource, ZoomBounds,
 };
 use turbomap_scene::{
-    diff, Capabilities, CameraState, Color, Filter, FilterValue, Hit, LatLng, Layer, MapEngine,
+    diff, CameraState, Capabilities, Color, Filter, FilterValue, Hit, LatLng, Layer, MapEngine,
     Paint, Scene, SceneDelta, ScreenPoint, SourceDef, SymbolPlacement, TextAnchor,
 };
 
@@ -91,7 +91,14 @@ impl TurbomapEngine {
     ) -> Result<Self, MapError> {
         let max_texture_size = device.limits().max_texture_dimension_2d;
         let pixel_ratio = options.pixel_ratio.max(0.5);
-        let map = Map::new(device, queue, surface_format, size, to_core_camera(camera), options)?;
+        let map = Map::new(
+            device,
+            queue,
+            surface_format,
+            size,
+            to_core_camera(camera),
+            options,
+        )?;
         Ok(Self {
             map,
             scene: Scene::new(),
@@ -130,7 +137,10 @@ impl TurbomapEngine {
         while prefix < old_pos.len()
             && prefix < new_pos.len()
             && old_pos[prefix] == new_pos[prefix]
-            && new_pos[prefix].source().map(|s| !dirty.contains(s)).unwrap_or(true)
+            && new_pos[prefix]
+                .source()
+                .map(|s| !dirty.contains(s))
+                .unwrap_or(true)
         {
             prefix += 1;
         }
@@ -148,7 +158,11 @@ impl TurbomapEngine {
             self.install_positional(layer, &new);
         }
         // Terrain is global; if the new scene has no hillshade, drop it.
-        if !new.layers.iter().any(|l| matches!(l, Layer::Hillshade { .. })) {
+        if !new
+            .layers
+            .iter()
+            .any(|l| matches!(l, Layer::Hillshade { .. }))
+        {
             self.map.clear_terrain();
             self.terrain_source = None;
         }
@@ -315,9 +329,23 @@ impl TurbomapEngine {
                     let zoom = self.map.camera().zoom;
                     let name = geojson_or_declared(scene, source, source_layer);
                     let style = symbol_style(
-                        name, filter, text_field, text_size, color, halo_color, halo_width,
-                        sort_key, *placement, icon_image, icon_size, icon_color, zoom,
-                        self.pixel_ratio, *text_anchor, *letter_spacing, *font_weight,
+                        name,
+                        filter,
+                        text_field,
+                        text_size,
+                        color,
+                        halo_color,
+                        halo_width,
+                        sort_key,
+                        *placement,
+                        icon_image,
+                        icon_size,
+                        icon_color,
+                        zoom,
+                        self.pixel_ratio,
+                        *text_anchor,
+                        *letter_spacing,
+                        *font_weight,
                     );
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
@@ -360,7 +388,10 @@ impl TurbomapEngine {
     }
 
     fn resolve(&self, scene: &Scene, source: &str) -> Option<ResolvedSource> {
-        scene.sources.get(source).map(|def| self.resolver.resolve(source, def))
+        scene
+            .sources
+            .get(source)
+            .map(|def| self.resolver.resolve(source, def))
     }
 
     /// Synchronously drain pending tiles against the resolved sources and
@@ -386,8 +417,8 @@ impl TurbomapEngine {
                     }
                     PendingTile::Terrain { tile } => {
                         if let Some(src) = self.terrain_source.clone() {
-                            if let Some((rgba, w, h)) = fetch_decode(src.as_ref(), tile) {
-                                self.map.ingest_terrain_tile(tile, &rgba, w, h);
+                            if let Some(dem) = fetch_decode_dem(src.as_ref(), tile) {
+                                self.map.ingest_terrain_tile(tile, &dem);
                                 stats.terrain_tiles += 1;
                             }
                         }
@@ -457,8 +488,12 @@ impl TurbomapEngine {
             return true;
         }
         self.decode_queue.enqueue(
-            crate::codec::QueueKey::Raster { layer_id: layer_id.to_string(), tile },
+            crate::codec::QueueKey::Raster {
+                layer_id: layer_id.to_string(),
+                tile,
+            },
             bytes.to_vec(),
+            None,
             None,
         );
         true
@@ -471,8 +506,15 @@ impl TurbomapEngine {
         if self.map.is_terrain_ingested(tile) {
             return true;
         }
-        self.decode_queue
-            .enqueue(crate::codec::QueueKey::Terrain { tile }, bytes.to_vec(), None);
+        // The DEM codec (plan D3) runs in the decode worker; hand it the
+        // source's declared RGB→metres encoding.
+        let enc = self.terrain_source.as_ref().map(|s| s.dem_encoding());
+        self.decode_queue.enqueue(
+            crate::codec::QueueKey::Terrain { tile },
+            bytes.to_vec(),
+            None,
+            enc,
+        );
         true
     }
 
@@ -495,8 +537,8 @@ impl TurbomapEngine {
             (QueueKey::Raster { ref layer_id, tile }, DecodedKind::Image { rgba, w, h }) => {
                 map.ingest_raster(layer_id, tile, &rgba, w, h);
             }
-            (QueueKey::Terrain { tile }, DecodedKind::Image { rgba, w, h }) => {
-                map.ingest_terrain_tile(tile, &rgba, w, h);
+            (QueueKey::Terrain { tile }, DecodedKind::Dem { dem }) => {
+                map.ingest_terrain_tile(tile, &dem);
             }
             (QueueKey::Vector { ref layer_id, tile }, DecodedKind::Vector { out, epoch }) => {
                 // Stale-style guard: a repaint/rebuild bumped the epoch
@@ -504,7 +546,12 @@ impl TurbomapEngine {
                 // pending and refetches against the new style.
                 if epochs.get(layer_id).copied().unwrap_or(0) == epoch {
                     map.ingest_vector_mesh(
-                        layer_id, tile, &out.mesh, out.labels, out.icons, out.interactive,
+                        layer_id,
+                        tile,
+                        &out.mesh,
+                        out.labels,
+                        out.icons,
+                        out.interactive,
                     );
                 }
             }
@@ -529,9 +576,13 @@ impl TurbomapEngine {
         };
         let epoch = self.vector_style_epochs.get(layer_id).copied().unwrap_or(0);
         self.decode_queue.enqueue(
-            crate::codec::QueueKey::Vector { layer_id: layer_id.to_string(), tile },
+            crate::codec::QueueKey::Vector {
+                layer_id: layer_id.to_string(),
+                tile,
+            },
             bytes.to_vec(),
             Some((std::sync::Arc::new(style), epoch)),
+            None,
         );
         true
     }
@@ -686,7 +737,13 @@ impl TurbomapEngine {
     /// Set (or clear, when `points` is empty) a route/track polyline drawn as a
     /// raised 3D tube. `points` are lng/lat; `radius_m` is the tube radius in
     /// metres. See [`turbomap_core::Map::set_route_tube`].
-    pub fn set_route_tube(&mut self, id: &str, points: &[CoreLatLng], color: CoreColor, radius_m: f64) {
+    pub fn set_route_tube(
+        &mut self,
+        id: &str,
+        points: &[CoreLatLng],
+        color: CoreColor,
+        radius_m: f64,
+    ) {
         self.map.set_route_tube(id, points, color, radius_m);
     }
 
@@ -765,7 +822,12 @@ impl TurbomapEngine {
     /// in 3D. See [`Map::screen_to_ground_lng_lat`].
     pub fn unproject_ground(&self, x: f64, y: f64) -> (f64, f64, f32, bool) {
         let hit = self.map.screen_to_ground_lng_lat((x, y));
-        (hit.lng_lat.lat, hit.lng_lat.lng, hit.world_z, hit.hit_terrain)
+        (
+            hit.lng_lat.lat,
+            hit.lng_lat.lng,
+            hit.world_z,
+            hit.hit_terrain,
+        )
     }
 
     /// Re-evaluate line/fill colour paints at the current zoom and push
@@ -971,12 +1033,13 @@ impl MapEngine for TurbomapEngine {
                 LightingDef::TimeTracked { unix_seconds } => {
                     self.map.set_sun_time(Some(unix_seconds))
                 }
-                LightingDef::Fixed { azimuth_deg, altitude_deg } => {
-                    self.map.set_sun_position(Some(turbomap_core::SunPosition {
-                        azimuth_deg,
-                        altitude_deg,
-                    }))
-                }
+                LightingDef::Fixed {
+                    azimuth_deg,
+                    altitude_deg,
+                } => self.map.set_sun_position(Some(turbomap_core::SunPosition {
+                    azimuth_deg,
+                    altitude_deg,
+                })),
             }
             self.map.set_terrain_shadows(env.terrain_shadows);
             self.map.set_terrain_lit(env.terrain_lit);
@@ -1179,7 +1242,10 @@ fn is_supportable(layer: &Layer, scene: &Scene) -> bool {
     };
     match layer {
         Layer::Raster { .. } => source_is(|d| {
-            matches!(d, SourceDef::RasterXyz { .. } | SourceDef::PmtilesRaster { .. })
+            matches!(
+                d,
+                SourceDef::RasterXyz { .. } | SourceDef::PmtilesRaster { .. }
+            )
         }),
         Layer::Hillshade { .. } => {
             source_is(|d| matches!(d, SourceDef::DemXyz { .. } | SourceDef::PmtilesDem { .. }))
@@ -1216,12 +1282,14 @@ fn geojson_or_declared(scene: &Scene, source: &str, declared: &Option<String>) -
 fn decode_key_of(p: &PendingTile) -> crate::codec::QueueKey {
     use crate::codec::QueueKey;
     match p {
-        PendingTile::Raster { layer_id, tile } => {
-            QueueKey::Raster { layer_id: layer_id.clone(), tile: *tile }
-        }
-        PendingTile::Vector { layer_id, tile } => {
-            QueueKey::Vector { layer_id: layer_id.clone(), tile: *tile }
-        }
+        PendingTile::Raster { layer_id, tile } => QueueKey::Raster {
+            layer_id: layer_id.clone(),
+            tile: *tile,
+        },
+        PendingTile::Vector { layer_id, tile } => QueueKey::Vector {
+            layer_id: layer_id.clone(),
+            tile: *tile,
+        },
         PendingTile::Terrain { tile } | PendingTile::Hillshade { tile, .. } => {
             QueueKey::Terrain { tile: *tile }
         }
@@ -1237,7 +1305,11 @@ fn to_core_color(c: Color) -> CoreColor {
 /// rule (resolved at zoom); `Match` expands to one rule per case (matched
 /// on the feature property) plus a default. Cases are emitted before the
 /// default so core's first-match-wins picks the specific case.
-fn color_rules(layer_filter: &Filter, color: &Paint<Color>, zoom: f64) -> Vec<(CoreFilter, CoreColor)> {
+fn color_rules(
+    layer_filter: &Filter,
+    color: &Paint<Color>,
+    zoom: f64,
+) -> Vec<(CoreFilter, CoreColor)> {
     match color {
         Paint::Match {
             property,
@@ -1524,7 +1596,11 @@ fn line_rules(
             )
         })
         .collect();
-    rules.push((map_filter(layer_filter), resolve_color(None), resolve_width(None)));
+    rules.push((
+        map_filter(layer_filter),
+        resolve_color(None),
+        resolve_width(None),
+    ));
     rules
 }
 
@@ -1576,9 +1652,10 @@ fn map_filter(filter: &Filter) -> CoreFilter {
     match filter {
         Filter::Always => CoreFilter::Always,
         Filter::Eq(key, value) => CoreFilter::Eq(key.clone(), filter_value_to_string(value)),
-        Filter::In(key, values) => {
-            CoreFilter::In(key.clone(), values.iter().map(filter_value_to_string).collect())
-        }
+        Filter::In(key, values) => CoreFilter::In(
+            key.clone(),
+            values.iter().map(filter_value_to_string).collect(),
+        ),
         Filter::Not(inner) => CoreFilter::Not(Box::new(map_filter(inner))),
         Filter::All(fs) => CoreFilter::All(fs.iter().map(map_filter).collect()),
         Filter::Any(fs) => CoreFilter::Any(fs.iter().map(map_filter).collect()),
@@ -1616,6 +1693,13 @@ fn fetch_decode(src: &dyn TileSource, tile: TileId) -> Option<(Vec<u8>, u32, u32
     Some((img.into_raw(), w, h))
 }
 
+/// As [`fetch_decode`], but runs the DEM codec too: image bytes → real
+/// heights + coverage, per the source's declared encoding (plan D3).
+fn fetch_decode_dem(src: &dyn TileSource, tile: TileId) -> Option<turbomap_core::dem::DecodedDem> {
+    let (rgba, w, h) = fetch_decode(src, tile)?;
+    turbomap_core::decode_dem_rgba(&rgba, w, h, src.dem_encoding())
+}
+
 #[cfg(test)]
 mod tests {
     use super::line_width_scale;
@@ -1627,12 +1711,19 @@ mod tests {
         // are untouched.
         assert_eq!(line_width_scale(9.0), 1.0);
         assert_eq!(line_width_scale(9.6), 1.0, "flat region keeps z9 constant");
-        assert_eq!(line_width_scale(15.0), 1.0, "reference zoom is the baked width");
+        assert_eq!(
+            line_width_scale(15.0),
+            1.0,
+            "reference zoom is the baked width"
+        );
 
         // Past the reference roads swell, monotonically, and the growth is
         // capped so it can never run away.
         assert!(line_width_scale(16.0) > 1.0);
-        assert!(line_width_scale(18.0) > line_width_scale(16.0), "monotonic growth");
+        assert!(
+            line_width_scale(18.0) > line_width_scale(16.0),
+            "monotonic growth"
+        );
         assert!(line_width_scale(30.0) <= 2.0, "capped");
     }
 }

@@ -25,10 +25,10 @@ use std::time::Duration;
 
 use image::{ImageEncoder, RgbaImage};
 use turbomap_core::{
-    Camera, Color, DemEncoding, Feature, Filter, GeomType, Geometry, HillshadeStyle, IconSpec,
-    LatLng, Map, MapOptions, Marker, MarkerId, Paint, PendingTile, RadarFrame, RasterFormat,
-    RasterTile, Rule, SunPosition, TileError, TileId, TileSource, VectorStyle, VectorTile,
-    VectorTileLayer, VectorTileSource, VectorValue,
+    Camera, Color, Feature, Filter, GeomType, Geometry, HillshadeStyle, IconSpec, LatLng, Map,
+    MapOptions, Marker, MarkerId, Paint, PendingTile, RadarFrame, RasterFormat, RasterTile, Rule,
+    SunPosition, TileError, TileId, TileSource, VectorStyle, VectorTile, VectorTileLayer,
+    VectorTileSource, VectorValue,
 };
 
 /// A coarse synthetic radar grid (precip + coverage) so the cloud overlay
@@ -585,8 +585,16 @@ fn drain_tiles(
                         if let Ok(img) = image::load_from_memory(&raw.bytes) {
                             let img = img.to_rgba8();
                             let (w, h) = img.dimensions();
-                            map.ingest_terrain_tile(tile, img.as_raw(), w, h);
-                            progressed = true;
+                            // The DEM codec runs at ingest (plan D3).
+                            if let Some(decoded) = turbomap_core::decode_dem_rgba(
+                                img.as_raw(),
+                                w,
+                                h,
+                                dem.dem_encoding(),
+                            ) {
+                                map.ingest_terrain_tile(tile, &decoded);
+                                progressed = true;
+                            }
                         }
                     }
                 }
@@ -858,7 +866,6 @@ fn main() {
         map.add_hillshade_layer(
             "hillshade",
             HillshadeStyle {
-                encoding: DemEncoding::MapboxRgb,
                 sun_azimuth_deg: 315.0,
                 sun_altitude_deg: 45.0,
                 exaggeration: 1.4,

@@ -431,7 +431,11 @@ fn main() {
                         .expect("dem decode")
                         .to_rgba8();
                     let (w, h) = img.dimensions();
-                    map.ingest_hillshade(&layer_id, tile, img.as_raw(), w, h);
+                    // The DEM codec runs at ingest (plan D3).
+                    let decoded =
+                        turbomap_core::decode_dem_rgba(img.as_raw(), w, h, dem.dem_encoding())
+                            .expect("dem codec");
+                    map.ingest_hillshade(&layer_id, tile, &decoded);
                 }
                 PendingTile::Vector { .. } => {
                     // No vector layer in the snapshot; ignore.

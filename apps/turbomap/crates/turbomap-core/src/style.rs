@@ -6,7 +6,6 @@
 //! order), and emits geometry in that rule's paint. Features that don't
 //! match any rule are skipped.
 
-use crate::dem::DemEncoding;
 use crate::vector::{Feature, GeomType, Value};
 
 /// 8-bit sRGB colour.
@@ -220,14 +219,11 @@ impl VectorStyle {
     }
 }
 
-/// Configuration for a hillshade layer. The DEM source's tiles are
-/// regular raster PNG/WebP, but each pixel encodes an elevation; the
-/// pipeline decodes per fragment and derives lighting from the gradient.
+/// Configuration for a hillshade layer. The shared terrain cache holds
+/// decoded elevations (metres, `Rg16Float` — the ingest codec resolved the
+/// source's encoding); the pipeline derives lighting from the gradient.
 #[derive(Debug, Clone, Copy)]
 pub struct HillshadeStyle {
-    /// How tile RGB values map to metres. Plug in `MapboxRgb` for
-    /// Maptiler/Mapbox-style DEM tiles, `Terrarium` for AWS-style.
-    pub encoding: DemEncoding,
     /// Sun azimuth in degrees, measured clockwise from north (0 = N, 90
     /// = E). Outdoor maps conventionally use 315° (NW).
     pub sun_azimuth_deg: f32,
@@ -248,7 +244,6 @@ pub struct HillshadeStyle {
 impl Default for HillshadeStyle {
     fn default() -> Self {
         Self {
-            encoding: DemEncoding::MapboxRgb,
             sun_azimuth_deg: 315.0,
             sun_altitude_deg: 45.0,
             exaggeration: 1.0,

@@ -196,9 +196,9 @@ impl HttpRasterSource {
 
     /// Our own tileserver's Mapbox-Terrain-RGB DEM endpoint. The handler
     /// lives at `apps/tileserver/crates/turbo-tiles-api/src/v1/dem.rs`
-    /// and serves PNG tiles where RGB encodes elevation in metres. Pair
-    /// with `Map::add_hillshade_layer(..., HillshadeStyle::default())`
-    /// (which defaults to `DemEncoding::MapboxRgb`).
+    /// and serves PNG tiles where RGB encodes elevation in metres —
+    /// matching this source's default `dem_encoding()` (Mapbox
+    /// Terrain-RGB), which the ingest-side DEM codec decodes with.
     ///
     /// `base_url` is the tileserver root, e.g. `https://api.turbo.app` or
     /// `http://localhost:8080` for local dev. Trailing slashes are
@@ -269,7 +269,10 @@ impl TileSource for HttpRasterSource {
         let rel = tile_rel_path(tile);
         if let Some(ref cache) = self.cache {
             if let Some(bytes) = cache.read(&rel) {
-                return Ok(RasterTile { bytes, format: self.format });
+                return Ok(RasterTile {
+                    bytes,
+                    format: self.format,
+                });
             }
         }
 
@@ -419,8 +422,13 @@ impl HttpVectorTileSource {
     pub fn turbo_basemap(base_url: &str) -> Result<Self, reqwest::Error> {
         let ua = format!("turbomap/{}", env!("CARGO_PKG_VERSION"));
         let base = base_url.trim_end_matches('/');
-        Self::new(format!("{base}/v1/basemap/{{z}}/{{x}}/{{y}}.mvt"), ua, 4, 16)
-            .map(|s| s.with_attribution("© Kartverket"))
+        Self::new(
+            format!("{base}/v1/basemap/{{z}}/{{x}}/{{y}}.mvt"),
+            ua,
+            4,
+            16,
+        )
+        .map(|s| s.with_attribution("© Kartverket"))
     }
 
     pub fn url_for(&self, tile: TileId) -> String {
@@ -627,10 +635,7 @@ mod tests {
         cache
             .write(&HttpVectorTileSource::tile_rel_path(tile), b"hello")
             .unwrap();
-        let read_back = std::fs::read(
-            dir.path().join("7").join("64").join("32"),
-        )
-        .unwrap();
+        let read_back = std::fs::read(dir.path().join("7").join("64").join("32")).unwrap();
         assert_eq!(&read_back, b"hello");
     }
 
@@ -683,7 +688,11 @@ mod tests {
 
         let r = source.request(tile).expect("cache hit must succeed");
         assert_eq!(r.bytes, b"png-bytes");
-        assert_eq!(r.format, RasterFormat::Png, "declared format re-emitted on a hit");
+        assert_eq!(
+            r.format,
+            RasterFormat::Png,
+            "declared format re-emitted on a hit"
+        );
     }
 
     #[test]
@@ -691,13 +700,15 @@ mod tests {
         // Directory-compatible on purpose: `<z>/<x>/<y>` for both, so a
         // provider chain can address either store uniformly.
         let tile = TileId::new(7, 64, 32);
-        assert_eq!(tile_rel_path(tile), HttpVectorTileSource::tile_rel_path(tile));
+        assert_eq!(
+            tile_rel_path(tile),
+            HttpVectorTileSource::tile_rel_path(tile)
+        );
     }
 
     #[test]
     fn raster_cache_dir_is_none_until_configured() {
-        let source =
-            HttpRasterSource::new("u", "a", 0, 22, RasterFormat::Png).unwrap();
+        let source = HttpRasterSource::new("u", "a", 0, 22, RasterFormat::Png).unwrap();
         assert!(source.cache_dir().is_none());
         let dir = TempDir::new().unwrap();
         let cached = source.with_cache_dir(dir.path());

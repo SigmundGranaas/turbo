@@ -178,7 +178,12 @@ fn drain_pending(
                             .expect("terrain decode")
                             .to_rgba8();
                         let (w, h) = img.dimensions();
-                        map.ingest_terrain_tile(tile, img.as_raw(), w, h);
+                        // The DEM codec runs at ingest (plan D3): raw
+                        // Terrain-RGB → real heights + coverage.
+                        let dem =
+                            turbomap_core::decode_dem_rgba(img.as_raw(), w, h, src.dem_encoding())
+                                .expect("dem decode");
+                        map.ingest_terrain_tile(tile, &dem);
                     }
                 }
                 // No vector layers in Phase 0 traces. Hillshade no longer

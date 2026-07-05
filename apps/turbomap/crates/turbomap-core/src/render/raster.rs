@@ -34,8 +34,9 @@ struct Globals {
     /// Vertical exaggeration from `TerrainOptions`. Folded with
     /// `meters_to_world` so a single shader uniform suffices.
     exaggeration: f32,
-    /// 0 = Mapbox-Terrain-RGB, 1 = Terrarium. Matches `DemEncoding`.
-    encoding: u32,
+    /// Spare slot (held the DEM-encoding tag until plan D3 moved the decode
+    /// to ingest; kept so the std140 layout is untouched).
+    _pad0: u32,
     // --- Sun shading + aerial perspective (3D terrain) ---
     // Layout is std140-compatible: every `vec3` starts on a 16-byte
     // boundary with the trailing scalar packed into its 4th lane.
@@ -159,8 +160,6 @@ pub(crate) struct TerrainConfig {
     /// latitude. Zero → no displacement.
     pub meters_to_world: f32,
     pub exaggeration: f32,
-    /// 0 = MapboxRgb, 1 = Terrarium. Matches `DemEncoding`.
-    pub encoding: u32,
     /// Unit direction towards the sun (world frame x=E, y=S, z=up).
     pub sun_dir: [f32; 3],
     /// Ambient floor in [0,1] for self-shadowed slopes.
@@ -208,7 +207,6 @@ impl Default for TerrainConfig {
         Self {
             meters_to_world: 0.0,
             exaggeration: 1.0,
-            encoding: 0,
             sun_dir: [0.0, 0.0, 1.0],
             ambient: 0.35,
             haze_color: [0.74, 0.80, 0.88],
@@ -634,7 +632,7 @@ impl RasterPipeline {
                     0.0
                 },
                 exaggeration: terrain_options.exaggeration,
-                encoding: terrain_options.encoding,
+                _pad0: 0,
                 sun_dir: terrain_options.sun_dir,
                 ambient: terrain_options.ambient,
                 haze_color: terrain_options.haze_color,

@@ -23,7 +23,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use turbomap_core::{TileId, VectorStyle};
+use turbomap_core::{dem::DecodedDem, DemEncoding, TileId, VectorStyle};
 use web_time::Instant;
 
 /// Per-frame wall-time budgets for applying decoded tiles (GPU upload +
@@ -54,6 +54,10 @@ pub(crate) struct DecodeJob {
     /// style value and the apply side must reject a result whose epoch no
     /// longer matches the layer (repaint/rebuild raced the decode).
     pub style: Option<(Arc<VectorStyle>, u64)>,
+    /// Terrain jobs only: the source's declared RGB→metres encoding. This
+    /// is where the DEM codec runs (plan D3) — the worker decodes to real
+    /// heights and the render path never sees an encoding.
+    pub dem_encoding: Option<DemEncoding>,
 }
 
 /// A decoded, ready-to-apply tile.
@@ -63,22 +67,52 @@ pub(crate) struct Decoded {
 }
 
 pub(crate) enum DecodedKind {
-    /// Raster/DEM RGBA ready for GPU upload.
+    /// Raster RGBA ready for GPU upload.
     Image { rgba: Vec<u8>, w: u32, h: u32 },
+    /// A DEM tile decoded to real heights + coverage (the codec ran here,
+    /// off the render thread — the caches only ever see metres).
+    Dem { dem: DecodedDem },
     /// A tessellated vector tile + the style epoch it was built against.
-    Vector { out: turbomap_core::tessellate::TessellationOutput, epoch: u64 },
+    Vector {
+        out: turbomap_core::tessellate::TessellationOutput,
+        epoch: u64,
+    },
 }
 
 fn decode(job: DecodeJob) -> (QueueKey, Option<Decoded>) {
-    let DecodeJob { key, bytes, style } = job;
+    let DecodeJob {
+        key,
+        bytes,
+        style,
+        dem_encoding,
+    } = job;
     match &key {
-        QueueKey::Raster { .. } | QueueKey::Terrain { .. } => {
+        QueueKey::Raster { .. } => match image::load_from_memory(&bytes) {
+            Ok(img) => {
+                let img = img.to_rgba8();
+                let (w, h) = img.dimensions();
+                let kind = DecodedKind::Image {
+                    rgba: img.into_raw(),
+                    w,
+                    h,
+                };
+                (key.clone(), Some(Decoded { key, kind }))
+            }
+            Err(_) => (key, None),
+        },
+        QueueKey::Terrain { .. } => {
+            let enc = dem_encoding.unwrap_or(DemEncoding::MapboxRgb);
             match image::load_from_memory(&bytes) {
                 Ok(img) => {
                     let img = img.to_rgba8();
                     let (w, h) = img.dimensions();
-                    let kind = DecodedKind::Image { rgba: img.into_raw(), w, h };
-                    (key.clone(), Some(Decoded { key, kind }))
+                    match turbomap_core::decode_dem_rgba(img.as_raw(), w, h, enc) {
+                        Some(dem) => {
+                            let kind = DecodedKind::Dem { dem };
+                            (key.clone(), Some(Decoded { key, kind }))
+                        }
+                        None => (key, None),
+                    }
                 }
                 Err(_) => (key, None),
             }
@@ -134,7 +168,11 @@ impl DecodeQueue {
                 })
                 .expect("spawn decode worker");
         }
-        Self { jobs, results, in_flight: HashSet::new() }
+        Self {
+            jobs,
+            results,
+            in_flight: HashSet::new(),
+        }
     }
 
     /// Accept bytes for decode. Returns `false` (and drops the bytes) if
@@ -145,13 +183,20 @@ impl DecodeQueue {
         key: QueueKey,
         bytes: Vec<u8>,
         style: Option<(Arc<VectorStyle>, u64)>,
+        dem_encoding: Option<DemEncoding>,
     ) -> bool {
         if !self.in_flight.insert(key.clone()) {
             return false;
         }
         // Send can only fail if workers died (poisoned process state);
         // clear the dedup entry so the tile can be retried.
-        if self.jobs.send(DecodeJob { key: key.clone(), bytes, style }).is_err() {
+        let job = DecodeJob {
+            key: key.clone(),
+            bytes,
+            style,
+            dem_encoding,
+        };
+        if self.jobs.send(job).is_err() {
             self.in_flight.remove(&key);
             return false;
         }
@@ -199,7 +244,10 @@ pub(crate) struct DecodeQueue {
 #[cfg(target_arch = "wasm32")]
 impl DecodeQueue {
     pub fn new() -> Self {
-        Self { jobs: std::collections::VecDeque::new(), in_flight: HashSet::new() }
+        Self {
+            jobs: std::collections::VecDeque::new(),
+            in_flight: HashSet::new(),
+        }
     }
 
     pub fn enqueue(
@@ -207,11 +255,17 @@ impl DecodeQueue {
         key: QueueKey,
         bytes: Vec<u8>,
         style: Option<(Arc<VectorStyle>, u64)>,
+        dem_encoding: Option<DemEncoding>,
     ) -> bool {
         if !self.in_flight.insert(key.clone()) {
             return false;
         }
-        self.jobs.push_back(DecodeJob { key, bytes, style });
+        self.jobs.push_back(DecodeJob {
+            key,
+            bytes,
+            style,
+            dem_encoding,
+        });
         true
     }
 
@@ -257,37 +311,55 @@ mod tests {
     #[test]
     fn decodes_off_thread_and_applies_within_budget() {
         let mut q = DecodeQueue::new();
-        let key = QueueKey::Terrain { tile: TileId::new(3, 1, 2) };
-        assert!(q.enqueue(key.clone(), png_1x1(), None));
+        let key = QueueKey::Terrain {
+            tile: TileId::new(3, 1, 2),
+        };
+        assert!(q.enqueue(key.clone(), png_1x1(), None, None));
         assert_eq!(q.backlog(), 1);
         // The same key is deduped while in flight.
-        assert!(!q.enqueue(key, png_1x1(), None));
+        assert!(!q.enqueue(key, png_1x1(), None, None));
 
+        // Terrain jobs run the DEM codec in the worker (plan D3): the apply
+        // side receives real heights, not RGBA. Pixel (1,2,3) in Mapbox
+        // Terrain-RGB is (1·65536 + 2·256 + 3)·0.1 − 10000 = −3394.9 m.
         let mut applied = Vec::new();
         let deadline = Instant::now() + Duration::from_secs(5);
         while applied.is_empty() && Instant::now() < deadline {
             q.drain(Duration::from_millis(4), |d| {
-                if let DecodedKind::Image { rgba, w, h } = d.kind {
-                    applied.push((w, h, rgba));
+                if let DecodedKind::Dem { dem } = d.kind {
+                    applied.push(dem);
                 }
             });
         }
-        assert_eq!(applied, vec![(1, 1, vec![1, 2, 3, 255])]);
+        assert_eq!(applied.len(), 1);
+        let dem = &applied[0];
+        assert_eq!((dem.width, dem.height), (1, 1));
+        assert!(
+            (dem.heights_m[0] - (-3394.9)).abs() < 0.05,
+            "got {}",
+            dem.heights_m[0]
+        );
+        assert_eq!(dem.coverage[0], 1);
         assert_eq!(q.backlog(), 0, "apply must clear the dedup entry");
     }
 
     #[test]
     fn a_decode_failure_clears_the_key_for_retry() {
         let mut q = DecodeQueue::new();
-        let key = QueueKey::Raster { layer_id: "base".into(), tile: TileId::new(1, 0, 0) };
-        assert!(q.enqueue(key.clone(), b"not an image".to_vec(), None));
+        let key = QueueKey::Raster {
+            layer_id: "base".into(),
+            tile: TileId::new(1, 0, 0),
+        };
+        assert!(q.enqueue(key.clone(), b"not an image".to_vec(), None, None));
         let deadline = Instant::now() + Duration::from_secs(5);
         while q.backlog() > 0 && Instant::now() < deadline {
-            q.drain(Duration::from_millis(4), |_| panic!("garbage must not apply"));
+            q.drain(Duration::from_millis(4), |_| {
+                panic!("garbage must not apply")
+            });
         }
         assert_eq!(q.backlog(), 0);
         // Retriable: the key is free again.
-        assert!(q.enqueue(key, png_1x1(), None));
+        assert!(q.enqueue(key, png_1x1(), None, None));
     }
 
     #[test]
@@ -299,11 +371,19 @@ mod tests {
             .finish()
             .finish();
         let mut q = DecodeQueue::new();
-        let key = QueueKey::Vector { layer_id: "roads-l".into(), tile: TileId::new(3, 1, 2) };
+        let key = QueueKey::Vector {
+            layer_id: "roads-l".into(),
+            tile: TileId::new(3, 1, 2),
+        };
         // An empty style tessellates to an empty mesh — the point here is
         // the off-thread MVT decode + tessellate round-trip and the epoch
         // passthrough, not styling.
-        assert!(q.enqueue(key, bytes, Some((Arc::new(VectorStyle::default()), 7))));
+        assert!(q.enqueue(
+            key,
+            bytes,
+            Some((Arc::new(VectorStyle::default()), 7)),
+            None
+        ));
         let mut got = None;
         let deadline = Instant::now() + Duration::from_secs(5);
         while got.is_none() && Instant::now() < deadline {
