@@ -29,6 +29,7 @@ use crate::{
     render::{
         ao::{AoField, AoKey},
         cache::CacheStats,
+        custom::{CustomFrameCtx, CustomLayer, CustomLayerInit, CustomPhase},
         floor::FloorPipeline,
         frame::{RenderFrame, TerrainFrameInputs},
         gpu_timestamps::GpuTimestamps,
@@ -303,6 +304,7 @@ enum LayerEntry {
     Raster(Box<RasterLayer>),
     Vector(Box<VectorLayer>),
     Hillshade(Box<HillshadeLayer>),
+    Custom(Box<CustomLayerHolder>),
 }
 
 /// Per-layer output of the render prep phase (Phase A). Tagged with
@@ -312,6 +314,9 @@ enum PreparedLayer {
     Raster(PreparedRaster),
     Vector(PreparedVector),
     Hillshade(PreparedHillshade),
+    /// Prepared state lives inside the `CustomLayer` impl (its `prepare`
+    /// already ran); this tag just keeps the layer in the draw pairing.
+    Custom,
 }
 
 struct RasterLayer {
@@ -353,6 +358,16 @@ struct HillshadeLayer {
     visible: bool,
 }
 
+/// A host/engine-supplied custom render layer in the stack (plan D4). The
+/// boxed impl owns its whole GPU state; `kind` is the registry name the
+/// scene IR bound it by (surfaced in inspect).
+struct CustomLayerHolder {
+    id: String,
+    kind: String,
+    layer: Box<dyn CustomLayer>,
+    visible: bool,
+}
+
 /// The ordered stack of render layers (raster basemaps, vector overlays,
 /// hillshade), bottom-to-top. Owns the `Vec<LayerEntry>` plus the by-id query
 /// and mutation logic that used to live as a dozen scanning loops on `Map`.
@@ -388,6 +403,7 @@ impl LayerStack {
             LayerEntry::Raster(r) => &r.id,
             LayerEntry::Vector(v) => &v.id,
             LayerEntry::Hillshade(h) => &h.id,
+            LayerEntry::Custom(c) => &c.id,
         }
     }
 
@@ -436,6 +452,7 @@ impl LayerStack {
             LayerEntry::Raster(r) if r.id == id => Some(r.visible),
             LayerEntry::Vector(v) if v.id == id => Some(v.visible),
             LayerEntry::Hillshade(h) if h.id == id => Some(h.visible),
+            LayerEntry::Custom(c) if c.id == id => Some(c.visible),
             _ => None,
         })
     }
@@ -446,6 +463,7 @@ impl LayerStack {
                 LayerEntry::Raster(r) => (&r.id, &mut r.visible),
                 LayerEntry::Vector(v) => (&v.id, &mut v.visible),
                 LayerEntry::Hillshade(h) => (&h.id, &mut h.visible),
+                LayerEntry::Custom(c) => (&c.id, &mut c.visible),
             };
             if lid == id {
                 *lvis = visible;
@@ -461,6 +479,9 @@ impl LayerStack {
                 LayerEntry::Raster(r) => (&r.id, &mut r.fade_in_secs),
                 LayerEntry::Vector(v) => (&v.id, &mut v.fade_in_secs),
                 LayerEntry::Hillshade(h) => (&h.id, &mut h.fade_in_secs),
+                // Custom layers own their look entirely; fade-in is a
+                // tile-layer concept and a silent no-op here.
+                LayerEntry::Custom(_) => continue,
             };
             if lid == id {
                 *fade = secs.max(0.0);
@@ -490,6 +511,7 @@ impl LayerStack {
             LayerEntry::Raster(r) => r.visible,
             LayerEntry::Vector(v) => v.visible,
             LayerEntry::Hillshade(h) => h.visible,
+            LayerEntry::Custom(c) => c.visible,
         })
     }
 
@@ -502,7 +524,7 @@ impl LayerStack {
             .filter_map(|l| match l {
                 LayerEntry::Raster(r) => Some((r.source.min_zoom(), r.source.max_zoom())),
                 LayerEntry::Vector(v) => Some((v.source.min_zoom(), v.source.max_zoom())),
-                LayerEntry::Hillshade(_) => None,
+                LayerEntry::Hillshade(_) | LayerEntry::Custom(_) => None,
             })
             .collect()
     }
@@ -514,7 +536,7 @@ impl LayerStack {
         self.entries.iter().find_map(|l| match l {
             LayerEntry::Raster(r) => Some(&r.scene),
             LayerEntry::Vector(v) => Some(&v.scene),
-            LayerEntry::Hillshade(_) => None,
+            LayerEntry::Hillshade(_) | LayerEntry::Custom(_) => None,
         })
     }
 }
@@ -636,7 +658,7 @@ impl Subsystem for BasemapSubsystem {
         "basemap"
     }
     fn passes(&self) -> &'static [&'static str] {
-        &["layer"]
+        &["layer", "custom"]
     }
     fn budgets(&self) -> BudgetReport {
         let mut r = BudgetReport::default();
@@ -654,8 +676,10 @@ impl Subsystem for BasemapSubsystem {
                     r.items += e.cache.len();
                 }
                 // Hillshade reads the shared terrain cache — counted by the
-                // terrain subsystem, not double-counted here.
-                LayerEntry::Hillshade(_) => {}
+                // terrain subsystem, not double-counted here. Custom layers
+                // own opaque GPU state; byte accounting arrives when the
+                // trait grows a budget hook.
+                LayerEntry::Hillshade(_) | LayerEntry::Custom(_) => {}
             }
         }
         r
@@ -669,9 +693,20 @@ impl Subsystem for BasemapSubsystem {
                     LayerEntry::Raster(e) => (&e.id, "raster", e.visible),
                     LayerEntry::Vector(e) => (&e.id, "vector", e.visible),
                     LayerEntry::Hillshade(e) => (&e.id, "hillshade", e.visible),
+                    LayerEntry::Custom(e) => (&e.id, "custom", e.visible),
+                };
+                // Custom layers also report the registry kind they were
+                // bound by — "which contribution is this" is exactly what
+                // an inspect reader wants to know.
+                let bound = match l {
+                    LayerEntry::Custom(e) => format!(
+                        ",\"bound_kind\":\"{}\"",
+                        crate::subsystem::json_escape(&e.kind)
+                    ),
+                    _ => String::new(),
                 };
                 format!(
-                    "{{\"id\":\"{}\",\"kind\":\"{kind}\",\"visible\":{visible}}}",
+                    "{{\"id\":\"{}\",\"kind\":\"{kind}\"{bound},\"visible\":{visible}}}",
                     crate::subsystem::json_escape(id)
                 )
             })
@@ -1000,6 +1035,10 @@ pub struct Map {
     /// config each render to drift the procedural haze (so it "rolls in" and
     /// its patchiness moves over time). Animates while frames are produced.
     start: Instant,
+    /// Pins the frame's animation clock (haze drift, custom-layer time) to a
+    /// fixed value — deterministic goldens and, later, E2's replay gate
+    /// ("same (fields, time, seed) ⇒ identical frame"). `None` = wall clock.
+    time_override: Option<f32>,
     /// Camera-eye world position at the previous `pending_tiles()` call — the
     /// finite-difference travel direction that feeds the priority score's
     /// motion term (stream WHERE WE'RE HEADING). `None` until the first call;
@@ -1208,6 +1247,7 @@ impl Map {
             atmosphere,
             last_frame_metrics: FrameMetrics::default(),
             start: Instant::now(),
+            time_override: None,
             last_priority_eye: std::cell::Cell::new(None),
             // Dual-write phase: effectively-unbounded capacity so the table
             // observes without interfering; the real governor activates when
@@ -1749,6 +1789,46 @@ impl Map {
             })));
     }
 
+    /// Everything a [`CustomLayer`] needs to build pipelines compatible
+    /// with the frame's single MSAA pass — hand this to the layer factory
+    /// before [`Map::add_custom_layer`].
+    pub fn custom_layer_init(&self) -> CustomLayerInit {
+        CustomLayerInit {
+            device: self.device.clone(),
+            queue: self.queue.clone(),
+            color_format: self.surface_format,
+            depth_format: crate::render::DEPTH_FORMAT,
+            sample_count: crate::render::MSAA_SAMPLES,
+        }
+    }
+
+    /// Append a custom render layer (plan D4): a host-supplied
+    /// [`CustomLayer`] joins the frame's MSAA pass in its declared phase as
+    /// the graph node `custom:<id>`, in stack order among the other layers.
+    /// `kind` is the registry name it was bound by (surfaced in inspect).
+    pub fn add_custom_layer(
+        &mut self,
+        id: impl Into<String>,
+        kind: impl Into<String>,
+        layer: Box<dyn CustomLayer>,
+    ) {
+        self.basemap
+            .layers
+            .push(LayerEntry::Custom(Box::new(CustomLayerHolder {
+                id: id.into(),
+                kind: kind.into(),
+                layer,
+                visible: true,
+            })));
+    }
+
+    /// Pin the frame's animation clock (haze drift, custom-layer `time_s`)
+    /// to a fixed value; `None` returns to the wall clock. Deterministic
+    /// rendering for goldens/replay.
+    pub fn set_time_override(&mut self, secs: Option<f32>) {
+        self.time_override = secs;
+    }
+
     pub fn add_vector_layer(
         &mut self,
         id: impl Into<String>,
@@ -2127,6 +2207,10 @@ impl Map {
             LayerEntry::Raster(r) => r.pipeline.has_active_fade(r.fade_in_secs),
             LayerEntry::Vector(v) => v.cache.any_younger_than(v.fade_in_secs),
             LayerEntry::Hillshade(_) => false,
+            // A custom layer animates on its own clock; hosts that want
+            // continuous animation drive frames themselves (same contract
+            // as the cloud overlay until E2 lands sim-driven redraws).
+            LayerEntry::Custom(_) => false,
         })
     }
 
@@ -2208,8 +2292,9 @@ impl Map {
                     v.scene.set_viewport_px(self.viewport_px);
                 }
                 // Hillshade no longer owns a scene — it iterates the
-                // shared terrain scene at render time.
-                LayerEntry::Hillshade(_) => {}
+                // shared terrain scene at render time. Custom layers get
+                // the camera per frame via `CustomFrameCtx`.
+                LayerEntry::Hillshade(_) | LayerEntry::Custom(_) => {}
             }
         }
         if let Some(t) = self.terrain.data.as_mut() {
@@ -2599,7 +2684,7 @@ impl Map {
                     LayerEntry::Vector(v) => {
                         want_scene(&mut lc, &mut wanted, Some(&v.id), &v.scene)
                     }
-                    LayerEntry::Hillshade(_) => {}
+                    LayerEntry::Hillshade(_) | LayerEntry::Custom(_) => {}
                 }
             }
             if let Some(t) = self.terrain.data.as_ref() {
@@ -3217,6 +3302,21 @@ impl Map {
         reads: &[Res::HeightField, Res::AoField],
         writes: &[Res::ColorMsaa, Res::Depth],
     };
+    /// Custom layers (plan D4), one node per layer (`custom:<id>`), in the
+    /// declared phase. Two descriptors of the same kind so mask-by-name
+    /// (`custom`) covers both phases.
+    const PASS_CUSTOM_GROUND: PassDesc = PassDesc {
+        name: "custom",
+        phase: FramePhase::GroundMsaa,
+        reads: &[],
+        writes: &[Res::ColorMsaa, Res::Depth],
+    };
+    const PASS_CUSTOM_OVERLAY: PassDesc = PassDesc {
+        name: "custom",
+        phase: FramePhase::OverlayMsaa,
+        reads: &[],
+        writes: &[Res::ColorMsaa],
+    };
     const PASS_ROUTE_TUBES: PassDesc = PassDesc {
         name: "route-tubes",
         phase: FramePhase::GroundMsaa,
@@ -3327,7 +3427,10 @@ impl Map {
         );
         // Stamp the renderer wall clock so the procedural low haze drifts ("rolls
         // in") and its patchiness moves over time.
-        frame.raster_terrain_cfg.time = self.start.elapsed().as_secs_f32();
+        let frame_time_s = self
+            .time_override
+            .unwrap_or_else(|| self.start.elapsed().as_secs_f32());
+        frame.raster_terrain_cfg.time = frame_time_s;
         // Per-basemap brightness lift (host sets it from the active layer, e.g.
         // satellite). Only takes effect on the 3D sun-lit path (gated in raster).
         frame.raster_terrain_cfg.basemap_gain = self.atmosphere.basemap_gain;
@@ -3410,6 +3513,22 @@ impl Map {
         // semantics (per-layer label collision sets).
         let mut prepared_text: Vec<PreparedText> = Vec::new();
         let mut prepared_icons: Vec<PreparedIcons> = Vec::new();
+        // Per-frame context for custom layers (plan D4): the same RTC frame
+        // the built-in ground pipelines use, plus the (overridable) clock.
+        let custom_ctx = {
+            let cam = &self.cam.camera;
+            let origin = cam.center.to_world();
+            CustomFrameCtx {
+                view_proj: cam.view_projection_matrix_rtc(origin, self.viewport_px),
+                origin: (origin.x, origin.y),
+                viewport_px: self.viewport_px,
+                pixels_per_world_unit: cam.pixels_per_world_unit(),
+                zoom: cam.zoom,
+                pitch_deg: cam.pitch_deg,
+                bearing_deg: cam.bearing_deg,
+                time_s: frame_time_s,
+            }
+        };
         self.symbols.text.begin_frame();
         self.symbols.icons.begin_frame();
         for (i, layer) in self.basemap.layers.iter_mut().enumerate() {
@@ -3473,6 +3592,10 @@ impl Map {
                         );
                         prepared_layers.push((i, PreparedLayer::Hillshade(p)));
                     }
+                }
+                LayerEntry::Custom(c) if c.visible => {
+                    c.layer.prepare(&custom_ctx);
+                    prepared_layers.push((i, PreparedLayer::Custom));
                 }
                 _ => {}
             }
@@ -3578,34 +3701,44 @@ impl Map {
                 });
             }
             for (i, prepared) in prepared_layers {
-                let id = match &layers[i] {
-                    LayerEntry::Raster(r) => r.id.clone(),
-                    LayerEntry::Vector(v) => v.id.clone(),
-                    LayerEntry::Hillshade(h) => h.id.clone(),
+                // Tile layers are `layer:<id>` nodes; custom layers get their
+                // own pass kind (`custom:<id>`) in their declared phase.
+                let (desc, id) = match &layers[i] {
+                    LayerEntry::Raster(r) => (&Self::PASS_LAYER, r.id.clone()),
+                    LayerEntry::Vector(v) => (&Self::PASS_LAYER, v.id.clone()),
+                    LayerEntry::Hillshade(h) => (&Self::PASS_LAYER, h.id.clone()),
+                    LayerEntry::Custom(c) => (
+                        match c.layer.phase() {
+                            CustomPhase::Ground => &Self::PASS_CUSTOM_GROUND,
+                            CustomPhase::Overlay => &Self::PASS_CUSTOM_OVERLAY,
+                        },
+                        c.id.clone(),
+                    ),
                 };
-                draws.add(&Self::PASS_LAYER, Some(id), move |pass| {
-                    match (&layers[i], &prepared) {
-                        (LayerEntry::Raster(r), PreparedLayer::Raster(p)) => {
-                            r.pipeline.draw(
-                                p,
-                                &r.cache,
-                                terrain_cache,
-                                placeholder_dem,
-                                shadow_bg,
-                                pass,
-                            );
-                        }
-                        (LayerEntry::Vector(v), PreparedLayer::Vector(p)) => {
-                            v.pipeline
-                                .draw(p, &v.cache, terrain_cache, placeholder_dem, pass);
-                        }
-                        (LayerEntry::Hillshade(h), PreparedLayer::Hillshade(p)) => {
-                            if let Some(tc) = terrain_cache {
-                                h.pipeline.draw(p, tc, pass);
-                            }
-                        }
-                        _ => unreachable!("prepared layer kind mismatch"),
+                draws.add(desc, Some(id), move |pass| match (&layers[i], &prepared) {
+                    (LayerEntry::Raster(r), PreparedLayer::Raster(p)) => {
+                        r.pipeline.draw(
+                            p,
+                            &r.cache,
+                            terrain_cache,
+                            placeholder_dem,
+                            shadow_bg,
+                            pass,
+                        );
                     }
+                    (LayerEntry::Vector(v), PreparedLayer::Vector(p)) => {
+                        v.pipeline
+                            .draw(p, &v.cache, terrain_cache, placeholder_dem, pass);
+                    }
+                    (LayerEntry::Hillshade(h), PreparedLayer::Hillshade(p)) => {
+                        if let Some(tc) = terrain_cache {
+                            h.pipeline.draw(p, tc, pass);
+                        }
+                    }
+                    (LayerEntry::Custom(c), PreparedLayer::Custom) => {
+                        c.layer.draw(pass);
+                    }
+                    _ => unreachable!("prepared layer kind mismatch"),
                 });
             }
             draws.add(&Self::PASS_ROUTE_TUBES, None, move |pass| {
@@ -3828,6 +3961,13 @@ impl Map {
                             .map(|t| t.cache.stats())
                             .unwrap_or_default(),
                     },
+                    LayerEntry::Custom(c) => LayerMetrics {
+                        id: c.id.clone(),
+                        kind: LayerKind::Custom,
+                        // Custom layers own opaque GPU state — no shared
+                        // cache to report.
+                        cache: CacheStats::default(),
+                    },
                 })
                 .collect(),
         };
@@ -3858,8 +3998,8 @@ impl Map {
                     h += v.scene.phase_histogram(&res);
                 }
                 // Hillshade owns no scene/cache — it reads the shared terrain,
-                // which is counted once below.
-                LayerEntry::Hillshade(_) => {}
+                // which is counted once below. Custom layers stream nothing.
+                LayerEntry::Hillshade(_) | LayerEntry::Custom(_) => {}
             }
         }
         if let Some(t) = &self.terrain.data {
@@ -3890,6 +4030,7 @@ pub enum LayerKind {
     Raster,
     Vector,
     Hillshade,
+    Custom,
 }
 
 #[derive(Debug, Clone)]

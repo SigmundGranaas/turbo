@@ -20,6 +20,7 @@ turbomap-core = { path = "../turbomap-core" }
 turbomap-world = { path = "../turbomap-world" }
 turbomap-scene = { path = "../turbomap-scene" }
 wgpu.workspace = true
+bytemuck.workspace = true
 # jpeg on top of the workspace's png: external basemaps (Google satellite,
 # Esri imagery) serve JPEG; without it `ingest_raster_encoded` fails to decode
 # and the host re-fetches forever. png+jpeg covers every base layer we offer.

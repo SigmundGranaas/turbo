@@ -13,12 +13,14 @@
 //! the golden tests and the `inspect` dev tool exercise it.
 
 pub(crate) mod codec;
+pub mod custom_layers;
 pub mod engine;
 pub mod geojson;
 pub mod host_resolver;
 pub mod resolver;
 
-pub use engine::{DrainStats, TurbomapEngine};
+pub use custom_layers::FlowFieldLayer;
+pub use engine::{CustomLayerFactory, DrainStats, TurbomapEngine};
 pub use geojson::GeoJsonVectorSource;
 pub use host_resolver::HostDrivenResolver;
 pub use resolver::{ResolvedSource, SourceResolver};

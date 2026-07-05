@@ -43,6 +43,7 @@ pub use map::{
     PublicTerrainOptions as TerrainOptions, RadarFrame,
 };
 pub use projection::{reproject, Crs};
+pub use render::custom::{CustomFrameCtx, CustomLayer, CustomLayerInit, CustomPhase};
 pub use render::graph::{FrameGraphReport, FramePhase, PassTiming};
 pub use scene::Scene;
 pub use source::{RasterFormat, RasterTile, TileSource};

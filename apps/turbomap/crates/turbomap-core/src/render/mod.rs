@@ -8,6 +8,7 @@
 
 pub(crate) mod ao;
 pub(crate) mod cache;
+pub mod custom;
 pub(crate) mod floor;
 pub(crate) mod frame;
 pub(crate) mod gpu_timestamps;

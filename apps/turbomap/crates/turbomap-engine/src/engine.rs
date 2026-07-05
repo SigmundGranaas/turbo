@@ -12,10 +12,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use turbomap_core::{
-    Camera, Color as CoreColor, Filter as CoreFilter, HillshadeStyle, HitResult,
-    LatLng as CoreLatLng, Map, MapError, MapOptions, Marker, MarkerId, Paint as CorePaint,
-    PendingTile, RadarFrame, Rule as CoreRule, TerrainOptions, TileId, TileSource, VectorStyle,
-    VectorTileSource, ZoomBounds,
+    Camera, Color as CoreColor, CustomLayer, CustomLayerInit, Filter as CoreFilter, HillshadeStyle,
+    HitResult, LatLng as CoreLatLng, Map, MapError, MapOptions, Marker, MarkerId,
+    Paint as CorePaint, PendingTile, RadarFrame, Rule as CoreRule, TerrainOptions, TileId,
+    TileSource, VectorStyle, VectorTileSource, ZoomBounds,
 };
 use turbomap_scene::{
     diff, CameraState, Capabilities, Color, Filter, FilterValue, Hit, LatLng, Layer, MapEngine,
@@ -74,7 +74,15 @@ pub struct TurbomapEngine {
     /// The Field2D source id the scene-declared cloud overlay consumes
     /// (plan C2) — [`Self::ingest_field`] routes frames only for it.
     cloud_field_source: Option<String>,
+    /// Custom-layer factories by scene `kind` (plan D4). A scene
+    /// `Layer::Custom { kind }` binds to the registered factory; unknown
+    /// kinds degrade to the unsupported report. The `flow-field` demo kind
+    /// is registered by default.
+    custom_layer_kinds: HashMap<String, CustomLayerFactory>,
 }
+
+/// Builds a [`CustomLayer`] against the map's MSAA-pass parameters.
+pub type CustomLayerFactory = Box<dyn Fn(&CustomLayerInit) -> Box<dyn CustomLayer> + Send + Sync>;
 
 impl TurbomapEngine {
     /// Build an engine over a host-provided GPU context. `resolver` maps
@@ -99,7 +107,7 @@ impl TurbomapEngine {
             to_core_camera(camera),
             options,
         )?;
-        Ok(Self {
+        let mut engine = Self {
             map,
             scene: Scene::new(),
             resolver,
@@ -114,7 +122,34 @@ impl TurbomapEngine {
             decode_queue: crate::codec::DecodeQueue::new(),
             vector_style_epochs: HashMap::new(),
             cloud_field_source: None,
-        })
+            custom_layer_kinds: HashMap::new(),
+        };
+        // The built-in demo/diagnostic custom layer — registered by default
+        // so every host (desktop, Android, web) can declare
+        // `Layer::Custom { kind: "flow-field" }` with zero host code, which
+        // is the D4 portability gate.
+        engine.register_custom_layer_kind("flow-field", |init| {
+            Box::new(crate::custom_layers::FlowFieldLayer::new(init))
+        });
+        Ok(engine)
+    }
+
+    /// Register (or replace) a custom-layer `kind`: scenes declaring
+    /// `Layer::Custom {{ kind }}` will bind to `factory`. Takes effect at
+    /// the next `apply`.
+    pub fn register_custom_layer_kind(
+        &mut self,
+        kind: impl Into<String>,
+        factory: impl Fn(&CustomLayerInit) -> Box<dyn CustomLayer> + Send + Sync + 'static,
+    ) {
+        self.custom_layer_kinds
+            .insert(kind.into(), Box::new(factory));
+    }
+
+    /// Pin the frame animation clock (haze drift, custom-layer time) for
+    /// deterministic rendering; `None` returns to the wall clock.
+    pub fn set_time_override(&mut self, secs: Option<f32>) {
+        self.map.set_time_override(secs);
     }
 
     /// Bring the core `Map` in line with the new scene (`self.scene`),
@@ -180,7 +215,7 @@ impl TurbomapEngine {
         self.unsupported = new
             .layers
             .iter()
-            .filter(|l| !is_supportable(l, &new))
+            .filter(|l| !is_supportable(l, &new, &self.custom_layer_kinds))
             .map(|l| l.id().to_string())
             .collect();
     }
@@ -230,6 +265,14 @@ impl TurbomapEngine {
                             .add_hillshade_layer(id.clone(), HillshadeStyle::default());
                     }
                     self.terrain_source = Some(dem);
+                }
+            }
+            Layer::Custom { id, kind } => {
+                // Bind to the registered factory; unknown kinds fall through
+                // to the unsupported report (degrade, don't guess).
+                if let Some(factory) = self.custom_layer_kinds.get(kind.as_str()) {
+                    let layer = factory(&self.map.custom_layer_init());
+                    self.map.add_custom_layer(id.clone(), kind.clone(), layer);
                 }
             }
             Layer::Line {
@@ -1146,10 +1189,11 @@ impl MapEngine for TurbomapEngine {
 
     fn capabilities(&self) -> Capabilities {
         Capabilities {
-            // Honest until plan D4 makes `Layer::Custom` a real phase-bound
-            // render contribution: today the engine records custom layers
-            // as unsupported and draws nothing for them.
-            custom_layers: false,
+            // Real since plan D4: `Layer::Custom` binds to a registered
+            // factory and draws as a phase-bound node in the frame's MSAA
+            // pass (`custom:<id>`). Unknown kinds still degrade to the
+            // unsupported report rather than lying.
+            custom_layers: true,
             terrain: true,
             // TRUE (plan C3): `Match` paints compile to per-feature style
             // rules and zoom curves evaluate on the GPU — this backend does
@@ -1200,6 +1244,7 @@ fn positional_layers(scene: &Scene) -> Vec<Layer> {
                     | Layer::FillExtrusion { .. }
                     | Layer::Symbol { .. }
                     | Layer::Hillshade { .. }
+                    | Layer::Custom { .. }
             )
         })
         .cloned()
@@ -1229,7 +1274,11 @@ fn dirty_sources(old: &Scene, new: &Scene) -> std::collections::BTreeSet<String>
 /// Whether this backend can render a layer, by layer kind × source kind.
 /// Drives the inspect tool's `unsupported` report. A provider chain counts
 /// as its providers' (validated-uniform) kind — probe the first.
-fn is_supportable(layer: &Layer, scene: &Scene) -> bool {
+fn is_supportable(
+    layer: &Layer,
+    scene: &Scene,
+    custom_kinds: &HashMap<String, CustomLayerFactory>,
+) -> bool {
     let source_is = |want: fn(&SourceDef) -> bool| {
         layer
             .source()
@@ -1262,7 +1311,9 @@ fn is_supportable(layer: &Layer, scene: &Scene) -> bool {
             )
         }),
         Layer::Circle { .. } => source_is(|d| matches!(d, SourceDef::GeoJson { .. })),
-        Layer::Custom { .. } => false,
+        // Real since plan D4: supported iff a factory is registered for the
+        // declared kind.
+        Layer::Custom { kind, .. } => custom_kinds.contains_key(kind.as_str()),
     }
 }
 

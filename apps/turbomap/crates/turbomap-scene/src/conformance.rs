@@ -162,6 +162,40 @@ pub fn check_add_then_remove(engine: &mut dyn MapEngine) {
     );
 }
 
+/// `Layer::Custom` is an ordinary stack layer at the IR level (plan D4):
+/// applying a scene with one reports `Added`, removing it reports
+/// `Removed`, and a backend claiming `capabilities().custom_layers` must
+/// accept the apply without panicking — binding-or-degrading is the
+/// engine's business, but the CONTRACT semantics are backend-independent.
+pub fn check_custom_layer_roundtrip(engine: &mut dyn MapEngine) {
+    assert!(
+        engine.capabilities().custom_layers,
+        "custom layers are contract-real since plan D4 — a backend that \
+         cannot bind them must degrade per layer, not deny the capability"
+    );
+    let mut scene = raster_scene(&["base"]);
+    scene.layers.push(Layer::Custom {
+        id: "fx".to_string(),
+        kind: "flow-field".to_string(),
+    });
+    let added = engine.apply(scene);
+    assert!(
+        added
+            .layers
+            .iter()
+            .any(|c| matches!(c, LayerChange::Added { id, .. } if id == "fx")),
+        "adding a custom layer must report Added, got {added:?}"
+    );
+    let removed = engine.apply(raster_scene(&["base"]));
+    assert!(
+        removed
+            .layers
+            .iter()
+            .any(|c| matches!(c, LayerChange::Removed { id } if id == "fx")),
+        "removing a custom layer must report Removed, got {removed:?}"
+    );
+}
+
 /// Reordering layers is the minimal set of moves and nothing else.
 pub fn check_reorder_is_minimal(engine: &mut dyn MapEngine) {
     engine.apply(raster_scene(&["a", "b", "c"]));
@@ -314,6 +348,7 @@ pub fn run_all(factory: &dyn Fn() -> Box<dyn MapEngine>) {
     check_reapply_is_noop(&mut *factory());
     check_empty_scene_removes_all(&mut *factory());
     check_add_then_remove(&mut *factory());
+    check_custom_layer_roundtrip(&mut *factory());
     check_reorder_is_minimal(&mut *factory());
     check_repaint_is_update_only(&mut *factory());
     check_source_update_detected(&mut *factory());
