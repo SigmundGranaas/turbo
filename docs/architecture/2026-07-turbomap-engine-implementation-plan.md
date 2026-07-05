@@ -1207,3 +1207,17 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   is unavailable in this container). Kotlin is compile-unverified here
   (no Android SDK) — on-device agent to confirm, plus real-GPU visual
   checks: sun-mode scene rebuild, radar overlay via the scene, tubes.
+- _2026-07-05_: **Phase 6 planned — full adoption.** A host-side audit
+  found the inverse of the engine's completeness: the IR can express
+  almost everything the product does, and most hosts don't use it (web
+  content is DOM/SVG overlays; the desktop app never applies a Scene and
+  pushes clouds per frame through `map_mut()`; the sim harness keeps the
+  last hidden content verbs; Android offline duplicates the provider
+  chain host-side; hit-testing is missing from the two production
+  bindings; the C3 overlay-track exception still stands; the invariant
+  grep-gates and the full ladder are manual, and CI has never run on
+  this branch). The closure plan — P6.0 enforcement CI, P6.1 sim onto
+  the IR, P6.2 desktop as a Scene host, P6.3 web content plane, P6.4
+  hit-test bindings, P6.5 compositing honesty, P6.6 offline onto the
+  chain, using existing features only — is
+  `2026-07-turbomap-full-adoption-plan.md`.
