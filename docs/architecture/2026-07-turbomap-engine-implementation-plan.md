@@ -1147,3 +1147,22 @@ the bundle's max zoom; the A1 trace proves the provider chain order.
   the plan-driven fetch loop, and the iOS direction. Kotlin changes land
   compile-clean to the best of container ability (no Android SDK here) —
   flagged explicitly in commits for the device pass.
+- _2026-07-05_: **P5.1 landed + verified — one tile transport.** The
+  pull-push shim is deleted from every host boundary; the streaming plan
+  (B3.2's API) is the only transport. Android's JNI host mints a plan
+  per frame against host-granted lanes into a consume-once outbox
+  (`nativeTakeStreamingPlanJson`); the Kotlin reconcile loop is
+  transport-only — the host planner (`TileReconcilePlan.kt`) and the
+  queued-set Fetching approximation are deleted, with lanes + backoff
+  kept as a pure, JVM-tested admission gate that declines via
+  `report_fetch_cancelled` (the engine re-issues). Sim, golden trace,
+  scenario/snapshot harnesses and the ffi/omt integration tests all run
+  plan-driven. Deleted: engine/uniffi/wasm `pending_tiles` + records,
+  JNI `nativePendingTilesJson`, `DecodeQueue::contains` + the decode-echo
+  filter (impossible under plan semantics). `Map::pending_tiles` remains
+  only as `#[doc(hidden)] plan_start_preview` for the engine's
+  synchronous local pump; `Scene::pending_tiles` renamed
+  `missing_tiles` (visibility primitive, not transport). **Gates:** full
+  ladder green, every golden byte-stable, **8/8 sim gates on the plan
+  transport** (release, 665.9 s), wasm32 builds. Kotlin is
+  compile-unverified here (no Android SDK) — on-device agent to confirm.
