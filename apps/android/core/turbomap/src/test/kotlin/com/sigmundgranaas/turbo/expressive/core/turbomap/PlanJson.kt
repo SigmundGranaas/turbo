@@ -17,7 +17,7 @@ internal data class PlanStart(
 )
 
 private val START_RE =
-    Regex("""\{"id":(\d+),"kind":"([^"]+)","layer":"([^"]+)","z":(\d+),"x":(\d+),"y":(\d+)}""")
+    Regex("""\{"id":(\d+),"kind":"([^"]+)","layer":"([^"]+)","z":(\d+),"x":(\d+),"y":(\d+)\}""")
 
 /** All `start` entries in a plan JSON document (in priority order). */
 internal fun planStarts(planJson: String): List<PlanStart> =

@@ -722,41 +722,56 @@ internal class TurbomapSurfaceController {
         var started = 0
         for (p in 0 until plans.length()) {
             val plan = plans.optJSONObject(p) ?: continue
-            val cancels = plan.optJSONArray("cancel")
-            if (cancels != null) {
-                for (i in 0 until cancels.length()) {
-                    val id = cancels.optLong(i, -1L)
-                    if (id < 0) continue
-                    fetchIds.remove(id)?.let { key -> inFlight.remove(key)?.cancel() }
-                    NativeSurfaceMap.nativeReportFetchCancelled(handle, id)
-                }
-            }
-            val starts = plan.optJSONArray("start")
-            if (starts != null) {
-                for (i in 0 until starts.length()) {
-                    val t = parsePlanStart(starts.optJSONObject(i)) ?: continue
-                    val lane = laneOf(t.key)
-                    val admitted = admitFetch(
-                        key = t.key,
-                        laneUsed = inFlight.keys.count { laneOf(it) == lane },
-                        laneCap = laneCap(lane),
-                        alreadyInFlight = inFlight.containsKey(t.key),
-                        retryAt = retryAt,
-                        now = now,
-                    )
-                    if (!admitted) {
-                        // Declined (lane full / backing off / duplicate) — hand it
-                        // back so the engine re-issues when capacity frees up.
-                        NativeSurfaceMap.nativeReportFetchCancelled(handle, t.id)
-                        continue
-                    }
-                    fetchIds[t.id] = t.key
-                    inFlight[t.key] = launchTileFetch(t)
-                    started++
-                }
-            }
+            honourCancels(plan.optJSONArray("cancel"))
+            started += dispatchStarts(plan.optJSONArray("start"), now)
         }
         lastPendingCount = started + inFlight.size
+    }
+
+    /** Honour a plan's `cancel` list: abort our fetch (if it is ours) and
+     *  acknowledge every id so the engine's table settles. */
+    private fun honourCancels(cancels: JSONArray?) {
+        val list = cancels ?: return
+        for (i in 0 until list.length()) {
+            val id = list.optLong(i, -1L)
+            if (id < 0) continue
+            fetchIds.remove(id)?.let { key -> inFlight.remove(key)?.cancel() }
+            NativeSurfaceMap.nativeReportFetchCancelled(handle, id)
+        }
+    }
+
+    /** Spawn every admitted `start`; returns how many were launched. */
+    private fun dispatchStarts(starts: JSONArray?, now: Long): Int {
+        val list = starts ?: return 0
+        var started = 0
+        for (i in 0 until list.length()) {
+            if (startFetchIfAdmitted(list.optJSONObject(i), now)) started++
+        }
+        return started
+    }
+
+    /** One plan `start`: parse, run the lane/backoff admission gate, and
+     *  either launch the fetch or report it cancelled so the engine
+     *  re-issues it when capacity frees up. */
+    private fun startFetchIfAdmitted(obj: org.json.JSONObject?, now: Long): Boolean {
+        val t = parsePlanStart(obj) ?: return false
+        val lane = laneOf(t.key)
+        val admitted = admitFetch(
+            key = t.key,
+            laneUsed = inFlight.keys.count { laneOf(it) == lane },
+            laneCap = laneCap(lane),
+            alreadyInFlight = inFlight.containsKey(t.key),
+            retryAt = retryAt,
+            now = now,
+        )
+        if (!admitted) {
+            // Declined (lane full / backing off / duplicate) — hand it back.
+            NativeSurfaceMap.nativeReportFetchCancelled(handle, t.id)
+            return false
+        }
+        fetchIds[t.id] = t.key
+        inFlight[t.key] = launchTileFetch(t)
+        return true
     }
 
     private enum class FetchLane { RASTER, DEM, VECTOR }

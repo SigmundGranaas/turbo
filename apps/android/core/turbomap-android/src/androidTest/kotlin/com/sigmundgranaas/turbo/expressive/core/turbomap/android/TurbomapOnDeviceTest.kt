@@ -119,8 +119,11 @@ class TurbomapOnDeviceTest {
     private data class PixelCounts(val greenish: Int, val reddish: Int, val total: Int)
 
     private companion object {
+        // NOTE: the closing `\}` must stay escaped — Android's ICU regex
+        // engine rejects a bare `}` that desktop java.util.regex accepts
+        // (found the hard way: both on-device tests crashed at <clinit>).
         val START_RE =
-            Regex("""\{"id":(\d+),"kind":"([^"]+)","layer":"([^"]+)","z":(\d+),"x":(\d+),"y":(\d+)}""")
+            Regex("""\{"id":(\d+),"kind":"([^"]+)","layer":"([^"]+)","z":(\d+),"x":(\d+),"y":(\d+)\}""")
     }
 
     private fun countPixels(bmp: android.graphics.Bitmap): PixelCounts {

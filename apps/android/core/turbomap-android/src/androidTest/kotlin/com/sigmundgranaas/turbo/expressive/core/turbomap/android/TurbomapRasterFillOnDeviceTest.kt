@@ -137,9 +137,19 @@ class TurbomapRasterFillOnDeviceTest {
 
             // Past the ~0.3 s fade window → the animation settles → render-on-demand
             // can park (this is the property the host relies on to stop drawing).
+            // A bounded settle loop, not one render after a fixed sleep: on a
+            // slow emulator (SwiftShader) the decode/upload that finishes the
+            // fade can straggle past a wall-clock budget, and the settled flag
+            // is only recomputed by a render tick. If it NEVER settles inside
+            // the bound, that is the real failure this asserts.
             Thread.sleep(450)
-            NativeSurfaceMap.nativeRender(handle)
-            assertTrue("fade completes and animation settles", !NativeSurfaceMap.nativeIsAnimating(handle))
+            var settled = false
+            for (i in 0 until 40) {
+                NativeSurfaceMap.nativeRender(handle)
+                if (!NativeSurfaceMap.nativeIsAnimating(handle)) { settled = true; break }
+                Thread.sleep(50)
+            }
+            assertTrue("fade completes and animation settles", settled)
         } finally {
             if (handle != 0L) NativeSurfaceMap.nativeDestroy(handle)
             reader.close()
