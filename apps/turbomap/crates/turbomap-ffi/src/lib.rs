@@ -8,10 +8,11 @@
 //!   `CAMetalLayer` through uniffi. Surface creation + the vsync render
 //!   loop are small pieces of hand-written per-platform glue that wrap
 //!   the same [`TurboMap`] object.
-//! - Tile IO is **host-driven**: `pendingTiles()` lists what the engine
-//!   needs; the host fetches (it owns auth/caching/offline) and pushes
-//!   encoded bytes back via the `ingest*` methods. Inline GeoJSON needs
-//!   no IO and is drained in-process by `pumpLocalTiles()`.
+//! - Tile IO is **host-driven** via the STREAMING PLAN (plan P5.1):
+//!   `streamingPlanJson()` mints priority-ordered starts + cancels; the
+//!   host fetches (it owns auth/caching/offline) and pushes encoded bytes
+//!   back via the `ingest*` methods, reporting failures/cancels by request
+//!   id. Inline GeoJSON needs no IO and drains via `pumpLocalTiles()`.
 //!
 //! Everything here is exercised from Rust tests acting as a foreign host
 //! (`tests/roundtrip.rs`), and the Kotlin/Swift sources are generated in
@@ -105,25 +106,6 @@ pub struct Capabilities {
     pub max_texture_size: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
-pub enum TileKind {
-    Raster,
-    Terrain,
-    Vector,
-}
-
-/// One tile the engine is waiting on. The host fetches it (using the URL
-/// template from its own scene) and pushes bytes via the matching ingest.
-#[derive(Debug, Clone, uniffi::Record)]
-pub struct TileRequest {
-    pub kind: TileKind,
-    /// Target layer; `None` for the shared terrain DEM.
-    pub layer_id: Option<String>,
-    pub z: u8,
-    pub x: u32,
-    pub y: u32,
-}
-
 /// What an `applyScene` changed, as counts (the full delta is a Rust-side
 /// concept; hosts mostly need "did anything change").
 #[derive(Debug, Clone, Copy, Default, uniffi::Record)]
@@ -203,8 +185,8 @@ impl TurboMap {
     /// Replace the whole map state with a Scene-IR JSON document. The
     /// engine diffs against the previous scene and does minimal GPU work.
     pub fn apply_scene(&self, scene_json: String) -> Result<DeltaSummary, FfiError> {
-        let scene: Scene = serde_json::from_str(&scene_json)
-            .map_err(|e| FfiError::InvalidScene(e.to_string()))?;
+        let scene: Scene =
+            serde_json::from_str(&scene_json).map_err(|e| FfiError::InvalidScene(e.to_string()))?;
         scene
             .validate()
             .map_err(|e| FfiError::InvalidScene(e.to_string()))?;
@@ -315,26 +297,42 @@ impl TurboMap {
 
     // ---- host-driven tile IO ----------------------------------------------
 
-    /// Tiles the engine is waiting on. Fetch each host-side and push the
-    /// bytes back through the matching `ingest*`.
-    pub fn pending_tiles(&self) -> Vec<TileRequest> {
-        use turbomap_core::PendingTile;
+    /// One streaming step (the plan boundary, slice B3.3), as JSON:
+    /// `{"start":[{"id","kind","layer","z","x","y"}],"cancel":[ids]}`.
+    /// Starts are priority-ordered and truncated to `max_start`; every
+    /// `cancel` id names an in-flight attempt the camera moved away from —
+    /// abort its transport and call `report_fetch_cancelled`. Deliveries
+    /// complete through the ordinary `ingest*`; failures report via
+    /// `report_fetch_failed`. A start the host declines to run must also be
+    /// reported cancelled so the engine re-issues it.
+    pub fn streaming_plan_json(&self, max_start: u32) -> String {
+        self.lock().engine.streaming_plan_json(max_start as usize)
+    }
+
+    /// Report a plan-issued fetch as failed; the chunk re-pends if wanted.
+    pub fn report_fetch_failed(&self, id: u64) {
         self.lock()
             .engine
-            .pending_tiles()
-            .into_iter()
-            .map(|p| match p {
-                PendingTile::Raster { layer_id, tile } => tile_request(TileKind::Raster, Some(layer_id), tile),
-                PendingTile::Hillshade { layer_id, tile } => tile_request(TileKind::Terrain, Some(layer_id), tile),
-                PendingTile::Terrain { tile } => tile_request(TileKind::Terrain, None, tile),
-                PendingTile::Vector { layer_id, tile } => tile_request(TileKind::Vector, Some(layer_id), tile),
-            })
-            .collect()
+            .fetch_failed(turbomap_world::RequestId(id));
+    }
+
+    /// Report a plan `cancel` as honoured (or a declined `start`).
+    pub fn report_fetch_cancelled(&self, id: u64) {
+        self.lock()
+            .engine
+            .fetch_cancelled(turbomap_world::RequestId(id));
     }
 
     /// Push a fetched raster tile (encoded PNG/JPEG/WebP bytes, exactly as
     /// served). Returns `false` if the bytes don't decode.
-    pub fn ingest_raster_tile(&self, layer_id: String, z: u8, x: u32, y: u32, bytes: Vec<u8>) -> bool {
+    pub fn ingest_raster_tile(
+        &self,
+        layer_id: String,
+        z: u8,
+        x: u32,
+        y: u32,
+        bytes: Vec<u8>,
+    ) -> bool {
         self.lock()
             .engine
             .ingest_raster_encoded(&layer_id, TileId::new(z, x, y), &bytes)
@@ -348,46 +346,31 @@ impl TurboMap {
     }
 
     /// Push a fetched vector tile (raw MVT protobuf bytes).
-    pub fn ingest_vector_tile(&self, layer_id: String, z: u8, x: u32, y: u32, bytes: Vec<u8>) -> bool {
+    pub fn ingest_vector_tile(
+        &self,
+        layer_id: String,
+        z: u8,
+        x: u32,
+        y: u32,
+        bytes: Vec<u8>,
+    ) -> bool {
         self.lock()
             .engine
             .ingest_mvt(&layer_id, TileId::new(z, x, y), &bytes)
     }
 
-    // ---- weather-cloud overlay --------------------------------------------
-
-    /// Enable the procedural cloud overlay with a radar grid of
-    /// `grid_w × grid_h` cells. Push frames with [`ingest_radar_frame`] and
-    /// scrub the time slider with [`set_cloud_time`]. The overlay draws on
-    /// every subsequent `render`/on-screen frame until disabled.
-    ///
-    /// [`ingest_radar_frame`]: Self::ingest_radar_frame
-    /// [`set_cloud_time`]: Self::set_cloud_time
-    pub fn enable_clouds(&self, grid_w: u32, grid_h: u32) {
-        self.lock().engine.enable_clouds(grid_w, grid_h);
-    }
-
-    /// Enable terrain cast shadows at `strength` in `[0,1]` (0 = off). Only
-    /// affects 3D terrain; off costs nothing. See
-    /// [`turbomap_engine::Engine::set_terrain_shadows`].
-    pub fn set_terrain_shadows(&self, strength: f32) {
-        self.lock().engine.set_terrain_shadows(strength);
-    }
-
-    /// Tear the cloud overlay down, freeing its GPU resources.
-    pub fn disable_clouds(&self) {
-        self.lock().engine.disable_clouds();
-    }
-
-    /// Show/hide the overlay without discarding uploaded frames.
-    pub fn set_clouds_visible(&self, visible: bool) {
-        self.lock().engine.set_clouds_visible(visible);
-    }
+    // ---- weather-cloud overlay: transport + clock only (plan P5.2) ---------
+    //
+    // WHAT renders (grid, geo bounds, visibility) is Scene state — declare
+    // `environment.clouds` + a `field-2d` source in the IR and `applyScene`
+    // it. Only the frame DATA push (transport, like tile ingest) and the
+    // playback clock (a control verb, like the camera) cross here.
 
     /// Upload a radar frame into `slot` 0 (current timestep) or 1 (next),
     /// from two `grid_w * grid_h` byte planes — `precip` and `coverage`,
     /// each `0..=255`. The host samples MET radar/cloud rasters for the
-    /// viewport and normalises them to this grid.
+    /// viewport and normalises them to this grid. Frames render only while
+    /// the applied scene declares a cloud overlay consuming them.
     pub fn ingest_radar_frame(
         &self,
         slot: u32,
@@ -409,7 +392,7 @@ impl TurboMap {
     }
 
     /// Drain sources that need no IO (inline GeoJSON) in-process. Remote
-    /// tiles are untouched — they stay in `pendingTiles()` for the host.
+    /// tiles are untouched — they surface through the streaming plan.
     pub fn pump_local_tiles(&self) -> DrainStats {
         let stats = self.lock().engine.pump_tiles();
         DrainStats {
@@ -499,16 +482,6 @@ fn from_camera_state(c: CameraState) -> Camera {
         zoom: c.zoom,
         pitch_deg: c.pitch_deg,
         bearing_deg: c.bearing_deg,
-    }
-}
-
-fn tile_request(kind: TileKind, layer_id: Option<String>, tile: TileId) -> TileRequest {
-    TileRequest {
-        kind,
-        layer_id,
-        z: tile.z,
-        x: tile.x,
-        y: tile.y,
     }
 }
 

@@ -23,7 +23,7 @@ use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine
 use turbomap_golden::{render_to_image, Gpu};
 use turbomap_scene::style::MatchCase;
 use turbomap_scene::{
-    Color, DemEncoding, Filter, FilterValue, Layer, LatLng, Paint, Scene, SourceDef,
+    Color, DemEncoding, Filter, FilterValue, LatLng, Layer, Paint, Scene, SourceDef,
     SymbolPlacement, TextAnchor,
 };
 
@@ -46,6 +46,24 @@ pub const ROAD_INNER_SRGB: [u8; 3] = [255, 255, 255];
 pub const ROAD_MAJOR_SRGB: [u8; 3] = [247, 220, 150];
 pub const LABEL_SRGB: [u8; 3] = [70, 74, 84];
 pub const HALO_SRGB: [u8; 3] = [248, 248, 250];
+
+// What the authored colours look like ON SCREEN. Screen-space assertions
+// compare against these, never the authored constants directly: the two
+// coincide only while no post/grading pass runs. When the leftover HDR
+// bloom + ACES tonemap from the reverted water feature was silently applied
+// (June 24 → July 3), authored-vs-screen diverged and every blank-map gate
+// was defanged (nothing on screen matched the authored clear, so
+// `blank_frac` measured 0 forever and the gates could not fail). Keeping the
+// seam makes that failure mode impossible to reintroduce silently.
+//
+// Baseline EMPIRICALLY with the inspection tool whenever the render pipeline
+// intentionally regrades colour (same discipline as goldens):
+//   cargo run -p turbomap-sim --example coldload_dump --release
+pub const ONSCREEN_CLEAR_SRGB: [u8; 3] = CLEAR_SRGB;
+pub const ONSCREEN_LAND_SRGB: [u8; 3] = LAND_SRGB;
+pub const ONSCREEN_WATER_SRGB: [u8; 3] = WATER_SRGB;
+pub const ONSCREEN_ROAD_INNER_SRGB: [u8; 3] = ROAD_INNER_SRGB;
+pub const ONSCREEN_ROAD_MAJOR_SRGB: [u8; 3] = ROAD_MAJOR_SRGB;
 
 /// A width-by-road-class paint: `cases` give (kind → px), `default` the
 /// fallback px. Drives the data-driven width hierarchy.
@@ -120,7 +138,11 @@ pub fn basemap_scene() -> Scene {
         source: "world".to_string(),
         source_layer: Some("roads".to_string()),
         filter: Filter::Always,
-        color: Paint::Const(Color::rgb(ROAD_CASING_SRGB[0], ROAD_CASING_SRGB[1], ROAD_CASING_SRGB[2])),
+        color: Paint::Const(Color::rgb(
+            ROAD_CASING_SRGB[0],
+            ROAD_CASING_SRGB[1],
+            ROAD_CASING_SRGB[2],
+        )),
         width: road_width_by_class(&[("major", 12.0), ("minor", 8.0), ("local", 5.5)], 4.0),
         dash_array: None,
     });
@@ -248,6 +270,57 @@ fn dem_tile_png(tile: TileId) -> Vec<u8> {
     out
 }
 
+/// The basemap city under a live storm (plan E2): a Field2D radar source +
+/// the scene-declared cloud overlay in sim mode, sun pinned low so cloud
+/// self-shadowing has a direction to respond to.
+pub fn storm_scene() -> Scene {
+    let mut scene = basemap_scene();
+    // The box places the camera (60.39, 5.32) at field-uv ≈ (0.7, 0.35) —
+    // dead under the synthetic storm's broad mass — so the overlay is
+    // unmissable in view at city zooms.
+    scene.sources.insert(
+        "radar".to_string(),
+        SourceDef::Field2D {
+            bounds: [3.5, 59.2, 6.1, 61.0],
+        },
+    );
+    scene.environment.clouds = Some(turbomap_scene::CloudsDef {
+        source: "radar".to_string(),
+        grid: [96, 96],
+        visible: true,
+        animate: true,
+    });
+    scene.environment.lighting = turbomap_scene::LightingDef::Fixed {
+        azimuth_deg: 225.0,
+        altitude_deg: 30.0,
+    };
+    scene
+}
+
+/// A drifting frontal band + broad mass (the blocky raster a radar feed
+/// serves); `phase` slides the front. Returns `(precip, coverage)` grids
+/// for `ingest_field`.
+pub fn synthetic_radar(grid: u32, phase: f32) -> (Vec<u8>, Vec<u8>) {
+    let (w, h) = (grid, grid);
+    let mut precip = vec![0u8; (w * h) as usize];
+    let mut coverage = vec![0u8; (w * h) as usize];
+    let front = -0.2 + phase * 1.3;
+    for y in 0..h {
+        for x in 0..w {
+            let nx = (x as f32 + 0.5) / w as f32;
+            let ny = (y as f32 + 0.5) / h as f32;
+            let band = (-((nx + (ny - 0.5) * 0.3 - front).powi(2)) / (2.0 * 0.10 * 0.10)).exp();
+            let mass = (-((nx - 0.7).powi(2) + (ny - 0.35).powi(2)) / (2.0 * 0.16 * 0.16)).exp();
+            let cov = (band * 0.85 + mass * 0.8).clamp(0.0, 1.0);
+            let pr = (band * band * 0.7).clamp(0.0, 1.0);
+            let i = (y * w + x) as usize;
+            coverage[i] = (cov * 255.0) as u8;
+            precip[i] = (pr * 255.0) as u8;
+        }
+    }
+    (precip, coverage)
+}
+
 /// Mean perceptual luminance (Rec. 709) over the last rendered frame, `[0,255]`.
 /// Used to prove cast shadows darken the terrain.
 pub fn mean_luma(img: &RgbaImage) -> f64 {
@@ -274,6 +347,12 @@ pub struct FrameStats {
     pub diff_frac: f64,
     /// Render CPU time reported by the engine, milliseconds.
     pub cpu_ms: f64,
+    /// Engine tile-lifecycle counts this frame (summed across layers +
+    /// terrain): the want-list size, and residents no longer wanted (the
+    /// eviction candidates). Thrash shows up as `retained` churning while
+    /// `desired` is stable — countable now instead of inferred (slice A1).
+    pub desired: usize,
+    pub retained: usize,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -286,12 +365,17 @@ enum TileKey {
 pub struct Sim {
     gpu: Gpu,
     pub engine: TurbomapEngine,
+    /// The currently applied Scene document. The sim mutates content the way
+    /// every real host does (plan P6.1): edit the document, re-apply, let
+    /// `reconcile` diff — never through imperative engine verbs.
+    scene: Scene,
     width: u32,
     height: u32,
     /// Simulated network latency, in frames, for every tile fetch.
     pub latency_frames: u64,
     frame: u64,
-    in_flight: HashMap<TileKey, u64>,
+    /// Scheduled deliveries: key → (plan request id, due frame).
+    in_flight: HashMap<TileKey, (turbomap_core::RequestId, u64)>,
     land_png: Vec<u8>,
     prev: Option<RgbaImage>,
     pub last: Option<RgbaImage>,
@@ -316,6 +400,7 @@ impl Sim {
         Some(Self {
             gpu,
             engine,
+            scene: Scene::new(),
             width,
             height,
             latency_frames: 0,
@@ -332,16 +417,43 @@ impl Sim {
         self.engine.camera()
     }
 
+    /// Apply a Scene document (and remember it, so the content mutators below
+    /// can edit-and-re-apply like a real host).
+    pub fn apply(&mut self, scene: Scene) {
+        self.engine.apply(scene.clone());
+        self.scene = scene;
+    }
+
     /// Enable/disable terrain cast shadows (3D sessions, `basemap_scene_3d`).
-    /// 0 = off. Passthrough to the engine.
+    /// 0 = off. Scene-declared: edits `environment.terrain_shadows` and
+    /// re-applies.
     pub fn set_terrain_shadows(&mut self, strength: f32) {
-        self.engine.set_terrain_shadows(strength);
+        self.scene.environment.terrain_shadows = strength;
+        self.apply(self.scene.clone());
     }
 
     /// Pin the sun to an explicit azimuth/altitude (degrees). A LOW altitude is
     /// what makes terrain self-occlude, so a shadow test sets e.g. (90, 16).
+    /// Scene-declared: fixed-mode lighting in the environment block.
     pub fn set_sun(&mut self, azimuth_deg: f32, altitude_deg: f32) {
-        self.engine.set_sun_position(azimuth_deg, altitude_deg);
+        self.scene.environment.lighting = turbomap_scene::LightingDef::Fixed {
+            azimuth_deg,
+            altitude_deg,
+        };
+        self.apply(self.scene.clone());
+    }
+
+    /// Show/hide the scene-declared cloud overlay (storm sessions). Edits the
+    /// document's `CloudsDef::visible` — a session without declared clouds
+    /// has nothing to toggle, and says so.
+    pub fn set_clouds_visible(&mut self, visible: bool) {
+        self.scene
+            .environment
+            .clouds
+            .as_mut()
+            .expect("set_clouds_visible needs a scene with declared clouds")
+            .visible = visible;
+        self.apply(self.scene.clone());
     }
 
     /// A camera centred on the synthetic city. Lat/lng are arbitrary —
@@ -363,44 +475,63 @@ impl Sim {
     /// One simulated vsync: animate, deliver due tiles, render, measure.
     pub fn step(&mut self) -> &FrameStats {
         self.frame += 1;
-        let animating = self.engine.tick_now();
+        // "Animating" for stability purposes = the engine still needs
+        // frames: camera motion, tile fades, or a decode backlog whose
+        // applies land inside render(). Without the backlog term the settle
+        // loops break while tiles are still applying — the sim then
+        // measures pans mid-cold-load (the B4.2 shadow-gate failure).
+        let animating = self.engine.tick_now() || self.engine.is_animating();
 
-        // Schedule newly-requested tiles with the configured latency.
-        for pending in self.engine.pending_tiles() {
-            let key = match pending {
+        // Schedule the frame's PLAN starts with the configured latency —
+        // the sim is a plan-transport host like web/Android (P5.1): the
+        // engine's lifecycle table owns dedup (a Fetching tile is never
+        // re-issued), and cancels abort scheduled deliveries the camera
+        // moved away from.
+        let plan = self.engine.streaming_plan(usize::MAX);
+        for id in plan.cancel {
+            self.in_flight.retain(|_, (rid, _)| *rid != id);
+            self.engine.fetch_cancelled(id);
+        }
+        for r in plan.start {
+            let key = match r.fetch {
                 PendingTile::Raster { layer_id, tile } => TileKey::Raster(layer_id, tile),
                 PendingTile::Vector { layer_id, tile } => TileKey::Vector(layer_id, tile),
                 // DEM tiles for the 3D sessions (basemap_scene_3d); absent in
                 // the flat basemap sessions, where the terrain scene is empty.
                 PendingTile::Terrain { tile } => TileKey::Terrain(tile),
                 // Height-only terrain draws no relief-shading overlay, so the
-                // hillshade tile stream is unused here.
-                PendingTile::Hillshade { .. } => continue,
+                // hillshade tile stream is unused here — decline it honestly.
+                PendingTile::Hillshade { .. } => {
+                    self.engine.fetch_cancelled(r.id);
+                    continue;
+                }
             };
             self.in_flight
                 .entry(key)
-                .or_insert(self.frame + self.latency_frames);
+                .or_insert((r.id, self.frame + self.latency_frames));
         }
 
         // Deliver everything whose latency elapsed.
         let due: Vec<TileKey> = self
             .in_flight
             .iter()
-            .filter(|(_, &due)| due <= self.frame)
+            .filter(|(_, &(_, due))| due <= self.frame)
             .map(|(k, _)| k.clone())
             .collect();
         let delivered = due.len() as u32;
         for key in due {
             match &key {
                 TileKey::Raster(layer, tile) => {
-                    self.engine.ingest_raster_encoded(layer, *tile, &self.land_png);
+                    self.engine
+                        .ingest_raster_encoded(layer, *tile, &self.land_png);
                 }
                 TileKey::Vector(layer, tile) => {
                     let bytes = world_tile(tile.z, tile.x, tile.y);
                     self.engine.ingest_mvt(layer, *tile, &bytes);
                 }
                 TileKey::Terrain(tile) => {
-                    self.engine.ingest_terrain_encoded(*tile, &dem_tile_png(*tile));
+                    self.engine
+                        .ingest_terrain_encoded(*tile, &dem_tile_png(*tile));
                 }
             }
             self.in_flight.remove(&key);
@@ -413,12 +544,19 @@ impl Sim {
         });
         self.engine.after_submit();
 
-        let blank_frac = fraction_near(&img, CLEAR_SRGB, 6);
+        let blank_frac = fraction_near(&img, ONSCREEN_CLEAR_SRGB, 6);
         let diff_frac = match &self.prev {
             Some(prev) => diff_fraction(prev, &img, 8),
             None => 1.0,
         };
-        let cpu_ms = self.engine.last_frame_metrics().cpu_time.as_secs_f64() * 1000.0;
+        // (Slice B3.4: the per-frame dual-write agreement assertion that
+        // lived here is retired together with the per-scene sets — the
+        // lifecycle table is the single source of truth it was soaked
+        // against, every frame, across the whole B4 campaign.)
+
+        let m = self.engine.last_frame_metrics();
+        let cpu_ms = m.cpu_time.as_secs_f64() * 1000.0;
+        let (desired, retained) = (m.tiles.desired, m.tiles.retained);
         self.stats.push(FrameStats {
             frame: self.frame,
             animating,
@@ -428,6 +566,8 @@ impl Sim {
             blank_frac,
             diff_frac,
             cpu_ms,
+            desired,
+            retained,
         });
         self.prev = self.last.replace(img);
         self.stats.last().expect("just pushed")
@@ -459,9 +599,7 @@ pub fn fraction_near(img: &RgbaImage, rgb: [u8; 3], tol: u8) -> f64 {
     let total = (img.width() * img.height()) as f64;
     let hits = img
         .pixels()
-        .filter(|p| {
-            (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol)
-        })
+        .filter(|p| (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol))
         .count();
     hits as f64 / total
 }

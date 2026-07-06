@@ -15,8 +15,7 @@ pub const LAND: [u8; 3] = [242, 240, 235];
 
 /// Path to the committed real-data PMTiles archive.
 pub fn fixture_path() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/bergen-omt.pmtiles")
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bergen-omt.pmtiles")
 }
 
 fn s(v: &str) -> FilterValue {
@@ -91,26 +90,78 @@ pub fn bergen_scene() -> Scene {
         source: "omt".to_string(),
         source_layer: Some("landuse".to_string()),
         filter: class_in(&[
-            "residential", "suburb", "neighbourhood", "school", "kindergarten",
-            "university", "college", "hospital", "pitch", "playground", "stadium",
-            "cemetery", "industrial", "military", "commercial", "retail",
+            "residential",
+            "suburb",
+            "neighbourhood",
+            "school",
+            "kindergarten",
+            "university",
+            "college",
+            "hospital",
+            "pitch",
+            "playground",
+            "stadium",
+            "cemetery",
+            "industrial",
+            "military",
+            "commercial",
+            "retail",
         ]),
         color: Paint::Match {
             property: "class".to_string(),
             cases: vec![
-                MatchCase { value: s("school"), result: Color::rgb(241, 236, 221) },
-                MatchCase { value: s("kindergarten"), result: Color::rgb(241, 236, 221) },
-                MatchCase { value: s("university"), result: Color::rgb(241, 236, 221) },
-                MatchCase { value: s("college"), result: Color::rgb(241, 236, 221) },
-                MatchCase { value: s("hospital"), result: Color::rgb(244, 230, 230) },
-                MatchCase { value: s("pitch"), result: Color::rgb(206, 228, 200) },
-                MatchCase { value: s("playground"), result: Color::rgb(206, 228, 200) },
-                MatchCase { value: s("stadium"), result: Color::rgb(206, 228, 200) },
-                MatchCase { value: s("cemetery"), result: Color::rgb(216, 225, 209) },
-                MatchCase { value: s("industrial"), result: Color::rgb(232, 230, 227) },
-                MatchCase { value: s("military"), result: Color::rgb(232, 230, 227) },
-                MatchCase { value: s("commercial"), result: Color::rgb(243, 235, 226) },
-                MatchCase { value: s("retail"), result: Color::rgb(243, 235, 226) },
+                MatchCase {
+                    value: s("school"),
+                    result: Color::rgb(241, 236, 221),
+                },
+                MatchCase {
+                    value: s("kindergarten"),
+                    result: Color::rgb(241, 236, 221),
+                },
+                MatchCase {
+                    value: s("university"),
+                    result: Color::rgb(241, 236, 221),
+                },
+                MatchCase {
+                    value: s("college"),
+                    result: Color::rgb(241, 236, 221),
+                },
+                MatchCase {
+                    value: s("hospital"),
+                    result: Color::rgb(244, 230, 230),
+                },
+                MatchCase {
+                    value: s("pitch"),
+                    result: Color::rgb(206, 228, 200),
+                },
+                MatchCase {
+                    value: s("playground"),
+                    result: Color::rgb(206, 228, 200),
+                },
+                MatchCase {
+                    value: s("stadium"),
+                    result: Color::rgb(206, 228, 200),
+                },
+                MatchCase {
+                    value: s("cemetery"),
+                    result: Color::rgb(216, 225, 209),
+                },
+                MatchCase {
+                    value: s("industrial"),
+                    result: Color::rgb(232, 230, 227),
+                },
+                MatchCase {
+                    value: s("military"),
+                    result: Color::rgb(232, 230, 227),
+                },
+                MatchCase {
+                    value: s("commercial"),
+                    result: Color::rgb(243, 235, 226),
+                },
+                MatchCase {
+                    value: s("retail"),
+                    result: Color::rgb(243, 235, 226),
+                },
             ],
             default: Box::new(Color::rgb(237, 234, 228)),
         },
@@ -162,15 +213,19 @@ pub fn bergen_scene() -> Scene {
     // it's a web of clutter, especially over the hillsides, and a basemap
     // reads cleaner without it (the same call Google/MapLibre make here).
     let street_classes = [
-        "motorway", "trunk", "primary", "secondary", "tertiary", "minor",
+        "motorway",
+        "trunk",
+        "primary",
+        "secondary",
+        "tertiary",
+        "minor",
     ];
     // Tunnels (e.g. Fløyfjelltunnelen) read as "below ground": a dashed,
     // dimmed casing drawn *under* the surface roads. Surface roads then
     // exclude tunnels so the bright fill doesn't cover the dashes.
     let is_tunnel = || Filter::Eq("brunnel".to_string(), s("tunnel"));
     let not_tunnel = || Filter::Not(Box::new(is_tunnel()));
-    let surface_streets =
-        || Filter::All(vec![class_in(&street_classes), not_tunnel()]);
+    let surface_streets = || Filter::All(vec![class_in(&street_classes), not_tunnel()]);
     scene.layers.push(Layer::Line {
         id: "tunnel".to_string(),
         source: "omt".to_string(),
@@ -189,12 +244,30 @@ pub fn bergen_scene() -> Scene {
         width: Paint::Match {
             property: "class".to_string(),
             cases: vec![
-                MatchCase { value: s("motorway"), result: 11.0f32 },
-                MatchCase { value: s("trunk"), result: 10.0f32 },
-                MatchCase { value: s("primary"), result: 8.5f32 },
-                MatchCase { value: s("secondary"), result: 7.0f32 },
-                MatchCase { value: s("tertiary"), result: 6.0f32 },
-                MatchCase { value: s("minor"), result: 5.0f32 },
+                MatchCase {
+                    value: s("motorway"),
+                    result: 11.0f32,
+                },
+                MatchCase {
+                    value: s("trunk"),
+                    result: 10.0f32,
+                },
+                MatchCase {
+                    value: s("primary"),
+                    result: 8.5f32,
+                },
+                MatchCase {
+                    value: s("secondary"),
+                    result: 7.0f32,
+                },
+                MatchCase {
+                    value: s("tertiary"),
+                    result: 6.0f32,
+                },
+                MatchCase {
+                    value: s("minor"),
+                    result: 5.0f32,
+                },
             ],
             default: Box::new(3.4f32),
         },
@@ -208,20 +281,44 @@ pub fn bergen_scene() -> Scene {
         color: Paint::Match {
             property: "class".to_string(),
             cases: vec![
-                MatchCase { value: s("motorway"), result: Color::rgb(250, 200, 108) },
-                MatchCase { value: s("trunk"), result: Color::rgb(252, 212, 130) },
+                MatchCase {
+                    value: s("motorway"),
+                    result: Color::rgb(250, 200, 108),
+                },
+                MatchCase {
+                    value: s("trunk"),
+                    result: Color::rgb(252, 212, 130),
+                },
             ],
             default: Box::new(Color::rgb(255, 255, 255)),
         },
         width: Paint::Match {
             property: "class".to_string(),
             cases: vec![
-                MatchCase { value: s("motorway"), result: 8.0f32 },
-                MatchCase { value: s("trunk"), result: 7.2f32 },
-                MatchCase { value: s("primary"), result: 6.0f32 },
-                MatchCase { value: s("secondary"), result: 4.8f32 },
-                MatchCase { value: s("tertiary"), result: 4.0f32 },
-                MatchCase { value: s("minor"), result: 3.2f32 },
+                MatchCase {
+                    value: s("motorway"),
+                    result: 8.0f32,
+                },
+                MatchCase {
+                    value: s("trunk"),
+                    result: 7.2f32,
+                },
+                MatchCase {
+                    value: s("primary"),
+                    result: 6.0f32,
+                },
+                MatchCase {
+                    value: s("secondary"),
+                    result: 4.8f32,
+                },
+                MatchCase {
+                    value: s("tertiary"),
+                    result: 4.0f32,
+                },
+                MatchCase {
+                    value: s("minor"),
+                    result: 3.2f32,
+                },
             ],
             default: Box::new(2.0f32),
         },
@@ -272,15 +369,34 @@ pub fn bergen_scene() -> Scene {
         id: "places".to_string(),
         source: "omt".to_string(),
         source_layer: Some("place".to_string()),
-        filter: class_in(&["city", "town", "suburb", "village", "neighbourhood", "quarter"]),
+        filter: class_in(&[
+            "city",
+            "town",
+            "suburb",
+            "village",
+            "neighbourhood",
+            "quarter",
+        ]),
         text_field: "name".to_string(),
         text_size: Paint::Match {
             property: "class".to_string(),
             cases: vec![
-                MatchCase { value: s("city"), result: 22.0f32 },
-                MatchCase { value: s("town"), result: 18.0f32 },
-                MatchCase { value: s("suburb"), result: 15.0f32 },
-                MatchCase { value: s("village"), result: 14.0f32 },
+                MatchCase {
+                    value: s("city"),
+                    result: 22.0f32,
+                },
+                MatchCase {
+                    value: s("town"),
+                    result: 18.0f32,
+                },
+                MatchCase {
+                    value: s("suburb"),
+                    result: 15.0f32,
+                },
+                MatchCase {
+                    value: s("village"),
+                    result: 14.0f32,
+                },
             ],
             default: Box::new(13.0f32),
         },
@@ -326,7 +442,14 @@ pub fn bergen_scene() -> Scene {
         source: "omt".to_string(),
         source_layer: Some("transportation_name".to_string()),
         // Footpath and service-road names are clutter at city zoom.
-        filter: class_in(&["motorway", "trunk", "primary", "secondary", "tertiary", "minor"]),
+        filter: class_in(&[
+            "motorway",
+            "trunk",
+            "primary",
+            "secondary",
+            "tertiary",
+            "minor",
+        ]),
         text_field: "name".to_string(),
         text_size: Paint::Const(12.5),
         color: Paint::Const(Color::rgb(52, 54, 64)),
@@ -381,7 +504,15 @@ pub fn bergen_scene() -> Scene {
     // Lodging & culture — a diamond, muted violet.
     poi_layer(
         "poi-culture",
-        &["hotel", "hostel", "museum", "theatre", "cinema", "library", "place_of_worship"],
+        &[
+            "hotel",
+            "hostel",
+            "museum",
+            "theatre",
+            "cinema",
+            "library",
+            "place_of_worship",
+        ],
         "diamond",
         Color::rgb(150, 122, 186),
     );

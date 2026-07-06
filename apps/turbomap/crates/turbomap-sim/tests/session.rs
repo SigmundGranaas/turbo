@@ -8,7 +8,8 @@ use std::time::Duration;
 use turbomap_core::MapOptions;
 use turbomap_engine::{CameraState, LatLng, MapEngine};
 use turbomap_sim::{
-    basemap_scene, basemap_scene_3d, fraction_near, session, PerfSummary, Sim,
+    basemap_scene, basemap_scene_3d, diff_fraction, fraction_near, session, storm_scene,
+    synthetic_radar, PerfSummary, Sim,
 };
 
 const W: u32 = 480;
@@ -39,12 +40,8 @@ fn cold_load_paints_every_subsystem() {
     // Centred on a major crossroads, so the amber arterial grid is in
     // view alongside minor roads, lakes, and labels — every styling path
     // on one screen.
-    let Some(mut sim) = (match Sim::new(
-        640,
-        420,
-        Sim::camera_at_major_crossroads(11.0),
-        no_fade(),
-    ) {
+    let Some(mut sim) = (match Sim::new(640, 420, Sim::camera_at_major_crossroads(11.0), no_fade())
+    {
         Some(sim) => Some(sim),
         None => {
             if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
@@ -56,28 +53,47 @@ fn cold_load_paints_every_subsystem() {
     }) else {
         return;
     };
-    sim.engine.apply(basemap_scene());
+    sim.apply(basemap_scene());
     let settled = sim.run_until_stable(120, 0.001);
-    assert!(settled.is_some(), "cold load must settle, stats: {:?}", sim.stats.last());
+    assert!(
+        settled.is_some(),
+        "cold load must settle, stats: {:?}",
+        sim.stats.last()
+    );
 
     let img = sim.last.as_ref().expect("a rendered frame");
-    let land = fraction_near(img, session::LAND_SRGB, 8);
-    let water = fraction_near(img, session::WATER_SRGB, 10);
+    // Screen-space assertions compare against the ONSCREEN_* constants (the
+    // authored palette as it lands on screen — see their doc comment in
+    // `session.rs`).
+    let land = fraction_near(img, session::ONSCREEN_LAND_SRGB, 8);
+    let water = fraction_near(img, session::ONSCREEN_WATER_SRGB, 10);
     let landuse = img
         .pixels()
         .filter(|p| p.0[1] > p.0[0] && p.0[1] > p.0[2] && p.0[1] > 150)
         .count() as f64
         / (img.width() * img.height()) as f64;
-    let road_white = fraction_near(img, session::ROAD_INNER_SRGB, 10);
-    let road_major = fraction_near(img, session::ROAD_MAJOR_SRGB, 14);
-    let blank = fraction_near(img, session::CLEAR_SRGB, 6);
+    let road_white = fraction_near(img, session::ONSCREEN_ROAD_INNER_SRGB, 10);
+    let road_major = fraction_near(img, session::ONSCREEN_ROAD_MAJOR_SRGB, 14);
+    let blank = fraction_near(img, session::ONSCREEN_CLEAR_SRGB, 6);
 
     assert!(land > 0.25, "land raster should dominate, got {land:.3}");
     assert!(water > 0.005, "lakes should be visible, got {water:.4}");
-    assert!(landuse > 0.005, "landuse (parks/woods) should be visible, got {landuse:.4}");
-    assert!(road_white > 0.005, "minor roads should be visible, got {road_white:.4}");
-    assert!(road_major > 0.0005, "major (amber) roads should be visible, got {road_major:.5}");
-    assert!(blank < 0.01, "nothing should remain unloaded, got {blank:.4}");
+    assert!(
+        landuse > 0.005,
+        "landuse (parks/woods) should be visible, got {landuse:.4}"
+    );
+    assert!(
+        road_white > 0.005,
+        "minor roads should be visible, got {road_white:.4}"
+    );
+    assert!(
+        road_major > 0.0005,
+        "major (amber) roads should be visible, got {road_major:.5}"
+    );
+    assert!(
+        blank < 0.01,
+        "nothing should remain unloaded, got {blank:.4}"
+    );
     // Labels: dark ink that is neither casing nor land. Count loosely.
     let ink = fraction_near(img, session::LABEL_SRGB, 25);
     assert!(ink > 0.0002, "place labels should be visible, got {ink:.5}");
@@ -89,7 +105,7 @@ fn zoom_journey_never_shows_a_blank_map() {
     let Some(mut sim) = sim_or_skip(11.0, MapOptions::default()) else {
         return;
     };
-    sim.engine.apply(basemap_scene());
+    sim.apply(basemap_scene());
     assert!(
         sim.run_until_stable(200, 0.002).is_some(),
         "initial load must settle"
@@ -98,10 +114,7 @@ fn zoom_journey_never_shows_a_blank_map() {
     sim.latency_frames = 3;
     let from = sim.camera();
     sim.engine.ease_to(
-        CameraState {
-            zoom: 13.0,
-            ..from
-        },
+        CameraState { zoom: 13.0, ..from },
         Duration::from_millis(700),
     );
 
@@ -125,7 +138,10 @@ fn zoom_journey_never_shows_a_blank_map() {
         worst_blank < 0.35,
         "map must never blank out during a zoom, worst was {worst_blank:.3}"
     );
-    assert!((sim.camera().zoom - 13.0).abs() < 1e-9, "animation must land");
+    assert!(
+        (sim.camera().zoom - 13.0).abs() < 1e-9,
+        "animation must land"
+    );
 
     // And it must settle afterwards.
     assert!(
@@ -140,7 +156,7 @@ fn pan_session_stays_covered_and_settles_without_flicker() {
     let Some(mut sim) = sim_or_skip(12.0, MapOptions::default()) else {
         return;
     };
-    sim.engine.apply(basemap_scene());
+    sim.apply(basemap_scene());
     assert!(sim.run_until_stable(200, 0.002).is_some());
 
     // Drag east for 40 frames (a steady one-finger pan), tiles 2 frames late.
@@ -200,12 +216,18 @@ fn heavy_roaming_under_a_tight_cache_budget_keeps_reloading_tiles() {
     let Some(mut sim) = sim_or_skip(12.0, opts) else {
         return;
     };
-    sim.engine.apply(basemap_scene());
+    sim.apply(basemap_scene());
 
     let start = sim.camera();
-    assert!(sim.run_until_stable(200, 0.002).is_some(), "start must settle");
+    assert!(
+        sim.run_until_stable(200, 0.002).is_some(),
+        "start must settle"
+    );
     let start_blank = sim.step().blank_frac;
-    assert!(start_blank < 0.05, "start should be covered, blank={start_blank:.3}");
+    assert!(
+        start_blank < 0.05,
+        "start should be covered, blank={start_blank:.3}"
+    );
 
     // Roam far east across several distinct regions, settling at each so the
     // cache fills with new tiles and the cold start-area tiles get evicted.
@@ -266,10 +288,13 @@ fn long_roaming_session_keeps_caches_within_budget() {
     let Some(mut sim) = sim_or_skip(12.0, opts) else {
         return;
     };
-    sim.engine.apply(basemap_scene());
+    sim.apply(basemap_scene());
 
     let start = sim.camera();
-    assert!(sim.run_until_stable(200, 0.002).is_some(), "start must settle");
+    assert!(
+        sim.run_until_stable(200, 0.002).is_some(),
+        "start must settle"
+    );
 
     // A long, churny session: 80 regions on a wandering path, each settled so
     // the cache fully turns over. Far more tiles than the budget can hold.
@@ -334,7 +359,7 @@ fn frame_cost_stays_within_budget() {
     let Some(mut sim) = sim_or_skip(11.0, MapOptions::default()) else {
         return;
     };
-    sim.engine.apply(basemap_scene());
+    sim.apply(basemap_scene());
     sim.run_until_stable(200, 0.002);
     sim.stats.clear();
 
@@ -360,8 +385,7 @@ fn frame_cost_stays_within_budget() {
     let summary = PerfSummary::from_stats(&sim.stats);
     eprintln!("perf: {summary:?}");
     // Persist for inspection/CI artifact.
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/sim-reports");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/sim-reports");
     let _ = std::fs::create_dir_all(&dir);
     let _ = std::fs::write(
         dir.join("frame-budget.json"),
@@ -393,11 +417,11 @@ fn terrain_cast_shadows_do_not_stall_the_render_thread_while_panning() {
     let Some(mut sim) = sim_or_skip(14.0, no_fade()) else {
         return;
     };
-    sim.engine.apply(basemap_scene_3d());
+    sim.apply(basemap_scene_3d());
     sim.engine.pitch_by(45.0); // 3D, but a modest tilt so the footprint-sized
                                // shadow grid overlaps the visible terrain well
     sim.set_sun(90.0, 16.0); // a LOW sun so the synthetic relief self-occludes
-    // Settle: load the DEM + raster tiles and let any animation finish.
+                             // Settle: load the DEM + raster tiles and let any animation finish.
     for _ in 0..80 {
         let (in_flight, animating) = {
             let s = sim.step();
@@ -476,5 +500,67 @@ fn terrain_cast_shadows_do_not_stall_the_render_thread_while_panning() {
         darkened > 200,
         "cast shadows changed only {darkened} px between off/on at a fixed pose — \
          the @group(3) shadow sample isn't reaching the on-screen terrain"
+    );
+}
+
+#[test]
+fn storm_sim_keeps_animating_coherently_within_budget() {
+    // The E2 storm scenario: a scene-declared radar overlay in SIM mode.
+    // Three behaviours a user would notice, asserted over one session:
+    // (1) the weather moves on its own — no camera motion, no host
+    // scrubbing — because the sim counts as animation and drives itself
+    // from the frame clock; (2) the clouds are actually on screen (the
+    // storm darkens/veils the city); (3) the frame budget holds with the
+    // simulation running.
+    let Some(mut sim) = sim_or_skip(9.5, no_fade()) else {
+        return;
+    };
+    sim.apply(storm_scene());
+    let (pa, ca) = synthetic_radar(96, 0.15);
+    let (pb, cb) = synthetic_radar(96, 0.55);
+    assert!(sim.engine.ingest_field("radar", 0, 96, 96, &pa, &ca));
+    assert!(sim.engine.ingest_field("radar", 1, 96, 96, &pb, &cb));
+
+    // Let the tile working set land (the sim never settles to a static
+    // frame — the weather keeps moving — so run a fixed warmup).
+    for _ in 0..60 {
+        sim.step();
+    }
+    assert!(
+        sim.engine.is_animating(),
+        "a settled camera under an active cloud sim must still report animating"
+    );
+
+    // (1) The weather advances with zero input.
+    sim.stats.clear();
+    let frame_a = sim.last.clone().expect("warmed-up frame");
+    for _ in 0..25 {
+        sim.step();
+    }
+    let frame_b = sim.last.clone().expect("advanced frame");
+    let moved = diff_fraction(&frame_a, &frame_b, 6);
+    assert!(
+        moved > 0.01,
+        "storm must move on its own (diff {moved:.4} over 25 settled frames)"
+    );
+
+    // (2) The overlay is really painting: hide it and the frame changes a lot.
+    sim.set_clouds_visible(false);
+    sim.step();
+    let clear = sim.last.clone().expect("clouds-off frame");
+    let veiled = diff_fraction(&frame_b, &clear, 6);
+    assert!(
+        veiled > 0.05,
+        "the storm overlay must visibly veil the city (diff {veiled:.4})"
+    );
+    sim.set_clouds_visible(true);
+
+    // (3) Frame budget holds with the sim on — same cap as the base
+    // frame-cost gate.
+    let summary = PerfSummary::from_stats(&sim.stats);
+    eprintln!("storm perf: {summary:?}");
+    assert!(
+        summary.cpu_ms_p95 < 200.0,
+        "p95 frame CPU with the cloud sim on regressed: {summary:?}"
     );
 }

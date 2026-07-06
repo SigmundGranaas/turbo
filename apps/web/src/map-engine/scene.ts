@@ -26,6 +26,14 @@ export type SourceDef =
       halo?: number;
     };
 
+/** IR color — the serde shape of `turbomap_scene::Color`. */
+export interface SceneColor {
+  r: number;
+  g: number;
+  b: number;
+  a: number;
+}
+
 export type Layer =
   | { type: 'raster'; id: string; source: string }
   | {
@@ -36,11 +44,37 @@ export type Layer =
       /** true = the DEM is height-only (displaces the ground; no relief overlay
        *  drawn — the basemap raster lights itself from the sun). */
       height_only?: boolean;
-    };
+    }
+  // Content layers (plan P6.3) — routes/tracks, pins, the location dot are
+  // scene-declared over geo-json sources; DOM is for interactive chrome only.
+  | {
+      type: 'line';
+      id: string;
+      source: string;
+      color: SceneColor;
+      width: number;
+      /** `[dash, gap]` in screen px; omitted = solid. */
+      dash_array?: number[];
+    }
+  | { type: 'circle'; id: string; source: string; color: SceneColor; radius: number }
+  | { type: 'tube'; id: string; source: string; color: SceneColor; radius_px: number };
+
+// The scene-declared environment (plan P5.2) and content (plan P6.3) planes.
+// The types + live stores are in map-core (`environment.ts`, `mapContent.ts`)
+// so features can publish without importing the engine substrate; the surface
+// subscribes there and re-applies the scene built here.
+import {
+  currentEnvironment,
+  currentMapContent,
+  type MapContent,
+  type MapEnvironment,
+} from '../map-core';
+export { onEnvironmentChange, onMapContentChange } from '../map-core';
 
 export interface Scene {
   sources: Record<string, SourceDef>;
   layers: Layer[];
+  environment?: MapEnvironment;
 }
 
 import { API_BASE } from '../config';
@@ -146,6 +180,9 @@ export function buildBaseScene(base: BaseLayerId, terrain = false): Scene {
     },
   };
   const layers: Layer[] = [{ type: 'raster', id, source: id }];
+  // The scene carries the whole environment (P5.2): the per-base brightness
+  // gain folds in here; user-driven fields ride the live environment store.
+  const environment: MapEnvironment = { ...currentEnvironment(), 'basemap-gain': basemapGain(base) };
   if (terrain) {
     // Host-driven: bytes come from the `__terrain` template (templates.ts), but
     // the engine needs the source declared to know encoding/halo + request it.
@@ -154,5 +191,120 @@ export function buildBaseScene(base: BaseLayerId, terrain = false): Scene {
     // itself from the sun (one lit 3D surface), same as Android.
     layers.push({ type: 'hillshade', id: 'hillshade', source: 'dem', exaggeration: TERRAIN_EXAGGERATION, height_only: true });
   }
-  return { sources, layers };
+  appendContent(sources, layers, currentMapContent());
+  return { sources, layers, environment };
+}
+
+/** Resolve a CSS color (hex or `var(--...)`) to the IR shape. Guarded for
+ *  non-DOM environments (vitest): unresolvable values fall back to the theme
+ *  primary blue. */
+export function cssColorToScene(css: string | undefined, alpha = 255): SceneColor {
+  const FALLBACK: SceneColor = { r: 37, g: 99, b: 235, a: alpha };
+  let v = (css ?? '').trim();
+  if (v.startsWith('var(') && typeof document !== 'undefined') {
+    const name = v.slice(4, -1).trim();
+    v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+  const m = /^#?([0-9a-f]{6})$/i.exec(v.startsWith('#') ? v.slice(1) : v);
+  if (!m) return FALLBACK;
+  const n = parseInt(m[1], 16);
+  return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff, a: alpha };
+}
+
+const WHITE: SceneColor = { r: 255, g: 255, b: 255, a: 255 };
+const LOCATION_BLUE: SceneColor = { r: 37, g: 99, b: 235, a: 255 };
+
+function lineString(coords: { lat: number; lng: number }[]): string {
+  return JSON.stringify({
+    type: 'LineString',
+    coordinates: coords.map((c) => [c.lng, c.lat]),
+  });
+}
+
+function multiPoint(coords: { lat: number; lng: number }[]): string {
+  return JSON.stringify({
+    type: 'MultiPoint',
+    coordinates: coords.map((c) => [c.lng, c.lat]),
+  });
+}
+
+function pinFeatures(pins: { id: string; lat: number; lng: number }[]): string {
+  return JSON.stringify({
+    type: 'FeatureCollection',
+    features: pins.map((p) => ({
+      type: 'Feature',
+      properties: { id: p.id },
+      geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+    })),
+  });
+}
+
+/** Fold the live content plane (route/track lines, pins, the location fix)
+ *  into the scene as geo-json sources + content layers (plan P6.3). Emission
+ *  order = paint order within the overlay track: lines under pins under the
+ *  location dot. */
+function appendContent(sources: Scene['sources'], layers: Layer[], content: MapContent): void {
+  // Named lines (route preview, selected track). Halo under stroke replicates
+  // the old SVG look; dashed marks an unsolved preview.
+  for (const [owner, line] of Object.entries(content.lines)) {
+    const src = `content-line-${owner}`;
+    sources[src] = { type: 'geo-json', data: lineString(line.coords) };
+    layers.push({
+      type: 'line',
+      id: `${src}-halo`,
+      source: src,
+      color: { r: 255, g: 255, b: 255, a: 178 },
+      width: 9,
+    });
+    layers.push({
+      type: 'line',
+      id: src,
+      source: src,
+      color: cssColorToScene(line.color),
+      width: 5,
+      ...(line.dashed ? { dash_array: [2, 10] } : {}),
+    });
+  }
+
+  // Marker pins: one circle pair (white backing ring + kind-coloured dot) per
+  // distinct kind colour; the selected pin gets an emphasized pair on top.
+  // Each pin is a FEATURE carrying its domain id — the engine's hit test
+  // answers a tap with `properties.id`, so hosts never do geometry math.
+  const pins = content.pins;
+  if (pins.length > 0) {
+    const byColor = new Map<string, { id: string; lat: number; lng: number }[]>();
+    for (const p of pins) {
+      if (p.id === content.selectedPinId) continue;
+      const list = byColor.get(p.color) ?? [];
+      list.push(p);
+      byColor.set(p.color, list);
+    }
+    let i = 0;
+    for (const [color, pts] of byColor) {
+      const src = `content-pins-${i++}`;
+      sources[src] = { type: 'geo-json', data: pinFeatures(pts) };
+      layers.push({ type: 'circle', id: `${src}-ring`, source: src, color: WHITE, radius: 11 });
+      layers.push({ type: 'circle', id: src, source: src, color: cssColorToScene(color), radius: 8 });
+    }
+    const sel = pins.find((p) => p.id === content.selectedPinId);
+    if (sel) {
+      sources['content-pin-selected'] = { type: 'geo-json', data: pinFeatures([sel]) };
+      layers.push({ type: 'circle', id: 'content-pin-selected-ring', source: 'content-pin-selected', color: WHITE, radius: 15 });
+      layers.push({ type: 'circle', id: 'content-pin-selected', source: 'content-pin-selected', color: cssColorToScene(sel.color), radius: 11 });
+    }
+  }
+
+  // The user-location fix: soft accuracy halo + white-ringed blue dot.
+  if (content.userFix) {
+    sources['content-user-location'] = { type: 'geo-json', data: multiPoint([content.userFix]) };
+    layers.push({
+      type: 'circle',
+      id: 'content-user-location-halo',
+      source: 'content-user-location',
+      color: { ...LOCATION_BLUE, a: 46 },
+      radius: 22,
+    });
+    layers.push({ type: 'circle', id: 'content-user-location-ring', source: 'content-user-location', color: WHITE, radius: 11 });
+    layers.push({ type: 'circle', id: 'content-user-location', source: 'content-user-location', color: LOCATION_BLUE, radius: 8 });
+  }
 }

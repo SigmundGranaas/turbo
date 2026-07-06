@@ -834,7 +834,10 @@ mod tests {
         // Past the reference labels lift, monotonically, but stay capped so
         // text never balloons (Google keeps it near-constant).
         assert!(text_size_scale(16.0) >= 1.0);
-        assert!(text_size_scale(20.0) > text_size_scale(16.0), "monotonic lift");
+        assert!(
+            text_size_scale(20.0) > text_size_scale(16.0),
+            "monotonic lift"
+        );
         assert!(text_size_scale(40.0) <= 1.35, "capped");
     }
 }

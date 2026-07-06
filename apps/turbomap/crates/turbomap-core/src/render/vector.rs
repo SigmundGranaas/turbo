@@ -277,10 +277,9 @@ impl VectorPipeline {
         // Per-frame multiplier on baked line widths (zoom curve); 1.0 = baked.
         width_scale: f32,
         // 3D-terrain displacement for draping features onto the relief:
-        // (meters_to_world·exaggeration, DEM encoding, halo_uv). `zscale`
-        // is 0 when no terrain is registered → the shader leaves z flat.
+        // (meters_to_world·exaggeration, halo_uv). `zscale` is 0 when no
+        // terrain is registered → the shader leaves z flat.
         terrain_zscale: f32,
-        terrain_encoding: u32,
         terrain_halo_uv: f32,
         // DEM cache for ancestor-walk draping: per tile we resolve the DEM
         // tile + sub-UV to sample (the tile itself or, at deep zoom, a cached
@@ -297,7 +296,7 @@ impl VectorPipeline {
             params: [
                 (256.0 * 2f64.powf(camera.zoom)) as f32,
                 terrain_zscale,
-                terrain_encoding as f32,
+                0.0, // spare (was the DEM-encoding tag; decode moved to ingest)
                 terrain_halo_uv,
             ],
         };

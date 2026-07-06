@@ -17,8 +17,8 @@ package com.sigmundgranaas.turbo.expressive.domain
  * (`apps/turbomap/.../turbomap-engine`): [fromScreen]/[toScreen] are its
  * `unproject`/`project`, [flyTo]/[frameTo] its camera animation, etc.
  *
- * The **data plane** of that contract (`applyScene`, `pendingTiles`/
- * `ingestTile`, `hitTest`, `capabilities`) and explicit surface lifecycle are
+ * The **data plane** of that contract (`applyScene`, the streaming plan /
+ * `ingest*`, `hitTest`, `capabilities`) and explicit surface lifecycle are
  * deliberately *not* here yet (see
  * `docs/architecture/2026-06-android-renderer-swap-test-plan.md`, Stage E).
  * Keeping this interface free of any renderer type is what lets that happen
@@ -52,6 +52,15 @@ interface MapEngine {
     /** Screen pixel for a geographic position — anchors on-map UI (e.g. the long-press menu). */
     fun toScreen(point: LatLng): Pair<Float, Float>
 
+    /**
+     * Map features under a screen pixel within [tolPx], top-most first (plan
+     * P6.4). Scene-declared content (pins as `circle` layers) answers with its
+     * geo-json feature properties — a tapped pin resolves to its domain id
+     * engine-side, no host geometry math. Default: no hits (engines without a
+     * feature index degrade gracefully).
+     */
+    fun hitTest(xPx: Float, yPx: Float, tolPx: Float = 14f): List<MapHit> = emptyList()
+
     /** The currently visible lat/lng box — the area to download for offline use. */
     fun visibleBounds(): GeoBounds
 
@@ -74,3 +83,11 @@ interface MapEngine {
     /** Frame the camera to fit [points] (e.g. a saved track being opened on the map). */
     fun frameTo(points: List<LatLng>, paddingPx: Int = 140)
 }
+
+/** One hit-test result: the scene layer struck, the feature id (when the
+ *  source carried one), and the feature's stringified properties. */
+data class MapHit(
+    val layer: String,
+    val featureId: String?,
+    val properties: Map<String, String>,
+)

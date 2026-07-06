@@ -9,9 +9,22 @@
 use crate::map::{HitMarker, Marker, MarkerId};
 
 /// Owns the map's markers and their id allocation.
+///
+/// Markers come in two flavours (plan P6.5):
+/// - **Ungrouped** — host-imperative pins (`Map::add_marker`). Drawn in the
+///   fixed screen-space track on top of the whole frame, like always.
+/// - **Grouped** — the instances of a scene-declared circle *layer*
+///   (`Map::add_marker_to_layer`); `group` is the owning layer id. Drawn at
+///   that layer's stack slot, so the IR's order is the composited order.
+///
+/// Both flavours share one store because hit-testing is one question — the
+/// grouping only decides *where in the frame* a marker paints.
 #[derive(Debug, Default)]
 pub struct MarkerManager {
     markers: Vec<Marker>,
+    /// Owning circle-layer id per grouped marker, keyed by marker id.
+    /// Absent = ungrouped (host marker).
+    groups: std::collections::HashMap<MarkerId, String>,
     /// Monotonic high-water mark for auto-assigned ids. A marker added with
     /// `MarkerId(0)` gets `next_id + 1`; a marker added with an explicit id
     /// bumps this so a later auto-assign can't collide with it.
@@ -38,16 +51,48 @@ impl MarkerManager {
         id
     }
 
+    /// Insert a marker owned by the circle layer `group` (its stack slot
+    /// draws it). Same id rules as [`Self::add`].
+    pub fn add_to_group(&mut self, group: &str, marker: Marker) -> MarkerId {
+        let id = self.add(marker);
+        self.groups.insert(id, group.to_string());
+        id
+    }
+
     pub fn remove(&mut self, id: MarkerId) {
         self.markers.retain(|m| m.id != id);
+        self.groups.remove(&id);
+    }
+
+    /// Remove every marker owned by the circle layer `group`.
+    pub fn remove_group(&mut self, group: &str) {
+        let groups = &self.groups;
+        self.markers
+            .retain(|m| groups.get(&m.id).map(String::as_str) != Some(group));
+        self.groups.retain(|_, g| g != group);
     }
 
     pub fn clear(&mut self) {
         self.markers.clear();
+        self.groups.clear();
     }
 
     pub fn all(&self) -> &[Marker] {
         &self.markers
+    }
+
+    /// The markers owned by circle layer `group`, in insertion order.
+    pub fn in_group<'a>(&'a self, group: &'a str) -> impl Iterator<Item = &'a Marker> + 'a {
+        self.markers
+            .iter()
+            .filter(move |m| self.groups.get(&m.id).map(String::as_str) == Some(group))
+    }
+
+    /// Host markers (no owning layer), in insertion order.
+    pub fn ungrouped(&self) -> impl Iterator<Item = &Marker> + '_ {
+        self.markers
+            .iter()
+            .filter(move |m| !self.groups.contains_key(&m.id))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -132,11 +177,53 @@ mod tests {
     }
 
     #[test]
+    fn groups_partition_the_store_and_remove_together() {
+        let mut m = MarkerManager::default();
+        m.add(marker(0)); // ungrouped host pin (id 1)
+        let a = m.add_to_group("pins", marker(0)); // id 2
+        m.add_to_group("dots", marker(0)); // id 3
+        m.add_to_group("pins", marker(0)); // id 4
+
+        assert_eq!(m.len(), 4, "grouped + ungrouped share one store");
+        assert_eq!(m.in_group("pins").count(), 2);
+        assert_eq!(m.in_group("dots").count(), 1);
+        assert_eq!(m.ungrouped().count(), 1);
+        // Insertion order within a group is preserved (draw order).
+        let ids: Vec<u64> = m.in_group("pins").map(|mk| mk.id.0).collect();
+        assert_eq!(ids, vec![a.0, 4]);
+
+        // Removing a single grouped marker forgets its group entry.
+        m.remove(a);
+        assert_eq!(m.in_group("pins").count(), 1);
+
+        // Removing the whole group leaves the others untouched.
+        m.remove_group("pins");
+        assert_eq!(m.len(), 2);
+        assert_eq!(m.in_group("pins").count(), 0);
+        assert_eq!(m.in_group("dots").count(), 1);
+        assert_eq!(m.ungrouped().count(), 1);
+
+        m.clear();
+        assert_eq!(m.ungrouped().count(), 0);
+        assert_eq!(m.in_group("dots").count(), 0);
+    }
+
+    #[test]
+    fn grouped_markers_hit_like_any_marker() {
+        // The store is the ONE hit-test source: grouping changes where a
+        // marker draws, never whether a tap finds it.
+        let mut m = MarkerManager::default();
+        m.add_to_group("pins", marker(0));
+        let hits = m.hit((100.0, 100.0), 0.0, |_| (100.0, 100.0));
+        assert_eq!(hits.len(), 1);
+    }
+
+    #[test]
     fn hit_returns_topmost_first_within_tolerance() {
         let mut m = MarkerManager::default();
         m.add(marker(0)); // id 1
         m.add(marker(0)); // id 2 (newest → top)
-        // Both project to the same point; both within radius.
+                          // Both project to the same point; both within radius.
         let hits = m.hit((100.0, 100.0), 0.0, |_| (100.0, 100.0));
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[0].id, MarkerId(2));

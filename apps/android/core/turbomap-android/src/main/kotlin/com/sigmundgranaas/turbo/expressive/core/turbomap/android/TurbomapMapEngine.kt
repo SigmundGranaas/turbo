@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.core.turbomap.android
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.MapEngine
+import com.sigmundgranaas.turbo.expressive.domain.MapHit
 import com.sigmundgranaas.turbo.expressive.domain.TerrainSunOverlay
 import com.sigmundgranaas.turbo.expressive.domain.WeatherCloudOverlay
 
@@ -27,6 +28,14 @@ class TurbomapMapEngine(
      * render (render-on-demand). The host wires this to its render-thread nudge.
      */
     var onMutated: () -> Unit = {}
+
+    /**
+     * The surface controller that owns the Scene document (plan P5.2). Sun,
+     * shadow, and cloud mutations are SCENE state, so they route here and
+     * become scene rebuilds — there are no imperative engine side-doors left.
+     * Null (e.g. the bare contract test) → environment mutations no-op.
+     */
+    internal var environmentHost: TurbomapSurfaceController? = null
 
     /** The host calls this when the surface is resized so [visibleBounds] stays correct. */
     fun onResized(width: Int, height: Int) {
@@ -80,6 +89,11 @@ class TurbomapMapEngine(
         return if (r.size >= 3 && r[2] == 1.0) r[0].toFloat() to r[1].toFloat() else 0f to 0f
     }
 
+    override fun hitTest(xPx: Float, yPx: Float, tolPx: Float): List<MapHit> {
+        val json = NativeSurfaceMap.nativeHitTest(handle, xPx.toDouble(), yPx.toDouble(), tolPx.toDouble())
+        return parseHits(json)
+    }
+
     override fun visibleBounds(): GeoBounds {
         val w = widthPx.toDouble()
         val h = heightPx.toDouble()
@@ -130,22 +144,21 @@ class TurbomapMapEngine(
     }
 
     // ── WeatherCloudOverlay ─────────────────────────────────────────────────
-    // Straight to the native overlay; each redraws via [onMutated] so the
-    // render-on-demand loop picks up the new frame/time.
+    // The overlay's DECLARATION (grid, geo box, visibility) is scene state →
+    // [environmentHost] rebuilds + re-applies the Scene (which also redraws).
+    // Frame data + the playback clock stay native verbs: data is transport
+    // (like tiles) and the clock is control (like the camera).
 
     override fun enableClouds(gridW: Int, gridH: Int) {
-        NativeSurfaceMap.nativeEnableClouds(handle, gridW, gridH)
-        onMutated()
+        environmentHost?.enableClouds(gridW, gridH)
     }
 
     override fun setCloudsVisible(visible: Boolean) {
-        NativeSurfaceMap.nativeSetCloudsVisible(handle, visible)
-        onMutated()
+        environmentHost?.setCloudsVisible(visible)
     }
 
     override fun setCloudGeoBounds(west: Double, south: Double, east: Double, north: Double) {
-        NativeSurfaceMap.nativeSetCloudGeoBounds(handle, west, south, east, north)
-        onMutated()
+        environmentHost?.setCloudGeoBounds(west, south, east, north)
     }
 
     override fun ingestRadarFrame(slot: Int, gridW: Int, gridH: Int, precip: ByteArray, coverage: ByteArray) {
@@ -159,15 +172,14 @@ class TurbomapMapEngine(
     }
 
     // ── TerrainSunOverlay ───────────────────────────────────────────────────
+    // Scene state (the environment's lighting + terrain-shadows) → the host.
 
     override fun setSunTime(unixSeconds: Double) {
-        NativeSurfaceMap.nativeSetSunTime(handle, unixSeconds)
-        onMutated()
+        environmentHost?.setSunTime(unixSeconds)
     }
 
     override fun setTerrainShadows(strength: Float) {
-        NativeSurfaceMap.nativeSetTerrainShadows(handle, strength)
-        onMutated()
+        environmentHost?.setTerrainShadows(strength)
     }
 
     private companion object {
@@ -175,4 +187,22 @@ class TurbomapMapEngine(
         const val EASE_DURATION_MS = 450 // fly-to / locate / frame-to
         const val ZOOM_DURATION_MS = 250 // rail zoom step
     }
+}
+
+/** Parse the JNI hit-test JSON (`[{"layer","feature_id","properties"}]`). */
+private fun parseHits(json: String): List<MapHit> = try {
+    val arr = org.json.JSONArray(json)
+    (0 until arr.length()).map { i ->
+        val o = arr.getJSONObject(i)
+        val props = o.optJSONObject("properties")
+        MapHit(
+            layer = o.optString("layer"),
+            featureId = if (o.isNull("feature_id")) null else o.optString("feature_id"),
+            properties = props?.let { p ->
+                p.keys().asSequence().associateWith { k -> p.optString(k) }
+            } ?: emptyMap(),
+        )
+    }
+} catch (_: org.json.JSONException) {
+    emptyList()
 }

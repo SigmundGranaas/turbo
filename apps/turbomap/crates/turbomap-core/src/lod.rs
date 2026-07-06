@@ -16,9 +16,9 @@
 //! tests); Phase 1 implements the refinement and un-ignores them (TDD red→green).
 
 use crate::camera::Camera;
-use std::collections::BinaryHeap;
 use crate::geo::WorldPoint;
 use crate::tile::TileId;
+use std::collections::BinaryHeap;
 
 /// Hard cap on the emitted (best-first) set. Must stay under the device GPU tile
 /// cache's working set (~240 tiles at the 80 MiB raster budget) — a desired set
@@ -266,8 +266,12 @@ fn screen_aabb_intersects_viewport(corners: &[(f64, f64)], vp: (f64, f64)) -> bo
     }
     let (vw, vh) = vp;
     let m = vw.max(vh) * 0.25;
-    let (mut minx, mut maxx, mut miny, mut maxy) =
-        (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+    let (mut minx, mut maxx, mut miny, mut maxy) = (
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    );
     for &(x, y) in corners {
         minx = minx.min(x);
         maxx = maxx.max(x);
@@ -313,7 +317,10 @@ mod tests {
         let zooms: Vec<u8> = tiles.iter().map(|t| t.id.z).collect();
         let min = *zooms.iter().min().unwrap();
         let max = *zooms.iter().max().unwrap();
-        assert!(max > min, "tilted view must span multiple LODs (got {min}..={max})");
+        assert!(
+            max > min,
+            "tilted view must span multiple LODs (got {min}..={max})"
+        );
         assert!(max <= 14 && min >= 4, "LODs within source range");
     }
 
@@ -322,7 +329,11 @@ mod tests {
         // The whole point: count stays bounded no matter how far the horizon
         // reaches (today this is thousands → capped → starved).
         let tiles = select(&cam(80.0, 14.0), VP, 4, 14, SSE, MAX_TILES);
-        assert!(tiles.len() < 400, "count must stay bounded (got {})", tiles.len());
+        assert!(
+            tiles.len() < 400,
+            "count must stay bounded (got {})",
+            tiles.len()
+        );
         assert!(!tiles.is_empty(), "must still cover the near ground");
     }
 

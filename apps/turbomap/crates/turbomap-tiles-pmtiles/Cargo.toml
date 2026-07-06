@@ -16,8 +16,12 @@ turbomap-mvt = { path = "../turbomap-mvt" }
 log.workspace = true
 thiserror.workspace = true
 flate2 = "1"
+# Pure-Rust brotli decode for real-world planet archives (no C dep).
+brotli-decompressor = "5"
 parking_lot = "0.12"
 reqwest.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+# Encoder side, tests only — round-trips the brotli decode path.
+brotli = "8"

@@ -56,17 +56,16 @@ class TurbomapRasterFillOnDeviceTest {
             // Async FFI: applyScene / pumpLocal / ingest all apply on the NEXT
             // render (wait-free command queue), and tile uploads are rate-limited
             // per frame. So each round renders to apply the prior commands + the
-            // scene and publish a fresh pending list, pumps, renders again so
-            // `pendingTilesJson` reflects the desired set, then ingests it. A dozen
+            // scene and mint a fresh streaming plan, pumps, renders again so
+            // the plan outbox reflects the desired set, then ingests it. A dozen
             // rounds + the readback renders below drain the visible + prefetch set.
             var ingested = 0
             repeat(12) {
                 NativeSurfaceMap.nativeRender(handle)
                 NativeSurfaceMap.nativePumpLocal(handle)
                 NativeSurfaceMap.nativeRender(handle)
-                val pending = JSONArray(NativeSurfaceMap.nativePendingTilesJson(handle))
-                for (i in 0 until pending.length()) {
-                    val o = pending.optJSONObject(i) ?: continue
+                // Streaming plan (P5.1): drain the minted starts and deliver.
+                for (o in planStarts(handle)) {
                     if (o.optString("kind") != "raster") continue
                     NativeSurfaceMap.nativeIngestRaster(
                         handle, o.optString("layer"), o.optInt("z"), o.optInt("x"), o.optInt("y"), redTile,
@@ -106,8 +105,9 @@ class TurbomapRasterFillOnDeviceTest {
             assertTrue("no fade running before any tile arrives", !NativeSurfaceMap.nativeIsAnimating(handle))
 
             NativeSurfaceMap.nativePumpLocal(handle)
-            NativeSurfaceMap.nativeRender(handle) // apply pumpLocal → pending populates
-            val pending = JSONArray(NativeSurfaceMap.nativePendingTilesJson(handle))
+            NativeSurfaceMap.nativeRender(handle) // apply pumpLocal → the plan mints
+            val pending = JSONArray()
+            planStarts(handle).forEach { pending.put(it) }
 
             // Ingest the VISIBLE viewport tile — the sharpest (highest-z) raster the
             // engine wants, the one that fades in over the coarse base. Don't assume
@@ -137,9 +137,19 @@ class TurbomapRasterFillOnDeviceTest {
 
             // Past the ~0.3 s fade window → the animation settles → render-on-demand
             // can park (this is the property the host relies on to stop drawing).
+            // A bounded settle loop, not one render after a fixed sleep: on a
+            // slow emulator (SwiftShader) the decode/upload that finishes the
+            // fade can straggle past a wall-clock budget, and the settled flag
+            // is only recomputed by a render tick. If it NEVER settles inside
+            // the bound, that is the real failure this asserts.
             Thread.sleep(450)
-            NativeSurfaceMap.nativeRender(handle)
-            assertTrue("fade completes and animation settles", !NativeSurfaceMap.nativeIsAnimating(handle))
+            var settled = false
+            for (i in 0 until 40) {
+                NativeSurfaceMap.nativeRender(handle)
+                if (!NativeSurfaceMap.nativeIsAnimating(handle)) { settled = true; break }
+                Thread.sleep(50)
+            }
+            assertTrue("fade completes and animation settles", settled)
         } finally {
             if (handle != 0L) NativeSurfaceMap.nativeDestroy(handle)
             reader.close()
@@ -196,4 +206,21 @@ class TurbomapRasterFillOnDeviceTest {
         }
         return red to grey
     }
+}
+
+
+/** Grant generous lanes, render once so the plan mints, and return every
+ *  `start` entry across the drained plans (P5.1 transport). */
+private fun planStarts(handle: Long): List<JSONObject> {
+    // Grant lanes first (a take is also a grant), render so the plan mints
+    // under that grant, then drain what was minted.
+    NativeSurfaceMap.nativeTakeStreamingPlanJson(handle, 256)
+    NativeSurfaceMap.nativeRender(handle)
+    val plans = JSONArray(NativeSurfaceMap.nativeTakeStreamingPlanJson(handle, 256))
+    val out = mutableListOf<JSONObject>()
+    for (p in 0 until plans.length()) {
+        val starts = plans.optJSONObject(p)?.optJSONArray("start") ?: continue
+        for (i in 0 until starts.length()) starts.optJSONObject(i)?.let { out.add(it) }
+    }
+    return out
 }

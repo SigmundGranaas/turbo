@@ -58,8 +58,8 @@ pub(crate) struct ShadowMap {
 
 impl ShadowMap {
     pub(crate) fn new(device: &wgpu::Device, queue: &Arc<wgpu::Queue>) -> Self {
-        let layout = Arc::new(device.create_bind_group_layout(
-            &wgpu::BindGroupLayoutDescriptor {
+        let layout = Arc::new(
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("turbomap-shadow-bgl"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -97,8 +97,8 @@ impl ShadowMap {
                         count: None,
                     },
                 ],
-            },
-        ));
+            }),
+        );
         // Texture-only layout for the AO pass input (heightfield via textureLoad).
         let height_tex_layout = Arc::new(device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {

@@ -10,10 +10,22 @@ use turbomap_core::{
     RasterFormat, RasterTile, TileError, TileId, TileSource, VectorTile, VectorTileSource,
 };
 
-pub mod cache;
-pub use cache::DiskCache;
+// The bounded LRU byte cache lives in `turbomap-tiles-cache` (the ONE disk
+// cache, plan slice B5.1); re-exported here so existing `turbomap_tiles_http::
+// DiskCache` users keep compiling.
+pub use turbomap_tiles_cache::DiskCache;
 pub mod retry;
 pub use retry::RetryPolicy;
+
+/// Tile path relative to a cache root: `<z>/<x>/<y>`. One layout shared by
+/// every source in this crate, so raster and vector caches are directory-
+/// compatible (they differ only by root).
+fn tile_rel_path(tile: TileId) -> std::path::PathBuf {
+    let mut p = std::path::PathBuf::from(tile.z.to_string());
+    p.push(tile.x.to_string());
+    p.push(tile.y.to_string());
+    p
+}
 
 /// A fetch failure classified by whether retrying could help. `Transient`
 /// covers transport errors (dropped connection, timeout) and the server-side
@@ -89,6 +101,10 @@ pub struct HttpRasterSource {
     /// edge seams.
     dem_halo_px: u32,
     retry: RetryPolicy,
+    /// Optional bounded on-disk cache of the raw encoded bytes (PNG/JPEG as
+    /// served). Until B5.1 only the vector source cached — every raster/DEM
+    /// basemap tile was re-fetched on each cold start.
+    cache: Option<DiskCache>,
 }
 
 impl HttpRasterSource {
@@ -114,7 +130,27 @@ impl HttpRasterSource {
             attribution: None,
             dem_halo_px: 0,
             retry: RetryPolicy::default(),
+            cache: None,
         })
+    }
+
+    /// Enable a bounded on-disk cache of the raw encoded tile bytes (default
+    /// budget [`DEFAULT_CACHE_BUDGET_BYTES`]). Same semantics as the vector
+    /// source's cache: best-effort lookups (any I/O error falls through to
+    /// the network), LRU eviction under the byte budget.
+    pub fn with_cache_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
+        self.cache = Some(DiskCache::new(dir.into(), DEFAULT_CACHE_BUDGET_BYTES));
+        self
+    }
+
+    /// Enable a bounded on-disk cache with an explicit byte budget.
+    pub fn with_cache(mut self, dir: impl Into<std::path::PathBuf>, budget_bytes: u64) -> Self {
+        self.cache = Some(DiskCache::new(dir.into(), budget_bytes));
+        self
+    }
+
+    pub fn cache_dir(&self) -> Option<&std::path::Path> {
+        self.cache.as_ref().map(|c| c.root())
     }
 
     pub fn with_attribution(mut self, attribution: impl Into<String>) -> Self {
@@ -160,9 +196,9 @@ impl HttpRasterSource {
 
     /// Our own tileserver's Mapbox-Terrain-RGB DEM endpoint. The handler
     /// lives at `apps/tileserver/crates/turbo-tiles-api/src/v1/dem.rs`
-    /// and serves PNG tiles where RGB encodes elevation in metres. Pair
-    /// with `Map::add_hillshade_layer(..., HillshadeStyle::default())`
-    /// (which defaults to `DemEncoding::MapboxRgb`).
+    /// and serves PNG tiles where RGB encodes elevation in metres —
+    /// matching this source's default `dem_encoding()` (Mapbox
+    /// Terrain-RGB), which the ingest-side DEM codec decodes with.
     ///
     /// `base_url` is the tileserver root, e.g. `https://api.turbo.app` or
     /// `http://localhost:8080` for local dev. Trailing slashes are
@@ -209,6 +245,13 @@ impl HttpRasterSource {
     pub fn url_for(&self, tile: TileId) -> String {
         expand_template(&self.url_template, tile)
     }
+
+    /// The configured URL template, exactly as passed to [`Self::new`].
+    /// Scene-host callers (plan P6.2) declare their sources in the IR by
+    /// template, so the template must be readable back off a preset.
+    pub fn url_template(&self) -> &str {
+        &self.url_template
+    }
 }
 
 fn expand_template(template: &str, tile: TileId) -> String {
@@ -226,11 +269,34 @@ impl TileSource for HttpRasterSource {
         if tile.z < self.min_zoom || tile.z > self.max_zoom {
             return Err(TileError::ZoomOutOfRange(tile.z));
         }
+
+        // 1. Disk cache — fast path. A hit refreshes the entry's recency so
+        // it survives LRU eviction; the bytes are the encoded image exactly
+        // as served, re-emitted under this source's declared format.
+        let rel = tile_rel_path(tile);
+        if let Some(ref cache) = self.cache {
+            if let Some(bytes) = cache.read(&rel) {
+                return Ok(RasterTile {
+                    bytes,
+                    format: self.format,
+                });
+            }
+        }
+
+        // 2. Network fetch, with transient-failure retry/backoff.
         let url = self.url_for(tile);
         let bytes = retry::retry(&self.retry, FetchError::is_transient, || {
             fetch_bytes(&self.client, &url)
         })
         .map_err(FetchError::into_tile_error)?;
+
+        // 3. Persist for the next launch; failures are logged, never fatal.
+        if let Some(ref cache) = self.cache {
+            if let Err(e) = cache.write(&rel, &bytes) {
+                log::warn!("raster cache write failed for {tile:?}: {e}");
+            }
+        }
+
         Ok(RasterTile {
             bytes,
             format: self.format,
@@ -336,12 +402,10 @@ impl HttpVectorTileSource {
         self.cache.as_ref().map(|c| c.root())
     }
 
-    /// Tile path relative to the cache root: `<z>/<x>/<y>`.
+    /// Tile path relative to the cache root: `<z>/<x>/<y>` (the crate-wide
+    /// [`tile_rel_path`] layout, shared with the raster source).
     fn tile_rel_path(tile: TileId) -> std::path::PathBuf {
-        let mut p = std::path::PathBuf::from(tile.z.to_string());
-        p.push(tile.x.to_string());
-        p.push(tile.y.to_string());
-        p
+        tile_rel_path(tile)
     }
 
     /// VersaTiles OSM (OpenStreetMap-based, OpenMapTiles schema). Free,
@@ -365,12 +429,54 @@ impl HttpVectorTileSource {
     pub fn turbo_basemap(base_url: &str) -> Result<Self, reqwest::Error> {
         let ua = format!("turbomap/{}", env!("CARGO_PKG_VERSION"));
         let base = base_url.trim_end_matches('/');
-        Self::new(format!("{base}/v1/basemap/{{z}}/{{x}}/{{y}}.mvt"), ua, 4, 16)
-            .map(|s| s.with_attribution("© Kartverket"))
+        Self::new(
+            format!("{base}/v1/basemap/{{z}}/{{x}}/{{y}}.mvt"),
+            ua,
+            4,
+            16,
+        )
+        .map(|s| s.with_attribution("© Kartverket"))
     }
 
     pub fn url_for(&self, tile: TileId) -> String {
         expand_template(&self.url_template, tile)
+    }
+
+    /// The configured URL template, exactly as passed to [`Self::new`].
+    /// Scene-host callers (plan P6.2) declare their sources in the IR by
+    /// template, so the template must be readable back off a preset.
+    pub fn url_template(&self) -> &str {
+        &self.url_template
+    }
+
+    /// Fetch one tile's raw MVT protobuf bytes — no decode. This is the
+    /// transport seam for engine-host callers (plan P6.2/B4.2): the engine's
+    /// codec owns MVT decode + tessellation, so the host pump must hand
+    /// bytes through untouched. Shares the disk cache and retry policy with
+    /// [`VectorTileSource::request`]; a corrupt cache entry is returned
+    /// as-is (the codec drops undecodable bytes and the tile re-pends —
+    /// the host's retry/backoff owns policy).
+    pub fn request_bytes(&self, tile: TileId) -> Result<Vec<u8>, TileError> {
+        if tile.z < self.min_zoom || tile.z > self.max_zoom {
+            return Err(TileError::ZoomOutOfRange(tile.z));
+        }
+        let rel = Self::tile_rel_path(tile);
+        if let Some(ref cache) = self.cache {
+            if let Some(bytes) = cache.read(&rel) {
+                return Ok(bytes);
+            }
+        }
+        let url = self.url_for(tile);
+        let bytes = retry::retry(&self.retry, FetchError::is_transient, || {
+            fetch_bytes(&self.client, &url)
+        })
+        .map_err(FetchError::into_tile_error)?;
+        if let Some(ref cache) = self.cache {
+            if let Err(e) = cache.write(&rel, &bytes) {
+                log::warn!("vector cache write failed for {tile:?}: {e}");
+            }
+        }
+        Ok(bytes)
     }
 }
 
@@ -559,6 +665,11 @@ mod tests {
 
         let decoded = source.request(tile).expect("cache hit must succeed");
         assert_eq!(decoded.layers.len(), 0, "EMPTY_MVT decodes to 0 layers");
+
+        // The raw-bytes seam (P6.2 engine hosts) reads the same cache and
+        // returns the bytes untouched — no decode.
+        let bytes = source.request_bytes(tile).expect("cache hit must succeed");
+        assert_eq!(bytes, EMPTY_MVT);
     }
 
     #[test]
@@ -573,10 +684,7 @@ mod tests {
         cache
             .write(&HttpVectorTileSource::tile_rel_path(tile), b"hello")
             .unwrap();
-        let read_back = std::fs::read(
-            dir.path().join("7").join("64").join("32"),
-        )
-        .unwrap();
+        let read_back = std::fs::read(dir.path().join("7").join("64").join("32")).unwrap();
         assert_eq!(&read_back, b"hello");
     }
 
@@ -592,6 +700,64 @@ mod tests {
     #[test]
     fn cache_dir_is_none_until_configured() {
         let source = HttpVectorTileSource::new("u", "a", 0, 22).unwrap();
+        assert!(source.cache_dir().is_none());
+        let dir = TempDir::new().unwrap();
+        let cached = source.with_cache_dir(dir.path());
+        assert_eq!(cached.cache_dir(), Some(dir.path()));
+    }
+
+    // ---- raster disk cache (B5.1) ---------------------------------------
+    //
+    // Value boundary: with `with_cache_dir` set, a raster tile present on
+    // disk is served without touching the network — the cold-start refetch
+    // of every basemap tile is gone. Same blackhole-URL technique as the
+    // vector test above.
+
+    #[test]
+    fn raster_cache_serves_a_tile_present_on_disk_without_network() {
+        let dir = TempDir::new().unwrap();
+        let tile = TileId::new(11, 1054, 590);
+        let path = dir
+            .path()
+            .join(tile.z.to_string())
+            .join(tile.x.to_string())
+            .join(tile.y.to_string());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"png-bytes").unwrap();
+
+        let source = HttpRasterSource::new(
+            "http://10.255.255.1:81/{z}/{x}/{y}.png",
+            "test/0",
+            0,
+            22,
+            RasterFormat::Png,
+        )
+        .unwrap()
+        .with_cache_dir(dir.path());
+
+        let r = source.request(tile).expect("cache hit must succeed");
+        assert_eq!(r.bytes, b"png-bytes");
+        assert_eq!(
+            r.format,
+            RasterFormat::Png,
+            "declared format re-emitted on a hit"
+        );
+    }
+
+    #[test]
+    fn raster_and_vector_caches_share_one_path_layout() {
+        // Directory-compatible on purpose: `<z>/<x>/<y>` for both, so a
+        // provider chain can address either store uniformly.
+        let tile = TileId::new(7, 64, 32);
+        assert_eq!(
+            tile_rel_path(tile),
+            HttpVectorTileSource::tile_rel_path(tile)
+        );
+    }
+
+    #[test]
+    fn raster_cache_dir_is_none_until_configured() {
+        let source = HttpRasterSource::new("u", "a", 0, 22, RasterFormat::Png).unwrap();
         assert!(source.cache_dir().is_none());
         let dir = TempDir::new().unwrap();
         let cached = source.with_cache_dir(dir.path());

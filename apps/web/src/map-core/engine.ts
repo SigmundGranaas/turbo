@@ -4,7 +4,7 @@
  *  host, and overlays use — a hand-written interface that the WASM `TurboMap`
  *  satisfies structurally (so features never name the concrete WASM type, and
  *  it can be stubbed in unit tests). The renderer/tile lifecycle (`render`,
- *  `apply_scene`, `ingest_*`, `pending_tiles`) is deliberately NOT here — that
+ *  `apply_scene`, `ingest_*`, `streaming_plan`) is deliberately NOT here — that
  *  is `map-engine`-internal, not something a feature should reach for.
  *
  *  Signatures mirror `turbomap-web`'s generated `.d.ts`; if the bindings drift,
@@ -36,14 +36,9 @@ export interface MapEngine {
   set_viewport_inset(bottom_px: number): void;
   set_viewport_inset_right(right_px: number): void;
 
-  set_sun_time(unix_secs?: number | null): void;
-  set_terrain_shadows(strength: number): void;
-  set_basemap_gain(gain: number): void;
   /** Toggle 3D terrain sun-lighting. `false` = bare bright basemap over the
    *  relief (no darkening, no per-fragment shading) — used for plain 3D; `true`
    *  for sun mode. No effect in 2D. */
-  set_terrain_lit(lit: boolean): void;
   /** Toggle far-distance atmospheric haze (aerial perspective) in 3D. Off keeps
    *  the map crisp at every angle/zoom. No effect in 2D. */
-  set_aerial_haze(on: boolean): void;
 }

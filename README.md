@@ -4,7 +4,6 @@ Monorepo for the Turkart product.
 
 | Path | What it is |
 | --- | --- |
-| [`apps/flutter`](apps/flutter) | Flutter app (iOS / Android / web / desktop). The user-facing Turkart client. |
 | [`apps/api`](apps/api) | .NET API — auth, geo, tracks, collections, activities, gateway. |
 | [`apps/tileserver`](apps/tileserver) | Rust tile server — N50 ingest, multi-layer basemap MVT + style, routing, search. |
 | [`apps/turbomap`](apps/turbomap) | wgpu map renderer (desktop now; Android/iOS/web by design). |
@@ -20,7 +19,6 @@ Monorepo for the Turkart product.
 
 ```sh
 cd apps/api && dotnet restore Turboapi.sln && dotnet build Turboapi.sln
-cd apps/flutter && flutter pub get
 ```
 
 ### Day-to-day dev — fast loop with hot reload
@@ -39,8 +37,6 @@ cd apps/api
 dotnet watch --project hosts/Turbo.Host.Modulith run
 
 # 3) Flutter: hot reload is built in. r = reload, R = restart, q = quit.
-cd apps/flutter
-flutter run --dart-define=API_BASE_URL=http://localhost:5055
 ```
 
 When `dotnet watch` can apply the change in-process it does so silently;
@@ -84,7 +80,6 @@ schemas owned internally by each module. Hosts see a single
 Workflows in `.github/workflows/` use `paths:` triggers so Flutter and API
 pipelines only fire when their own directories change:
 
-- `flutter_*` and `github_publish` — triggered by `apps/flutter/**`
 - `api_*` — triggered by `apps/api/**` and the relevant `infra/**` subtrees
 
 ## Adding a new backend service

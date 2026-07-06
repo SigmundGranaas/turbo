@@ -23,7 +23,7 @@ impl SourceResolver for SyntheticResolver {
             SourceDef::GeoJson { data } => {
                 ResolvedSource::Vector(Arc::new(GeoJsonVectorSource::new(data)))
             }
-            SourceDef::VectorXyz { .. } => ResolvedSource::Unsupported,
+            _ => ResolvedSource::Unsupported,
         }
     }
 }

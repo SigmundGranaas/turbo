@@ -131,6 +131,15 @@ fn itertools_zip<'a>(
     a: &'a RgbaImage,
     e: &'a RgbaImage,
     d: &'a mut RgbaImage,
-) -> impl Iterator<Item = (&'a image::Rgba<u8>, &'a image::Rgba<u8>, &'a mut image::Rgba<u8>)> {
-    a.pixels().zip(e.pixels()).zip(d.pixels_mut()).map(|((a, e), d)| (a, e, d))
+) -> impl Iterator<
+    Item = (
+        &'a image::Rgba<u8>,
+        &'a image::Rgba<u8>,
+        &'a mut image::Rgba<u8>,
+    ),
+> {
+    a.pixels()
+        .zip(e.pixels())
+        .zip(d.pixels_mut())
+        .map(|((a, e), d)| (a, e, d))
 }

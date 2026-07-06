@@ -9,7 +9,6 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import uniffi.turbomap_ffi.Camera
 import uniffi.turbomap_ffi.FfiException
-import uniffi.turbomap_ffi.TileKind
 import uniffi.turbomap_ffi.TurboMap
 import java.io.ByteArrayInputStream
 import javax.imageio.ImageIO
@@ -42,18 +41,23 @@ class TurbomapSceneTest {
                 measure = measure,
             )
             // 1 raster + measure-line + measure-pts = 3 layers / 3 sources. (track +
-            // route are 3D tubes via nativeSetRouteTube, and the live user position
-            // is a Compose MyPositionPin — neither is a scene layer.)
+            // route are scene-declared `tube` layers, and the live user position
+            // is a Compose MyPositionPin — not emitted for this state.)
             val delta = map.applyScene(json)
             assertEquals("layers: $delta", 3u, delta.layersAdded)
             assertEquals("sources: $delta", 3u, delta.sourcesChanged)
             assertTrue("no layer unsupported: ${map.unsupportedLayers()}", map.unsupportedLayers().isEmpty())
 
-            // Every geojson overlay drains in-process; only the raster basemap is pending.
+            // Every geojson overlay drains in-process; only the raster basemap
+            // surfaces to the host, through the streaming plan (P5.1).
             val local = map.pumpLocalTiles()
             assertTrue("geojson should drain: $local", local.vectorTiles > 0u)
-            val pending = map.pendingTiles()
-            assertTrue("only the basemap raster pends", pending.all { it.kind == TileKind.RASTER && it.layerId == "basemap" })
+            val starts = planStarts(map.streamingPlanJson(64u))
+            assertTrue("the basemap should need tiles", starts.isNotEmpty())
+            assertTrue(
+                "only the basemap raster starts: $starts",
+                starts.all { it.kind == "raster" && it.layer == "basemap" },
+            )
 
             // The composed frame renders.
             val img = ImageIO.read(ByteArrayInputStream(map.renderPng()))
@@ -67,6 +71,36 @@ class TurbomapSceneTest {
             val delta = map.applyScene(TurbomapScene.build())
             assertEquals(0u, delta.layersAdded)
             assertTrue(map.unsupportedLayers().isEmpty())
+        }
+    }
+
+    @Test
+    fun `tubes and the environment are scene state, not side-doors`() {
+        newMap().use { map ->
+            // Route/track tubes + sun/shadows/clouds ride the ONE scene
+            // document (plan P5.2) — the imperative natives are gone.
+            val json = TurbomapScene.build(
+                rasters = listOf(TurbomapScene.RasterSpec("basemap", "https://example.test/{z}/{x}/{y}.png")),
+                tubes = listOf(
+                    TurbomapScene.TubeSpec("route", measure, TurbomapScene.RouteColor, radiusPx = 8.0),
+                    // A 1-point tube can't be a line — omitted, like short polylines.
+                    TurbomapScene.TubeSpec("track", listOf(LatLng(60.0, 5.0)), TurbomapScene.TrackColor, 8.0),
+                ),
+                environment = TurbomapScene.EnvironmentSpec(
+                    sunUnixSeconds = 1_751_700_000.0,
+                    terrainShadows = 0.85f,
+                    clouds = TurbomapScene.CloudsSpec(16, 16, west = 4.0, south = 59.0, east = 7.0, north = 61.0),
+                ),
+            )
+            assertFalse("the 1-point tube is omitted", json.contains("\"track\""))
+            assertTrue("the environment block is declared: $json", json.contains("\"environment\""))
+
+            // basemap raster + the route tube; the engine renders both.
+            val delta = map.applyScene(json)
+            assertEquals("layers: $delta", 2u, delta.layersAdded)
+            assertTrue("tube must be renderable: ${map.unsupportedLayers()}", map.unsupportedLayers().isEmpty())
+            // The applied scene round-trips with the environment intact.
+            assertTrue("engine kept the lighting: ${map.sceneJson()}", map.sceneJson().contains("time-tracked"))
         }
     }
 

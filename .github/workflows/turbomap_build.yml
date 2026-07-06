@@ -2,7 +2,10 @@ name: Turbomap build and test
 
 on:
   push:
-    branches: [ "main" ]
+    # The engine-architecture branch runs the full ladder pre-merge (plan
+    # P6.0): 55+ commits of Phases 0-5 landed without CI ever firing because
+    # every lane was main-only.
+    branches: [ "main", "claude/mapping-engine-architecture-nov1k1" ]
     paths:
       - 'apps/turbomap/**'
       - '.github/workflows/turbomap_build.yml'
@@ -80,3 +83,67 @@ jobs:
       - name: Format check (informational)
         run: cargo fmt --all -- --check
         continue-on-error: true
+
+  # GPU lane (plan P6.0): the golden/behavioural suites are feature-gated —
+  # plain `cargo test` runs ZERO of them, which silently masked regressions
+  # twice. Lavapipe (software Vulkan) is the adapter; REQUIRE_GPU=1 makes a
+  # missing adapter a hard failure instead of a vacuous skip.
+  gpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/turbomap
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc + Lavapipe (software Vulkan)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler mesa-vulkan-drivers vulkan-tools
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/turbomap
+          key: gpu-tests
+
+      - name: GPU suites (engine + golden + ffi, goldens byte-compared)
+        env:
+          REQUIRE_GPU: "1"
+        run: >
+          cargo test -p turbomap-engine -p turbomap-golden -p turbomap-ffi
+          --features turbomap-engine/gpu-tests,turbomap-golden/gpu-tests,turbomap-ffi/gpu-tests
+
+  # wasm lane (plan P6.0): compile-clean is necessary but NOT sufficient on
+  # wasm (the D1 std::time::Instant panic compiled fine) — the web workflow's
+  # runtime smoke stays the behavioural gate; this catches the cheap half.
+  wasm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/turbomap
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.1
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/turbomap
+          key: wasm
+
+      - name: Check turbomap-web (wasm32)
+        run: cargo check -p turbomap-web --target wasm32-unknown-unknown

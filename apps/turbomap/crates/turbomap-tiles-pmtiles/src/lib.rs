@@ -69,7 +69,9 @@ pub struct BytesRangeReader {
 
 impl BytesRangeReader {
     pub fn new(data: Vec<u8>) -> Self {
-        Self { data: Arc::new(data) }
+        Self {
+            data: Arc::new(data),
+        }
     }
 }
 
@@ -79,7 +81,9 @@ impl RangeReader for BytesRangeReader {
         let end = start
             .checked_add(len)
             .filter(|&e| e <= self.data.len())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "range past end of archive"))?;
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::UnexpectedEof, "range past end of archive")
+            })?;
         Ok(self.data[start..end].to_vec())
     }
 }
@@ -267,12 +271,19 @@ fn maybe_decompress(bytes: &[u8], comp: Compression) -> Result<Vec<u8>, PMTilesE
             decoder.read_to_end(&mut out)?;
             Ok(out)
         }
-        Compression::Brotli | Compression::Zstd | Compression::Unknown => {
-            // These are valid in the spec but rare in the wild; skip for
-            // now and surface a clear error so the host can swap to a
-            // recompressed archive.
+        Compression::Brotli => {
+            // Real-world planet archives (Protomaps builds among them) ship
+            // brotli-compressed tiles — without this, "wire in a bundled
+            // baseline" would only work for archives we repack ourselves.
+            let mut decoder = brotli_decompressor::Decompressor::new(bytes, 4096);
+            let mut out = Vec::new();
+            decoder.read_to_end(&mut out)?;
+            Ok(out)
+        }
+        Compression::Zstd | Compression::Unknown => {
+            // Valid in the spec but rare in the wild; surface a clear error
+            // so the host can swap to a recompressed archive.
             Err(PMTilesError::UnknownCompression(match comp {
-                Compression::Brotli => 3,
                 Compression::Zstd => 4,
                 _ => 1,
             }))
@@ -356,6 +367,30 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::TempDir;
+
+    #[test]
+    fn brotli_tiles_decompress() {
+        // Real-world planet archives (e.g. Protomaps builds) use brotli tile
+        // compression — round-trip through the encoder to prove the decode
+        // path, exactly as gzip is proven by the archive tests below.
+        let payload = b"hello pmtiles brotli".to_vec();
+        let mut compressed = Vec::new();
+        {
+            let mut w = brotli::CompressorWriter::new(&mut compressed, 4096, 5, 22);
+            w.write_all(&payload).unwrap();
+        }
+        let out =
+            maybe_decompress(&compressed, Compression::Brotli).expect("brotli decode is supported");
+        assert_eq!(out, payload);
+    }
+
+    #[test]
+    fn zstd_still_reports_a_clear_error() {
+        // Zstd remains unsupported — the error must stay actionable, not a
+        // silent empty tile.
+        let err = maybe_decompress(b"whatever", Compression::Zstd).unwrap_err();
+        assert!(matches!(err, PMTilesError::UnknownCompression(4)));
+    }
 
     fn varint(out: &mut Vec<u8>, mut v: u64) {
         while v >= 0x80 {
@@ -505,8 +540,8 @@ mod tests {
             data: bytes,
             reads: std::sync::atomic::AtomicUsize::new(0),
         });
-        let from_range = PMTilesSource::from_reader(Box::new(CountingReaderHandle(counting.clone())))
-            .unwrap();
+        let from_range =
+            PMTilesSource::from_reader(Box::new(CountingReaderHandle(counting.clone()))).unwrap();
 
         let id = TileId::new(0, 0, 0);
         let a = <PMTilesSource as TileSource>::request(&from_file, id).unwrap();

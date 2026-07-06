@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { setMapEnvironment } from '../map-core';
 import { useQueryClient } from '@tanstack/react-query';
 import type { TurboMap } from 'turbomap-web';
 import { useSession } from '../api/auth';
@@ -222,14 +223,14 @@ export function MapScreen() {
   // path is skipped (big perf win). No-op in 2D (no DEM). Re-applied when sun
   // toggles or the engine boots.
   useEffect(() => {
-    mapRef.current?.set_terrain_lit(sun.on);
+    setMapEnvironment({ 'terrain-lit': sun.on });
   }, [sun.on, ready]);
 
   // Far-distance atmospheric haze (aerial perspective) — opt-in via Settings,
   // off by default. No-op in 2D (no DEM); re-applied when toggled or on boot.
   const distanceHaze = useUiStore((s) => s.distanceHaze);
   useEffect(() => {
-    mapRef.current?.set_aerial_haze(distanceHaze);
+    setMapEnvironment({ 'aerial-haze': distanceHaze });
   }, [distanceHaze, ready]);
 
   // Redeem a ?share=<token> link on open. Requires sign-in (the grant is
@@ -460,12 +461,35 @@ export function MapScreen() {
     setCtxMenu({ x, y, lat: g.lat, lng: g.lng });
   };
 
+  // Pins are scene-declared content (plan P6.3): a tap resolves through the
+  // ENGINE's hit test (plan P6.4) — the pin features carry their domain id in
+  // the geo-json properties, so the first pin-layer hit answers directly.
+  const pinAtTap = (x: number, y: number): string | undefined => {
+    const m = mapRef.current;
+    if (!m || markers.length === 0) return undefined;
+    try {
+      const hits = JSON.parse(m.hit_test(x * DPR(), y * DPR(), 10 * DPR())) as {
+        layer: string;
+        properties: Record<string, string>;
+      }[];
+      return hits.find((h) => h.layer.startsWith('content-pin'))?.properties.id;
+    } catch {
+      return undefined;
+    }
+  };
+
   // A tap/click on the map (the gesture controller already filtered out drags,
-  // doubles, and long-presses). While routing, any tap adds a waypoint. Else a
-  // mouse click closes any open panel then opens the point menu; a touch tap
-  // dismisses an open menu/panel (touch opens the menu via long-press instead,
-  // so it doesn't fight double-tap-zoom).
+  // doubles, and long-presses). A pin hit selects the pin (or adds it as a
+  // waypoint while routing). While routing, any other tap adds a waypoint.
+  // Else a mouse click closes any open panel then opens the point menu; a
+  // touch tap dismisses an open menu/panel (touch opens the menu via
+  // long-press instead, so it doesn't fight double-tap-zoom).
   const onMapTap = (x: number, y: number, pointerType: string) => {
+    const pin = pinAtTap(x, y);
+    if (pin) {
+      onPinSelect(pin);
+      return;
+    }
     if (useRouting.getState().active) {
       const g = groundLatLng(x, y);
       if (g) useRouting.getState().addWaypoint(g);
@@ -542,9 +566,10 @@ export function MapScreen() {
           coords={selectedTrack.points}
           waypoints={[selectedTrack.points[0], selectedTrack.points[selectedTrack.points.length - 1]]}
           color={selectedTrack.colorHex || 'var(--primary)'}
+          contentKey="track"
         />
       )}
-      <MarkerPins markers={markers} selectedId={markerPanel ? sel.selectedId : undefined} onSelect={onPinSelect} />
+      <MarkerPins markers={markers} selectedId={markerPanel ? sel.selectedId : undefined} />
       <UserLocationLayer />
 
       {/* left: app-shell nav rail (desktop) */}

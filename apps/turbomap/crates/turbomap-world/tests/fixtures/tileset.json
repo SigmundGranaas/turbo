@@ -1,0 +1,46 @@
+{
+  "asset": { "version": "1.1" },
+  "geometricError": 512.0,
+  "root": {
+    "boundingVolume": {
+      "region": [0.0929, 1.0537, 0.0935, 1.0541, 0.0, 120.0]
+    },
+    "geometricError": 256.0,
+    "refine": "REPLACE",
+    "content": { "uri": "root.glb" },
+    "children": [
+      {
+        "boundingVolume": {
+          "box": [1.5, -2.0, 40.0, 30.0, 0.0, 0.0, 0.0, 20.0, 0.0, 0.0, 0.0, 40.0]
+        },
+        "geometricError": 64.0,
+        "content": { "uri": "buildings/0.glb" },
+        "children": [
+          {
+            "boundingVolume": {
+              "sphere": [1.5, -2.0, 60.0, 25.0]
+            },
+            "geometricError": 0.0,
+            "refine": "ADD",
+            "content": { "uri": "buildings/0/detail.glb" }
+          }
+        ]
+      },
+      {
+        "boundingVolume": {
+          "region": [0.0932, 1.0537, 0.0935, 1.0539, 0.0, 80.0]
+        },
+        "geometricError": 64.0,
+        "children": [
+          {
+            "boundingVolume": {
+              "region": [0.0932, 1.0537, 0.09335, 1.0538, 0.0, 55.0]
+            },
+            "geometricError": 8.0,
+            "content": { "uri": "east/leaf.glb" }
+          }
+        ]
+      }
+    ]
+  }
+}

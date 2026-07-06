@@ -25,7 +25,7 @@ use ndk::native_window::NativeWindow;
 use raw_window_handle::{
     AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
-use turbomap_core::{Camera, Color as CoreColor, LatLng as CoreLatLng, MapOptions, PendingTile, TileId};
+use turbomap_core::{Camera, LatLng as CoreLatLng, MapOptions, PendingTile, TileId};
 use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine};
 use turbomap_scene::{LatLng, Scene, ScreenPoint};
 
@@ -301,7 +301,12 @@ impl OnScreen {
     fn apply_cmd(&mut self, cmd: Cmd) {
         use std::time::Duration;
         match cmd {
-            Cmd::SetCamera { lat, lng, zoom, bearing } => {
+            Cmd::SetCamera {
+                lat,
+                lng,
+                zoom,
+                bearing,
+            } => {
                 let mut c = self.engine.camera();
                 c.center = LatLng::new(lat, lng);
                 c.zoom = zoom;
@@ -327,12 +332,15 @@ impl OnScreen {
                 c.center = LatLng::new(target.lat, target.lng);
                 self.engine.set_camera(c);
             }
-            Cmd::SetRouteTube { id, points, color, radius_m } => {
-                self.engine.set_route_tube(&id, &points, color, radius_m);
-            }
             Cmd::Fling(vx, vy) => self.engine.fling((vx, vy)),
             Cmd::ZoomFling { v, fx, fy } => self.engine.zoom_fling(v, (fx, fy)),
-            Cmd::EaseTo { lat, lng, zoom, bearing, dur_ms } => {
+            Cmd::EaseTo {
+                lat,
+                lng,
+                zoom,
+                bearing,
+                dur_ms,
+            } => {
                 let mut target = self.engine.camera();
                 target.center = LatLng::new(lat, lng);
                 target.zoom = zoom;
@@ -344,7 +352,12 @@ impl OnScreen {
                 target.pitch_deg = pitch;
                 self.engine.ease_to(target, Duration::from_millis(dur_ms));
             }
-            Cmd::ZoomAroundAnimated { factor, fx, fy, dur_ms } => {
+            Cmd::ZoomAroundAnimated {
+                factor,
+                fx,
+                fy,
+                dur_ms,
+            } => {
                 self.engine
                     .zoom_around_animated(factor, (fx, fy), Duration::from_millis(dur_ms));
             }
@@ -361,17 +374,25 @@ impl OnScreen {
                 self.inset = px;
                 self.engine.set_viewport_inset(px);
             }
-            Cmd::SetTerrainShadows(s) => self.engine.set_terrain_shadows(s),
-            Cmd::SetSunTime(t) => self.engine.set_sun_time(t),
-            Cmd::EnableClouds { w, h } => self.engine.enable_clouds(w, h),
-            Cmd::SetCloudsVisible(v) => self.engine.set_clouds_visible(v),
-            Cmd::SetCloudGeoBounds { w, s, e, n } => self.engine.set_cloud_geo_bounds(w, s, e, n),
-            Cmd::IngestRadar { slot, w, h, precip, coverage } => {
-                self.engine.ingest_radar_frame(slot, w, h, &precip, &coverage);
+            Cmd::IngestRadar {
+                slot,
+                w,
+                h,
+                precip,
+                coverage,
+            } => {
+                self.engine
+                    .ingest_radar_frame(slot, w, h, &precip, &coverage);
             }
             Cmd::SetCloudTime { time, blend } => self.engine.set_cloud_time(time, blend),
             Cmd::ApplyScene(scene) => {
                 self.engine.apply(*scene);
+            }
+            Cmd::FetchFailed(id) => {
+                self.engine.fetch_failed(turbomap_world::RequestId(id));
+            }
+            Cmd::FetchCancelled(id) => {
+                self.engine.fetch_cancelled(turbomap_world::RequestId(id));
             }
             Cmd::PumpTiles => {
                 self.engine.pump_tiles();
@@ -395,38 +416,32 @@ impl OnScreen {
         }
     }
 
-    /// Build the immutable read model the UI loads wait-free. `queued` is the set
-    /// of tiles already handed to the engine but not yet uploaded; they are
-    /// filtered out of the pending list so the host never re-requests an in-flight
-    /// upload (see [`Surface::queued`]).
-    fn build_snapshot(&self, queued: &std::collections::HashSet<(String, TileId)>) -> Snapshot {
-        let (pending_count, pending_json) = pending_tiles_filtered(&self.engine, queued);
+    /// Build the immutable read model the UI loads wait-free. Tile work is
+    /// NOT in here — it rides the plan outbox (consume-once), not a
+    /// republished snapshot.
+    fn build_snapshot(&self) -> Snapshot {
         Snapshot {
             cam: self.engine.camera(),
             viewport: (self.config.width as f64, self.config.height as f64),
             inset: self.inset,
             animating: self.engine.is_animating(),
-            pending_count,
-            pending_json,
+            pending_count: 0,
             stats_json: stats_json(&self.engine),
         }
-    }
-}
-
-/// The `(layer, tile)` identity of one queued ingest — must match the namespacing
-/// used by [`pending_tiles_filtered`] (raster → layer id, terrain → `__terrain`).
-fn ingest_key(i: &Ingest) -> (String, TileId) {
-    match i {
-        Ingest::Raster { layer, tile, .. } => (layer.clone(), *tile),
-        Ingest::Terrain { tile, .. } => ("__terrain".to_string(), *tile),
-        Ingest::Vector { layer, tile, .. } => (layer.clone(), *tile),
     }
 }
 
 impl FramePerf {
     /// Accumulate one frame; log a summary ~1×/s and an immediate line on any
     /// frame that exceeds the 16.7 ms vsync budget (the stalls the user feels).
-    fn record(&mut self, render_ms: f64, ingest_ms: f64, ingested: u32, backlog: usize, pending: u32) {
+    fn record(
+        &mut self,
+        render_ms: f64,
+        ingest_ms: f64,
+        ingested: u32,
+        backlog: usize,
+        pending: u32,
+    ) {
         let now = std::time::Instant::now();
         let gap_ms = self
             .last_frame_at
@@ -478,38 +493,6 @@ impl FramePerf {
     }
 }
 
-/// `(count, JSON array)` of the tiles the engine is waiting on, MINUS those whose
-/// bytes are already queued for upload (`queued`) — the host pumps off this list,
-/// and re-requesting an in-flight upload is the re-ingest storm this prevents.
-fn pending_tiles_filtered(
-    engine: &TurbomapEngine,
-    queued: &std::collections::HashSet<(String, TileId)>,
-) -> (u32, String) {
-    let items: Vec<String> = engine
-        .pending_tiles()
-        .into_iter()
-        .filter_map(|p| {
-            let (kind, layer, t) = match p {
-                PendingTile::Raster { layer_id, tile } => ("raster", layer_id, tile),
-                PendingTile::Hillshade { layer_id, tile } => ("hillshade", layer_id, tile),
-                PendingTile::Vector { layer_id, tile } => ("vector", layer_id, tile),
-                PendingTile::Terrain { tile } => ("terrain", "__terrain".to_string(), tile),
-            };
-            // Already handed to the engine (bytes in the ingest queue)? Skip — it
-            // becomes resident within a frame or two; re-requesting it floods the
-            // queue with duplicates and starves real work + camera moves.
-            if queued.contains(&(layer.clone(), t)) {
-                return None;
-            }
-            Some(format!(
-                "{{\"kind\":\"{kind}\",\"layer\":\"{layer}\",\"z\":{},\"x\":{},\"y\":{}}}",
-                t.z, t.x, t.y
-            ))
-        })
-        .collect();
-    (items.len() as u32, format!("[{}]", items.join(",")))
-}
-
 // The structured per-frame trace (`FrameTrace`, `frame_trace`, `stats_json`)
 // lives in the ungated `crate::trace` module so its pure serialization is
 // host-compiled + unit-tested (this `surface` module is Android-only).
@@ -540,44 +523,101 @@ fn pending_tiles_filtered(
 enum Cmd {
     /// Centre/zoom/bearing set; pitch is preserved from the live camera (the
     /// 2D gesture path doesn't touch tilt).
-    SetCamera { lat: f64, lng: f64, zoom: f64, bearing: f64 },
+    SetCamera {
+        lat: f64,
+        lng: f64,
+        zoom: f64,
+        bearing: f64,
+    },
     /// Translate the camera by a screen-space finger delta (px). Applied on the
     /// render thread against the LIVE camera, so successive pan events within one
     /// frame ACCUMULATE instead of each recomputing from a stale snapshot and
     /// overwriting (the dropped-intermediate-motion "throttle"/jitter). Ground-
     /// plane unproject → consistent under pitch (no terrain-hit skitter).
-    PanByPixels { dx: f64, dy: f64 },
-    /// Set (or clear, when `points` is empty) a route/track polyline drawn as a
-    /// raised 3D tube. Replaces the old flat geo-json line for route/track.
-    SetRouteTube { id: String, points: Vec<CoreLatLng>, color: CoreColor, radius_m: f64 },
+    PanByPixels {
+        dx: f64,
+        dy: f64,
+    },
     Fling(f64, f64),
-    ZoomFling { v: f64, fx: f64, fy: f64 },
-    EaseTo { lat: f64, lng: f64, zoom: f64, bearing: f64, dur_ms: u64 },
-    EasePitch { pitch: f64, dur_ms: u64 },
-    ZoomAroundAnimated { factor: f64, fx: f64, fy: f64, dur_ms: u64 },
-    ZoomAround { factor: f64, fx: f64, fy: f64 },
-    OrbitAround { db: f64, dp: f64, fx: f64, fy: f64 },
+    ZoomFling {
+        v: f64,
+        fx: f64,
+        fy: f64,
+    },
+    EaseTo {
+        lat: f64,
+        lng: f64,
+        zoom: f64,
+        bearing: f64,
+        dur_ms: u64,
+    },
+    EasePitch {
+        pitch: f64,
+        dur_ms: u64,
+    },
+    ZoomAroundAnimated {
+        factor: f64,
+        fx: f64,
+        fy: f64,
+        dur_ms: u64,
+    },
+    ZoomAround {
+        factor: f64,
+        fx: f64,
+        fy: f64,
+    },
+    OrbitAround {
+        db: f64,
+        dp: f64,
+        fx: f64,
+        fy: f64,
+    },
     CancelAnimation,
     SetViewportInset(f64),
-    SetTerrainShadows(f32),
-    SetSunTime(Option<f64>),
-    EnableClouds { w: u32, h: u32 },
-    SetCloudsVisible(bool),
-    SetCloudGeoBounds { w: f64, s: f64, e: f64, n: f64 },
-    IngestRadar { slot: u32, w: u32, h: u32, precip: Vec<u8>, coverage: Vec<u8> },
-    SetCloudTime { time: f32, blend: f32 },
+    // Environment/content mutations (sun, shadows, clouds config, tubes) have
+    // no Cmds: they are SCENE state (plan P5.2), carried by Cmd::ApplyScene.
+    IngestRadar {
+        slot: u32,
+        w: u32,
+        h: u32,
+        precip: Vec<u8>,
+        coverage: Vec<u8>,
+    },
+    SetCloudTime {
+        time: f32,
+        blend: f32,
+    },
     ApplyScene(Box<Scene>),
+    /// Report a plan-issued fetch as failed (the engine re-pends + backs off
+    /// — retry policy has exactly one owner, the lifecycle table).
+    FetchFailed(u64),
+    /// Report a plan `cancel` as honoured, or a `start` the host declined.
+    FetchCancelled(u64),
     PumpTiles,
-    Resize { w: u32, h: u32 },
+    Resize {
+        w: u32,
+        h: u32,
+    },
 }
 
 /// A fetched tile to upload. Separate from [`Cmd`] so tile bursts are rate-
 /// limited per frame (decode + GPU upload is the expensive part) without ever
 /// delaying a control command — control fully drains, ingest is capped.
 enum Ingest {
-    Raster { layer: String, tile: TileId, bytes: Vec<u8> },
-    Terrain { tile: TileId, bytes: Vec<u8> },
-    Vector { layer: String, tile: TileId, bytes: Vec<u8> },
+    Raster {
+        layer: String,
+        tile: TileId,
+        bytes: Vec<u8>,
+    },
+    Terrain {
+        tile: TileId,
+        bytes: Vec<u8>,
+    },
+    Vector {
+        layer: String,
+        tile: TileId,
+        bytes: Vec<u8>,
+    },
 }
 
 /// Cheap, immutable read model republished after every frame. UI reads load it
@@ -590,8 +630,9 @@ struct Snapshot {
     viewport: (f64, f64),
     inset: f64,
     animating: bool,
+    /// Desired-but-not-resident count from the last minted plan — perf
+    /// telemetry only (the actionable list rides the plan outbox).
     pending_count: u32,
-    pending_json: String,
     stats_json: String,
 }
 
@@ -608,7 +649,6 @@ impl Default for Snapshot {
             inset: 0.0,
             animating: false,
             pending_count: 0,
-            pending_json: "[]".to_string(),
             stats_json: "{}".to_string(),
         }
     }
@@ -636,21 +676,32 @@ fn snapshot_camera(s: &Snapshot) -> Camera {
 /// host-side guard in `TurbomapMapView.launchTileFetch`.
 const MAX_INGEST_TILE_BYTES: i32 = 16 * 1024 * 1024;
 
-/// The shared handle. UI-facing fields (`cmd*`, `ingest*`, `snapshot`) are
-/// wait-free; `render` is held only by the render thread + lifecycle.
+/// The shared handle. UI-facing fields (`cmd*`, `ingest*`, `snapshot`,
+/// `plan_*`) are wait-free or brief-lock; `render` is held only by the
+/// render thread + lifecycle.
+///
+/// TILE TRANSPORT (plan P5.1): the STREAMING PLAN, not the legacy
+/// pending-tiles poll. The host grants fetch lanes
+/// (`nativeTakeStreamingPlanJson(handle, freeLanes)`); the render thread
+/// mints at most that many `start`s from the engine's lifecycle table each
+/// frame (so in-flight fetches are never re-issued — the table's `Fetching`
+/// state IS the dedup that the old host-side `queued` set approximated) and
+/// appends the plan to an outbox the host drains consume-once. Deliveries
+/// complete through the ordinary `ingest*`; failures/cancels report by
+/// request id, and the ENGINE owns retry/backoff policy.
 struct Surface {
     cmd_tx: crossbeam_channel::Sender<Cmd>,
     cmd_rx: crossbeam_channel::Receiver<Cmd>,
     ingest_tx: crossbeam_channel::Sender<Ingest>,
     ingest_rx: crossbeam_channel::Receiver<Ingest>,
-    /// Tiles handed to the engine (bytes enqueued) but not yet decoded+uploaded
-    /// on the render thread. They are NOT yet in the engine's resident set, so
-    /// `engine.pending_tiles()` still lists them — without this, the host re-
-    /// fetches + re-enqueues every such tile each reconcile pass (a disk-cache
-    /// hit is instant), flooding the ingest queue with thousands of duplicates
-    /// (observed backlog 30k+) and starving both tile uploads and camera moves.
-    /// We exclude this set from the published pending list and dedup re-enqueues.
-    queued: Mutex<std::collections::HashSet<(String, TileId)>>,
+    /// Fetch lanes granted by the host and not yet spent by the render
+    /// thread. Swapped to 0 when a plan is minted, so the host's stated
+    /// capacity bounds exactly one plan's `start` list.
+    plan_lanes: std::sync::atomic::AtomicU32,
+    /// Plans minted but not yet taken by the host (JSON objects, in mint
+    /// order). Drained whole by `nativeTakeStreamingPlanJson` — consume-once,
+    /// so a start can never be lost to a snapshot overwrite.
+    plan_outbox: Mutex<Vec<String>>,
     snapshot: Mutex<Arc<Snapshot>>,
     render: Mutex<OnScreen>,
 }
@@ -659,14 +710,14 @@ impl Surface {
     fn new(on: OnScreen) -> Self {
         let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
         let (ingest_tx, ingest_rx) = crossbeam_channel::unbounded();
-        let queued = Mutex::new(std::collections::HashSet::new());
-        let snap = Arc::new(on.build_snapshot(&queued.lock().unwrap_or_else(|p| p.into_inner())));
+        let snap = Arc::new(on.build_snapshot());
         Surface {
             cmd_tx,
             cmd_rx,
             ingest_tx,
             ingest_rx,
-            queued,
+            plan_lanes: std::sync::atomic::AtomicU32::new(0),
+            plan_outbox: Mutex::new(Vec::new()),
             snapshot: Mutex::new(snap),
             render: Mutex::new(on),
         }
@@ -676,71 +727,52 @@ impl Surface {
     /// only place the engine is mutated. Runs on the render thread.
     fn render_frame(&self) {
         let mut on = self.render.lock().unwrap_or_else(|p| p.into_inner());
-        // Control commands fully drain (they must land this frame). Count them: a
-        // frame with no control commands AND no in-flight camera animation is IDLE
-        // — the render-on-demand loop is only awake to drain the tile backlog.
-        let mut cmds = 0u32;
+        // Control commands fully drain — they must land this frame.
         while let Ok(cmd) = self.cmd_rx.try_recv() {
             on.apply_cmd(cmd);
-            cmds += 1;
         }
-        // Time-budgeted tile ingest. Decode + GPU upload run on THIS (render) thread;
-        // terrain/DEM tiles in particular are expensive (decode + mesh build). Draining
-        // a whole network burst in one frame pins the render thread for seconds (the map
-        // "freezes solid" while the UI thread stays live). Instead we spend a per-frame
-        // budget — always making progress on ≥1 tile — and report a remaining backlog as
-        // "animating" below so the host keeps pumping frames; the queue drains across
-        // many cheap frames, never one giant stall.
-        //
-        // The budget is ADAPTIVE: while the camera is actively moving (gestures, fling,
-        // ease) we keep it small so interaction stays smooth; when IDLE we spend far more
-        // of the frame decoding, because that's exactly when prefetched ring tiles should
-        // be prepared in advance — the render thread is otherwise doing nothing, and the
-        // user isn't waiting on a frame. So a calm moment quietly warms the surroundings,
-        // and a later pan/zoom lands on already-resident tiles.
-        let idle = cmds == 0 && !on.engine.is_animating();
-        let ingest_budget = if idle {
-            // 8 ms (was 14): a calm-frame budget high enough to keep draining the queue but low
-            // enough that a heavy cold-load burst doesn't pin the render thread (which also holds
-            // the lock that the overlay's elevation-aware projection waits on — long holds there
-            // were the first-load choppiness). Still leaves the rest of the frame for rendering.
-            std::time::Duration::from_millis(8)
-        } else {
-            std::time::Duration::from_millis(6)
-        };
+        // Tile ingest ALSO drains fully (plan B4.3): `apply_ingest` is an
+        // O(µs) hand-off into the engine's decode queue — workers decode
+        // off this thread, and `render()` applies results under the
+        // engine's tiered budget (tight while the camera moves, generous
+        // when settled). The adaptive 8/6 ms time-slice that used to bound
+        // decode-on-the-render-thread is retired: pacing has exactly one
+        // owner now, inside the engine, identical on every host.
         let ingest_start = std::time::Instant::now();
         let mut ingested = 0u32;
-        let mut applied_keys: Vec<(String, TileId)> = Vec::new();
         while let Ok(i) = self.ingest_rx.try_recv() {
-            applied_keys.push(ingest_key(&i));
             on.apply_ingest(i);
             ingested += 1;
-            if ingest_start.elapsed() >= ingest_budget {
-                break;
-            }
         }
         let ingest_ms = ingest_start.elapsed().as_secs_f64() * 1000.0;
-        let ingest_backlog = self.ingest_rx.len();
+        // The backlog that matters is delivered-but-not-yet-drawable, which
+        // now lives in the engine's decode queue (the channel is empty).
+        let ingest_backlog = on.engine.decode_backlog();
         let render_start = std::time::Instant::now();
         on.render();
         let render_ms = render_start.elapsed().as_secs_f64() * 1000.0;
-        // The tiles we just uploaded are now resident in the engine, so they drop
-        // out of `pending_tiles()` on their own — clear them from the queued set so
-        // it tracks only the still-in-flight uploads, and so a later eviction can
-        // legitimately re-request them.
-        let queued = {
-            let mut q = self.queued.lock().unwrap_or_else(|p| p.into_inner());
-            for k in &applied_keys {
-                q.remove(k);
-            }
-            q.clone()
-        };
-        let mut snap = on.build_snapshot(&queued);
+        // Mint the frame's streaming plan against the lanes the host granted
+        // since the last mint. Zero lanes still surfaces cancels (aborting
+        // in-flight fetches the camera moved away from must not wait on
+        // capacity).
+        let lanes = self.plan_lanes.swap(0, std::sync::atomic::Ordering::AcqRel);
+        let plan = on.engine.streaming_plan(lanes as usize);
+        let plan_pending = plan.start.len() as u32;
+        if !plan.start.is_empty() || !plan.cancel.is_empty() {
+            let json = turbomap_engine::engine::streaming_plan_to_json(&plan);
+            self.plan_outbox
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .push(json);
+        }
+        let mut snap = on.build_snapshot();
+        snap.pending_count = plan_pending;
         // A pending ingest backlog must keep the render-on-demand host awake, or the
         // remaining tiles would only trickle in on the next unrelated invalidation.
         snap.animating = snap.animating || ingest_backlog > 0;
         let pending = snap.pending_count;
-        on.perf.record(render_ms, ingest_ms, ingested, ingest_backlog, pending);
+        on.perf
+            .record(render_ms, ingest_ms, ingested, ingest_backlog, pending);
         // Publish the full structured per-frame trace (Slice 1): the engine's
         // always-on FrameMetrics plus the streaming timings/counts only the FFI
         // render loop knows. Overwrites the cheap cache-only stats built above.
@@ -762,7 +794,10 @@ impl Surface {
     }
 
     fn latest(&self) -> Arc<Snapshot> {
-        self.snapshot.lock().unwrap_or_else(|p| p.into_inner()).clone()
+        self.snapshot
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 }
 
@@ -944,7 +979,16 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     fx: jdouble,
     fy: jdouble,
 ) {
-    unsafe { enqueue(handle, Cmd::ZoomFling { v: zoom_velocity, fx, fy }) };
+    unsafe {
+        enqueue(
+            handle,
+            Cmd::ZoomFling {
+                v: zoom_velocity,
+                fx,
+                fy,
+            },
+        )
+    };
 }
 
 /// Ease the camera to a target pose over `duration_ms` (accel/decel). Pitch is
@@ -963,7 +1007,13 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     unsafe {
         enqueue(
             handle,
-            Cmd::EaseTo { lat, lng, zoom, bearing: bearing_deg, dur_ms: duration_ms.max(0) as u64 },
+            Cmd::EaseTo {
+                lat,
+                lng,
+                zoom,
+                bearing: bearing_deg,
+                dur_ms: duration_ms.max(0) as u64,
+            },
         )
     };
 }
@@ -980,7 +1030,15 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     pitch_deg: jdouble,
     duration_ms: jint,
 ) {
-    unsafe { enqueue(handle, Cmd::EasePitch { pitch: pitch_deg, dur_ms: duration_ms.max(0) as u64 }) };
+    unsafe {
+        enqueue(
+            handle,
+            Cmd::EasePitch {
+                pitch: pitch_deg,
+                dur_ms: duration_ms.max(0) as u64,
+            },
+        )
+    };
 }
 
 /// Animate a focus-invariant zoom by `factor` about `(fx, fy)` over `duration_ms`.
@@ -997,7 +1055,12 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     unsafe {
         enqueue(
             handle,
-            Cmd::ZoomAroundAnimated { factor, fx, fy, dur_ms: duration_ms.max(0) as u64 },
+            Cmd::ZoomAroundAnimated {
+                factor,
+                fx,
+                fy,
+                dur_ms: duration_ms.max(0) as u64,
+            },
         )
     };
 }
@@ -1033,7 +1096,17 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     fx: jdouble,
     fy: jdouble,
 ) {
-    unsafe { enqueue(handle, Cmd::OrbitAround { db: d_bearing_deg, dp: d_pitch_deg, fx, fy }) };
+    unsafe {
+        enqueue(
+            handle,
+            Cmd::OrbitAround {
+                db: d_bearing_deg,
+                dp: d_pitch_deg,
+                fx,
+                fy,
+            },
+        )
+    };
 }
 
 /// Catch any in-flight camera animation, freezing the camera exactly where it
@@ -1058,7 +1131,9 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
 ) -> jstring {
     let json = unsafe { with_surface(handle, |s| s.latest().stats_json.clone()) }
         .unwrap_or_else(|| "{}".to_string());
-    env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+    env.new_string(json)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
 }
 
 /// Reserve `bottom_px` at the bottom of the viewport (e.g. the live sheet) so the
@@ -1081,7 +1156,15 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     width: jint,
     height: jint,
 ) {
-    unsafe { enqueue(handle, Cmd::Resize { w: width.max(0) as u32, h: height.max(0) as u32 }) };
+    unsafe {
+        enqueue(
+            handle,
+            Cmd::Resize {
+                w: width.max(0) as u32,
+                h: height.max(0) as u32,
+            },
+        )
+    };
 }
 
 /// Build a `double[]` JNI return; empty array on allocation failure.
@@ -1105,7 +1188,17 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     zoom: jdouble,
     bearing_deg: jdouble,
 ) {
-    unsafe { enqueue(handle, Cmd::SetCamera { lat, lng, zoom, bearing: bearing_deg }) };
+    unsafe {
+        enqueue(
+            handle,
+            Cmd::SetCamera {
+                lat,
+                lng,
+                zoom,
+                bearing: bearing_deg,
+            },
+        )
+    };
 }
 
 /// One-finger pan step: translate the camera by a screen-space finger delta (px).
@@ -1123,40 +1216,6 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     unsafe { enqueue(handle, Cmd::PanByPixels { dx, dy }) };
 }
 
-/// Set (or clear) a route/track polyline drawn as a raised 3D tube. `coords` is
-/// a flat `[lat0, lng0, lat1, lng1, …]` array (empty clears the tube `id`);
-/// `radius_m` is the tube radius in metres.
-#[no_mangle]
-#[allow(clippy::too_many_arguments)]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetRouteTube(
-    mut env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    id: JString,
-    coords: jni::objects::JDoubleArray,
-    r: jint,
-    g: jint,
-    b: jint,
-    a: jint,
-    radius_m: jdouble,
-) {
-    let id: String = match env.get_string(&id) {
-        Ok(s) => s.into(),
-        Err(_) => return,
-    };
-    let len = env.get_array_length(&coords).unwrap_or(0).max(0) as usize;
-    let mut buf = vec![0f64; len];
-    if len > 0 && env.get_double_array_region(&coords, 0, &mut buf).is_err() {
-        return;
-    }
-    let points: Vec<CoreLatLng> = buf
-        .chunks_exact(2)
-        .map(|c| CoreLatLng::new(c[0], c[1]))
-        .collect();
-    let color = CoreColor::rgba(r as u8, g as u8, b as u8, a as u8);
-    unsafe { enqueue(handle, Cmd::SetRouteTube { id, points, color, radius_m }) };
-}
-
 /// `[lat, lng, zoom, bearingDeg]`.
 #[no_mangle]
 pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeCamera(
@@ -1166,7 +1225,10 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
 ) -> jni::sys::jarray {
     let cam = unsafe { with_surface(handle, |s| s.latest().cam.clone()) };
     match cam {
-        Some(c) => double_array(&mut env, &[c.center.lat, c.center.lng, c.zoom, c.bearing_deg]),
+        Some(c) => double_array(
+            &mut env,
+            &[c.center.lat, c.center.lng, c.zoom, c.bearing_deg],
+        ),
         None => double_array(&mut env, &[]),
     }
 }
@@ -1191,8 +1253,13 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     // the flicker. Unproject (the drag hot path) keeps its wait-free fallback; project does not.
     let p = unsafe {
         with_surface(handle, |s| {
-            let on = s.render.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            on.engine.project(LatLng::new(lat, lng)).map(|sp| (sp.x, sp.y))
+            let on = s
+                .render
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            on.engine
+                .project(LatLng::new(lat, lng))
+                .map(|sp| (sp.x, sp.y))
         })
     }
     .flatten();
@@ -1222,7 +1289,9 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
                 }
             }
             let snap = s.latest();
-            let ll = snapshot_camera(&snap).pixel_to_world((x, y), snap.viewport).to_lat_lng();
+            let ll = snapshot_camera(&snap)
+                .pixel_to_world((x, y), snap.viewport)
+                .to_lat_lng();
             (ll.lat, ll.lng)
         })
     };
@@ -1255,7 +1324,9 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
                 return (lat, lng, wz as f64, if hit { 1.0 } else { 0.0 });
             }
             let snap = s.latest();
-            let ll = snapshot_camera(&snap).pixel_to_world((x, y), snap.viewport).to_lat_lng();
+            let ll = snapshot_camera(&snap)
+                .pixel_to_world((x, y), snap.viewport)
+                .to_lat_lng();
             (ll.lat, ll.lng, 0.0, 0.0)
         })
     };
@@ -1265,18 +1336,92 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     }
 }
 
+/// Features under a screen point (device px) within `tolPx`, top-most first,
+/// as JSON `[{"layer":..,"feature_id":..,"properties":{..}}, ...]` (plan
+/// P6.4). Scene circles answer with their geo-json feature properties, so a
+/// tapped pin resolves to its domain id. Wait-free: exact when the render
+/// lock is free, `[]` under contention — a tap is a settled gesture, so the
+/// lock is almost always free; the host may simply re-ask.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeHitTest(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    x: jdouble,
+    y: jdouble,
+    tol_px: jdouble,
+) -> jni::sys::jstring {
+    let json = unsafe {
+        with_surface(handle, |s| {
+            if let Ok(on) = s.render.try_lock() {
+                let hits = MapEngine::hit_test(&on.engine, ScreenPoint::new(x, y), tol_px);
+                turbomap_engine::hits_to_json(&hits)
+            } else {
+                "[]".to_string()
+            }
+        })
+    }
+    .unwrap_or_else(|| "[]".to_string());
+    env.new_string(json)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
 /// Tiles the engine is waiting on, as a JSON array
 /// `[{"kind":"raster","layer":"basemap","z":..,"x":..,"y":..}, ...]` — the host
 /// fetches each (it owns the URL templates + offline) and pushes bytes back.
 #[no_mangle]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativePendingTilesJson(
+/// Grant `free_lanes` fetch lanes and drain every plan minted since the last
+/// call, as a JSON ARRAY of plan objects
+/// (`[{"start":[{"id","kind","layer","z","x","y"}],"cancel":[ids]}, …]`).
+/// Consume-once: each start appears in exactly one take. The first call after
+/// a grant returns plans minted on the NEXT frame — poll on the host's pump
+/// cadence. Honour every `cancel` (abort transport, then
+/// `nativeReportFetchCancelled`); report failures via
+/// `nativeReportFetchFailed`; deliveries complete through the ordinary
+/// `nativeIngest*`.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeTakeStreamingPlanJson(
     env: JNIEnv,
     _class: JClass,
     handle: jlong,
+    free_lanes: jint,
 ) -> jni::sys::jstring {
-    let json = unsafe { with_surface(handle, |s| s.latest().pending_json.clone()) }
-        .unwrap_or_else(|| "[]".to_string());
-    env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+    let json = unsafe {
+        with_surface(handle, |s| {
+            s.plan_lanes.fetch_max(
+                free_lanes.max(0) as u32,
+                std::sync::atomic::Ordering::AcqRel,
+            );
+            let plans: Vec<String> =
+                std::mem::take(&mut *s.plan_outbox.lock().unwrap_or_else(|p| p.into_inner()));
+            format!("[{}]", plans.join(","))
+        })
+    }
+    .unwrap_or_else(|| "[]".to_string());
+    env.new_string(json)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeReportFetchFailed(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    id: jlong,
+) {
+    unsafe { enqueue(handle, Cmd::FetchFailed(id.max(0) as u64)) }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeReportFetchCancelled(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    id: jlong,
+) {
+    unsafe { enqueue(handle, Cmd::FetchCancelled(id.max(0) as u64)) }
 }
 
 /// Push a fetched raster tile (encoded PNG/JPEG/WebP). Returns false if it
@@ -1307,31 +1452,34 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         Err(_) => return JNI_FALSE,
     };
     let tile = TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32);
+    // The lifecycle table's `Fetching` state dedups re-requests now — the
+    // plan never re-issues an in-flight tile, so the old host-side queued-set
+    // guard is gone.
     let sent = unsafe {
         with_surface(handle, |s| {
-            // Dedup: if this tile's bytes are already queued for upload, drop the
-            // duplicate (the host shouldn't ask again, but a race can). Mark it
-            // queued BEFORE sending so the next published snapshot excludes it.
-            let mut q = s.queued.lock().unwrap_or_else(|p| p.into_inner());
-            if !q.insert((layer.clone(), tile)) {
-                return true;
-            }
-            drop(q);
             s.ingest_tx
-                .send(Ingest::Raster { layer, tile, bytes: data })
+                .send(Ingest::Raster {
+                    layer,
+                    tile,
+                    bytes: data,
+                })
                 .is_ok()
         })
     };
     // Optimistic: the upload happens on the render thread next frame. A decode
     // failure just leaves the tile un-ingested; the reconciler re-requests it.
-    if sent == Some(true) { JNI_TRUE } else { JNI_FALSE }
+    if sent == Some(true) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
 }
 
 /// Push a fetched vector tile (raw MVT/protobuf bytes) into the named vector
 /// layer, so the engine tessellates it — for the realistic-water layer, its
 /// `water` polygons feed the water pipeline. Returns false if oversized, the
 /// handle is gone, or the ingest queue is closed. Mirrors [`nativeIngestRaster`]
-/// (same queue + `queued` dedup); decode happens on the render thread.
+/// (same queue); decode happens on the render thread.
 #[no_mangle]
 pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeIngestVector(
     mut env: JNIEnv,
@@ -1357,17 +1505,20 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     let tile = TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32);
     let sent = unsafe {
         with_surface(handle, |s| {
-            let mut q = s.queued.lock().unwrap_or_else(|p| p.into_inner());
-            if !q.insert((layer.clone(), tile)) {
-                return true;
-            }
-            drop(q);
             s.ingest_tx
-                .send(Ingest::Vector { layer, tile, bytes: data })
+                .send(Ingest::Vector {
+                    layer,
+                    tile,
+                    bytes: data,
+                })
                 .is_ok()
         })
     };
-    if sent == Some(true) { JNI_TRUE } else { JNI_FALSE }
+    if sent == Some(true) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
 }
 
 /// Push a fetched DEM tile (encoded Mapbox-Terrain-RGB PNG) into the shared
@@ -1393,86 +1544,24 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     let tile = TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32);
     let sent = unsafe {
         with_surface(handle, |s| {
-            let mut q = s.queued.lock().unwrap_or_else(|p| p.into_inner());
-            if !q.insert(("__terrain".to_string(), tile)) {
-                return true;
-            }
-            drop(q);
             s.ingest_tx
                 .send(Ingest::Terrain { tile, bytes: data })
                 .is_ok()
         })
     };
-    if sent == Some(true) { JNI_TRUE } else { JNI_FALSE }
+    if sent == Some(true) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
 }
 
-// ---- weather-cloud overlay ----------------------------------------------
-
-/// Enable the procedural cloud overlay with a `gridW × gridH` radar grid.
-#[no_mangle]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeEnableClouds(
-    _env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    grid_w: jint,
-    grid_h: jint,
-) {
-    unsafe { enqueue(handle, Cmd::EnableClouds { w: grid_w.max(0) as u32, h: grid_h.max(0) as u32 }) };
-}
-
-/// Disable the overlay, or just hide it (`visible == false`) while keeping
-/// uploaded frames.
-#[no_mangle]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetCloudsVisible(
-    _env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    visible: jboolean,
-) {
-    unsafe { enqueue(handle, Cmd::SetCloudsVisible(visible != JNI_FALSE)) };
-}
-
-/// Track the sun to a real UTC instant (`unix_seconds`) at the camera, so
-/// terrain shading + the sky colour match the time of day. A negative value
-/// reverts to the fixed default sun.
-#[no_mangle]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetSunTime(
-    _env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    unix_seconds: jdouble,
-) {
-    let t = if unix_seconds < 0.0 { None } else { Some(unix_seconds) };
-    unsafe { enqueue(handle, Cmd::SetSunTime(t)) };
-}
-
-/// Enable terrain cast shadows (a peak shadows the valley behind it) at
-/// `strength` in `[0,1]`; 0 disables the feature (zero per-frame cost). Only
-/// affects 3D terrain. Distinct from the always-on Lambertian self-shading.
-#[no_mangle]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetTerrainShadows(
-    _env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    strength: jfloat,
-) {
-    unsafe { enqueue(handle, Cmd::SetTerrainShadows(strength)) };
-}
-
-/// Geo-register the radar to the `west/south/east/north` lat-lng box it covers
-/// → the cloud overlay world-locks (pans + zooms with the map).
-#[no_mangle]
-pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetCloudGeoBounds(
-    _env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    west: jdouble,
-    south: jdouble,
-    east: jdouble,
-    north: jdouble,
-) {
-    unsafe { enqueue(handle, Cmd::SetCloudGeoBounds { w: west, s: south, e: east, n: north }) };
-}
+// ---- weather-cloud overlay: transport + clock only (plan P5.2) -----------
+//
+// WHAT renders (grid, geo bounds, visibility, lighting, shadows) is Scene
+// state — declared in the IR's `environment` and applied via
+// `nativeApplyScene`. Only the frame DATA push (transport, like tiles) and
+// the playback clock (a control verb, like the camera) cross here.
 
 /// Upload a radar frame into `slot` (0 = current, 1 = next) from two
 /// `gridW * gridH` byte planes — `precip` and `coverage`, each 0..=255.

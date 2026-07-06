@@ -30,7 +30,10 @@ fn fling_glides_the_camera_then_settles() {
         TARGET_FORMAT,
         (1024, 768),
         CameraState::new(LatLng::new(0.0, 0.0), 4.0),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
         Box::new(SyntheticResolver),
     )
     .expect("construct TurbomapEngine");

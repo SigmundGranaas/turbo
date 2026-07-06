@@ -29,10 +29,13 @@ struct MarkerInstance {
     _pad2: [u8; 12],
 }
 
-/// Output of [`MarkerPipeline::prepare`]: how many instances the frame
-/// uploaded. Zero → `draw` is a no-op.
+/// Output of [`MarkerPipeline::prepare`]: one uploaded instance range per
+/// input segment (a circle layer's markers, or the ungrouped host-marker
+/// track), in draw order. An empty range → that segment's `draw` is a no-op.
 pub(crate) struct PreparedMarkers {
-    instance_count: u32,
+    /// `[start, end)` instance range per segment, aligned with the
+    /// `segments` slice passed to `prepare`.
+    spans: Vec<(u32, u32)>,
 }
 
 pub(crate) struct MarkerPipeline {
@@ -199,39 +202,49 @@ impl MarkerPipeline {
         }
     }
 
-    /// CPU half of a frame: project + cull markers, upload globals and
-    /// instances. Returns the instance count `draw` replays.
-    pub(crate) fn prepare(&mut self, scene: &Scene, markers: &[Marker]) -> PreparedMarkers {
-        if markers.is_empty() {
-            return PreparedMarkers { instance_count: 0 };
+    /// CPU half of a frame: project + cull markers, upload globals and one
+    /// instance buffer covering every segment (in segment order — draw order
+    /// is segment order, so the concatenated upload replays identically to
+    /// the historical single-track draw). Returns the per-segment instance
+    /// ranges `draw` replays.
+    pub(crate) fn prepare(&mut self, scene: &Scene, segments: &[Vec<&Marker>]) -> PreparedMarkers {
+        let total: usize = segments.iter().map(|s| s.len()).sum();
+        let mut spans = vec![(0u32, 0u32); segments.len()];
+        if total == 0 {
+            return PreparedMarkers { spans };
         }
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
         let viewport_px = (vw as f32, vh as f32);
 
-        let mut instances: Vec<MarkerInstance> = Vec::with_capacity(markers.len());
-        for m in markers {
-            let world = m.lng_lat.to_world();
-            let (sx, sy) = world_to_screen(&camera, (world.x as f32, world.y as f32), viewport_px);
-            // Cheap on-screen cull with a generous margin.
-            if sx < -m.radius_px
-                || sx > viewport_px.0 + m.radius_px
-                || sy < -m.radius_px
-                || sy > viewport_px.1 + m.radius_px
-            {
-                continue;
+        let mut instances: Vec<MarkerInstance> = Vec::with_capacity(total);
+        for (seg, markers) in segments.iter().enumerate() {
+            let start = instances.len() as u32;
+            for m in markers {
+                let world = m.lng_lat.to_world();
+                let (sx, sy) =
+                    world_to_screen(&camera, (world.x as f32, world.y as f32), viewport_px);
+                // Cheap on-screen cull with a generous margin.
+                if sx < -m.radius_px
+                    || sx > viewport_px.0 + m.radius_px
+                    || sy < -m.radius_px
+                    || sy > viewport_px.1 + m.radius_px
+                {
+                    continue;
+                }
+                instances.push(MarkerInstance {
+                    screen_centre: [sx, sy],
+                    radius_px: m.radius_px,
+                    _pad: 0.0,
+                    // sRGB-authored → linear, since the target re-encodes.
+                    color: m.color.to_linear_bytes(),
+                    _pad2: [0; 12],
+                });
             }
-            instances.push(MarkerInstance {
-                screen_centre: [sx, sy],
-                radius_px: m.radius_px,
-                _pad: 0.0,
-                // sRGB-authored → linear, since the target re-encodes.
-                color: m.color.to_linear_bytes(),
-                _pad2: [0; 12],
-            });
+            spans[seg] = (start, instances.len() as u32);
         }
         if instances.is_empty() {
-            return PreparedMarkers { instance_count: 0 };
+            return PreparedMarkers { spans };
         }
 
         let globals = Globals {
@@ -257,15 +270,22 @@ impl MarkerPipeline {
         self.queue
             .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
 
-        PreparedMarkers {
-            instance_count: instances.len() as u32,
-        }
+        PreparedMarkers { spans }
     }
 
-    /// GPU half of the frame: draw the prepared instances inside the
-    /// Map's single render pass, on top of everything else.
-    pub(crate) fn draw(&self, prepared: &PreparedMarkers, pass: &mut wgpu::RenderPass<'_>) {
-        if prepared.instance_count == 0 {
+    /// GPU half of the frame: draw one prepared segment's instances inside
+    /// the Map's single render pass (a circle layer at its stack slot, or
+    /// the ungrouped host-marker track on top).
+    pub(crate) fn draw(
+        &self,
+        prepared: &PreparedMarkers,
+        segment: usize,
+        pass: &mut wgpu::RenderPass<'_>,
+    ) {
+        let Some(&(start, end)) = prepared.spans.get(segment) else {
+            return;
+        };
+        if start == end {
             return;
         }
         pass.set_pipeline(&self.pipeline);
@@ -273,7 +293,7 @@ impl MarkerPipeline {
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        pass.draw_indexed(0..6, 0, 0..prepared.instance_count);
+        pass.draw_indexed(0..6, 0, start..end);
     }
 }
 

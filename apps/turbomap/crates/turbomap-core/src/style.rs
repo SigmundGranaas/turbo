@@ -6,7 +6,6 @@
 //! order), and emits geometry in that rule's paint. Features that don't
 //! match any rule are skipped.
 
-use crate::dem::DemEncoding;
 use crate::vector::{Feature, GeomType, Value};
 
 /// 8-bit sRGB colour.
@@ -196,14 +195,35 @@ pub struct VectorStyle {
     pub rules: Vec<Rule>,
 }
 
-/// Configuration for a hillshade layer. The DEM source's tiles are
-/// regular raster PNG/WebP, but each pixel encodes an elevation; the
-/// pipeline decodes per fragment and derives lighting from the gradient.
+impl VectorStyle {
+    /// Strip the water-body **fill** rules (source layers `water` / `ocean` /
+    /// `water_polygons` — the OMT + VersaTiles conventions). For hosts that
+    /// layer a vector style over a raster basemap (Kartverket topo /
+    /// satellite): the raster already shows the water, and it looks better
+    /// there than a flat vector blue. This is a STYLE decision made by the
+    /// host at style build time — the renderer draws whatever fills the style
+    /// contains. (A hardcoded engine-side skip previously deleted lakes and
+    /// harbours from every pure-vector basemap; see the 2026-07 engine
+    /// implementation plan progress log.) Waterway lines, outlines and labels
+    /// on those layers are kept.
+    #[must_use]
+    pub fn without_water_fills(mut self) -> Self {
+        self.rules.retain(|r| {
+            !(matches!(r.paint, Paint::Fill { .. })
+                && matches!(
+                    r.source_layer.as_str(),
+                    "water" | "ocean" | "water_polygons"
+                ))
+        });
+        self
+    }
+}
+
+/// Configuration for a hillshade layer. The shared terrain cache holds
+/// decoded elevations (metres, `Rg16Float` — the ingest codec resolved the
+/// source's encoding); the pipeline derives lighting from the gradient.
 #[derive(Debug, Clone, Copy)]
 pub struct HillshadeStyle {
-    /// How tile RGB values map to metres. Plug in `MapboxRgb` for
-    /// Maptiler/Mapbox-style DEM tiles, `Terrarium` for AWS-style.
-    pub encoding: DemEncoding,
     /// Sun azimuth in degrees, measured clockwise from north (0 = N, 90
     /// = E). Outdoor maps conventionally use 315° (NW).
     pub sun_azimuth_deg: f32,
@@ -224,7 +244,6 @@ pub struct HillshadeStyle {
 impl Default for HillshadeStyle {
     fn default() -> Self {
         Self {
-            encoding: DemEncoding::MapboxRgb,
             sun_azimuth_deg: 315.0,
             sun_altitude_deg: 45.0,
             exaggeration: 1.0,
@@ -340,7 +359,10 @@ mod tests {
         let surface_trunk = poly_feature(&[("class", "trunk")]);
         let tunnel_trunk = poly_feature(&[("class", "trunk"), ("brunnel", "tunnel")]);
         let service = poly_feature(&[("class", "service")]);
-        assert!(filter_matches(&surface, &surface_trunk), "surface trunk matches");
+        assert!(
+            filter_matches(&surface, &surface_trunk),
+            "surface trunk matches"
+        );
         assert!(!filter_matches(&surface, &tunnel_trunk), "tunnel excluded");
         assert!(!filter_matches(&surface, &service), "wrong class excluded");
 
@@ -351,8 +373,14 @@ mod tests {
         ]);
         assert!(filter_matches(&either, &tunnel_trunk));
         assert!(!filter_matches(&either, &surface_trunk));
-        assert!(filter_matches(&Filter::All(vec![]), &service), "empty All matches");
-        assert!(!filter_matches(&Filter::Any(vec![]), &service), "empty Any never matches");
+        assert!(
+            filter_matches(&Filter::All(vec![]), &service),
+            "empty All matches"
+        );
+        assert!(
+            !filter_matches(&Filter::Any(vec![]), &service),
+            "empty Any never matches"
+        );
     }
 
     fn line_feature(props: &[(&str, &str)]) -> Feature {

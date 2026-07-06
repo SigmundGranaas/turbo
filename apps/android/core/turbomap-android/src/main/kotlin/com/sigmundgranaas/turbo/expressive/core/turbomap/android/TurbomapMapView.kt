@@ -141,7 +141,6 @@ fun TurbomapMapView(
     controller.cacheDir = remember(context) { File(context.cacheDir, TURBOMAP_TILE_DIR) }
     // The live user position is NOT in the scene anymore — it's a Compose MyPositionPin in
     // the overlay (stands on the terrain via the engine projection). See TurbomapScene.
-    fun scene() = TurbomapScene.build(rasters, vectors, measure, demUrl = demUrl)
 
     // Latest 3D flag read by the long-lived gesture lambda (pointerInput(Unit) never
     // restarts), so toggling 3D takes effect without recreating the detector.
@@ -163,7 +162,7 @@ fun TurbomapMapView(
                     holder.addCallback(object : SurfaceHolder.Callback {
                         override fun surfaceCreated(holder: SurfaceHolder) = Unit
                         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                            controller.attachOrResize(holder.surface, width, height, initialCamera, initialZoom, scene(), rasters, vectors, demUrl, onMapReady)
+                            controller.attachOrResize(holder.surface, width, height, initialCamera, initialZoom, rasters, vectors, measure, demUrl, onMapReady)
                         }
                         override fun surfaceDestroyed(holder: SurfaceHolder) = controller.detach()
                     })
@@ -228,11 +227,11 @@ fun TurbomapMapView(
         }
     }
 
-    LaunchedEffect(rasters, vectors, measure, userLocation, demUrl) {
-        controller.applyScene(scene(), rasters, vectors, demUrl)
+    LaunchedEffect(rasters, vectors, measure, demUrl) {
+        controller.applyContent(rasters, vectors, measure, demUrl)
     }
-    // Route + track render as raised 3D tubes (a native lit mesh), not scene
-    // lines — pushed separately whenever their geometry changes.
+    // Route + track render as raised 3D tubes — `tube` layers in the same
+    // Scene document (plan P5.2), rebuilt whenever their geometry changes.
     LaunchedEffect(track) {
         controller.setRouteTube("track", track, TurbomapScene.TrackColor)
     }
@@ -271,11 +270,27 @@ internal class TurbomapSurfaceController {
     private var vectors: List<TurbomapScene.VectorSpec> = emptyList()
     /** DEM tile URL template for 3D terrain ("terrain" pending tiles fetch this); null = flat. */
     private var demUrl: String? = null
+    /** Measure polyline — flat geojson content in the scene. */
+    private var measure: List<LatLng> = emptyList()
+
+    // ── Scene state the old imperative side-doors carried (plan P5.2) ──────
+    // Route/track tubes, the sun, terrain shadows, and the cloud overlay are
+    // SCENE content now: each mutation rebuilds the one Scene document and
+    // re-applies it (the engine diffs, so a tube/environment-only change is
+    // cheap). Kept controller-side so a surface (re)create replays them.
+    private val tubes = LinkedHashMap<String, TurbomapScene.TubeSpec>()
+    private var environment = TurbomapScene.EnvironmentSpec()
+    /** Radar grid size, set by [enableClouds]; null = no cloud overlay. */
+    private var cloudGrid: Pair<Int, Int>? = null
+    /** Radar geo box `[west, south, east, north]`; the overlay only enters the
+     *  scene once geo-registered (the IR's field source is world-locked). */
+    private var cloudBounds: DoubleArray? = null
+    private var cloudsVisible = true
     private val scope = CoroutineScope(Dispatchers.Main.immediate)
     private var lastBearing = Double.NaN
 
     // ── Tile reconciler ────────────────────────────────────────────────────
-    // The engine's `pending_tiles` (desired-minus-present, nearest-first) is the
+    // The engine's streaming plan (desired-minus-present, nearest-first) is the
     // single source of truth. A loop continuously drives the host toward it
     // rather than firing once per gesture: each pass starts fetches for desired
     // tiles, CANCELS fetches for tiles no longer desired (so a fast pan can't
@@ -284,6 +299,9 @@ internal class TurbomapSurfaceController {
     // This is what makes loading consistent and self-healing after panning.
     private val inFlight = HashMap<String, Job>()
     private val retryAt = HashMap<String, Long>()
+
+    /** Plan request-id → reconcile key, for honouring `cancel` entries. */
+    private val fetchIds = HashMap<Long, String>()
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private var reconcileLoop: Job? = null
     private var lastStatsLogMs = 0L
@@ -376,9 +394,9 @@ internal class TurbomapSurfaceController {
         h: Int,
         camera: LatLng,
         zoom: Double,
-        sceneJson: String,
         rasterSpecs: List<TurbomapScene.RasterSpec>,
         vectorSpecs: List<TurbomapScene.VectorSpec>,
+        measurePts: List<LatLng>,
         demUrlTemplate: String?,
         onMapReady: (MapEngine) -> Unit,
     ) {
@@ -386,6 +404,7 @@ internal class TurbomapSurfaceController {
         height = h
         rasters = rasterSpecs
         vectors = vectorSpecs
+        measure = measurePts
         demUrl = demUrlTemplate
         if (handle == 0L) {
             handle = NativeSurfaceMap.nativeCreate(surface, w, h, camera.lat, camera.lng, zoom)
@@ -394,20 +413,21 @@ internal class TurbomapSurfaceController {
                 onError(NativeSurfaceMap.nativeLastError() ?: "wgpu surface init failed")
                 return
             }
-            NativeSurfaceMap.nativeApplyScene(handle, sceneJson)
-            // Light the scene by the real clock so terrain shading + the
-            // sky take on the current time-of-day colours.
-            NativeSurfaceMap.nativeSetSunTime(handle, System.currentTimeMillis() / 1000.0)
-            // Terrain CAST shadows are owned by "sun mode" (the time-of-day
-            // slider) — off by default, enabled when the user turns sun mode on.
-            // See SunOverlayControls / TerrainSunOverlay.
+            // Light the scene by the real clock so terrain shading + the sky
+            // take on the current time-of-day colours. Terrain CAST shadows
+            // stay off until "sun mode" raises them (SunOverlayControls).
+            environment = environment.copy(sunUnixSeconds = System.currentTimeMillis() / 1000.0)
+            // One Scene document carries everything — content, tubes set
+            // before the surface existed, and the environment (plan P5.2).
+            NativeSurfaceMap.nativeApplyScene(handle, sceneJson())
             NativeSurfaceMap.nativePumpLocal(handle)
             val eng = TurbomapMapEngine(handle, w, h)
             // Camera/inset changes from the rail/flyTo/sheet must redraw (render-on-demand).
             eng.onMutated = { requestRender(cameraMoved = true) }
+            // Sun/shadow/cloud mutations from features route back here and
+            // become scene rebuilds — the engine has no imperative side-doors.
+            eng.environmentHost = this
             engine = eng
-            // Re-push any route/track tubes set before the surface existed.
-            pushAllTubes()
             onMapReady(eng)
             startRenderLoop()
             startReconcileLoop()
@@ -420,13 +440,35 @@ internal class TurbomapSurfaceController {
         }
     }
 
-    // Route/track 3D tubes, kept so they can be re-pushed after a surface
-    // (re)create — see [pushAllTubes] in attachOrResize.
-    private class TubeSpec(val coords: DoubleArray, val color: TurbomapScene.Rgba, val radiusPx: Double)
-    private val tubes = LinkedHashMap<String, TubeSpec>()
+    /** The complete Scene document — content + tubes + environment — from the
+     *  controller's current state. Consecutive applies are diffed engine-side,
+     *  so a rebuild that only changes one tube or the sun is cheap. */
+    private fun sceneJson() = TurbomapScene.build(
+        rasters = rasters,
+        vectors = vectors,
+        measure = measure,
+        demUrl = demUrl,
+        tubes = tubes.values.toList(),
+        environment = environment.copy(clouds = cloudsSpec()),
+    )
 
-    /** Set (or clear, with < 2 points) a route/track polyline drawn as a raised
-     *  3D tube. Wait-free (enqueues a native command). */
+    private fun cloudsSpec(): TurbomapScene.CloudsSpec? {
+        val (gw, gh) = cloudGrid ?: return null
+        val b = cloudBounds ?: return null
+        return TurbomapScene.CloudsSpec(gw, gh, b[0], b[1], b[2], b[3], cloudsVisible)
+    }
+
+    /** Rebuild + re-apply the Scene after any content/environment mutation. */
+    private fun reapplyScene() {
+        if (handle == 0L) return
+        NativeSurfaceMap.nativeApplyScene(handle, sceneJson())
+        NativeSurfaceMap.nativePumpLocal(handle)
+        requestRender(cameraMoved = false)
+        requestReconcile()
+    }
+
+    /** Set (or clear, with < 2 points) a route/track polyline drawn as a
+     *  raised 3D tube — a `tube` layer in the scene (plan P5.2). */
     fun setRouteTube(
         id: String,
         points: List<LatLng>?,
@@ -434,75 +476,66 @@ internal class TurbomapSurfaceController {
         radiusPx: Double = ROUTE_TUBE_RADIUS_PX,
     ) {
         val pts = points.orEmpty()
-        val coords = if (pts.size < 2) {
-            DoubleArray(0)
+        if (pts.size < 2) {
+            tubes.remove(id)
         } else {
-            DoubleArray(pts.size * 2).also { a ->
-                pts.forEachIndexed { i, p ->
-                    a[i * 2] = p.lat
-                    a[i * 2 + 1] = p.lng
-                }
-            }
+            tubes[id] = TurbomapScene.TubeSpec(id, pts, color, radiusPx)
         }
-        tubes[id] = TubeSpec(coords, color, radiusPx)
-        pushTube(id)
+        reapplyScene()
     }
 
-    private fun pushTube(id: String) {
-        val h = handle
-        if (h == 0L) return
-        val t = tubes[id] ?: return
-        NativeSurfaceMap.nativeSetRouteTube(
-            h, id, t.coords, t.color.r, t.color.g, t.color.b, t.color.a, t.radiusPx,
-        )
-        requestRender(cameraMoved = false)
-    }
-
-    private fun pushAllTubes() {
-        tubes.keys.toList().forEach { pushTube(it) }
-    }
-
-    fun applyScene(
-        sceneJson: String,
+    fun applyContent(
         rasterSpecs: List<TurbomapScene.RasterSpec>,
         vectorSpecs: List<TurbomapScene.VectorSpec>,
+        measurePts: List<LatLng>,
         demUrlTemplate: String?,
     ) {
         if (handle == 0L) return
         rasters = rasterSpecs
         vectors = vectorSpecs
+        measure = measurePts
         demUrl = demUrlTemplate
-        NativeSurfaceMap.nativeApplyScene(handle, sceneJson)
-        NativeSurfaceMap.nativePumpLocal(handle)
-        requestRender(cameraMoved = false)
-        requestReconcile()
+        reapplyScene()
     }
 
-    // ── Weather-cloud overlay ───────────────────────────────────────────────
-    // Thin forwarders to the native overlay. The engine is serialised by a
-    // Mutex inside the FFI, so these are safe to call from the main thread
-    // while the render thread draws — they just contend briefly for the lock,
-    // like the tile reconciler.
+    // ── Scene environment (plan P5.2) ───────────────────────────────────────
+    // The sun, terrain shadows, and the cloud overlay's declaration are scene
+    // state; each mutation rebuilds + re-applies the document. Only radar
+    // frame DATA ([TurbomapMapEngine.ingestRadarFrame], transport like tiles)
+    // and the playback clock (nativeSetCloudTime) stay imperative verbs.
 
-    /** Enable the cloud overlay with a [gridW]×[gridH] radar grid. */
+    /** Track the sun (terrain shading + sky colour) to a real UTC instant;
+     *  negative reverts to the engine's fixed default light (the
+     *  [com.sigmundgranaas.turbo.expressive.domain.TerrainSunOverlay] contract). */
+    fun setSunTime(unixSeconds: Double) {
+        environment = environment.copy(sunUnixSeconds = unixSeconds.takeIf { it >= 0 })
+        reapplyScene()
+    }
+
+    /** Terrain cast-shadow strength in `[0,1]`; 0 = off ("sun mode"). */
+    fun setTerrainShadows(strength: Float) {
+        environment = environment.copy(terrainShadows = strength)
+        reapplyScene()
+    }
+
+    /** Declare the cloud overlay's radar grid. The overlay enters the scene
+     *  once [setCloudGeoBounds] world-locks it (the IR has no screen-locked
+     *  clouds — an unregistered field renders nothing, by design). */
     fun enableClouds(gridW: Int, gridH: Int) {
-        if (handle == 0L) return
-        NativeSurfaceMap.nativeEnableClouds(handle, gridW, gridH)
-        requestRender(cameraMoved = false)
+        cloudGrid = gridW to gridH
+        reapplyScene()
     }
 
     /** Hide/show the overlay without discarding uploaded frames. */
     fun setCloudsVisible(visible: Boolean) {
-        if (handle == 0L) return
-        NativeSurfaceMap.nativeSetCloudsVisible(handle, visible)
-        requestRender(cameraMoved = false)
+        cloudsVisible = visible
+        reapplyScene()
     }
 
     /** Geo-register the radar to its lat/lng box → world-locked overlay. */
     fun setCloudGeoBounds(west: Double, south: Double, east: Double, north: Double) {
-        if (handle == 0L) return
-        NativeSurfaceMap.nativeSetCloudGeoBounds(handle, west, south, east, north)
-        requestRender(cameraMoved = false)
+        cloudBounds = doubleArrayOf(west, south, east, north)
+        reapplyScene()
     }
 
     /**
@@ -667,39 +700,96 @@ internal class TurbomapSurfaceController {
         )
     }
 
+    /**
+     * Consume the engine's STREAMING PLAN (plan P5.1): the engine plans —
+     * priority order, dedup against in-flight fetches, cancel of stale ones —
+     * and this host only executes transport. The host still owns two things
+     * the engine deliberately leaves above the table: per-kind fetch LANES
+     * (the narrow MVT lane that keeps the 2-core tileserver inside its
+     * timeout, DEM separate from raster churn) and failure BACKOFF. Starts
+     * that a full lane or a backoff window declines are reported cancelled,
+     * so the engine re-issues them on a later plan — nothing is lost.
+     */
     private fun reconcile() {
         if (handle == 0L) return
-        val arr = runCatching { JSONArray(NativeSurfaceMap.nativePendingTilesJson(handle)) }.getOrNull() ?: return
-        val desired = (0 until arr.length()).mapNotNull { parsePendingRaster(arr.optJSONObject(it)) }
-        lastPendingCount = desired.size
-        val byKey = desired.associateBy { it.key }
         val now = SystemClock.uptimeMillis()
+        retryAt.entries.removeAll { it.value <= now }
+        val free = (RASTER_FETCH_LANE + DEM_FETCH_LANE + VECTOR_FETCH_LANE - inFlight.size)
+            .coerceAtLeast(0)
+        val plans = runCatching {
+            JSONArray(NativeSurfaceMap.nativeTakeStreamingPlanJson(handle, free))
+        }.getOrNull() ?: return
+        var started = 0
+        for (p in 0 until plans.length()) {
+            val plan = plans.optJSONObject(p) ?: continue
+            honourCancels(plan.optJSONArray("cancel"))
+            started += dispatchStarts(plan.optJSONArray("start"), now)
+        }
+        lastPendingCount = started + inFlight.size
+    }
 
-        // Plan each KIND in its own lane (separate budget + separate in-flight
-        // set), so raster churn can't starve DEM and vice-versa. Within a lane
-        // the engine's order is already nearest-first. A tile's lane is read off
-        // its key (terrain tiles are keyed "__terrain/…", see parsePendingRaster).
-        fun laneDecision(inLane: (String) -> Boolean, cap: Int) = planReconcile(
-            desiredOrdered = desired.map { it.key }.filter(inLane),
-            inFlight = inFlight.keys.filter(inLane).toSet(),
+    /** Honour a plan's `cancel` list: abort our fetch (if it is ours) and
+     *  acknowledge every id so the engine's table settles. */
+    private fun honourCancels(cancels: JSONArray?) {
+        val list = cancels ?: return
+        for (i in 0 until list.length()) {
+            val id = list.optLong(i, -1L)
+            if (id < 0) continue
+            fetchIds.remove(id)?.let { key -> inFlight.remove(key)?.cancel() }
+            NativeSurfaceMap.nativeReportFetchCancelled(handle, id)
+        }
+    }
+
+    /** Spawn every admitted `start`; returns how many were launched. */
+    private fun dispatchStarts(starts: JSONArray?, now: Long): Int {
+        val list = starts ?: return 0
+        var started = 0
+        for (i in 0 until list.length()) {
+            if (startFetchIfAdmitted(list.optJSONObject(i), now)) started++
+        }
+        return started
+    }
+
+    /** One plan `start`: parse, run the lane/backoff admission gate, and
+     *  either launch the fetch or report it cancelled so the engine
+     *  re-issues it when capacity frees up. */
+    private fun startFetchIfAdmitted(obj: org.json.JSONObject?, now: Long): Boolean {
+        val t = parsePlanStart(obj) ?: return false
+        val lane = laneOf(t.key)
+        val admitted = admitFetch(
+            key = t.key,
+            laneUsed = inFlight.keys.count { laneOf(it) == lane },
+            laneCap = laneCap(lane),
+            alreadyInFlight = inFlight.containsKey(t.key),
             retryAt = retryAt,
             now = now,
-            cap = cap,
         )
-        // Vector (MVT) tiles get their OWN small lane: the self-hosted basemap
-        // MVT query is CPU-heavy (per-feature simplify over big coastline polys,
-        // ~0.2-1.5s/tile on the 2-core tileserver, no tile cache). Lumped into the
-        // 32-wide raster lane they flooded the server with 32 concurrent slow
-        // queries → every one backed up past the 10s timeout → backoff → no water.
-        // A narrow lane keeps concurrent MVT renders within what the server can
-        // serve under the timeout. (Raster excludes both DEM and vector keys.)
-        val raster = laneDecision({ !isDemKey(it) && !isVectorKey(it) }, RASTER_FETCH_LANE)
-        val dem = laneDecision(::isDemKey, DEM_FETCH_LANE)
-        val vector = laneDecision(::isVectorKey, VECTOR_FETCH_LANE)
+        if (!admitted) {
+            // Declined (lane full / backing off / duplicate) — hand it back.
+            NativeSurfaceMap.nativeReportFetchCancelled(handle, t.id)
+            return false
+        }
+        fetchIds[t.id] = t.key
+        inFlight[t.key] = launchTileFetch(t)
+        return true
+    }
 
-        (raster.toCancel + dem.toCancel + vector.toCancel).forEach { key -> inFlight.remove(key)?.cancel() }
-        retryAt.keys.retainAll(byKey.keys)
-        (raster.toStart + dem.toStart + vector.toStart).forEach { key -> byKey[key]?.let { inFlight[key] = launchTileFetch(it) } }
+    private enum class FetchLane { RASTER, DEM, VECTOR }
+
+    private fun laneOf(key: String): FetchLane = when {
+        isDemKey(key) -> FetchLane.DEM
+        isVectorKey(key) -> FetchLane.VECTOR
+        else -> FetchLane.RASTER
+    }
+
+    // Vector (MVT) tiles keep their OWN small lane: the self-hosted basemap
+    // MVT query is CPU-heavy (~0.2-1.5s/tile on the 2-core tileserver); in a
+    // 32-wide shared lane they flooded the server past its timeout. DEM is
+    // separate so raster churn can't starve the heightmap.
+    private fun laneCap(lane: FetchLane): Int = when (lane) {
+        FetchLane.RASTER -> RASTER_FETCH_LANE
+        FetchLane.DEM -> DEM_FETCH_LANE
+        FetchLane.VECTOR -> VECTOR_FETCH_LANE
     }
 
     /** A reconcile-key belongs to the DEM lane iff it's a terrain tile. Matches
@@ -711,6 +801,7 @@ internal class TurbomapSurfaceController {
     private fun isVectorKey(key: String) = vectors.any { key.startsWith(it.id + "/") }
 
     private data class TileFetch(
+        val id: Long,
         val layer: String,
         val z: Int,
         val x: Int,
@@ -721,11 +812,13 @@ internal class TurbomapSurfaceController {
         val vector: Boolean = false,
     )
 
-    /** Turn one pending-tiles entry into a fetchable raster/DEM request, or null.
+    /** Turn one plan `start` entry into a fetchable request, or null.
      *  "terrain" entries use the DEM URL (3D heightmap) and ingest via the DEM
      *  path; "raster" entries use their layer's template. */
-    private fun parsePendingRaster(o: org.json.JSONObject?): TileFetch? {
+    private fun parsePlanStart(o: org.json.JSONObject?): TileFetch? {
         if (o == null) return null
+        val id = o.optLong("id", -1L)
+        if (id < 0) return null
         val kind = o.optString("kind")
         val layer = o.optString("layer")
         val template = when (kind) {
@@ -739,7 +832,7 @@ internal class TurbomapSurfaceController {
         val y = o.optInt("y")
         val url = template.replace("{z}", "$z").replace("{x}", "$x").replace("{y}", "$y")
         return TileFetch(
-            layer, z, x, y, "$layer/$z/$x/$y", url,
+            id, layer, z, x, y, "$layer/$z/$x/$y", url,
             terrain = kind == "terrain",
             vector = kind == "vector",
         )
@@ -763,9 +856,11 @@ internal class TurbomapSurfaceController {
             }
             when {
                 bytes == null -> {
-                    // Genuine miss (HTTP error/timeout): back off, then the next
-                    // reconcile pass retries it for free (it's still desired).
+                    // Genuine miss (HTTP error/timeout): report the attempt failed
+                    // (the engine re-pends it) and back off locally so the next
+                    // plans decline it until the window elapses.
                     retryAt[t.key] = SystemClock.uptimeMillis() + RETRY_BACKOFF_MS
+                    if (handle != 0L) NativeSurfaceMap.nativeReportFetchFailed(handle, t.id)
                 }
                 handle == 0L -> Unit
                 bytes.size > MAX_TILE_BYTES -> {
@@ -774,6 +869,7 @@ internal class TurbomapSurfaceController {
                     // the process, so evict it and back off instead of ingesting.
                     withContext(Dispatchers.IO) { tileCache?.remove(t.layer, t.z, t.x, t.y) }
                     retryAt[t.key] = SystemClock.uptimeMillis() + RETRY_BACKOFF_MS
+                    if (handle != 0L) NativeSurfaceMap.nativeReportFetchFailed(handle, t.id)
                     android.util.Log.w("TurbomapTiles", "tile ${t.key} oversize (${bytes.size}B); evicted + skipped")
                 }
                 (when {
@@ -790,6 +886,7 @@ internal class TurbomapSurfaceController {
                     // forever — the cause of grey gaps accumulating over a session.
                     withContext(Dispatchers.IO) { tileCache?.remove(t.layer, t.z, t.x, t.y) }
                     retryAt[t.key] = SystemClock.uptimeMillis() + RETRY_BACKOFF_MS
+                    if (handle != 0L) NativeSurfaceMap.nativeReportFetchFailed(handle, t.id)
                     android.util.Log.w("TurbomapTiles", "tile ${t.key} did not decode (${bytes.size}B); evicted + backing off")
                 }
             }
@@ -801,6 +898,7 @@ internal class TurbomapSurfaceController {
                 // flood the HTTP pool until real tiles starve. That was the persistent
                 // checkerboard stall.
                 if (inFlight[t.key] === self) inFlight.remove(t.key)
+                fetchIds.remove(t.id)
                 requestReconcile() // a slot freed — fill it with the next-nearest tile
             }
         }
@@ -820,6 +918,7 @@ internal class TurbomapSurfaceController {
         inFlight.values.toList().forEach { it.cancel() }
         inFlight.clear()
         retryAt.clear()
+        fetchIds.clear()
         scope.coroutineContext.cancelChildren()
         val h = handle
         handle = 0L

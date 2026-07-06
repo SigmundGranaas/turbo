@@ -20,6 +20,11 @@ pub struct PerfSummary {
     pub worst_blank_frac: f64,
     /// Total tiles delivered over the session.
     pub tiles_delivered: u64,
+    /// Largest engine want-list seen (working-set pressure; slice A1).
+    pub desired_max: usize,
+    /// Most resident-but-unwanted tiles seen (eviction-candidate pressure —
+    /// sustained highs against a tight budget are the thrash precursor).
+    pub retained_max: usize,
 }
 
 impl PerfSummary {
@@ -38,11 +43,10 @@ impl PerfSummary {
             cpu_ms_p50: pick(0.50),
             cpu_ms_p95: pick(0.95),
             cpu_ms_max: cpu.last().copied().unwrap_or(0.0),
-            worst_blank_frac: stats
-                .iter()
-                .map(|s| s.blank_frac)
-                .fold(0.0, f64::max),
+            worst_blank_frac: stats.iter().map(|s| s.blank_frac).fold(0.0, f64::max),
             tiles_delivered: stats.iter().map(|s| s.delivered as u64).sum(),
+            desired_max: stats.iter().map(|s| s.desired).max().unwrap_or(0),
+            retained_max: stats.iter().map(|s| s.retained).max().unwrap_or(0),
         }
     }
 }

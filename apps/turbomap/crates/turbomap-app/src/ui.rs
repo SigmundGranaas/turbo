@@ -35,15 +35,9 @@ pub struct UiOverlay {
 /// freed while the GPU still references them.
 pub struct PendingUi {
     free_textures: Vec<egui::TextureId>,
+    /// True if egui requested another frame "now" (animation, hover
+    /// effect, freshly-typed char). Returned by [`UiOverlay::present`].
     wants_repaint: bool,
-}
-
-impl PendingUi {
-    /// True if egui requested another frame "now"
-    /// (animation, hover effect, freshly-typed char).
-    pub fn wants_repaint(&self) -> bool {
-        self.wants_repaint
-    }
 }
 
 /// Result of `on_window_event` — what the app needs to know
@@ -74,8 +68,11 @@ impl UiOverlay {
             None,
             None,
         );
-        let renderer =
-            egui_wgpu::Renderer::new(device, surface_format, egui_wgpu::RendererOptions::default());
+        let renderer = egui_wgpu::Renderer::new(
+            device,
+            surface_format,
+            egui_wgpu::RendererOptions::default(),
+        );
         Self {
             ctx,
             state,
@@ -94,7 +91,7 @@ impl UiOverlay {
     ) -> OverlayEventResponse {
         let resp = self.state.on_window_event(window, event);
         OverlayEventResponse {
-            egui_used_pointer: self.ctx.wants_pointer_input(),
+            egui_used_pointer: self.ctx.egui_wants_pointer_input(),
             repaint_requested: resp.repaint,
         }
     }
@@ -104,7 +101,7 @@ impl UiOverlay {
     /// shortcut handler to avoid firing global shortcuts
     /// while the user is typing into the panel.
     pub fn wants_keyboard(&self) -> bool {
-        self.ctx.wants_keyboard_input()
+        self.ctx.egui_wants_keyboard_input()
     }
 
     /// Build one egui frame using `build_ui` and encode the
@@ -122,13 +119,15 @@ impl UiOverlay {
         build_ui: impl FnOnce(&egui::Context),
     ) -> PendingUi {
         let input = self.state.take_egui_input(window);
-        // `Context::run` takes an `FnMut`, so we hold the
+        // `Context::run_ui` takes an `FnMut`, so we hold the
         // build closure in a slot and have the inner FnMut
-        // pull it out exactly once.
+        // pull it out exactly once. (The root `Ui` it hands us
+        // lives on the background layer and paints nothing; our
+        // panel is an `egui::Window` built off the context.)
         let mut build_once = Some(build_ui);
-        let output = self.ctx.run(input, |ctx| {
+        let output = self.ctx.run_ui(input, |ui| {
             if let Some(build) = build_once.take() {
-                build(ctx);
+                build(ui.ctx());
             }
         });
         self.state

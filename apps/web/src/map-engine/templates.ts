@@ -1,7 +1,7 @@
 import { API_BASE } from '../config';
 import { BASE_LAYERS, baseSourceId, type BaseLayerId } from './scene';
 
-/** Tile kinds the engine asks for via `pending_tiles()`. */
+/** Tile kinds the engine's streaming plan asks the host to fetch. */
 export type TileKind = 'raster' | 'terrain' | 'vector' | 'hillshade';
 
 /** Host-side `kind → layer-id → {z}/{x}/{y} URL template` map. The engine only

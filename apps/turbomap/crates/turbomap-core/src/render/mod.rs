@@ -8,13 +8,14 @@
 
 pub(crate) mod ao;
 pub(crate) mod cache;
+pub mod custom;
 pub(crate) mod floor;
 pub(crate) mod frame;
 pub(crate) mod gpu_timestamps;
+pub mod graph;
 pub(crate) mod hillshade;
 pub(crate) mod icon;
 pub(crate) mod marker;
-pub(crate) mod post;
 pub(crate) mod raster;
 pub(crate) mod route;
 pub(crate) mod shadow;
@@ -58,13 +59,6 @@ pub(crate) const BACKGROUND_CLEAR: wgpu::Color = wgpu::Color {
 /// ranges we deal with (≤ ~3 km of relief over Mercator world units
 /// at zoom 6+).
 pub(crate) const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-
-/// The frame pass renders into this float HDR target (linear, no clamp) instead
-/// of straight to the sRGB surface, so highlights can exceed 1.0 for the bloom +
-/// filmic tonemap post-process ([`post`]). Resolved to a sampleable HDR texture,
-/// then tonemapped down to the surface. Rgba16Float is MSAA-resolvable and needs
-/// no extra device feature (unlike filtering R32Float).
-pub(crate) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 /// Format of the world-locked ambient-occlusion field ([`ao`]). One channel of
 /// accumulated sky occlusion in [0,1]; `R16Float` is renderable, blendable (for
@@ -133,7 +127,10 @@ mod tests {
 
         let mut with_nan = identity;
         with_nan[2][3] = f32::NAN;
-        assert!(!mat4_is_finite(&with_nan), "a single NaN must fail the gate");
+        assert!(
+            !mat4_is_finite(&with_nan),
+            "a single NaN must fail the gate"
+        );
 
         let mut with_inf = identity;
         with_inf[0][0] = f32::INFINITY;

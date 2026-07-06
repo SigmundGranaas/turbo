@@ -24,10 +24,9 @@ pub(crate) struct TextureCache {
     bind_group_layout: Arc<wgpu::BindGroupLayout>,
     sampler: Arc<wgpu::Sampler>,
     /// Texture format used for every entry. Raster basemaps want sRGB
-    /// (so colours decode for display); DEM/Terrain-RGB and anything
-    /// where the bytes encode *data*, not colour, MUST use the linear
-    /// `Rgba8Unorm` variant — otherwise the GPU applies an sRGB→linear
-    /// curve and warps the byte values before the shader sees them.
+    /// (so colours decode for display); overlays that carry *data*, not
+    /// colour, use a linear format — `Rgba8Unorm` for image data,
+    /// `Rg16Float` for decoded DEM heights (metres + coverage).
     format: wgpu::TextureFormat,
     /// Generate a full mip chain on upload? `true` for raster basemaps
     /// (linear minification at zoom-out kills shimmer); `false` for
@@ -92,7 +91,6 @@ impl TextureCache {
             .map(|e| Instant::now().duration_since(e.created_at).as_secs_f32())
     }
 
-
     pub(crate) fn get(&mut self, id: TileId) -> Option<&CacheEntry> {
         if self.entries.contains_key(&id) {
             self.touch(id);
@@ -123,16 +121,20 @@ impl TextureCache {
         None
     }
 
-
     /// Insert a decoded tile, evicting LRU tiles if the budget is
     /// exceeded. Returns the ids that were evicted so the caller can
     /// drop them from its "ingested" bookkeeping — otherwise the scene
     /// would believe an evicted tile is still resident and never
     /// re-request it (the "grey tile that won't reload" bug).
+    ///
+    /// `texels` is raw texel data in the cache's format — RGBA bytes for
+    /// the 8-bit colour formats, packed f16 `(height, coverage)` pairs for
+    /// `Rg16Float` DEM tiles (the mip-chain builder is RGBA-only, so
+    /// `gen_mips` requires an RGBA format).
     pub(crate) fn insert(
         &mut self,
         id: TileId,
-        rgba: &[u8],
+        texels: &[u8],
         width: u32,
         height: u32,
     ) -> Vec<TileId> {
@@ -140,10 +142,18 @@ impl TextureCache {
             self.touch(id);
             return Vec::new();
         }
+        let texel_bytes = bytes_per_texel(self.format);
         let chain = if self.gen_mips {
-            build_mip_chain(rgba, width, height, self.format)
+            debug_assert!(
+                matches!(
+                    self.format,
+                    wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb
+                ),
+                "mip chain builder is RGBA-only"
+            );
+            build_mip_chain(texels, width, height, self.format)
         } else {
-            vec![rgba.to_vec()]
+            vec![texels.to_vec()]
         };
         let mip_count = chain.len() as u32;
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -174,7 +184,7 @@ impl TextureCache {
                 data,
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(4 * lw),
+                    bytes_per_row: Some(texel_bytes * lw),
                     rows_per_image: Some(lh),
                 },
                 wgpu::Extent3d {
@@ -237,6 +247,17 @@ impl TextureCache {
             }
         }
         evicted
+    }
+}
+
+/// Bytes per texel for the formats this cache stores. New formats must be
+/// added here explicitly — a silent wrong stride would corrupt every upload.
+fn bytes_per_texel(format: wgpu::TextureFormat) -> u32 {
+    match format {
+        wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb => 4,
+        // DEM heights: (elevation_m, coverage) as half floats.
+        wgpu::TextureFormat::Rg16Float => 4,
+        other => unreachable!("TextureCache: unsupported format {other:?}"),
     }
 }
 

@@ -34,10 +34,7 @@ use turbomap_engine::{
 use turbomap_golden::omt::{bergen_scene, fixture_path, LAND};
 use turbomap_golden::sources::FlatBasemap;
 use turbomap_golden::{headless, render_to_image, TARGET_FORMAT};
-use turbomap_scene::{
-    Color, Filter, Layer, Paint, Scene, SourceDef, SymbolPlacement,
-    TextAnchor,
-};
+use turbomap_scene::{Color, Filter, Layer, Paint, Scene, SourceDef, SymbolPlacement, TextAnchor};
 use turbomap_tiles_pmtiles::PMTilesSource;
 
 type Img = image::RgbaImage;
@@ -122,13 +119,19 @@ fn render_scene(args: &Args, scene: Scene, resolver: Box<dyn SourceResolver>) ->
         TARGET_FORMAT,
         (args.width, args.height),
         CameraState::new(args.center, args.zoom),
-        MapOptions { fade_in_secs: 0.0, pixel_ratio: args.ratio, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            pixel_ratio: args.ratio,
+            ..Default::default()
+        },
         resolver,
     )
     .expect("engine");
     engine.apply(scene);
     engine.pump_tiles();
-    let img = render_to_image(&gpu, args.width, args.height, |enc, view| engine.render(enc, view));
+    let img = render_to_image(&gpu, args.width, args.height, |enc, view| {
+        engine.render(enc, view)
+    });
     engine.after_submit();
     img
 }
@@ -161,7 +164,9 @@ fn probe_scene(word: &str) -> Scene {
         }]
     })
     .to_string();
-    scene.sources.insert("pts".into(), SourceDef::GeoJson { data: pt });
+    scene
+        .sources
+        .insert("pts".into(), SourceDef::GeoJson { data: pt });
     scene.layers.push(Layer::Raster {
         id: "base".into(),
         source: "base".into(),
@@ -225,7 +230,8 @@ struct Metrics {
 
 fn measure(img: &Img) -> Metrics {
     let (w, h) = (img.width() as i32, img.height() as i32);
-    let at = |x: i32, y: i32| luma(img.get_pixel(x.clamp(0, w - 1) as u32, y.clamp(0, h - 1) as u32));
+    let at =
+        |x: i32, y: i32| luma(img.get_pixel(x.clamp(0, w - 1) as u32, y.clamp(0, h - 1) as u32));
     let mut grad_sum = 0.0f32;
     let mut grad_n = 0u32;
     let mut ring_hits = 0u32;
@@ -257,9 +263,21 @@ fn measure(img: &Img) -> Metrics {
         }
     }
     Metrics {
-        sharpness: if grad_n > 0 { grad_sum / grad_n as f32 } else { 0.0 },
-        halo_ring: if grad_n > 0 { ring_hits as f32 / grad_n as f32 } else { 0.0 },
-        speckle_per_k: if total > 0 { speckle as f32 * 1000.0 / total as f32 } else { 0.0 },
+        sharpness: if grad_n > 0 {
+            grad_sum / grad_n as f32
+        } else {
+            0.0
+        },
+        halo_ring: if grad_n > 0 {
+            ring_hits as f32 / grad_n as f32
+        } else {
+            0.0
+        },
+        speckle_per_k: if total > 0 {
+            speckle as f32 * 1000.0 / total as f32
+        } else {
+            0.0
+        },
     }
 }
 
@@ -270,13 +288,33 @@ fn main() {
 
     if let Some(word) = &args.probe {
         // Isolated text probe on light and dark bands, magnified 3x.
-        let light = render_scene(&args, probe_scene(word), Box::new(FlatResolver([244, 242, 238])));
-        let dark = render_scene(&args, probe_scene(word), Box::new(FlatResolver([60, 66, 78])));
+        let light = render_scene(
+            &args,
+            probe_scene(word),
+            Box::new(FlatResolver([244, 242, 238])),
+        );
+        let dark = render_scene(
+            &args,
+            probe_scene(word),
+            Box::new(FlatResolver([60, 66, 78])),
+        );
         let cx = args.width / 2;
         let cy = args.height / 2;
         let cw = 260u32.min(args.width);
-        let lc = crop(&light, cx.saturating_sub(cw / 2), cy.saturating_sub(40), cw, 80);
-        let dc = crop(&dark, cx.saturating_sub(cw / 2), cy.saturating_sub(40), cw, 80);
+        let lc = crop(
+            &light,
+            cx.saturating_sub(cw / 2),
+            cy.saturating_sub(40),
+            cw,
+            80,
+        );
+        let dc = crop(
+            &dark,
+            cx.saturating_sub(cw / 2),
+            cy.saturating_sub(40),
+            cw,
+            80,
+        );
         let m = measure(&lc);
         magnify(&lc, 3).save(p("probe-text.png")).unwrap();
         magnify(&dc, 3).save(p("probe-text-dark.png")).unwrap();
@@ -298,9 +336,21 @@ fn main() {
 
     // Centre (dense streets + labels) and a detail region, native 1:1.
     let (cw, ch) = (440.min(args.width), 320.min(args.height));
-    let centre = crop(&full, args.width / 2 - cw / 2, args.height / 2 - ch / 2, cw, ch);
+    let centre = crop(
+        &full,
+        args.width / 2 - cw / 2,
+        args.height / 2 - ch / 2,
+        cw,
+        ch,
+    );
     centre.save(p("crop-centre.png")).unwrap();
-    let detail = crop(&full, (args.width * 3 / 4).min(args.width - cw), args.height / 8, cw, ch);
+    let detail = crop(
+        &full,
+        (args.width * 3 / 4).min(args.width - cw),
+        args.height / 8,
+        cw,
+        ch,
+    );
     detail.save(p("crop-detail.png")).unwrap();
 
     let m_centre = measure(&centre);

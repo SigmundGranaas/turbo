@@ -1,16 +1,14 @@
 //! FFI round-trip: this test plays the role of a foreign host (Kotlin/
 //! Swift) and drives the map *only* through the uniffi-exported surface —
-//! scene JSON in, pull/push tile IO, camera/projection/hit-test, and the
-//! PNG snapshot out. If this passes, the generated bindings expose a
+//! scene JSON in, streaming-plan tile IO, camera/projection/hit-test, and
+//! the PNG snapshot out. If this passes, the generated bindings expose a
 //! complete, working control plane.
 #![cfg(feature = "gpu-tests")]
 
 use std::io::Cursor;
 
 use image::{ImageEncoder, RgbaImage};
-use turbomap_ffi::{
-    lat_lng_to_utm, utm_to_lat_lng, Camera, GeoPoint, Point, TileKind, TurboMap, UtmZone,
-};
+use turbomap_ffi::{lat_lng_to_utm, utm_to_lat_lng, Camera, GeoPoint, Point, TurboMap, UtmZone};
 
 fn camera() -> Camera {
     Camera {
@@ -75,51 +73,70 @@ fn full_host_roundtrip_through_the_ffi_surface() {
     assert_eq!(delta.sources_changed, 2, "{delta:?}");
     assert!(map.unsupported_layers().is_empty());
 
-    // 2. GeoJSON drains in-process; remote raster tiles stay pending.
+    // 2. GeoJSON drains in-process; remote raster tiles surface as PLAN
+    //    starts (P5.1 — the uniffi host boundary is the streaming plan).
     let local = map.pump_local_tiles();
     assert!(local.vector_tiles > 0, "geojson should drain: {local:?}");
-    let pending = map.pending_tiles();
-    assert!(!pending.is_empty(), "remote raster tiles should be pending");
-    assert!(pending.iter().all(|t| t.kind == TileKind::Raster));
-    assert!(pending.iter().all(|t| t.layer_id.as_deref() == Some("basemap")));
+    let plan: serde_json::Value =
+        serde_json::from_str(&map.streaming_plan_json(u32::MAX)).expect("plan json");
+    let start = plan["start"].as_array().expect("start array").clone();
+    assert!(!start.is_empty(), "remote raster tiles should be planned");
+    assert!(start.iter().all(|t| t["kind"] == "raster"));
+    assert!(start.iter().all(|t| t["layer"] == "basemap"));
 
-    // 3. Host fetch loop: push an encoded PNG for every pending tile.
+    // 3. Host fetch loop: push an encoded PNG for every planned start.
     let tile_bytes = fake_tile_png();
-    for req in &pending {
+    for req in &start {
         assert!(
             map.ingest_raster_tile(
-                req.layer_id.clone().unwrap(),
-                req.z,
-                req.x,
-                req.y,
+                req["layer"].as_str().unwrap().to_string(),
+                req["z"].as_u64().unwrap() as u8,
+                req["x"].as_u64().unwrap() as u32,
+                req["y"].as_u64().unwrap() as u32,
                 tile_bytes.clone()
             ),
             "tile {req:?} should decode"
         );
     }
+    // Deliveries complete the attempts; nothing new to start.
+    let plan: serde_json::Value =
+        serde_json::from_str(&map.streaming_plan_json(u32::MAX)).expect("plan json");
     assert!(
-        map.pending_tiles().is_empty(),
-        "all pending tiles were ingested"
+        plan["start"].as_array().expect("start array").is_empty(),
+        "all planned tiles were ingested"
     );
 
     // 4. Snapshot through the FFI and check actual pixels: the sea-green
-    //    basemap everywhere, the red route somewhere.
-    let png = map.render_png().expect("render png");
-    let img = image::load_from_memory(&png).expect("decode png").to_rgba8();
+    //    basemap everywhere, the red route somewhere. Ingest is ASYNC
+    //    (decode workers apply results during render under a budget), so
+    //    render until the delivered tiles land — bounded, and a real
+    //    regression still fails the count assertions below.
+    let mut img = RgbaImage::new(0, 0);
+    let mut greenish = 0usize;
+    let mut total = 1usize;
+    for _ in 0..100 {
+        let png = map.render_png().expect("render png");
+        img = image::load_from_memory(&png)
+            .expect("decode png")
+            .to_rgba8();
+        total = img.pixels().count();
+        greenish = img
+            .pixels()
+            .filter(|p| p.0[1] > p.0[0] && p.0[1] > 120 && p.0[2] > 100)
+            .count();
+        if greenish * 2 > total {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     assert_eq!((img.width(), img.height()), (512, 384));
-    let centre = img.get_pixel(256, 192);
-    let total = img.pixels().count();
-    let greenish = img
-        .pixels()
-        .filter(|p| p.0[1] > p.0[0] && p.0[1] > 120 && p.0[2] > 100)
-        .count();
     let reddish = img
         .pixels()
         .filter(|p| p.0[0] > 180 && p.0[1] < 100)
         .count();
     assert!(
         greenish * 2 > total,
-        "basemap should dominate; centre={centre:?} greenish={greenish}/{total}"
+        "basemap should dominate; greenish={greenish}/{total}"
     );
     assert!(reddish > 50, "route should be visible, reddish={reddish}");
 }
@@ -173,22 +190,25 @@ fn zoom_lock_clamps_the_camera_through_the_ffi_surface() {
 
     // --- auto from the source's accuracy ---------------------------------
     // Drop the override and let bounds track the tiles. A basemap that ends
-    // at z14 caps the camera there — past it the raster would upsample and
-    // sharp overlays drift, exactly what the lock prevents.
+    // at z14 caps the camera at 14 + the OVERZOOM budget (the engine
+    // upsamples the deepest real tile a few levels rather than blanking) —
+    // past that the lock refuses to go.
+    let overzoom_ceiling = 14.0 + turbomap_core::camera::OVERZOOM_LEVELS;
     map.clear_zoom_bounds();
-    map.apply_scene(scene_with_max_zoom_14()).expect("apply scene");
+    map.apply_scene(scene_with_max_zoom_14())
+        .expect("apply scene");
     let zb = map.zoom_bounds();
     assert!(
-        (zb.max - 14.0).abs() < 1e-9,
-        "lock should follow the source's max zoom, got {zb:?}"
+        (zb.max - overzoom_ceiling).abs() < 1e-9,
+        "lock should follow the source's max zoom + overzoom, got {zb:?}"
     );
     map.set_camera(Camera {
         zoom: 22.0,
         ..camera()
     });
     assert!(
-        (map.camera().zoom - 14.0).abs() < 1e-9,
-        "cannot zoom past the source's deepest tile, got {}",
+        (map.camera().zoom - overzoom_ceiling).abs() < 1e-9,
+        "cannot zoom past the deepest tile's overzoom ceiling, got {}",
         map.camera().zoom
     );
 }

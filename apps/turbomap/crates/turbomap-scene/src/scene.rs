@@ -42,6 +42,91 @@ pub enum TextAnchor {
     Left,
 }
 
+/// How the environment's sun is determined — mirrors the core's
+/// `LightingMode` state machine (exactly one source of the sun).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(tag = "mode", rename_all = "kebab-case")]
+pub enum LightingDef {
+    /// The fixed, pleasant default (deterministic goldens; pre-clock hosts).
+    #[default]
+    Default,
+    /// Track a real instant (UTC): the sun follows the clock and the camera.
+    TimeTracked { unix_seconds: f64 },
+    /// Pinned azimuth/altitude — manual control.
+    Fixed { azimuth_deg: f32, altitude_deg: f32 },
+}
+
+/// The weather-cloud overlay, declared in the Scene (plan C2): WHAT renders
+/// (the radar/coverage field source), WHERE (the source's geo bounds), and
+/// WHETHER it shows. Frame data still arrives as pushes through the
+/// engine's field-ingest path — data is transport, like tiles — and the
+/// playback clock (`set_cloud_time`) stays a control-plane verb, like the
+/// camera. Everything a scene diff should reproduce lives here.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct CloudsDef {
+    /// Source id of a [`SourceDef::Field2D`] holding the radar grids; its
+    /// `bounds` anchor the overlay geographically.
+    pub source: String,
+    /// Radar grid resolution (cells), e.g. `[128, 128]`.
+    pub grid: [u32; 2],
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    /// Drive the overlay from the engine's cloud simulation (plan E2):
+    /// drift on the frame clock, shading under the one Environment sun,
+    /// crossfade toward newly ingested radar frames. `false` = the host
+    /// scrubs the clock (`set_cloud_time`).
+    #[serde(default = "default_true")]
+    pub animate: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// The scene-declared environment (architecture S4, plan C1): the one
+/// shared model every environmental consumer samples — lighting, terrain
+/// shadow strength, sun-lit shading, aerial haze, basemap gain. This
+/// absorbs what were imperative side-door setters (`set_sun_time`,
+/// `set_terrain_shadows`, …) into the declarative Scene, so environment
+/// state is diffed, conformance-tested, and visible to every adapter.
+/// Defaults match a freshly constructed engine, so an unspecified
+/// environment (including every pre-C1 scene JSON) is a no-op.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct EnvironmentDef {
+    pub lighting: LightingDef,
+    /// Cast-shadow strength on 3D terrain; 0 = off.
+    pub terrain_shadows: f32,
+    /// Sun-lit terrain shading of the basemap ("sun mode").
+    pub terrain_lit: bool,
+    /// Distance haze / aerial perspective.
+    pub aerial_haze: bool,
+    /// The analytic sky/atmosphere pass. On by default (matches a freshly
+    /// constructed engine); a host debugging surface rendering declares
+    /// `sky: false` to isolate the map from the atmosphere.
+    #[serde(default = "default_true")]
+    pub sky: bool,
+    /// Basemap brightness multiplier; 1 = neutral.
+    pub basemap_gain: f32,
+    /// The weather-cloud overlay; `None` = disabled (plan C2).
+    pub clouds: Option<CloudsDef>,
+}
+
+impl Default for EnvironmentDef {
+    fn default() -> Self {
+        Self {
+            lighting: LightingDef::Default,
+            terrain_shadows: 0.0,
+            terrain_lit: true,
+            aerial_haze: true,
+            sky: true,
+            basemap_gain: 1.0,
+            clouds: None,
+        }
+    }
+}
+
 /// A named data source layers draw from.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -83,6 +168,42 @@ pub enum SourceDef {
         #[serde(default)]
         halo: u32,
     },
+    /// A PMTiles v3 archive of raster tiles (decision D2/D7: one artifact is
+    /// both the offline bundle and the serverless online source). `location`
+    /// is a local filesystem path (the bundled-baseline case) or an http(s)
+    /// URL (range requests against dumb static storage) — bundled-vs-remote
+    /// is packaging, not architecture, so it is one variant. Zoom bounds and
+    /// compression come from the archive header at resolve time.
+    PmtilesRaster { location: String },
+    /// A PMTiles v3 archive of MVT vector tiles.
+    PmtilesVector { location: String },
+    /// A PMTiles v3 archive of DEM tiles for terrain/hillshade.
+    PmtilesDem {
+        location: String,
+        encoding: DemEncoding,
+        /// Per-tile halo (px) baked into the archive's tiles; see
+        /// [`SourceDef::DemXyz::halo`].
+        #[serde(default)]
+        halo: u32,
+    },
+    /// A geo-anchored 2D data field (architecture S4's `FieldSet`): radar
+    /// precipitation, wind, sea state — grids a simulation or overlay
+    /// samples, declared as a source so field data is part of the Scene
+    /// like everything else. The host pushes frames through the engine's
+    /// field-ingest path (C2); `bounds` is `[west, south, east, north]`.
+    #[serde(rename = "field-2d")]
+    Field2D { bounds: [f64; 4] },
+    /// An ordered provider chain — the architecture's bundled-under-remote
+    /// layering (D2/D7) stated in the IR: the engine serves a tile from the
+    /// FIRST provider that covers it (e.g. a bundled coarse baseline), and
+    /// only what no in-process provider can serve surfaces to the host as
+    /// pending (e.g. detail zooms from a remote XYZ source). A cold start
+    /// with no network renders the baseline; connectivity refines it — one
+    /// source id, so layers and styles never know the difference.
+    ///
+    /// Providers must all be the same content kind (all raster, all vector,
+    /// or all DEM — GeoJSON and nested chains are rejected by `validate`).
+    Chain { providers: Vec<SourceDef> },
 }
 
 fn default_tile_size() -> u32 {
@@ -173,6 +294,15 @@ pub enum Layer {
         #[serde(default)]
         dash_array: Option<Vec<f32>>,
     },
+    /// Instanced screen-space discs (markers/pins) over a GeoJSON point
+    /// source.
+    ///
+    /// **Compositing (plan P6.5 — C3's exception is retired):** circles
+    /// draw AT THIS STACK POSITION like every other layer — "circle below
+    /// a fill" is expressible and rendered (the wgpu engine gives each
+    /// circle layer its own frame-graph node, `markers:<id>`, at its slot).
+    /// The one remaining ordering exception is `Symbol` label/icon content
+    /// — see [`Layer::Symbol`].
     Circle {
         id: String,
         source: String,
@@ -188,6 +318,18 @@ pub enum Layer {
         color: Paint<Color>,
         radius: Paint<f32>,
     },
+    /// Text labels (and optional icons/shields) for a vector layer's
+    /// features.
+    ///
+    /// **Compositing note (the ONE documented ordering exception, plan
+    /// P6.5):** a symbol layer's *geometry slot* sits in the stack like any
+    /// layer, but its label/icon CONTENT renders in a fixed screen-space
+    /// symbol track above every stack layer (all icons, then all labels),
+    /// because labels collide in one global collision world per frame and
+    /// must stay legible over any content. So "fill above symbol" does not
+    /// occlude the symbol's text. Every other kind — raster, fill,
+    /// fill-extrusion, line, circle, tube, hillshade, custom — composites
+    /// exactly at its declared stack position.
     Symbol {
         id: String,
         source: String,
@@ -256,6 +398,21 @@ pub enum Layer {
         #[serde(default)]
         height_only: bool,
     },
+    /// A route/track drawn as a raised 3D tube over the terrain (the
+    /// engine's route look since the 3D work): a lit mesh, occluded
+    /// by relief, constant on-screen radius. `source` must be a GeoJSON
+    /// LineString/MultiLineString. This is CONTENT — scene-declared like
+    /// every layer (plan P5.2); the old imperative `set_route_tube`
+    /// side-door is gone. Composites at this stack position (plan P6.5 —
+    /// its own frame-graph node, `route-tubes:<id>`), so content declared
+    /// above a tube draws over it.
+    Tube {
+        id: String,
+        source: String,
+        color: Color,
+        /// Tube radius in on-screen pixels.
+        radius_px: f64,
+    },
     /// A host-supplied render pass, portable across platforms. The IR only
     /// names it; the renderer binds the actual pass by `kind`.
     Custom { id: String, kind: String },
@@ -292,6 +449,7 @@ impl Layer {
             | Layer::Circle { id, .. }
             | Layer::Symbol { id, .. }
             | Layer::Hillshade { id, .. }
+            | Layer::Tube { id, .. }
             | Layer::Custom { id, .. } => id,
         }
     }
@@ -305,7 +463,8 @@ impl Layer {
             | Layer::Line { source, .. }
             | Layer::Circle { source, .. }
             | Layer::Symbol { source, .. }
-            | Layer::Hillshade { source, .. } => Some(source),
+            | Layer::Hillshade { source, .. }
+            | Layer::Tube { source, .. } => Some(source),
             Layer::Custom { .. } => None,
         }
     }
@@ -319,6 +478,10 @@ pub struct Scene {
     pub sources: std::collections::BTreeMap<String, SourceDef>,
     #[serde(default)]
     pub layers: Vec<Layer>,
+    /// The scene-declared environment; defaults are engine-neutral, and
+    /// `#[serde(default)]` keeps every pre-C1 scene document valid.
+    #[serde(default)]
+    pub environment: EnvironmentDef,
 }
 
 impl Scene {
@@ -327,8 +490,9 @@ impl Scene {
     }
 
     /// Validate scene-level invariants the diff and engines rely on:
-    /// unique layer ids, and every non-custom layer pointing at a source
-    /// that exists. Returns the offending id on failure.
+    /// unique layer ids, every non-custom layer pointing at a source that
+    /// exists, and well-formed provider chains (non-empty, un-nested, one
+    /// content kind). Returns the offending id on failure.
     pub fn validate(&self) -> Result<(), SceneError> {
         let mut seen = std::collections::BTreeSet::new();
         for layer in &self.layers {
@@ -344,7 +508,55 @@ impl Scene {
                 }
             }
         }
+        if let Some(clouds) = &self.environment.clouds {
+            match self.sources.get(&clouds.source) {
+                Some(SourceDef::Field2D { .. }) => {}
+                _ => {
+                    return Err(SceneError::UnknownSource {
+                        layer: "environment.clouds".to_string(),
+                        source: clouds.source.clone(),
+                    });
+                }
+            }
+        }
+        for (id, def) in &self.sources {
+            if let SourceDef::Chain { providers } = def {
+                if providers.is_empty() {
+                    return Err(SceneError::InvalidChain {
+                        source: id.clone(),
+                        reason: "a chain needs at least one provider".to_string(),
+                    });
+                }
+                if providers
+                    .iter()
+                    .any(|p| matches!(p, SourceDef::Chain { .. }))
+                {
+                    return Err(SceneError::InvalidChain {
+                        source: id.clone(),
+                        reason: "chains cannot nest".to_string(),
+                    });
+                }
+                let kind = chain_kind(&providers[0]);
+                if kind.is_none() || providers.iter().any(|p| chain_kind(p) != kind) {
+                    return Err(SceneError::InvalidChain {
+                        source: id.clone(),
+                        reason: "providers must all be raster, all vector, or all DEM".to_string(),
+                    });
+                }
+            }
+        }
         Ok(())
+    }
+}
+
+/// The content kind a chain provider serves — `None` for kinds a chain
+/// cannot contain (inline GeoJSON needs no fallback; nesting is rejected).
+fn chain_kind(def: &SourceDef) -> Option<u8> {
+    match def {
+        SourceDef::RasterXyz { .. } | SourceDef::PmtilesRaster { .. } => Some(0),
+        SourceDef::VectorXyz { .. } | SourceDef::PmtilesVector { .. } => Some(1),
+        SourceDef::DemXyz { .. } | SourceDef::PmtilesDem { .. } => Some(2),
+        SourceDef::GeoJson { .. } | SourceDef::Chain { .. } | SourceDef::Field2D { .. } => None,
     }
 }
 
@@ -353,6 +565,7 @@ impl Scene {
 pub enum SceneError {
     DuplicateLayerId(String),
     UnknownSource { layer: String, source: String },
+    InvalidChain { source: String, reason: String },
 }
 
 impl std::fmt::Display for SceneError {
@@ -361,6 +574,12 @@ impl std::fmt::Display for SceneError {
             SceneError::DuplicateLayerId(id) => write!(f, "duplicate layer id '{id}'"),
             SceneError::UnknownSource { layer, source } => {
                 write!(f, "layer '{layer}' references unknown source '{source}'")
+            }
+            SceneError::InvalidChain { source, reason } => {
+                write!(
+                    f,
+                    "source '{source}' has an invalid provider chain: {reason}"
+                )
             }
         }
     }

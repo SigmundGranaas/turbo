@@ -12,6 +12,6 @@ workspace = true
 
 [dependencies]
 serde.workspace = true
-
-[dev-dependencies]
+# The reference ModelEngine parses geo-json point content for its hit-test
+# (plan P6.4) — the one place the IR crate touches JSON at runtime.
 serde_json.workspace = true

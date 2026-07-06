@@ -47,6 +47,52 @@ object TurbomapScene {
         val maxZoom: Int = DEFAULT_VECTOR_MAX_ZOOM,
     )
 
+    /**
+     * A route/track drawn as a raised 3D `tube` layer — a single lit mesh,
+     * occluded by relief, constant on-screen radius. Scene-declared content
+     * like every other layer (plan P5.2); replaces the old imperative
+     * `nativeSetRouteTube` side-door. Fewer than 2 points = omitted.
+     */
+    data class TubeSpec(
+        val id: String,
+        val points: List<LatLng>,
+        val color: Rgba,
+        val radiusPx: Double,
+    )
+
+    /**
+     * The scene-declared weather-cloud overlay: WHAT renders (a `field-2d`
+     * radar source of [gridW]×[gridH] cells), WHERE (its geo box), and
+     * WHETHER it shows. Frame DATA still pushes through
+     * `nativeIngestRadarFrame` (transport, like tiles) and the playback
+     * clock stays the `nativeSetCloudTime` control verb — everything a
+     * scene diff should reproduce is here (plan P5.2).
+     */
+    data class CloudsSpec(
+        val gridW: Int,
+        val gridH: Int,
+        val west: Double,
+        val south: Double,
+        val east: Double,
+        val north: Double,
+        val visible: Boolean = true,
+    )
+
+    /**
+     * The scene-declared environment (plan P5.2: ONE content plane — these
+     * were the imperative `nativeSetSunTime`/`nativeSetTerrainShadows`/
+     * `nativeEnableClouds`… side-doors). Defaults match a fresh engine, so
+     * an unspecified environment is a no-op.
+     */
+    data class EnvironmentSpec(
+        /** Track the sun (terrain shading + sky) to this UTC instant;
+         *  null = the engine's fixed default light. */
+        val sunUnixSeconds: Double? = null,
+        /** Terrain cast-shadow strength in `[0,1]`; 0 = off. */
+        val terrainShadows: Float = 0f,
+        val clouds: CloudsSpec? = null,
+    )
+
     val TrackColor = Rgba(0, 105, 109)
     val RouteColor = Rgba(143, 76, 56)
     /** The dim already-walked segment in follow mode — a muted, desaturated
@@ -60,10 +106,10 @@ object TurbomapScene {
      * when they have renderable geometry, so the result always validates (every
      * layer's source exists).
      */
-    // NOTE: track + route are NOT scene layers anymore — they render as raised
-    // 3D tubes via `NativeSurfaceMap.nativeSetRouteTube` (a single lit mesh, not
-    // a per-tile flat line). Only measure + user stay flat geojson here.
-    @Suppress("LongParameterList")
+    // Track + route render as raised 3D [TubeSpec] layers (a single lit mesh,
+    // not a per-tile flat line); measure stays a flat geojson line. The live
+    // user position is a Compose pin, not a layer.
+    @Suppress("LongParameterList", "CyclomaticComplexMethod")
     fun build(
         rasters: List<RasterSpec> = emptyList(),
         vectors: List<VectorSpec> = emptyList(),
@@ -74,6 +120,8 @@ object TurbomapScene {
         // fetches the DEM tiles (it owns this same URL template). null = flat.
         demUrl: String? = null,
         measureColor: Rgba = MeasureColor,
+        tubes: List<TubeSpec> = emptyList(),
+        environment: EnvironmentSpec = EnvironmentSpec(),
     ): String {
         val sources = mutableListOf<String>()
         val layers = mutableListOf<String>()
@@ -112,6 +160,17 @@ object TurbomapScene {
                 "\"source-layer\": \"${v.layerName}\", \"color\": ${const(v.color)} }"
         }
 
+        // Route/track tubes: over the ground stack (rasters/hillshade/vectors),
+        // under the measure annotations. Field names match the Rust IR's
+        // `Layer::Tube` (`radius_px`; a plain colour, not a paint).
+        tubes.forEach { t ->
+            if (t.points.size < 2) return@forEach
+            val src = "t_${t.id}"
+            sources += "\"$src\": { \"type\": \"geo-json\", \"data\": \"${escape(lineString(t.points))}\" }"
+            layers += "{ \"type\": \"tube\", \"id\": \"${t.id}\", \"source\": \"$src\", " +
+                "\"color\": ${rgba(t.color)}, \"radius_px\": ${t.radiusPx} }"
+        }
+
         fun line(id: String, pts: List<LatLng>?, color: Rgba, width: Double) {
             val p = pts.orEmpty()
             if (p.size < 2) return
@@ -132,11 +191,36 @@ object TurbomapScene {
         // looked wrong over 3D terrain. It's now a Compose `MyPositionPin` in `MapOverlay`,
         // projected through the elevation-aware engine seam so it stands on the surface.
 
+        // The environment block. Keys are the Rust IR's kebab-case
+        // (`EnvironmentDef` is `rename_all = "kebab-case"`); the lighting
+        // enum's variant FIELDS keep their snake_case Rust names. Fields at
+        // their engine-neutral default are omitted (serde defaults them).
+        val envParts = mutableListOf<String>()
+        environment.sunUnixSeconds?.let {
+            envParts += "\"lighting\": { \"mode\": \"time-tracked\", \"unix_seconds\": $it }"
+        }
+        if (environment.terrainShadows > 0f) {
+            envParts += "\"terrain-shadows\": ${environment.terrainShadows}"
+        }
+        environment.clouds?.let { c ->
+            // The radar grid is a scene SOURCE (`field-2d`); its bounds anchor
+            // the overlay geographically (world-locked clouds). `animate` is
+            // false: this host scrubs the clock via `nativeSetCloudTime`.
+            sources += "\"radar\": { \"type\": \"field-2d\", " +
+                "\"bounds\": [${c.west}, ${c.south}, ${c.east}, ${c.north}] }"
+            envParts += "\"clouds\": { \"source\": \"radar\", \"grid\": [${c.gridW}, ${c.gridH}], " +
+                "\"visible\": ${c.visible}, \"animate\": false }"
+        }
+        val environmentJson =
+            if (envParts.isEmpty()) "" else ", \"environment\": { ${envParts.joinToString(", ")} }"
+
         return "{ \"sources\": { ${sources.joinToString(", ")} }, " +
-            "\"layers\": [ ${layers.joinToString(", ")} ] }"
+            "\"layers\": [ ${layers.joinToString(", ")} ]$environmentJson }"
     }
 
     private fun const(c: Rgba) = "{ \"const\": { \"r\": ${c.r}, \"g\": ${c.g}, \"b\": ${c.b}, \"a\": ${c.a} } }"
+
+    private fun rgba(c: Rgba) = "{ \"r\": ${c.r}, \"g\": ${c.g}, \"b\": ${c.b}, \"a\": ${c.a} }"
 
     private fun lineString(pts: List<LatLng>) =
         "{\"type\":\"LineString\",\"coordinates\":[${pts.joinToString(",") { "[${it.lng},${it.lat}]" }}]}"

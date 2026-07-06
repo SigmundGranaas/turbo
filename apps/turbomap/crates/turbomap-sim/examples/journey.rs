@@ -69,7 +69,8 @@ fn main() {
     .expect("no wgpu adapter (install mesa-vulkan-drivers)");
 
     sim.engine.apply(basemap_scene());
-    sim.run_until_stable(300, 0.002).expect("initial load settles");
+    sim.run_until_stable(300, 0.002)
+        .expect("initial load settles");
     save(&sim, &args.out_dir, "01-loaded");
 
     sim.latency_frames = args.latency;
@@ -86,7 +87,8 @@ fn main() {
         let s_animating = s.animating;
         let s_zoom = s.zoom;
         let s_in_flight = s.in_flight;
-        if !mid_saved && (s_zoom - args.zoom_from).abs() > (args.zoom_to - args.zoom_from).abs() / 2.0
+        if !mid_saved
+            && (s_zoom - args.zoom_from).abs() > (args.zoom_to - args.zoom_from).abs() / 2.0
         {
             save(&sim, &args.out_dir, "02-mid-zoom");
             mid_saved = true;

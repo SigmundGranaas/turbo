@@ -9,6 +9,7 @@
 pub mod camera;
 pub mod capacity;
 pub mod dem;
+pub mod environment;
 pub mod error;
 pub mod fb_probe;
 pub mod geo;
@@ -18,37 +19,48 @@ pub mod lod;
 pub mod map;
 pub mod markers;
 pub mod projection;
-mod render;
+pub mod render;
 pub mod scene;
+pub mod simulation;
 pub mod source;
 pub mod spatial_index;
 pub mod sprite;
 pub mod style;
+pub mod subsystem;
 pub mod sun;
+pub(crate) mod surface;
 pub mod tessellate;
 pub mod text;
 pub mod tile;
 pub mod vector;
 
 pub use camera::{Camera, CameraAnimation, FiniteF64, ZoomBounds, ZoomLock, TILE_SIZE_PX};
-pub use dem::{decode_elevation, DemEncoding};
+pub use dem::{decode_dem_rgba, decode_elevation, DemEncoding};
+pub use environment::Environment;
 pub use error::{MapError, TileError};
 pub use geo::{LatLng, WorldPoint, MAX_LATITUDE_DEG};
-pub use projection::{reproject, Crs};
+pub use lighting::{Lighting, LightingMode};
 pub use map::{
     CloudParams, FrameMetrics, HitFeature, HitMarker, HitResult, LayerKind, LayerMetrics, Map,
     MapOptions, Marker, MarkerId, PendingTile, PhaseTimings,
     PublicTerrainOptions as TerrainOptions, RadarFrame,
 };
+pub use projection::{reproject, Crs};
+pub use render::custom::{CustomFrameCtx, CustomLayer, CustomLayerInit, CustomPhase};
+pub use render::graph::{FrameGraphReport, FramePhase, PassTiming};
 pub use scene::Scene;
+pub use simulation::SimulationSystem;
 pub use source::{RasterFormat, RasterTile, TileSource};
-pub use lighting::{Lighting, LightingMode};
-pub use sun::{atmosphere, solar_position, Atmosphere, SunPosition};
 pub use style::{Color, Filter, HillshadeStyle, IconSpec, Paint, Rule, VectorStyle};
+pub use subsystem::{BudgetReport, DebugActivation, DebugViewDesc, Subsystem};
+pub use sun::{atmosphere, solar_position, Atmosphere, SunPosition};
 pub use tessellate::{
     tessellate, IconRequest, InteractiveFeature, LabelRequest, Mesh, VectorVertex,
 };
 pub use tile::{SubUv, TileId};
+// Streaming-plan attempt identity — re-exported so hosts don't need a direct
+// turbomap-world dependency to speak the plan boundary.
+pub use turbomap_world::RequestId;
 pub use vector::{
     tile_local_to_world, Feature, GeomType, Geometry, Layer as VectorTileLayer,
     Value as VectorValue, VectorTile, VectorTileSource,

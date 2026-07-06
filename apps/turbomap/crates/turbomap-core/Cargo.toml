@@ -17,9 +17,11 @@ bytemuck.workspace = true
 log.workspace = true
 thiserror.workspace = true
 turbomap-mvt = { path = "../turbomap-mvt" }
+turbomap-world = { path = "../turbomap-world" }
 turbomap-clouds = { path = "../turbomap-clouds" }
 lyon.workspace = true
 ab_glyph.workspace = true
 rustybuzz.workspace = true
 unicode-bidi.workspace = true
 web-time.workspace = true
+half.workspace = true

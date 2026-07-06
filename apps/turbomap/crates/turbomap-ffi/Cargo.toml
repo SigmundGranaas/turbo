@@ -28,6 +28,7 @@ gpu-tests = []
 [dependencies]
 turbomap-core = { path = "../turbomap-core" }
 turbomap-engine = { path = "../turbomap-engine" }
+turbomap-world = { path = "../turbomap-world" }
 turbomap-scene = { path = "../turbomap-scene" }
 crossbeam-channel.workspace = true
 uniffi.workspace = true

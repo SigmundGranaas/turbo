@@ -7,7 +7,7 @@ use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use crate::{dem::DemEncoding, scene::Scene, style::HillshadeStyle, tile::TileId};
+use crate::{scene::Scene, style::HillshadeStyle, tile::TileId};
 
 use super::{terrain::TerrainCache, vector::fade_alpha, DEPTH_FORMAT};
 
@@ -28,7 +28,9 @@ struct Globals {
     shadow_color: [f32; 4],
     highlight_color: [f32; 4],
     opacity: f32,
-    encoding: u32,
+    /// Spare slot (held the DEM-encoding tag until plan D3 moved the decode
+    /// to ingest; kept so the std140 layout is untouched).
+    _pad0: u32,
     /// Fractional UV inset on each side that maps to the halo ring of
     /// the DEM texture. When the source serves a 258×258 PNG with
     /// 1 px halo, the displayed 256×256 of geography corresponds to
@@ -349,10 +351,7 @@ impl HillshadePipeline {
                 shadow_color: linearise(style.shadow_color),
                 highlight_color: linearise(style.highlight_color),
                 opacity: style.opacity,
-                encoding: match style.encoding {
-                    DemEncoding::MapboxRgb => 0,
-                    DemEncoding::Terrarium => 1,
-                },
+                _pad0: 0,
                 halo_uv,
                 meters_to_world,
             }),

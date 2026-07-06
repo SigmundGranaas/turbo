@@ -1,9 +1,19 @@
-//! Lower a MapLibre Style Spec document onto [`turbomap_core::VectorStyle`].
+//! Lower a MapLibre Style Spec document onto turbomap styles.
 //!
 //! This is the interchange half of the custom-style story: the tileserver
 //! authors styles as MapLibre JSON (`/v1/basemap/style.json`), web/Flutter
 //! clients hand that to MapLibre GL directly, and the native renderer runs
 //! the same document through this crate. One style file, every renderer.
+//!
+//! Two lowerings live here:
+//!
+//! - [`parse_style_layers`] → **Scene IR layers** (plan P6.2): the
+//!   authoring surface. The engine compiles these into the core
+//!   `VectorStyle` itself, so paints keep their zoom curves and data-driven
+//!   matches instead of being pre-baked. New hosts use this.
+//! - [`parse_style`] → [`turbomap_core::VectorStyle`] directly: the legacy
+//!   path for callers that drive `turbomap_core::Map` without the engine.
+//!   Kept working; the IR path's fidelity tests compare against it.
 //!
 //! ## Supported subset (fail-loud)
 //!
@@ -27,13 +37,17 @@
 //! Line widths are given in CSS px by the spec; turbomap wants tile-extent
 //! units, so widths are scaled by `EXTENT_UNITS_PER_PX` (4096/256).
 
+mod ir;
+
+pub use ir::{parse_style_background, parse_style_layers, without_water_fill_layers};
+
 use serde_json::Value as Json;
 use turbomap_core::style::{Color, Filter, Paint, Rule, VectorStyle};
 
 /// MVT extent units per CSS pixel at the standard 4096-extent / 256-px tile.
 pub const EXTENT_UNITS_PER_PX: f32 = 4096.0 / 256.0;
 
-const DEFAULT_TEXT_SIZE_PX: f32 = 16.0;
+pub(crate) const DEFAULT_TEXT_SIZE_PX: f32 = 16.0;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StyleError {
@@ -43,7 +57,7 @@ pub enum StyleError {
     Unsupported { layer: String, what: String },
 }
 
-fn unsupported(layer: &str, what: impl Into<String>) -> StyleError {
+pub(crate) fn unsupported(layer: &str, what: impl Into<String>) -> StyleError {
     StyleError::Unsupported {
         layer: layer.to_string(),
         what: what.into(),
@@ -241,7 +255,7 @@ fn parse_filter(id: &str, filter: Option<&Json>) -> Result<Filter, StyleError> {
 }
 
 /// Accept both the legacy bare key and the modern `["get", key]` form.
-fn filter_key(id: &str, key: Option<&Json>) -> Result<String, StyleError> {
+pub(crate) fn filter_key(id: &str, key: Option<&Json>) -> Result<String, StyleError> {
     match key {
         Some(Json::String(s)) => Ok(s.clone()),
         Some(Json::Array(a))
@@ -321,8 +335,7 @@ mod tests {
     fn n50_topo() -> String {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../../tileserver/styles/n50-topo.json");
-        std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
     }
 
     #[test]
@@ -425,7 +438,10 @@ mod tests {
     #[test]
     fn css_colors_parse() {
         assert_eq!(color_from_css("#fff"), Some(Color::rgb(255, 255, 255)));
-        assert_eq!(color_from_css("#a0522d"), Some(Color::rgb(0xa0, 0x52, 0x2d)));
+        assert_eq!(
+            color_from_css("#a0522d"),
+            Some(Color::rgb(0xa0, 0x52, 0x2d))
+        );
         assert_eq!(
             color_from_css("#11223344"),
             Some(Color::rgba(0x11, 0x22, 0x33, 0x44))

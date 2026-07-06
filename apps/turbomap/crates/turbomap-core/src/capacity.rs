@@ -39,7 +39,11 @@ pub(crate) const OVERVIEW_DEPTH: u8 = 3;
 /// *empirical* desired count never exceeds this; this is the *declared* bound
 /// the cache is sized against.
 pub(crate) const MAX_DESIRED_TILES: usize = {
-    let visible = if LOD_TILE_CAP > RECT_TILE_CAP { LOD_TILE_CAP } else { RECT_TILE_CAP };
+    let visible = if LOD_TILE_CAP > RECT_TILE_CAP {
+        LOD_TILE_CAP
+    } else {
+        RECT_TILE_CAP
+    };
     visible + RECT_TILE_CAP // + the overview backdrop (itself a capped rectangle)
 };
 
@@ -73,9 +77,10 @@ mod tests {
     use super::*;
 
     #[test]
+    // Constant on purpose: this is the compile-time capacity proof surfaced
+    // as a runtime test so a failure prints the actual numbers.
+    #[allow(clippy::assertions_on_constants)]
     fn the_desired_ceiling_fits_the_cache_with_headroom() {
-        // The same relationship the compile-time assertion guards, surfaced as a
-        // readable runtime check with the actual numbers in the failure message.
         assert!(
             MAX_DESIRED_TILES * 2 <= CACHE_TILE_FLOOR,
             "max desired {MAX_DESIRED_TILES} tiles needs ≥{} cache slots (2× headroom); \

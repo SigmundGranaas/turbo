@@ -1,7 +1,6 @@
 package com.sigmundgranaas.turbo.expressive.core.turbomap
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -9,8 +8,6 @@ import org.junit.Test
 import uniffi.turbomap_ffi.Camera
 import uniffi.turbomap_ffi.FfiException
 import uniffi.turbomap_ffi.GeoPoint
-import uniffi.turbomap_ffi.Point
-import uniffi.turbomap_ffi.TileKind
 import uniffi.turbomap_ffi.TurboMap
 import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
@@ -97,20 +94,25 @@ class TurbomapFfiRoundTripTest {
             assertEquals("both sources changed: $delta", 2u, delta.sourcesChanged)
             assertTrue(map.unsupportedLayers().isEmpty())
 
-            // 2. GeoJSON drains in-process; remote raster tiles stay pending.
+            // 2. GeoJSON drains in-process; remote raster tiles surface via the
+            //    streaming plan (P5.1 — the engine plans, the host executes).
             val local = map.pumpLocalTiles()
             assertTrue("geojson should drain: $local", local.vectorTiles > 0u)
-            val pending = map.pendingTiles()
-            assertFalse("remote raster tiles should be pending", pending.isEmpty())
-            assertTrue(pending.all { it.kind == TileKind.RASTER })
-            assertTrue(pending.all { it.layerId == "basemap" })
 
-            // 3. Host fetch loop: push an encoded PNG for every pending tile.
+            // 3. Host fetch loop: drain plans, pushing an encoded PNG for each
+            //    start, until the engine wants nothing more.
             val tile = fakeTilePng()
-            for (req in pending) {
-                assertTrue("tile $req should decode", map.ingestRasterTile(req.layerId!!, req.z, req.x, req.y, tile))
+            var delivered = 0
+            while (true) {
+                val starts = planStarts(map.streamingPlanJson(64u))
+                if (starts.isEmpty()) break
+                assertTrue("only the basemap raster starts: $starts", starts.all { it.kind == "raster" && it.layer == "basemap" })
+                for (req in starts) {
+                    assertTrue("tile $req should decode", map.ingestRasterTile(req.layer, req.z, req.x, req.y, tile))
+                }
+                delivered += starts.size
             }
-            assertTrue("all pending tiles ingested", map.pendingTiles().isEmpty())
+            assertTrue("remote raster tiles should have been planned", delivered > 0)
 
             // 4. Snapshot through the FFI and check actual pixels: sea-green basemap
             //    dominates, the red route is visible.

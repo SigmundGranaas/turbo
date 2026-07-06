@@ -57,23 +57,6 @@ internal object NativeSurfaceMap {
      *  accumulate without a stale-snapshot recompute → smooth pan in 2D + 3D. */
     external fun nativePanBy(handle: Long, dx: Double, dy: Double)
 
-    /**
-     * Set (or clear, with an empty [coords]) a route/track polyline drawn as a
-     * raised 3D tube — a single lit mesh that drapes on the terrain, replacing
-     * the old flat per-tile line. [coords] is a flat `[lat0, lng0, lat1, …]`
-     * array; [radiusPx] is the tube radius in screen pixels.
-     */
-    external fun nativeSetRouteTube(
-        handle: Long,
-        id: String,
-        coords: DoubleArray,
-        r: Int,
-        g: Int,
-        b: Int,
-        a: Int,
-        radiusPx: Double,
-    )
-
     // ── Physics / motion ────────────────────────────────────────────────────
     /** Start an inertial pan fling at screen-pixel velocity (drag-release). */
     external fun nativeFling(handle: Long, vx: Double, vy: Double)
@@ -120,9 +103,31 @@ internal object NativeSurfaceMap {
      */
     external fun nativeUnprojectGround(handle: Long, xPx: Double, yPx: Double): DoubleArray
 
-    // ── Host-driven tile IO ─────────────────────────────────────────────────
-    /** Tiles the engine awaits, as JSON `[{"kind","layer","z","x","y"}, ...]`. */
-    external fun nativePendingTilesJson(handle: Long): String
+    /** Features under a screen point (device px) within tolPx, top-most first,
+     *  as JSON `[{"layer":..,"feature_id":..,"properties":{..}}, ...]` (plan
+     *  P6.4). Wait-free: `[]` under render-lock contention — re-ask on the
+     *  next tap if needed. */
+    external fun nativeHitTest(handle: Long, xPx: Double, yPx: Double, tolPx: Double): String
+
+    // ── Host-driven tile IO: the STREAMING PLAN ────────────────────────────
+    /**
+     * Grant [freeLanes] fetch lanes and drain every plan minted since the last
+     * call, as a JSON array of plan objects:
+     * `[{"start":[{"id","kind","layer","z","x","y"}],"cancel":[ids]}, …]`.
+     * Consume-once — each `start` appears in exactly one take. Honour every
+     * `cancel` (abort the fetch, then [nativeReportFetchCancelled]); a start
+     * the host declines must also be reported cancelled so the engine
+     * re-issues it. Deliveries complete through the ordinary `nativeIngest*`;
+     * failures report via [nativeReportFetchFailed] (retry/backoff policy is
+     * the HOST's — the engine re-pends immediately).
+     */
+    external fun nativeTakeStreamingPlanJson(handle: Long, freeLanes: Int): String
+
+    /** Report a plan-issued fetch as failed; the tile re-pends while wanted. */
+    external fun nativeReportFetchFailed(handle: Long, id: Long)
+
+    /** Report a plan `cancel` as honoured (or a `start` the host declined). */
+    external fun nativeReportFetchCancelled(handle: Long, id: Long)
 
     /** Push a fetched raster tile (encoded image bytes); false if it didn't decode. */
     external fun nativeIngestRaster(handle: Long, layerId: String, z: Int, x: Int, y: Int, bytes: ByteArray): Boolean
@@ -134,35 +139,9 @@ internal object NativeSurfaceMap {
     /** Push a fetched DEM tile (Mapbox-Terrain-RGB PNG) into the shared heightmap (3D terrain). */
     external fun nativeIngestTerrain(handle: Long, z: Int, x: Int, y: Int, bytes: ByteArray): Boolean
 
-    /**
-     * Track the sun (terrain shading + sky colour) to a real UTC instant,
-     * so the scene's light matches the time of day. [unixSeconds] is UTC
-     * seconds since the epoch; a negative value reverts to a fixed default.
-     */
-    external fun nativeSetSunTime(handle: Long, unixSeconds: Double)
-
-    /**
-     * Enable terrain *cast* shadows (a peak shadows the valley behind it) at
-     * [strength] in `[0,1]`; 0 disables the feature (zero per-frame cost).
-     * Only affects 3D terrain; distinct from the always-on relief self-shading.
-     */
-    external fun nativeSetTerrainShadows(handle: Long, strength: Float)
-
-    // ── Weather-cloud overlay ───────────────────────────────────────────────
-    /** Enable the procedural cloud overlay with a [gridW]×[gridH] radar grid. */
-    external fun nativeEnableClouds(handle: Long, gridW: Int, gridH: Int)
-
-    /** Hide/show the overlay without discarding uploaded frames. */
-    external fun nativeSetCloudsVisible(handle: Long, visible: Boolean)
-
-    /** Geo-register the radar to its lat/lng box → world-locked overlay. */
-    external fun nativeSetCloudGeoBounds(
-        handle: Long,
-        west: Double,
-        south: Double,
-        east: Double,
-        north: Double,
-    )
+    // ── Weather-cloud overlay: transport + clock only (plan P5.2) ───────────
+    // What renders (grid, geo bounds, visibility, sun, shadows) is SCENE
+    // state — declare it in the IR's `environment` and `nativeApplyScene` it.
 
     /**
      * Upload a radar frame into [slot] (0 = current timestep, 1 = next) from two

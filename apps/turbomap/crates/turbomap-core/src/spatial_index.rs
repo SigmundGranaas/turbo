@@ -177,7 +177,11 @@ mod tests {
         // query is a pruning step; geometry_hit will reject false
         // positives off the actual line.
         let mut idx = SpatialIndex::new(4096);
-        idx.insert(0, &Geometry::LineString(vec![vec![(0, 0), (4095, 4095)]]), 0.0);
+        idx.insert(
+            0,
+            &Geometry::LineString(vec![vec![(0, 0), (4095, 4095)]]),
+            0.0,
+        );
         idx.finish();
         for cy in 0..GRID {
             for cx in 0..GRID {

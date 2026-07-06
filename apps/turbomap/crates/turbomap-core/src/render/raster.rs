@@ -34,8 +34,9 @@ struct Globals {
     /// Vertical exaggeration from `TerrainOptions`. Folded with
     /// `meters_to_world` so a single shader uniform suffices.
     exaggeration: f32,
-    /// 0 = Mapbox-Terrain-RGB, 1 = Terrarium. Matches `DemEncoding`.
-    encoding: u32,
+    /// Spare slot (held the DEM-encoding tag until plan D3 moved the decode
+    /// to ingest; kept so the std140 layout is untouched).
+    _pad0: u32,
     // --- Sun shading + aerial perspective (3D terrain) ---
     // Layout is std140-compatible: every `vec3` starts on a 16-byte
     // boundary with the trailing scalar packed into its 4th lane.
@@ -159,8 +160,6 @@ pub(crate) struct TerrainConfig {
     /// latitude. Zero → no displacement.
     pub meters_to_world: f32,
     pub exaggeration: f32,
-    /// 0 = MapboxRgb, 1 = Terrarium. Matches `DemEncoding`.
-    pub encoding: u32,
     /// Unit direction towards the sun (world frame x=E, y=S, z=up).
     pub sun_dir: [f32; 3],
     /// Ambient floor in [0,1] for self-shadowed slopes.
@@ -208,7 +207,6 @@ impl Default for TerrainConfig {
         Self {
             meters_to_world: 0.0,
             exaggeration: 1.0,
-            encoding: 0,
             sun_dir: [0.0, 0.0, 1.0],
             ambient: 0.35,
             haze_color: [0.74, 0.80, 0.88],
@@ -634,7 +632,7 @@ impl RasterPipeline {
                     0.0
                 },
                 exaggeration: terrain_options.exaggeration,
-                encoding: terrain_options.encoding,
+                _pad0: 0,
                 sun_dir: terrain_options.sun_dir,
                 ambient: terrain_options.ambient,
                 haze_color: terrain_options.haze_color,
@@ -650,7 +648,11 @@ impl RasterPipeline {
                 // lighting (sun mode). Plain 3D (lit=false) keeps the relief
                 // geometry but draws the bare bright texture — no darkening, and
                 // the whole shading/shadow/haze path below is skipped.
-                terrain_lit: if dem_present && terrain_options.lit { 1.0 } else { 0.0 },
+                terrain_lit: if dem_present && terrain_options.lit {
+                    1.0
+                } else {
+                    0.0
+                },
                 shadow_origin: terrain_options.shadow_origin,
                 shadow_inv_size: terrain_options.shadow_inv_size,
                 // No DEM → no relief to occlude; force shadows off so the flat
@@ -674,7 +676,11 @@ impl RasterPipeline {
                 time: terrain_options.time,
                 // Gain only with a DEM (the 3D sun-lit path); the flat 2D map
                 // samples the basemap untouched (bright satellite stays bright).
-                basemap_gain: if dem_present { terrain_options.basemap_gain } else { 1.0 },
+                basemap_gain: if dem_present {
+                    terrain_options.basemap_gain
+                } else {
+                    1.0
+                },
                 cam_origin: [origin.x as f32, origin.y as f32],
                 _pad1: [0.0, 0.0],
             }),
@@ -806,7 +812,9 @@ impl RasterPipeline {
         if total_instances == 0 {
             // Nothing to draw. The Map-level frame clear replaces the old
             // clear-only pass.
-            return PreparedRaster { batches: Vec::new() };
+            return PreparedRaster {
+                batches: Vec::new(),
+            };
         }
 
         if total_instances > self.instance_capacity {
@@ -902,7 +910,10 @@ impl RasterPipeline {
             // tile to use; rebind it, or fall back to the flat placeholder if
             // terrain is absent or the DEM tile was evicted (renders flat for
             // this frame instead of crashing).
-            match b.dem_source.and_then(|src| terrain.and_then(|t| t.peek_entry(src))) {
+            match b
+                .dem_source
+                .and_then(|src| terrain.and_then(|t| t.peek_entry(src)))
+            {
                 Some(entry) => pass.set_bind_group(2, &entry.bind_group, &[]),
                 None => pass.set_bind_group(2, placeholder_dem, &[]),
             }
@@ -1004,7 +1015,10 @@ pub(crate) fn resolve_cell(
     // partial finer tiles exist drawn on top. Either may be absent (→ Empty).
     let mut out = Vec::new();
     if let Some(anc) = nearest_resident_ancestor(ideal, resident) {
-        out.push(CellSource::AncestorPatch { ancestor: anc, target: ideal });
+        out.push(CellSource::AncestorPatch {
+            ancestor: anc,
+            target: ideal,
+        });
     }
     collect_resident_descendants(ideal, max_down, resident, &mut out);
     out
@@ -1097,7 +1111,10 @@ mod lod_resolver_tests {
     fn exact_resident_tile_draws_itself_only() {
         let ideal = TileId::new(14, 100, 200);
         let r = resident_set(&[ideal]);
-        assert_eq!(resolve_cell(ideal, MAX_DOWN, &r), vec![CellSource::Whole(ideal)]);
+        assert_eq!(
+            resolve_cell(ideal, MAX_DOWN, &r),
+            vec![CellSource::Whole(ideal)]
+        );
     }
 
     #[test]
@@ -1113,7 +1130,10 @@ mod lod_resolver_tests {
 
         let got = resolve_cell(ideal, MAX_DOWN, &r);
         let expected: Vec<CellSource> = children.iter().copied().map(CellSource::Whole).collect();
-        assert_eq!(got, expected, "must retain finer children, not draw coarse ideal");
+        assert_eq!(
+            got, expected,
+            "must retain finer children, not draw coarse ideal"
+        );
     }
 
     #[test]
@@ -1125,7 +1145,9 @@ mod lod_resolver_tests {
         let r = resident_set(&children);
         let got = resolve_cell(ideal, MAX_DOWN, &r);
         assert_eq!(got.len(), 4);
-        assert!(got.iter().all(|s| matches!(s, CellSource::Whole(t) if children.contains(t))));
+        assert!(got
+            .iter()
+            .all(|s| matches!(s, CellSource::Whole(t) if children.contains(t))));
     }
 
     #[test]
@@ -1135,7 +1157,10 @@ mod lod_resolver_tests {
         let r = resident_set(&[anc]);
         assert_eq!(
             resolve_cell(ideal, MAX_DOWN, &r),
-            vec![CellSource::AncestorPatch { ancestor: anc, target: ideal }],
+            vec![CellSource::AncestorPatch {
+                ancestor: anc,
+                target: ideal
+            }],
         );
     }
 
@@ -1149,7 +1174,13 @@ mod lod_resolver_tests {
         let r = resident_set(&[anc, one_child]);
 
         let got = resolve_cell(ideal, MAX_DOWN, &r);
-        assert_eq!(got.first(), Some(&CellSource::AncestorPatch { ancestor: anc, target: ideal }));
+        assert_eq!(
+            got.first(),
+            Some(&CellSource::AncestorPatch {
+                ancestor: anc,
+                target: ideal
+            })
+        );
         assert!(got.contains(&CellSource::Whole(one_child)));
     }
 
@@ -1165,6 +1196,9 @@ mod lod_resolver_tests {
         // No deeper tiles resident → exactly the ideal, no children, no backdrop.
         let ideal = TileId::new(16, 30000, 20000);
         let r = resident_set(&[ideal]);
-        assert_eq!(resolve_cell(ideal, MAX_DOWN, &r), vec![CellSource::Whole(ideal)]);
+        assert_eq!(
+            resolve_cell(ideal, MAX_DOWN, &r),
+            vec![CellSource::Whole(ideal)]
+        );
     }
 }

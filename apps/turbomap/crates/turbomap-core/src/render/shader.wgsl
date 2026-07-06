@@ -16,7 +16,9 @@ struct Globals {
     halo_uv: f32,
     meters_to_world: f32,
     exaggeration: f32,
-    encoding: u32,
+    // Spare slot (held the DEM-encoding tag until the decode moved to
+    // ingest — the DEM texture is Rg16Float metres now).
+    _pad0: u32,
     // Unit direction towards the sun, engine world frame (x=E, y=S,
     // z=up). Drives the Lambertian relief shading.
     sun_dir: vec3<f32>,
@@ -209,26 +211,11 @@ const FOG_STRENGTH: f32 = 0.0;       // valley fog DISABLED for the clean water 
 const AO_RADIUS_CELLS: f32 = 2.5;
 const AO_STRENGTH: f32 = 0.85;
 
-fn decode_elevation(rgb: vec3<f32>) -> f32 {
-    let r = rgb.r * 255.0;
-    let g = rgb.g * 255.0;
-    let b = rgb.b * 255.0;
-    if (globals.encoding == 1u) {
-        return r * 256.0 + g + b / 256.0 - 32768.0;  // Terrarium
-    } else {
-        return -10000.0 + (r * 256.0 * 256.0 + g * 256.0 + b) * 0.1;
-    }
-}
-
-// Decode the DEM at a UV, returning 0 where the sample is "no data"
-// (alpha < 0.5) so water / out-of-coverage stays at sea level instead
-// of cliffing to -10 km.
+// Elevation in metres at a DEM UV. The texture stores decoded heights
+// (Rg16Float — the ingest codec already resolved encoding + no-data), so a
+// sample IS the elevation; no per-fragment decode.
 fn elev_at(uv: vec2<f32>) -> f32 {
-    let s = textureSampleLevel(dem_tex, dem_samp, uv, 0.0);
-    if (s.a < 0.5) {
-        return 0.0;
-    }
-    return decode_elevation(s.rgb);
+    return textureSampleLevel(dem_tex, dem_samp, uv, 0.0).r;
 }
 
 // One AO ring tap: the clamped horizon tangent (rise/run) of a neighbour. Only
@@ -301,11 +288,7 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     // own tile, the sub-UV spans the full interior; when the bind
     // is an ancestor, only the basemap's slice of it.
     let dem_uv = inst.dem_uv_origin + in.corner * inst.dem_uv_size;
-    let dem = textureSampleLevel(dem_tex, dem_samp, dem_uv, 0.0);
-    var elev_m: f32 = 0.0;
-    if (dem.a >= 0.5) {
-        elev_m = decode_elevation(dem.rgb);
-    }
+    let elev_m = elev_at(dem_uv);
     let zscale = globals.meters_to_world * globals.exaggeration;
     // Skirt verts hang straight down from the displaced surface by a fraction
     // of the tile's world size — a vertical curtain backing mixed-LOD cracks.
@@ -331,7 +314,7 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     // step in world units is `cell·world_size`; the vertical is the
     // decoded-elevation delta scaled to world z. cross(tangent_x,
     // tangent_y) ∝ (-dz/dx, -dz/dy, 1).
-    if (globals.terrain_lit > 0.5 && dem.a >= 0.5) {
+    if (globals.terrain_lit > 0.5) {
         let cell = 1.0 / 16.0;
         let euv = inst.dem_uv_size * cell;
         let ew = inst.world_size * cell;

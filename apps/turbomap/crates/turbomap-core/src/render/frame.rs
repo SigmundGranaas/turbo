@@ -13,8 +13,7 @@
 //! state is now a single typed thing instead of a scatter of `let`s.
 
 use crate::camera::Camera;
-use crate::dem::DemEncoding;
-use crate::sun::{self, SunPosition};
+use crate::environment::Environment;
 
 use super::floor::FloorGlobals;
 use super::raster::TerrainConfig;
@@ -27,7 +26,6 @@ use super::sky::SkyGlobals;
 pub(crate) struct TerrainFrameInputs {
     pub present: bool,
     pub exaggeration: f32,
-    pub encoding: DemEncoding,
     /// DEM tile halo in pixels (0 when no terrain / no halo).
     pub halo_px: u32,
 }
@@ -44,8 +42,6 @@ pub(crate) struct RenderFrame {
     /// Combined z-scale for the vector pipeline's drape (meters_to_world ×
     /// exaggeration). 0 → vector geometry stays flat.
     pub vec_terrain_zscale: f32,
-    /// DEM encoding tag for the vector shader (0 = MapboxRgb, 1 = Terrarium).
-    pub vec_terrain_encoding: u32,
     /// DEM halo inset in UV space for the vector shader's tile sampling.
     pub vec_terrain_halo_uv: f32,
     /// Sky uniform, present only when the camera is tilted enough to expose
@@ -59,12 +55,15 @@ pub(crate) struct RenderFrame {
 }
 
 impl RenderFrame {
-    /// Compute the frame's render globals. Lifted verbatim from the head of
-    /// `Map::render`; see the field docs for what each drives.
+    /// Compute the frame's render globals — every environmental uniform
+    /// derives from the [`Environment`] built once per frame (plan E1):
+    /// this is the ONLY place `sun_dir`, the haze fields, the frame clock,
+    /// the basemap gain and the lit gate are written. See the field docs
+    /// for what each drives.
     pub fn build(
         camera: &Camera,
         viewport_px: (u32, u32),
-        sun: SunPosition,
+        env: &Environment,
         terrain: TerrainFrameInputs,
         sky_enabled: bool,
     ) -> Self {
@@ -74,8 +73,10 @@ impl RenderFrame {
         let earth_circumference_m: f32 = 40_075_017.0;
         let meters_to_world = (lat.cos().abs() as f32 / earth_circumference_m).max(1e-12);
 
-        // Sun + time-of-day palette: one light for the whole scene.
-        let atmos = sun::atmosphere(sun);
+        // Sun + time-of-day palette: one light for the whole scene, resolved
+        // once in the Environment.
+        let sun = env.sun;
+        let atmos = &env.atmosphere;
 
         // Sun glow intensity, fading out as the sun sets (gone a touch below the
         // horizon). Shared by the sky pass and the water reflection so both dim
@@ -98,7 +99,12 @@ impl RenderFrame {
         // eye-distance + bounded near field replaces the hack that the
         // center-distance model needed. A pitch ramp gates haze to 0 on the
         // flat 2D map (it's a tilt-only depth cue).
-        let haze_density = aerial_haze_density(camera.pitch_deg);
+        // The host "distance haze" toggle zeroes the gate outright.
+        let haze_density = if env.aerial_haze {
+            aerial_haze_density(camera.pitch_deg)
+        } else {
+            0.0
+        };
         // Bluish atmospheric tint for the far distance — the horizon colour alone
         // is near-white (reads grey over dark imagery), so pull it toward the
         // saturated blue zenith. At golden hour both go warm, so dusk haze warms
@@ -151,8 +157,9 @@ impl RenderFrame {
         let floor_globals = if draw_sky && terrain.present {
             let origin = camera.center.to_world();
             let vp = camera.view_projection_matrix_rtc(origin, viewport_px);
-            let inv_view_proj =
-                glam::Mat4::from_cols_array_2d(&vp).inverse().to_cols_array_2d();
+            let inv_view_proj = glam::Mat4::from_cols_array_2d(&vp)
+                .inverse()
+                .to_cols_array_2d();
             if !super::mat4_is_finite(&inv_view_proj) {
                 None
             } else {
@@ -176,15 +183,15 @@ impl RenderFrame {
         // Raster ground-plane terrain config. No terrain → meters_to_world 0,
         // so the shader displacement collapses and the mesh draws flat.
         let raster_terrain_cfg = TerrainConfig {
-            meters_to_world: if terrain.present { meters_to_world } else { 0.0 },
+            meters_to_world: if terrain.present {
+                meters_to_world
+            } else {
+                0.0
+            },
             exaggeration: if terrain.present {
                 terrain.exaggeration
             } else {
                 1.0
-            },
-            encoding: match terrain.encoding {
-                DemEncoding::MapboxRgb => 0u32,
-                DemEncoding::Terrarium => 1u32,
             },
             sun_dir: sun.world_dir(),
             ambient: atmos.ambient,
@@ -199,19 +206,18 @@ impl RenderFrame {
             shadow_strength: 0.0,
             shadow_texel_world: 0.0,
             shadow_softness: 1.0,
-            // Stamped in `Map::render` from the renderer's wall clock (this
-            // pure builder has no clock); drives the haze drift.
-            time: 0.0,
-            // Patched in `Map::render` from `Map::basemap_gain` (this builder
-            // doesn't see the active basemap). 1.0 = no change.
-            basemap_gain: 1.0,
-            // Patched in `Map::render` from `Map::terrain_lit` (host "sun mode").
-            lit: true,
+            // The Environment's frame clock; drives the haze drift (and the
+            // custom layers' `time_s` shares the same value).
+            time: env.time_s,
+            // Basemap brightness lift under the sun-lit path.
+            basemap_gain: env.basemap_gain,
+            // Host "sun mode" gate.
+            lit: env.terrain_lit,
         };
 
         // Vector drape params, derived from the raster config.
-        let vec_terrain_zscale = raster_terrain_cfg.meters_to_world * raster_terrain_cfg.exaggeration;
-        let vec_terrain_encoding = raster_terrain_cfg.encoding;
+        let vec_terrain_zscale =
+            raster_terrain_cfg.meters_to_world * raster_terrain_cfg.exaggeration;
         let vec_terrain_halo_uv = {
             let halo = terrain.halo_px;
             if halo == 0 {
@@ -225,7 +231,6 @@ impl RenderFrame {
             meters_to_world,
             raster_terrain_cfg,
             vec_terrain_zscale,
-            vec_terrain_encoding,
             vec_terrain_halo_uv,
             sky_globals,
             floor_globals,
@@ -260,10 +265,20 @@ mod tests {
     #[test]
     fn pitch_gate_off_looking_down_on_only_toward_horizon() {
         for p in [0.0_f64, 10.0, 25.0] {
-            assert_eq!(aerial_haze_density(p), 0.0, "no haze looking down at {p}° (kills nadir circle)");
+            assert_eq!(
+                aerial_haze_density(p),
+                0.0,
+                "no haze looking down at {p}° (kills nadir circle)"
+            );
         }
-        assert!(aerial_haze_density(40.0) > 0.0 && aerial_haze_density(40.0) < 1.0, "fades in tilting");
-        assert!((aerial_haze_density(60.0) - 1.0).abs() < 1e-6, "full when gazing to the horizon");
+        assert!(
+            aerial_haze_density(40.0) > 0.0 && aerial_haze_density(40.0) < 1.0,
+            "fades in tilting"
+        );
+        assert!(
+            (aerial_haze_density(60.0) - 1.0).abs() < 1e-6,
+            "full when gazing to the horizon"
+        );
     }
 
     // --- Mirror of the shader's exponential-height-fog optical depth ----------
@@ -281,7 +296,11 @@ mod tests {
         let ec = (-cz_m * k).exp();
         let ep = (-pz * k).exp();
         let dz = pz - cz_m;
-        let tau = if dz.abs() > 1.0 { HAZE_SIGMA * l_m * (ec - ep) / dz } else { HAZE_SIGMA * l_m * k * ec };
+        let tau = if dz.abs() > 1.0 {
+            HAZE_SIGMA * l_m * (ec - ep) / dz
+        } else {
+            HAZE_SIGMA * l_m * k * ec
+        };
         aerial_haze_density(pitch_deg) * (1.0 - (-tau.max(0.0)).exp()) * HAZE_MAX
     }
 
@@ -290,8 +309,14 @@ mod tests {
         // Gazing to the horizon from a 2 km eye over sea-level ground: the near
         // foreground (short ray) stays crisp; the distant low horizon colours.
         let cz = 2_000.0;
-        assert!(amount(2_500.0, cz, 300.0, 70.0) < 0.15, "near foreground stays crisp");
-        assert!(amount(60_000.0, cz, 0.0, 70.0) > 0.35, "far low horizon colours");
+        assert!(
+            amount(2_500.0, cz, 300.0, 70.0) < 0.15,
+            "near foreground stays crisp"
+        );
+        assert!(
+            amount(60_000.0, cz, 0.0, 70.0) > 0.35,
+            "far low horizon colours"
+        );
     }
 
     #[test]
@@ -305,7 +330,10 @@ mod tests {
         let valley = amount(l, cz, 0.0, 70.0);
         let peak = amount(l, cz, 1_600.0, 70.0);
         assert!(valley > 0.4, "distant valley floor colours strongly");
-        assert!(peak < valley * 0.85, "a peak at the same range reads clearer than the valley");
+        assert!(
+            peak < valley * 0.85,
+            "a peak at the same range reads clearer than the valley"
+        );
     }
 
     #[test]
@@ -314,6 +342,9 @@ mod tests {
         // of the scene is clear because the ray runs through thin high air — only
         // grazing rays to the distant low horizon accumulate. No nadir whiteout.
         let cz = 40_000.0; // well above H
-        assert!(amount(30_000.0, cz, 1_500.0, 70.0) < 0.15, "mid-field terrain from high up stays clear");
+        assert!(
+            amount(30_000.0, cz, 1_500.0, 70.0) < 0.15,
+            "mid-field terrain from high up stays clear"
+        );
     }
 }

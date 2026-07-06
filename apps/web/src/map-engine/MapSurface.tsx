@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import init, { TurboMap } from 'turbomap-web';
 import { useMapEnginePublisher } from '../map-core';
-import { buildBaseScene, basemapGain, type BaseLayerId } from './scene';
+import { buildBaseScene, onEnvironmentChange, onMapContentChange, type BaseLayerId } from './scene';
 import { templatesFor } from './templates';
 import { TileLoader } from './tileFetcher';
 import { attachMapGestures } from './gestures';
@@ -130,7 +130,16 @@ export function MapSurface({ base = 'norgeskart', threeD = false, camera, onRead
 
       const b0 = baseRef.current;
       map.apply_scene(JSON.stringify(buildBaseScene(b0, threeDRef.current)));
-      map.set_basemap_gain(basemapGain(b0));
+      // Environment changes (sun mode, haze, shadows) and content changes
+      // (route lines, pins, the location fix — plan P6.3) re-apply the scene —
+      // ONE content plane; the engine diffs so unchanged layers are no-ops.
+      const reapply = () => {
+        mapRef.current?.apply_scene(
+          JSON.stringify(buildBaseScene(baseRef.current, threeDRef.current)),
+        );
+      };
+      onEnvironmentChange(reapply);
+      onMapContentChange(reapply);
 
       const loader = new TileLoader(map, templatesFor(b0));
       mapRef.current = map;
@@ -195,6 +204,8 @@ export function MapSurface({ base = 'norgeskart', threeD = false, camera, onRead
 
     return () => {
       disposed = true;
+      onEnvironmentChange(undefined);
+      onMapContentChange(undefined);
       cancelAnimationFrame(raf);
       detachGestures();
       INPUT.forEach((e) => canvas.removeEventListener(e, invalidate, { capture: true } as EventListenerOptions));
@@ -218,7 +229,6 @@ export function MapSurface({ base = 'norgeskart', threeD = false, camera, onRead
     if (!map || !loader) return;
     loader.setTemplates(templatesFor(base));
     map.apply_scene(JSON.stringify(buildBaseScene(base, threeD)));
-    map.set_basemap_gain(basemapGain(base));
   }, [base, threeD]);
 
   const isWebGpu = error?.toLowerCase().includes('webgpu');

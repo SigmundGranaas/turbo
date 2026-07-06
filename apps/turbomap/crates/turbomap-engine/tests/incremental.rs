@@ -117,7 +117,10 @@ fn repaint_preserves_the_prefix_but_rebuilds_the_changed_layer() {
 
     e.apply(with_route(Color::rgb(220, 30, 60)));
     let first = e.pump_tiles();
-    assert!(first.raster_tiles > 0 && first.vector_tiles > 0, "{first:?}");
+    assert!(
+        first.raster_tiles > 0 && first.vector_tiles > 0,
+        "{first:?}"
+    );
 
     // Recolour only the line. The raster prefix is preserved; the line
     // layer is rebuilt and re-fetches.

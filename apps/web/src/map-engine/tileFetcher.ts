@@ -1,7 +1,8 @@
 import type { TurboMap } from 'turbomap-web';
 import { type TileKind, type Templates, tileUrl } from './templates';
 
-interface PendingTile {
+interface PlanFetch {
+  id: number;
   kind: TileKind;
   layer: string;
   z: number;
@@ -9,32 +10,36 @@ interface PendingTile {
   y: number;
 }
 
+interface StreamingPlan {
+  start: PlanFetch[];
+  cancel: number[];
+}
+
 /** Per-tile-kind concurrency lanes. The DEM ("terrain") server is much slower
  *  than the imagery CDN (~1.5 s vs ~0.2 s/tile) and 3D needs the DEM for the
  *  relief, so it gets its own lanes and isn't starved when the fast imagery
- *  floods the queue. Different hosts → independent connection pools. */
+ *  floods the queue. Different hosts → independent connection pools.
+ *  (These migrate into the engine's streaming budgets in plan slice B4.) */
 const LANES: Record<TileKind, number> = { terrain: 12, raster: 16, vector: 8, hillshade: 4 };
 
 /** Static tiles worth a read-through cache (immutable: elevation + topo). */
 const CACHEABLE = new Set<TileKind>(['terrain', 'raster']);
 const TILE_CACHE = 'turbo-tiles-v1';
 
-/** Drives the host side of the engine's host-driven tile IO: read
- *  `pending_tiles()` (already globally ordered near/in-front first by the
- *  engine), fetch each missing tile, and push the bytes back through the
- *  matching `ingest_*`.
- *
- *  Three behaviours make 3D loading feel responsive:
- *  - **Preemption**: each pump, in-flight tiles the engine no longer wants
- *    (e.g. after a zoom/pan) are ABORTED, freeing lanes for the new near tiles
- *    instead of waiting behind stale far work.
- *  - **Per-kind lanes**: the slow DEM gets a reserved budget so the fast
- *    imagery can't starve it.
- *  - **Cache read-through** (Cache API): immutable tiles (DEM/topo) are served
- *    from cache on revisit — instant, and no repeat hits on the rate-limited
- *    DEM server. */
+/** The first full plan-driven host (slice B3.3). Each pump consumes ONE
+ *  engine `streaming_plan`:
+ *  - `start` — priority-ordered fetches, each with a RequestId; the engine
+ *    never hands the same attempt out twice.
+ *  - `cancel` — in-flight attempts the camera moved away from: their
+ *    transports are ABORTED and reported back, freeing lanes for near work.
+ *    (This decision used to be re-derived here by diffing pending lists;
+ *    the engine's lifecycle table now states it.)
+ *  Deliveries complete through the ordinary `ingest_*`; failures and
+ *  declined/aborted starts are reported so the engine can re-issue them.
+ *  Cache read-through (Cache API) is kept for immutable tiles — instant
+ *  revisits, no repeat hits on the rate-limited DEM server. */
 export class TileLoader {
-  private inflight = new Map<string, { ctrl: AbortController; kind: TileKind }>();
+  private inflight = new Map<number, { ctrl: AbortController; kind: TileKind }>();
   private cache: Promise<Cache | null>;
   stored = 0;
   failed = 0;
@@ -53,46 +58,55 @@ export class TileLoader {
     this.templates = t;
   }
 
-  /** Kick off fetches for tiles the engine wants and isn't already loading,
-   *  and cancel in-flight tiles it no longer wants. Cheap to call every frame. */
+  /** Take one plan sized to the free lane capacity, honour its cancels, and
+   *  start its fetches. Cheap to call every frame. */
   pump(): void {
-    let pending: PendingTile[];
+    const used: Record<string, number> = {};
+    for (const [, v] of this.inflight) used[v.kind] = (used[v.kind] || 0) + 1;
+    const freeLanes = Object.entries(LANES).reduce(
+      (sum, [kind, cap]) => sum + Math.max(0, cap - (used[kind] || 0)),
+      0,
+    );
+
+    let plan: StreamingPlan;
     try {
-      pending = JSON.parse(this.map.pending_tiles()) as PendingTile[];
+      plan = JSON.parse(this.map.streaming_plan(freeLanes)) as StreamingPlan;
     } catch {
       return;
     }
-    const key = (t: PendingTile) => `${t.kind}/${t.layer}/${t.z}/${t.x}/${t.y}`;
 
-    // Preempt: abort in-flight tiles the engine no longer wants. After a zoom
-    // or pan the desired set changes; without this the lanes stay full of stale
-    // far tiles and the new near ones wait behind them.
-    const wanted = new Set(pending.map(key));
-    for (const [k, v] of this.inflight) {
-      if (!wanted.has(k)) {
+    for (const id of plan.cancel) {
+      const v = this.inflight.get(id);
+      if (v) {
         v.ctrl.abort();
-        this.inflight.delete(k);
+        this.inflight.delete(id);
       }
+      // Report regardless: an unknown id (e.g. after a reload race) must
+      // still be acknowledged or the engine will keep listing it.
+      this.map.report_fetch_cancelled(id);
     }
 
-    // Fill lanes per kind, in the engine's near/in-front-first order.
-    const used: Record<string, number> = {};
-    for (const [, v] of this.inflight) used[v.kind] = (used[v.kind] || 0) + 1;
-    for (const t of pending) {
-      const cap = LANES[t.kind] ?? 8;
-      if ((used[t.kind] || 0) >= cap) continue;
-      const k = key(t);
-      if (this.inflight.has(k)) continue;
+    for (const t of plan.start) {
+      // Lanes are per-kind but the plan budget is global, so a start can
+      // land on a full lane; decline it so the engine re-issues it next
+      // plan instead of it being stuck as a phantom in-flight attempt.
+      if ((used[t.kind] || 0) >= (LANES[t.kind] ?? 8)) {
+        this.map.report_fetch_cancelled(t.id);
+        continue;
+      }
       const template = this.templates[t.kind]?.[t.layer];
-      if (!template) continue;
+      if (!template) {
+        this.map.report_fetch_cancelled(t.id);
+        continue;
+      }
       const ctrl = new AbortController();
-      this.inflight.set(k, { ctrl, kind: t.kind });
+      this.inflight.set(t.id, { ctrl, kind: t.kind });
       used[t.kind] = (used[t.kind] || 0) + 1;
-      void this.fetchOne(t, tileUrl(template, t.z, t.x, t.y), k, ctrl.signal);
+      void this.fetchOne(t, tileUrl(template, t.z, t.x, t.y), ctrl.signal);
     }
   }
 
-  private ingest(t: PendingTile, bytes: Uint8Array): void {
+  private ingest(t: PlanFetch, bytes: Uint8Array): void {
     switch (t.kind) {
       case 'raster':
       case 'hillshade':
@@ -108,8 +122,9 @@ export class TileLoader {
     this.stored++;
   }
 
-  private async fetchOne(t: PendingTile, url: string, key: string, signal: AbortSignal): Promise<void> {
+  private async fetchOne(t: PlanFetch, url: string, signal: AbortSignal): Promise<void> {
     const cacheable = CACHEABLE.has(t.kind);
+    let outcome: 'delivered' | 'failed' | 'aborted' = 'failed';
     try {
       const cache = cacheable ? await this.cache : null;
       // Cache-first for immutable tiles → instant on revisit, no DEM 429s.
@@ -117,22 +132,33 @@ export class TileLoader {
         const hit = await cache.match(url);
         if (hit) {
           this.ingest(t, new Uint8Array(await hit.arrayBuffer()));
+          outcome = 'delivered';
           return;
         }
       }
       const res = await fetch(url, { signal });
-      // 204/404 = no tile here (ocean, out of coverage). Absent, not a failure.
+      // 204/404 = no tile here (ocean, out of coverage). Absent, not a
+      // failure — but the attempt still ends, so it reports as failed and
+      // the engine's want-set decides whether to retry.
       if (!res.ok) {
         this.failed++;
         return;
       }
       if (cache) void cache.put(url, res.clone()).catch(() => {});
       this.ingest(t, new Uint8Array(await res.arrayBuffer()));
+      outcome = 'delivered';
     } catch (e) {
-      // Aborted (preempted) fetches are expected, not failures.
-      if (!(e instanceof DOMException && e.name === 'AbortError')) this.failed++;
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        outcome = 'aborted'; // already reported by the cancel handler
+      } else {
+        this.failed++;
+      }
     } finally {
-      this.inflight.delete(key);
+      this.inflight.delete(t.id);
+      // Deliveries complete the attempt implicitly via ingest; aborts were
+      // reported when the cancel was honoured; everything else is a failure
+      // the engine should know about so the chunk re-pends.
+      if (outcome === 'failed') this.map.report_fetch_failed(t.id);
     }
   }
 }

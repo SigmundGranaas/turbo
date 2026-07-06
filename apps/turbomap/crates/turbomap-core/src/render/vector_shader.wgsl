@@ -6,7 +6,8 @@ struct CameraUniform {
     // .x = pixels per world unit.
     // .y = meters_to_world · exaggeration (0 ⇒ no 3D terrain → no
     //      displacement, so the 2D map is byte-identical).
-    // .z = DEM encoding (0 = Mapbox-RGB, 1 = Terrarium).
+    // .z = spare (held the DEM-encoding tag until the decode moved to
+    //      ingest — the DEM texture is Rg16Float metres now).
     // .w = halo_uv: fractional inset to the DEM tile's non-halo interior.
     params: vec4<f32>,
 };
@@ -53,17 +54,6 @@ struct TileUniform {
 @group(2) @binding(0) var dem_tex: texture_2d<f32>;
 @group(2) @binding(1) var dem_samp: sampler;
 
-fn decode_elevation(enc: u32, rgb: vec3<f32>) -> f32 {
-    let r = rgb.r * 255.0;
-    let g = rgb.g * 255.0;
-    let b = rgb.b * 255.0;
-    if (enc == 1u) {
-        return r * 256.0 + g + b / 256.0 - 32768.0;  // Terrarium
-    } else {
-        return -10000.0 + (r * 256.0 * 256.0 + g * 256.0 + b) * 0.1;
-    }
-}
-
 struct VertexInput {
     @location(0) base: vec2<f32>,    // tile-local centerline ([0,1] across the tile)
     @location(1) normal: vec2<f32>,  // unit normal (0 for fills)
@@ -104,11 +94,10 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         // Sample the DEM (the tile's own, or an ancestor's matching quadrant)
         // via the per-tile sub-UV the host resolved, so lines drape at any zoom
         // — not just when the exact DEM tile is loaded.
+        // The DEM texture stores decoded metres (Rg16Float) — the sample IS
+        // the elevation; encoding + no-data were resolved at ingest.
         let dem_uv = tile.dem_uv_origin + in.base * tile.dem_uv_size;
-        let s = textureSampleLevel(dem_tex, dem_samp, dem_uv, 0.0);
-        if (s.a >= 0.5) {
-            wz = wz + decode_elevation(u32(camera.params.z), s.rgb) * zscale;
-        }
+        wz = wz + textureSampleLevel(dem_tex, dem_samp, dem_uv, 0.0).r * zscale;
     }
     out.clip_position = camera.view_proj * vec4<f32>(world, wz, 1.0);
     out.color = in.color;

@@ -61,7 +61,11 @@ fn real_bergen_renders_like_a_basemap() {
         // archive only holds z14, so the source bounds clamp tile requests
         // to z14 — the data zoom — while the display densifies.
         CameraState::new(LatLng::new(60.3920, 5.3242), 15.0),
-        MapOptions { fade_in_secs: 0.0, pixel_ratio: 2.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            pixel_ratio: 2.0,
+            ..Default::default()
+        },
         Box::new(BergenResolver),
     )
     .expect("construct TurbomapEngine");
@@ -77,22 +81,42 @@ fn real_bergen_renders_like_a_basemap() {
     let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
     engine.after_submit();
 
-    let near = |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| {
-        (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol)
-    };
-    let water = image.pixels().filter(|p| near(p, [163, 201, 224], 12)).count();
-    let buildings = image.pixels().filter(|p| near(p, [222, 218, 210], 6)).count();
-    let white_roads = image.pixels().filter(|p| near(p, [255, 255, 255], 6)).count();
+    let near =
+        |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol);
+    let water = image
+        .pixels()
+        .filter(|p| near(p, [163, 201, 224], 12))
+        .count();
+    let buildings = image
+        .pixels()
+        .filter(|p| near(p, [222, 218, 210], 6))
+        .count();
+    let white_roads = image
+        .pixels()
+        .filter(|p| near(p, [255, 255, 255], 6))
+        .count();
     let ink = image.pixels().filter(|p| near(p, [60, 64, 74], 35)).count();
     eprintln!("bergen: water={water} buildings={buildings} roads={white_roads} ink={ink}");
-    assert!(water > 12000, "Bergen's harbour should be visible, got {water}");
-    assert!(buildings > 8000, "building footprints should render, got {buildings}");
-    assert!(white_roads > 8000, "the street grid should render, got {white_roads}");
+    assert!(
+        water > 12000,
+        "Bergen's harbour should be visible, got {water}"
+    );
+    assert!(
+        buildings > 8000,
+        "building footprints should render, got {buildings}"
+    );
+    assert!(
+        white_roads > 8000,
+        "the street grid should render, got {white_roads}"
+    );
     assert!(ink > 200, "labels should render, got {ink}");
 
     assert_golden(
         "omt-real-bergen",
         &image,
-        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
     );
 }

@@ -60,8 +60,14 @@ fn zoom_color_scene() -> Scene {
         filter: Filter::Always,
         color: Paint::Zoom {
             stops: vec![
-                ZoomStop { zoom: 9.0, value: RED },
-                ZoomStop { zoom: 9.5, value: BLUE },
+                ZoomStop {
+                    zoom: 9.0,
+                    value: RED,
+                },
+                ZoomStop {
+                    zoom: 9.5,
+                    value: BLUE,
+                },
             ],
         },
         width: Paint::Const(6.0),
@@ -75,7 +81,10 @@ fn avg_line_color(img: &RgbaImage) -> (f64, f64, f64) {
     let bg = [226i32, 218, 198];
     let (mut r, mut g, mut b, mut n) = (0f64, 0f64, 0f64, 0u64);
     for px in img.pixels() {
-        let d = (0..3).map(|i| (px.0[i] as i32 - bg[i]).abs()).max().unwrap();
+        let d = (0..3)
+            .map(|i| (px.0[i] as i32 - bg[i]).abs())
+            .max()
+            .unwrap();
         if d > 60 {
             r += px.0[0] as f64;
             g += px.0[1] as f64;
@@ -83,7 +92,10 @@ fn avg_line_color(img: &RgbaImage) -> (f64, f64, f64) {
             n += 1;
         }
     }
-    assert!(n > 50, "too few line pixels found ({n}) — is the route visible?");
+    assert!(
+        n > 50,
+        "too few line pixels found ({n}) — is the route visible?"
+    );
     (r / n as f64, g / n as f64, b / n as f64)
 }
 

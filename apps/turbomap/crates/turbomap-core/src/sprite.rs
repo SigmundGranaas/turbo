@@ -168,7 +168,12 @@ impl SpriteAtlas {
         }
         self.sprites.insert(
             name.to_string(),
-            SpriteInfo { atlas_x: ox, atlas_y: oy, width: pw, height: ph },
+            SpriteInfo {
+                atlas_x: ox,
+                atlas_y: oy,
+                width: pw,
+                height: ph,
+            },
         );
     }
 }
@@ -188,7 +193,9 @@ mod tests {
     #[test]
     fn built_in_atlas_has_named_sprites() {
         let atlas = SpriteAtlas::new();
-        for name in ["dot", "stop", "marker", "shield", "cross", "diamond", "fork"] {
+        for name in [
+            "dot", "stop", "marker", "shield", "cross", "diamond", "fork",
+        ] {
             assert!(atlas.get(name).is_some(), "missing {name}");
         }
         assert!(atlas.get("nonexistent").is_none());
@@ -197,10 +204,18 @@ mod tests {
     #[test]
     fn sprite_rects_stay_inside_the_atlas() {
         let atlas = SpriteAtlas::new();
-        for name in ["dot", "stop", "marker", "shield", "cross", "diamond", "fork"] {
+        for name in [
+            "dot", "stop", "marker", "shield", "cross", "diamond", "fork",
+        ] {
             let s = atlas.get(name).unwrap();
-            assert!(s.atlas_x + s.width <= SPRITE_ATLAS_W, "{name} overflows width");
-            assert!(s.atlas_y + s.height <= SPRITE_ATLAS_H, "{name} overflows height");
+            assert!(
+                s.atlas_x + s.width <= SPRITE_ATLAS_W,
+                "{name} overflows width"
+            );
+            assert!(
+                s.atlas_y + s.height <= SPRITE_ATLAS_H,
+                "{name} overflows height"
+            );
         }
     }
 
@@ -214,7 +229,10 @@ mod tests {
         let at = |x: u32, y: u32| -> u8 {
             atlas.sdf[((s.atlas_y + y) * SPRITE_ATLAS_W + (s.atlas_x + x)) as usize]
         };
-        assert!(at(s.width / 2, s.height / 2) < 128, "centre should be inside");
+        assert!(
+            at(s.width / 2, s.height / 2) < 128,
+            "centre should be inside"
+        );
         assert!(at(0, 0) > 128, "corner should be outside");
     }
 }

@@ -1,0 +1,56 @@
+# Behavioural sim gates (plan P6.0). These are the engine's strongest
+# verification — 8 release-mode journeys over the synthetic world (blank-map,
+# convergence, cache budgets, streaming-plan discipline, storm sim) on
+# Lavapipe — but they cost ~25 min, so they run nightly + on demand rather
+# than per push. Fire a workflow_dispatch after landing any slice that
+# touches streaming, rendering, or the environment.
+#
+# NOTE: `schedule` only fires on the default branch, so until the
+# engine-architecture branch merges, runs on it are dispatch-only.
+name: Turbomap sim gates
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 02:30 UTC nightly.
+    - cron: '30 2 * * *'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  sim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: apps/turbomap
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc + Lavapipe (software Vulkan)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler mesa-vulkan-drivers vulkan-tools
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/turbomap
+          key: sim-release
+
+      - name: Sim behavioural gates (release, REQUIRE_GPU)
+        env:
+          REQUIRE_GPU: "1"
+        run: cargo test -p turbomap-sim --release --features gpu-tests
+
+      - name: Upload sim reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-reports
+          path: apps/turbomap/target/sim-reports/
+          if-no-files-found: ignore

@@ -22,12 +22,23 @@ pub enum SourceChange {
 /// `Updated` (content changed) and `Moved` (order changed).
 #[derive(Clone, Debug, PartialEq)]
 pub enum LayerChange {
-    Added { id: String, index: usize },
-    Removed { id: String },
+    Added {
+        id: String,
+        index: usize,
+    },
+    Removed {
+        id: String,
+    },
     /// Same id, different content.
-    Updated { id: String },
+    Updated {
+        id: String,
+    },
     /// Same id and content, different stack position.
-    Moved { id: String, from: usize, to: usize },
+    Moved {
+        id: String,
+        from: usize,
+        to: usize,
+    },
 }
 
 /// The minimal set of changes turning one scene into another.
@@ -35,11 +46,15 @@ pub enum LayerChange {
 pub struct SceneDelta {
     pub sources: Vec<SourceChange>,
     pub layers: Vec<LayerChange>,
+    /// `Some(new)` when the scene-declared environment changed (plan C1) —
+    /// the engine applies the whole block (it's a handful of scalars, so
+    /// per-field deltas would be complexity without a saving).
+    pub environment: Option<crate::EnvironmentDef>,
 }
 
 impl SceneDelta {
     pub fn is_empty(&self) -> bool {
-        self.sources.is_empty() && self.layers.is_empty()
+        self.sources.is_empty() && self.layers.is_empty() && self.environment.is_none()
     }
 }
 
@@ -48,6 +63,7 @@ pub fn diff(old: &Scene, new: &Scene) -> SceneDelta {
     SceneDelta {
         sources: diff_sources(&old.sources, &new.sources),
         layers: diff_layers(&old.layers, &new.layers),
+        environment: (old.environment != new.environment).then(|| new.environment.clone()),
     }
 }
 
@@ -72,10 +88,16 @@ fn diff_sources(
 }
 
 fn diff_layers(old: &[Layer], new: &[Layer]) -> Vec<LayerChange> {
-    let old_index: BTreeMap<&str, (usize, &Layer)> =
-        old.iter().enumerate().map(|(i, l)| (l.id(), (i, l))).collect();
-    let new_index: BTreeMap<&str, (usize, &Layer)> =
-        new.iter().enumerate().map(|(i, l)| (l.id(), (i, l))).collect();
+    let old_index: BTreeMap<&str, (usize, &Layer)> = old
+        .iter()
+        .enumerate()
+        .map(|(i, l)| (l.id(), (i, l)))
+        .collect();
+    let new_index: BTreeMap<&str, (usize, &Layer)> = new
+        .iter()
+        .enumerate()
+        .map(|(i, l)| (l.id(), (i, l)))
+        .collect();
 
     let mut out = Vec::new();
 
@@ -134,7 +156,10 @@ fn diff_layers(old: &[Layer], new: &[Layer]) -> Vec<LayerChange> {
 
 /// Ids appearing in a longest common subsequence of two id sequences.
 /// Ids *not* in it are the minimal set that must move to reconcile order.
-fn longest_common_subsequence<'a>(a: &[&'a str], b: &[&'a str]) -> std::collections::BTreeSet<&'a str> {
+fn longest_common_subsequence<'a>(
+    a: &[&'a str],
+    b: &[&'a str],
+) -> std::collections::BTreeSet<&'a str> {
     let (n, m) = (a.len(), b.len());
     // dp[i][j] = LCS length of a[i..] and b[j..].
     let mut dp = vec![vec![0usize; m + 1]; n + 1];

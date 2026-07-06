@@ -56,6 +56,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloc-no-stdlib"
+version = "2.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc7bb162ec39d46ab1ca8c77bf72e890535becd1751bb45f64c597edb4c8c6b3"
+
+[[package]]
+name = "alloc-stdlib"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e76a019e91224d279006ff972f1e984179a6e9feb050adba6ce8274aef23195"
+dependencies = [
+ "alloc-no-stdlib",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -345,6 +360,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdeb9d870516001442e364c5220d3574d2da8dc765554b4a617230d33fa58ef5"
 dependencies = [
  "objc2 0.6.4",
+]
+
+[[package]]
+name = "brotli"
+version = "8.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5cc91aac060a7a1e25823bdccbfb6af1875b88f17c6daac97894eed8207166b3"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
+ "brotli-decompressor",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "5.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a32acac15fe1967bc3986b2a6347dffc965602354ea6f450ad07e8bfd253583"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
 ]
 
 [[package]]
@@ -1377,6 +1413,7 @@ version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ea2d84b969582b4b1864a92dc5d27cd2b77b622a8d79306834f1be5ba20d84b"
 dependencies = [
+ "bytemuck",
  "cfg-if",
  "crunchy",
  "num-traits",
@@ -3847,8 +3884,11 @@ dependencies = [
  "pollster",
  "rayon",
  "reqwest",
+ "serde_json",
  "turbomap-clouds",
  "turbomap-core",
+ "turbomap-engine",
+ "turbomap-scene",
  "turbomap-style-maplibre",
  "turbomap-tiles-http",
  "wgpu",
@@ -3876,12 +3916,14 @@ dependencies = [
  "ab_glyph",
  "bytemuck",
  "glam",
+ "half",
  "log",
  "lyon",
  "rustybuzz",
  "thiserror 1.0.69",
  "turbomap-clouds",
  "turbomap-mvt",
+ "turbomap-world",
  "unicode-bidi",
  "web-time",
  "wgpu",
@@ -3891,15 +3933,19 @@ dependencies = [
 name = "turbomap-engine"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "criterion",
+ "crossbeam-channel",
  "image",
  "log",
  "serde_json",
+ "tempfile",
  "turbomap-core",
  "turbomap-golden",
  "turbomap-mvt",
  "turbomap-scene",
  "turbomap-tiles-pmtiles",
+ "turbomap-world",
  "web-time",
  "wgpu",
 ]
@@ -3921,6 +3967,7 @@ dependencies = [
  "turbomap-core",
  "turbomap-engine",
  "turbomap-scene",
+ "turbomap-world",
  "uniffi",
  "wgpu",
 ]
@@ -3978,15 +4025,15 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "turbomap-core",
+ "turbomap-engine",
+ "turbomap-scene",
 ]
 
 [[package]]
 name = "turbomap-tiles-cache"
 version = "0.1.0"
 dependencies = [
- "log",
  "tempfile",
- "turbomap-core",
 ]
 
 [[package]]
@@ -3999,12 +4046,15 @@ dependencies = [
  "thiserror 1.0.69",
  "turbomap-core",
  "turbomap-mvt",
+ "turbomap-tiles-cache",
 ]
 
 [[package]]
 name = "turbomap-tiles-pmtiles"
 version = "0.1.0"
 dependencies = [
+ "brotli",
+ "brotli-decompressor",
  "flate2",
  "log",
  "parking_lot",
@@ -4026,10 +4076,19 @@ dependencies = [
  "turbomap-core",
  "turbomap-engine",
  "turbomap-scene",
+ "turbomap-world",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu",
+]
+
+[[package]]
+name = "turbomap-world"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

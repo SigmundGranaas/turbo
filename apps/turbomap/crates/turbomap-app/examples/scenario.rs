@@ -25,10 +25,10 @@ use std::time::Duration;
 
 use image::{ImageEncoder, RgbaImage};
 use turbomap_core::{
-    Camera, Color, DemEncoding, Feature, Filter, GeomType, Geometry, HillshadeStyle, IconSpec,
-    LatLng, Map, MapOptions, Marker, MarkerId, Paint, PendingTile, RadarFrame, RasterFormat,
-    RasterTile, Rule, SunPosition, TileError, TileId, TileSource, VectorStyle, VectorTile,
-    VectorTileLayer, VectorTileSource, VectorValue,
+    Camera, Color, Feature, Filter, GeomType, Geometry, HillshadeStyle, IconSpec, LatLng, Map,
+    MapOptions, Marker, MarkerId, Paint, PendingTile, RadarFrame, RasterFormat, RasterTile, Rule,
+    SunPosition, TileError, TileId, TileSource, VectorStyle, VectorTile, VectorTileLayer,
+    VectorTileSource, VectorValue,
 };
 
 /// A coarse synthetic radar grid (precip + coverage) so the cloud overlay
@@ -64,7 +64,10 @@ fn synthetic_radar(w: u32, h: u32, phase: f32) -> RadarFrame {
 struct SyntheticVectors;
 
 fn prop(pairs: &[(&str, VectorValue)]) -> HashMap<String, VectorValue> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.clone()))
+        .collect()
 }
 
 impl VectorTileSource for SyntheticVectors {
@@ -85,13 +88,7 @@ impl VectorTileSource for SyntheticVectors {
             }],
         };
         let rect = |x0: i32, y0: i32, x1: i32, y1: i32| {
-            Geometry::Polygon(vec![vec![
-                (x0, y0),
-                (x1, y0),
-                (x1, y1),
-                (x0, y1),
-                (x0, y0),
-            ]])
+            Geometry::Polygon(vec![vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]])
         };
         // Under TURBO_WATER, fill the WHOLE tile so adjacent tiles form one
         // continuous sea (every edge is a tile-clip edge) — this reproduces the
@@ -194,11 +191,20 @@ fn demo_style() -> VectorStyle {
         background: Color::rgba(0, 0, 0, 0),
         rules: vec![
             // Fill: a lake polygon draped on the terrain.
-            rule("water", Paint::Fill { color: Color::rgb(0x9E, 0xC2, 0xDF) }, false),
+            rule(
+                "water",
+                Paint::Fill {
+                    color: Color::rgb(0x9E, 0xC2, 0xDF),
+                },
+                false,
+            ),
             // Line: the road network (interactive → exercises the hit-test index).
             rule(
                 "streets",
-                Paint::Line { color: Color::rgb(0xBD, 0xB3, 0xA1), width: 14.0 },
+                Paint::Line {
+                    color: Color::rgb(0xBD, 0xB3, 0xA1),
+                    width: 14.0,
+                },
                 true,
             ),
             // 3D extrusion: buildings as height-driven prisms (only shows tilted).
@@ -387,16 +393,22 @@ struct Cli {
 
 fn parse_cli() -> Cli {
     // Sjunkhatten (near Bodø): steep coastal fjord terrain at ~67°N.
-    let mut center = LatLng { lat: 67.23, lng: 15.30 };
+    let mut center = LatLng {
+        lat: 67.23,
+        lng: 15.30,
+    };
     let mut zoom = 13.0;
     let mut max_pitch = 80.0;
     let mut bearing = 20.0;
-    let api = std::env::var("TURBO_API_URL")
-        .unwrap_or_else(|_| "https://kart-api.sandring.no".into());
+    let api =
+        std::env::var("TURBO_API_URL").unwrap_or_else(|_| "https://kart-api.sandring.no".into());
     let mut basemap_url =
         "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png"
             .to_string();
-    let mut dem_url = format!("{}/v1/dem/rgb/{{z}}/{{x}}/{{y}}.png?halo=1", api.trim_end_matches('/'));
+    let mut dem_url = format!(
+        "{}/v1/dem/rgb/{{z}}/{{x}}/{{y}}.png?halo=1",
+        api.trim_end_matches('/')
+    );
     let mut out_dir = "/tmp/turbomap-scenario".to_string();
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -418,7 +430,15 @@ fn parse_cli() -> Cli {
             other => panic!("unknown arg {other}"),
         }
     }
-    Cli { center, zoom, max_pitch, bearing, basemap_url, dem_url, out_dir }
+    Cli {
+        center,
+        zoom,
+        max_pitch,
+        bearing,
+        basemap_url,
+        dem_url,
+        out_dir,
+    }
 }
 
 /// One scripted camera pose + a human label for crash reports / frame names.
@@ -436,9 +456,17 @@ struct Step {
 fn build_steps(cli: &Cli) -> Vec<Step> {
     let mut steps = Vec::new();
     let cam = |pitch: f64, bearing: f64, center: LatLng, zoom: f64| {
-        Camera::new(center, zoom).with_pitch(pitch).with_bearing(bearing)
+        Camera::new(center, zoom)
+            .with_pitch(pitch)
+            .with_bearing(bearing)
     };
-    let mut push = |label: String, camera: Camera| steps.push(Step { label, camera, sun: None });
+    let mut push = |label: String, camera: Camera| {
+        steps.push(Step {
+            label,
+            camera,
+            sun: None,
+        })
+    };
     push("warmup-flat".into(), cam(0.0, 0.0, cli.center, cli.zoom));
     // Sweep pitch across EVERY allowed level in 5° increments (0 → max). The
     // crash hunt + the profiling pass both care about behaviour at every tilt,
@@ -448,27 +476,45 @@ fn build_steps(cli: &Cli) -> Vec<Step> {
     let mut p = 5.0;
     while p <= cli.max_pitch + 1e-6 {
         let pitch = p.min(cli.max_pitch);
-        push(format!("pitch-{pitch:.0}"), cam(pitch, cli.bearing, cli.center, cli.zoom));
+        push(
+            format!("pitch-{pitch:.0}"),
+            cam(pitch, cli.bearing, cli.center, cli.zoom),
+        );
         p += 5.0;
     }
     // Orbit a full turn at max pitch (the 3D-mode 1-finger orbit).
     for i in 1..=12 {
         let b = cli.bearing + 360.0 * i as f64 / 12.0;
-        push(format!("orbit-{:.0}", b % 360.0), cam(cli.max_pitch, b, cli.center, cli.zoom));
+        push(
+            format!("orbit-{:.0}", b % 360.0),
+            cam(cli.max_pitch, b, cli.center, cli.zoom),
+        );
     }
     // Pan north across fjord + peak at max pitch.
     for i in 1..=6 {
-        let c = LatLng { lat: cli.center.lat + 0.02 * i as f64, lng: cli.center.lng + 0.01 * i as f64 };
-        push(format!("pan-{i}"), cam(cli.max_pitch, cli.bearing, c, cli.zoom));
+        let c = LatLng {
+            lat: cli.center.lat + 0.02 * i as f64,
+            lng: cli.center.lng + 0.01 * i as f64,
+        };
+        push(
+            format!("pan-{i}"),
+            cam(cli.max_pitch, cli.bearing, c, cli.zoom),
+        );
     }
     // Over-zoom in past native max and back out (upsample path), staying tilted.
     for i in 1..=5 {
         let z = cli.zoom + i as f64;
-        push(format!("zoomin-{z:.0}"), cam(cli.max_pitch, cli.bearing, cli.center, z));
+        push(
+            format!("zoomin-{z:.0}"),
+            cam(cli.max_pitch, cli.bearing, cli.center, z),
+        );
     }
     for i in (0..=5).rev() {
         let z = cli.zoom + i as f64 - 3.0;
-        push(format!("zoomout-{z:.0}"), cam(cli.max_pitch.min(60.0), cli.bearing, cli.center, z.max(5.0)));
+        push(
+            format!("zoomout-{z:.0}"),
+            cam(cli.max_pitch.min(60.0), cli.bearing, cli.center, z.max(5.0)),
+        );
     }
 
     // Time-of-day sweep at a scenic tilt: vary the sun from dawn → noon → dusk
@@ -485,7 +531,10 @@ fn build_steps(cli: &Cli) -> Vec<Step> {
         steps.push(Step {
             label: label.into(),
             camera: tod_cam,
-            sun: Some(SunPosition { azimuth_deg, altitude_deg }),
+            sun: Some(SunPosition {
+                azimuth_deg,
+                altitude_deg,
+            }),
         });
     }
     steps
@@ -501,42 +550,60 @@ fn drain_tiles(
     vector: &Arc<dyn VectorTileSource>,
 ) {
     for _round in 0..40 {
-        let pending = map.pending_tiles();
-        if pending.is_empty() {
+        // Plan-transport drain (P5.1). Failures report by attempt id so the
+        // engine re-pends; a fixed camera mints no cancels.
+        let plan = map.streaming_plan(usize::MAX);
+        for id in plan.cancel {
+            map.fetch_cancelled(id);
+        }
+        if plan.start.is_empty() {
             return;
         }
         let mut progressed = false;
-        for req in pending {
-            match req {
-                PendingTile::Raster { layer_id, tile } => {
-                    match basemap.request(tile) {
-                        Ok(raw) => match image::load_from_memory(&raw.bytes) {
-                            Ok(img) => {
-                                let img = img.to_rgba8();
-                                let (w, h) = img.dimensions();
-                                map.ingest_raster(&layer_id, tile, img.as_raw(), w, h);
-                                progressed = true;
-                            }
-                            Err(e) => {
-                                if std::env::var("TURBO_DEBUG_RASTER").is_ok() {
-                                    eprintln!("RASTER decode FAIL {tile:?}: {e} ({} bytes)", raw.bytes.len());
-                                }
-                            }
-                        },
+        for r in plan.start {
+            let id = r.id;
+            let mut delivered = false;
+            match r.fetch {
+                PendingTile::Raster { layer_id, tile } => match basemap.request(tile) {
+                    Ok(raw) => match image::load_from_memory(&raw.bytes) {
+                        Ok(img) => {
+                            let img = img.to_rgba8();
+                            let (w, h) = img.dimensions();
+                            map.ingest_raster(&layer_id, tile, img.as_raw(), w, h);
+                            progressed = true;
+                            delivered = true;
+                        }
                         Err(e) => {
                             if std::env::var("TURBO_DEBUG_RASTER").is_ok() {
-                                eprintln!("RASTER fetch FAIL {tile:?}: {e}");
+                                eprintln!(
+                                    "RASTER decode FAIL {tile:?}: {e} ({} bytes)",
+                                    raw.bytes.len()
+                                );
                             }
                         }
+                    },
+                    Err(e) => {
+                        if std::env::var("TURBO_DEBUG_RASTER").is_ok() {
+                            eprintln!("RASTER fetch FAIL {tile:?}: {e}");
+                        }
                     }
-                }
+                },
                 PendingTile::Terrain { tile } => {
                     if let Ok(raw) = dem.request(tile) {
                         if let Ok(img) = image::load_from_memory(&raw.bytes) {
                             let img = img.to_rgba8();
                             let (w, h) = img.dimensions();
-                            map.ingest_terrain_tile(tile, img.as_raw(), w, h);
-                            progressed = true;
+                            // The DEM codec runs at ingest (plan D3).
+                            if let Some(decoded) = turbomap_core::decode_dem_rgba(
+                                img.as_raw(),
+                                w,
+                                h,
+                                dem.dem_encoding(),
+                            ) {
+                                map.ingest_terrain_tile(tile, &decoded);
+                                progressed = true;
+                                delivered = true;
+                            }
                         }
                     }
                 }
@@ -544,9 +611,15 @@ fn drain_tiles(
                     if let Ok(vt) = vector.request(tile) {
                         map.ingest_vector_tile(&layer_id, tile, &vt);
                         progressed = true;
+                        delivered = true;
                     }
                 }
                 PendingTile::Hillshade { .. } => {}
+            }
+            if !delivered {
+                // Failed fetch/decode: hand the attempt back so the tile
+                // re-pends and a later round retries it.
+                map.fetch_failed(id);
             }
         }
         if !progressed {
@@ -594,7 +667,11 @@ fn render_capture(
                 rows_per_image: Some(HEIGHT),
             },
         },
-        wgpu::Extent3d { width: WIDTH, height: HEIGHT, depth_or_array_layers: 1 },
+        wgpu::Extent3d {
+            width: WIDTH,
+            height: HEIGHT,
+            depth_or_array_layers: 1,
+        },
     );
     queue.submit([encoder.finish()]);
     map.after_submit();
@@ -667,7 +744,11 @@ fn darkening_stats(off: &RgbaImage, on: &RgbaImage) -> (usize, f64, f64) {
             }
         }
     }
-    let mean = if changed > 0 { drop_sum / changed as f64 } else { 0.0 };
+    let mean = if changed > 0 {
+        drop_sum / changed as f64
+    } else {
+        0.0
+    };
     (changed, mean, max_drop)
 }
 
@@ -696,9 +777,21 @@ fn main() {
         force_fallback_adapter: false,
     }))
     .expect("no adapter");
+    // GPU-side per-scope timing (ao / frame-pass / clouds), opt-in: the
+    // harness copies the framebuffer in the same encoder as the frame, and
+    // on Metal that combination + query resolution has produced blank
+    // readbacks (see snapshot.rs). On Vulkan/Lavapipe it's fine.
+    let want_gpu_timing = std::env::var("TURBO_GPU_TIMING").is_ok();
+    let ts_features =
+        wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
+    let features = if want_gpu_timing {
+        adapter.features() & ts_features
+    } else {
+        wgpu::Features::empty()
+    };
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("scenario-device"),
-        required_features: wgpu::Features::empty(),
+        required_features: features,
         required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
         memory_hints: wgpu::MemoryHints::Performance,
         experimental_features: wgpu::ExperimentalFeatures::default(),
@@ -711,7 +804,11 @@ fn main() {
     let target_format = wgpu::TextureFormat::Rgba8UnormSrgb;
     let target = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("scenario-target"),
-        size: wgpu::Extent3d { width: WIDTH, height: HEIGHT, depth_or_array_layers: 1 },
+        size: wgpu::Extent3d {
+            width: WIDTH,
+            height: HEIGHT,
+            depth_or_array_layers: 1,
+        },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -727,7 +824,10 @@ fn main() {
         target_format,
         (WIDTH, HEIGHT),
         Camera::new(cli.center, cli.zoom),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
     )
     .expect("map");
 
@@ -737,8 +837,8 @@ fn main() {
     // are actually visible instead of being washed out by the white Kartverket
     // topo raster). Everything else keeps the synthetic fixtures.
     let real_water = std::env::var("TURBO_WATER").is_ok();
-    let api_url = std::env::var("TURBO_API_URL")
-        .unwrap_or_else(|_| "https://kart-api.sandring.no".into());
+    let api_url =
+        std::env::var("TURBO_API_URL").unwrap_or_else(|_| "https://kart-api.sandring.no".into());
     let basemap_url = if real_water && std::env::var("TURBO_BASEMAP_URL").is_err() {
         // Esri World Imagery — public satellite tiles ({z}/{y}/{x}).
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}".to_string()
@@ -746,8 +846,7 @@ fn main() {
         cli.basemap_url.clone()
     };
     let basemap: Arc<dyn TileSource> = Arc::new(HttpTiles::new(basemap_url, 0, 19, 0));
-    let dem: Arc<dyn TileSource> =
-        Arc::new(HttpTiles::new(cli.dem_url.clone(), 6, 14, 1));
+    let dem: Arc<dyn TileSource> = Arc::new(HttpTiles::new(cli.dem_url.clone(), 6, 14, 1));
     let vector: Arc<dyn VectorTileSource> = if real_water {
         // Default to VersaTiles OSM (free, no-auth, real coastlines, `water`
         // layer) so the look can be evaluated even when kart-api is down; opt
@@ -782,7 +881,6 @@ fn main() {
         map.add_hillshade_layer(
             "hillshade",
             HillshadeStyle {
-                encoding: DemEncoding::MapboxRgb,
                 sun_azimuth_deg: 315.0,
                 sun_altitude_deg: 45.0,
                 exaggeration: 1.4,
@@ -805,7 +903,10 @@ fn main() {
             altitude_deg: 14.0,
         }));
     } else {
-        map.set_sun_position(Some(SunPosition { azimuth_deg: 145.0, altitude_deg: 30.0 }));
+        map.set_sun_position(Some(SunPosition {
+            azimuth_deg: 145.0,
+            altitude_deg: 30.0,
+        }));
     }
     // A 3D route tube winding across the relief — exercises the route pipeline
     // (terrain-sampled tube mesh, lit, depth-tested) so its look can be eyeballed
@@ -875,6 +976,75 @@ fn main() {
         );
     }
 
+    // Frame-graph pass mask (slice D1): disable any set of passes by name for
+    // the whole run, e.g. TURBO_DISABLE_PASSES=clouds,layer:hillshade — the
+    // engine-level isolation switch, applied to every mode below.
+    if let Ok(v) = std::env::var("TURBO_DISABLE_PASSES") {
+        for name in v.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            map.set_pass_enabled(name, false);
+            eprintln!("  pass disabled: {name}");
+        }
+    }
+
+    // Debug fast path (TURBO_PASS_ISOLATE=1): frame-graph pass isolation.
+    // Park at a scenic tilt, drain tiles, settle the progressive bakes, then
+    // A/B every pass in the frame: dump the full composite (`iso-full.png`)
+    // and one re-render per pass with exactly that pass disabled
+    // (`iso-minus-<pass>.png`), quantifying how many pixels it touched.
+    // Diffing any image against the full frame shows precisely what that
+    // pass contributes — "evaluate subsystems one by one", with pictures.
+    // Note two passes read persistent caches: disabling `shadow-assemble`
+    // zeroes the cast-shadow uniforms (its contribution shows), but
+    // disabling `ao-accumulate` only halts *refinement* of the cached AO
+    // field, so its diff is ~0% once the bake has settled — that is the
+    // documented skip semantic, not a bug.
+    if std::env::var("TURBO_PASS_ISOLATE").is_ok() {
+        let cam = Camera::new(cli.center, cli.zoom)
+            .with_pitch(55.0)
+            .with_bearing(cli.bearing);
+        map.set_camera(cam);
+        drain_tiles(&mut map, &basemap, &dem, &vector);
+        // Settle the progressive AO bake + shadow assembly so every
+        // isolation render differs only by its masked pass.
+        for _ in 0..8 {
+            let _ = render_capture(&mut map, &device, &queue, &target, &target_view);
+        }
+        let full = render_capture(&mut map, &device, &queue, &target, &target_view);
+        std::fs::write(format!("{}/iso-full.png", cli.out_dir), encode_png(&full))
+            .expect("write png");
+        let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+        let passes: Vec<(String, f64)> = map
+            .last_frame_metrics()
+            .passes
+            .iter()
+            .filter(|p| !p.skipped)
+            .map(|p| (p.label.clone(), ms(p.cpu)))
+            .collect();
+        eprintln!("  ── pass isolation ({} passes) ──", passes.len());
+        for (label, cpu_ms) in passes {
+            map.set_pass_enabled(&label, false);
+            let img = render_capture(&mut map, &device, &queue, &target, &target_view);
+            map.set_pass_enabled(&label, true);
+            let fname = format!("{}/iso-minus-{}.png", cli.out_dir, label.replace(':', "-"));
+            std::fs::write(&fname, encode_png(&img)).expect("write png");
+            let mut changed = 0usize;
+            for (a, b) in full.pixels().zip(img.pixels()) {
+                let d = (a[0] as i32 - b[0] as i32).abs()
+                    + (a[1] as i32 - b[1] as i32).abs()
+                    + (a[2] as i32 - b[2] as i32).abs();
+                if d > 12 {
+                    changed += 1;
+                }
+            }
+            eprintln!(
+                "  minus {label:<22} encode {cpu_ms:>6.2} ms → {:>5.1}% of pixels change",
+                100.0 * changed as f64 / (WIDTH as f64 * HEIGHT as f64),
+            );
+        }
+        eprintln!("PASS ISOLATION done — frames in {}", cli.out_dir);
+        return;
+    }
+
     // Debug fast path (TURBO_PAN_REPRO=1): reproduce the "pan too far down at
     // high pitch → everything but the nearest tile greys out" bug. Pitch to
     // 80°, then pan toward the horizon in steps, dumping each frame + logging
@@ -899,7 +1069,11 @@ fn main() {
             let c = map.camera();
             eprintln!(
                 "  pan {i:>2}: center={:.4},{:.4} pitch={:.0} tiles_drawn={} grey={:.0}%",
-                c.center.lat, c.center.lng, c.pitch_deg, m.tiles_drawn, grey * 100.0,
+                c.center.lat,
+                c.center.lng,
+                c.pitch_deg,
+                m.tiles_drawn,
+                grey * 100.0,
             );
         }
         eprintln!("PAN REPRO done — frames in {}", cli.out_dir);
@@ -925,10 +1099,17 @@ fn main() {
             map.pitch_around(5.0, focus);
             drain_tiles(&mut map, &basemap, &dem, &vector);
             let img = render_capture(&mut map, &device, &queue, &target, &target_view);
-            std::fs::write(format!("{}/orbit-{i:02}.png", cli.out_dir), encode_png(&img))
-                .expect("write png");
+            std::fs::write(
+                format!("{}/orbit-{i:02}.png", cli.out_dir),
+                encode_png(&img),
+            )
+            .expect("write png");
             let actual = map.camera().pitch_deg;
-            let clamped = if actual + 0.5 < requested.min(80.0) { " ← CLAMPED" } else { "" };
+            let clamped = if actual + 0.5 < requested.min(80.0) {
+                " ← CLAMPED"
+            } else {
+                ""
+            };
             eprintln!(
                 "  orbit {i:>2}: requested={requested:>5.1}  actual={actual:>5.1}  grey={:.0}%{clamped}",
                 grey_fraction(&img) * 100.0,
@@ -1017,7 +1198,11 @@ fn main() {
                     n += 1;
                 }
             }
-            if n == 0 { 0.0 } else { sum / n as f32 }
+            if n == 0 {
+                0.0
+            } else {
+                sum / n as f32
+            }
         };
         let blown_frac = |raw: &[u8], w: usize, h: usize| -> f64 {
             let mut blown = 0u32;
@@ -1038,12 +1223,17 @@ fn main() {
             // over-zoom headroom (source max + 3). Matching it here is what makes
             // the harness reproduce the bug instead of masking it.
             map.set_camera(
-                Camera::new(cli.center, 15.0).with_pitch(pitch).with_bearing(cli.bearing),
+                Camera::new(cli.center, 15.0)
+                    .with_pitch(pitch)
+                    .with_bearing(cli.bearing),
             );
             drain_tiles(&mut map, &basemap, &dem, &vector);
             let img = render_capture(&mut map, &device, &queue, &target, &target_view);
-            std::fs::write(format!("{}/probe-pitch-{pitch:02.0}.png", cli.out_dir), encode_png(&img))
-                .ok();
+            std::fs::write(
+                format!("{}/probe-pitch-{pitch:02.0}.png", cli.out_dir),
+                encode_png(&img),
+            )
+            .ok();
             let (w, h) = (img.width() as usize, img.height() as usize);
             let raw = img.as_raw();
             let cov = fb_probe::ground_coverage(raw, w, h, 0.5, is_bg);
@@ -1071,13 +1261,20 @@ fn main() {
     //   TURBO_STRESS_ITERS=N   (default 4000)
     //   TURBO_STRESS_STALL_MS=N (default 4000 — a frame slower than this = stall)
     if std::env::var("TURBO_STRESS").is_ok() {
-        let iters: u32 =
-            std::env::var("TURBO_STRESS_ITERS").ok().and_then(|s| s.parse().ok()).unwrap_or(4000);
-        let stall_ms: f64 =
-            std::env::var("TURBO_STRESS_STALL_MS").ok().and_then(|s| s.parse().ok()).unwrap_or(4000.0);
+        let iters: u32 = std::env::var("TURBO_STRESS_ITERS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(4000);
+        let stall_ms: f64 = std::env::var("TURBO_STRESS_STALL_MS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(4000.0);
         eprintln!("  ── STRESS soak: {iters} iterations, stall threshold {stall_ms:.0} ms ──");
         // Sun mode + cast shadows on, so the CPU horizon-march participates.
-        map.set_sun_position(Some(SunPosition { azimuth_deg: 120.0, altitude_deg: 14.0 }));
+        map.set_sun_position(Some(SunPosition {
+            azimuth_deg: 120.0,
+            altitude_deg: 14.0,
+        }));
         map.set_terrain_shadows(0.85);
         // Warm up a tile PYRAMID over the region (several zoom levels) once, so
         // the storm renders from cache + the overview fallback instead of
@@ -1095,7 +1292,9 @@ fn main() {
         // Deterministic LCG so a failure is reproducible (no Math.random here).
         let mut rng: u64 = 0x9E37_79B9_7F4A_7C15;
         let mut next = || {
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            rng = rng
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (rng >> 33) as u32
         };
         let mut worst_ms = 0.0_f64;
@@ -1108,13 +1307,21 @@ fn main() {
                 0 => {
                     // ZOOM ALL THE WAY IN (past the ceiling — engine clamps).
                     let c = map.camera();
-                    map.set_camera(Camera::new(c.center, 22.0).with_pitch(c.pitch_deg).with_bearing(c.bearing_deg));
+                    map.set_camera(
+                        Camera::new(c.center, 22.0)
+                            .with_pitch(c.pitch_deg)
+                            .with_bearing(c.bearing_deg),
+                    );
                     "zoom-in-max"
                 }
                 1 => {
                     // ZOOM ALL THE WAY OUT (below the floor — engine clamps).
                     let c = map.camera();
-                    map.set_camera(Camera::new(c.center, 0.0).with_pitch(c.pitch_deg).with_bearing(c.bearing_deg));
+                    map.set_camera(
+                        Camera::new(c.center, 0.0)
+                            .with_pitch(c.pitch_deg)
+                            .with_bearing(c.bearing_deg),
+                    );
                     "zoom-out-min"
                 }
                 2 => {
@@ -1134,13 +1341,21 @@ fn main() {
                     // Orbit (bearing spin) at the current pitch.
                     let c = map.camera();
                     let b = (next() % 360) as f64;
-                    map.set_camera(Camera::new(c.center, c.zoom).with_pitch(c.pitch_deg).with_bearing(b));
+                    map.set_camera(
+                        Camera::new(c.center, c.zoom)
+                            .with_pitch(c.pitch_deg)
+                            .with_bearing(b),
+                    );
                     "orbit"
                 }
                 5 => {
                     // Jump to a mid zoom + steep pitch (the screen-fill case).
                     let c = map.camera();
-                    map.set_camera(Camera::new(c.center, 14.0 + (next() % 5) as f64).with_pitch(78.0).with_bearing(c.bearing_deg));
+                    map.set_camera(
+                        Camera::new(c.center, 14.0 + (next() % 5) as f64)
+                            .with_pitch(78.0)
+                            .with_bearing(c.bearing_deg),
+                    );
                     "mid-steep"
                 }
                 _ => {
@@ -1148,8 +1363,15 @@ fn main() {
                     let dlat = ((next() % 200) as f64 - 100.0) * 0.01;
                     let dlng = ((next() % 200) as f64 - 100.0) * 0.02;
                     let c = map.camera();
-                    let nc = LatLng { lat: (cli.center.lat + dlat).clamp(-84.0, 84.0), lng: cli.center.lng + dlng };
-                    map.set_camera(Camera::new(nc, c.zoom).with_pitch(c.pitch_deg).with_bearing(c.bearing_deg));
+                    let nc = LatLng {
+                        lat: (cli.center.lat + dlat).clamp(-84.0, 84.0),
+                        lng: cli.center.lng + dlng,
+                    };
+                    map.set_camera(
+                        Camera::new(nc, c.zoom)
+                            .with_pitch(c.pitch_deg)
+                            .with_bearing(c.bearing_deg),
+                    );
                     "teleport"
                 }
             };
@@ -1172,7 +1394,11 @@ fn main() {
                 {
                     panic!(
                         "NON-FINITE camera: pitch={} zoom={} center={},{} matrix_finite={}",
-                        eff.pitch_deg, eff.zoom, eff.center.lat, eff.center.lng, matrix_is_finite(&mat)
+                        eff.pitch_deg,
+                        eff.zoom,
+                        eff.center.lat,
+                        eff.center.lng,
+                        matrix_is_finite(&mat)
                     );
                 }
                 // Time the RENDER only (the render-thread cost that ANRs on
@@ -1189,7 +1415,11 @@ fn main() {
                         }
                     }
                     let frac = nonblack as f64 / (img.width() * img.height()) as f64;
-                    assert!(frac > 0.02, "frame is essentially all-black ({:.3}% lit)", frac * 100.0);
+                    assert!(
+                        frac > 0.02,
+                        "frame is essentially all-black ({:.3}% lit)",
+                        frac * 100.0
+                    );
                 } else {
                     // Full render + submit (no readback) — exercises the GPU
                     // path without the readback stall on every frame.
@@ -1245,7 +1475,12 @@ fn main() {
     let steps = build_steps(&cli);
     eprintln!(
         "scenario: {} steps @ {:.4},{:.4} z{} → pitch {}°, frames to {}",
-        steps.len(), cli.center.lat, cli.center.lng, cli.zoom, cli.max_pitch, cli.out_dir,
+        steps.len(),
+        cli.center.lat,
+        cli.center.lng,
+        cli.zoom,
+        cli.max_pitch,
+        cli.out_dir,
     );
 
     // Debug fast path: skip the scripted sweep + nav and run only the
@@ -1279,13 +1514,20 @@ fn main() {
             if !eff.pitch_deg.is_finite() || !eff.zoom.is_finite() || !matrix_is_finite(&mat) {
                 panic!(
                     "NON-FINITE camera at step {i} ({}): pitch={} zoom={} matrix_finite={}",
-                    step.label, eff.pitch_deg, eff.zoom, matrix_is_finite(&mat)
+                    step.label,
+                    eff.pitch_deg,
+                    eff.zoom,
+                    matrix_is_finite(&mat)
                 );
             }
             drain_tiles(&mut map, &basemap, &dem, &vector);
             // Hit-test a few screen points — drives marker reprojection through
             // the elevation-aware path on the 3D surface.
-            for p in [(WIDTH as f64 * 0.5, HEIGHT as f64 * 0.5), (120.0, 200.0), (700.0, 1300.0)] {
+            for p in [
+                (WIDTH as f64 * 0.5, HEIGHT as f64 * 0.5),
+                (120.0, 200.0),
+                (700.0, 1300.0),
+            ] {
                 let _ = map.hit_test(p, 16.0);
             }
             render_to_png(&mut map, &device, &queue, &target, &target_view, &path);
@@ -1294,10 +1536,18 @@ fn main() {
             Ok(()) => {
                 let m = map.last_frame_metrics().clone();
                 let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
-                let gpu = m
+                let mut gpu = m
                     .gpu_time
                     .map(|g| format!(" gpu={:.2}ms", ms(g)))
                     .unwrap_or_default();
+                if !m.gpu_passes.is_empty() {
+                    let scopes: Vec<String> = m
+                        .gpu_passes
+                        .iter()
+                        .map(|(n, d)| format!("{n}={:.2}", ms(*d)))
+                        .collect();
+                    gpu.push_str(&format!(" [{}]", scopes.join(" ")));
+                }
                 eprintln!(
                     "  {i:>3} {:<14} {:>5.0} | {:>7.2} {:>7.2} {:>7.2} {:>7.2} {:>7.2} | {:>4} {:>4} {:>6}{}",
                     step.label,
@@ -1333,7 +1583,7 @@ fn main() {
     {
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
         let mut csv = String::from(
-            "idx,label,pitch,cpu_ms,prepare_ms,pass_ms,clouds_ms,shadow_ms,gpu_ms,visible_layers,draw_calls,tiles_drawn,resident,bytes,evictions,hits,misses,frame_dropped\n",
+            "idx,label,pitch,cpu_ms,prepare_ms,pass_ms,clouds_ms,shadow_ms,gpu_ms,visible_layers,draw_calls,tiles_drawn,resident,desired,retained,pend_overview,pend_visible,pend_prefetch,bytes,evictions,hits,misses,frame_dropped\n",
         );
         for (i, (label, pitch, m)) in profiles.iter().enumerate() {
             let resident: usize = m.layers.iter().map(|l| l.cache.entries).sum();
@@ -1341,17 +1591,59 @@ fn main() {
             let evictions: u64 = m.layers.iter().map(|l| l.cache.evictions).sum();
             let hits: u64 = m.layers.iter().map(|l| l.cache.hits).sum();
             let misses: u64 = m.layers.iter().map(|l| l.cache.misses).sum();
-            let gpu = m.gpu_time.map(|g| format!("{:.3}", ms(g))).unwrap_or_default();
+            let gpu = m
+                .gpu_time
+                .map(|g| format!("{:.3}", ms(g)))
+                .unwrap_or_default();
+            let t = m.tiles;
             csv.push_str(&format!(
-                "{i},{label},{pitch:.0},{:.3},{:.3},{:.3},{:.3},{:.3},{gpu},{},{},{},{resident},{bytes},{evictions},{hits},{misses},{}\n",
+                "{i},{label},{pitch:.0},{:.3},{:.3},{:.3},{:.3},{:.3},{gpu},{},{},{},{resident},{},{},{},{},{},{bytes},{evictions},{hits},{misses},{}\n",
                 ms(m.cpu_time), ms(m.phases.prepare), ms(m.phases.pass), ms(m.phases.clouds),
                 ms(m.phases.shadow_assemble),
-                m.visible_layers, m.draw_calls, m.tiles_drawn, m.frame_dropped,
+                m.visible_layers, m.draw_calls, m.tiles_drawn,
+                t.desired, t.retained, t.pending_overview, t.pending_visible, t.pending_prefetch,
+                m.frame_dropped,
             ));
         }
         let path = format!("{}/profile.csv", cli.out_dir);
         if std::fs::write(&path, csv).is_ok() {
             eprintln!("  per-step trace → {path} ({} rows)", profiles.len());
+        }
+    }
+
+    // Per-pass CSV (slice D1): the frame graph's report for every step — one
+    // row per pass instance, with its phase and CPU encode time. This is the
+    // decomposition of `pass_ms`: sorting it by cpu_ms answers "which pass
+    // got slow at which camera pose" directly.
+    {
+        let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+        let mut csv = String::from("idx,step,pass,phase,cpu_ms,skipped\n");
+        let mut rows = 0usize;
+        for (i, (label, _pitch, m)) in profiles.iter().enumerate() {
+            for p in &m.passes {
+                csv.push_str(&format!(
+                    "{i},{label},{},{:?},{:.3},{}\n",
+                    p.label,
+                    p.phase,
+                    ms(p.cpu),
+                    p.skipped,
+                ));
+                rows += 1;
+            }
+        }
+        let path = format!("{}/passes.csv", cli.out_dir);
+        if std::fs::write(&path, csv).is_ok() {
+            eprintln!("  per-pass trace → {path} ({rows} rows)");
+        }
+    }
+
+    // Subsystem registry snapshot (slice D2): the S7 inspect document —
+    // per-subsystem live state + budget reports — captured at session end so
+    // every run leaves an inspectable record of what the map contained.
+    {
+        let path = format!("{}/inspect.json", cli.out_dir);
+        if std::fs::write(&path, map.inspect_json()).is_ok() {
+            eprintln!("  subsystem inspect → {path}");
         }
     }
 
@@ -1372,7 +1664,10 @@ fn main() {
         // A low-mid sun (18°) toward the east casts shadows westward across the
         // relief while keeping sun-facing slopes bright enough that occluded
         // ones visibly darken.
-        map.set_sun_position(Some(SunPosition { azimuth_deg: 95.0, altitude_deg: 18.0 }));
+        map.set_sun_position(Some(SunPosition {
+            azimuth_deg: 95.0,
+            altitude_deg: 18.0,
+        }));
         drain_tiles(&mut map, &basemap, &dem, &vector);
         // Let the shadow heightfield finish assembling: a REPLACEMENT field now
         // builds progressively over several frames (one row-chunk each) to keep
@@ -1413,7 +1708,10 @@ fn main() {
         }
         // Restore a normal sun; shadows stay ON to exercise the recompute path
         // as the camera moves through the nav phase below.
-        map.set_sun_position(Some(SunPosition { azimuth_deg: 145.0, altitude_deg: 30.0 }));
+        map.set_sun_position(Some(SunPosition {
+            azimuth_deg: 145.0,
+            altitude_deg: 30.0,
+        }));
     }
 
     // ---- Animated-navigation perf -----------------------------------------
@@ -1484,7 +1782,11 @@ fn main() {
         eprintln!("SCENARIO FAILED — reproduced a crash locally (see backtrace above).");
         std::process::exit(1);
     }
-    eprintln!("SCENARIO OK — {} frames in {} (no panic, no non-finite camera).", steps.len(), cli.out_dir);
+    eprintln!(
+        "SCENARIO OK — {} frames in {} (no panic, no non-finite camera).",
+        steps.len(),
+        cli.out_dir
+    );
 }
 
 /// Roll up the per-step FrameMetrics into a load/performance summary: overall
@@ -1506,8 +1808,12 @@ fn print_profile_summary(profiles: &[(String, f64, turbomap_core::FrameMetrics)]
         .max_by(|a, b| ms(a.2.cpu_time).partial_cmp(&ms(b.2.cpu_time)).unwrap())
         .unwrap();
     // Flat vs. steepest pitch frames, for the tilt-cost correlation.
-    let flattest = profiles.iter().min_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-    let steepest = profiles.iter().max_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    let flattest = profiles
+        .iter()
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    let steepest = profiles
+        .iter()
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
     eprintln!("\n  ── profile summary ({} frames) ──", profiles.len());
     eprintln!(

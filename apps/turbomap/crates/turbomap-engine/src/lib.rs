@@ -12,17 +12,20 @@
 //! but it stays driveable headless via a software adapter, which is how
 //! the golden tests and the `inspect` dev tool exercise it.
 
+pub(crate) mod codec;
+pub mod custom_layers;
 pub mod engine;
 pub mod geojson;
 pub mod host_resolver;
 pub mod resolver;
 
-pub use engine::{DrainStats, TurbomapEngine};
+pub use custom_layers::FlowFieldLayer;
+pub use engine::{hits_to_json, CustomLayerFactory, DrainStats, TurbomapEngine};
 pub use geojson::GeoJsonVectorSource;
 pub use host_resolver::HostDrivenResolver;
 pub use resolver::{ResolvedSource, SourceResolver};
 
 // Re-export the contract surface so hosts depend on one crate.
 pub use turbomap_scene::{
-    Capabilities, CameraState, Hit, LatLng, MapEngine, Scene, SceneDelta, ScreenPoint,
+    CameraState, Capabilities, Hit, LatLng, MapEngine, Scene, SceneDelta, ScreenPoint,
 };

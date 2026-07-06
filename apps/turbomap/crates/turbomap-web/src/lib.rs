@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use wasm_bindgen::prelude::*;
 
-use turbomap_core::{Camera as CoreCamera, LatLng as CoreLatLng, MapOptions, PendingTile, TileId};
+use turbomap_core::{Camera as CoreCamera, LatLng as CoreLatLng, MapOptions, TileId};
 use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine};
 use turbomap_scene::{LatLng, Scene, ScreenPoint};
 
@@ -89,7 +89,11 @@ impl TurboMap {
                 force_fallback_adapter: false,
             })
             .await
-            .map_err(|e| js_err(format!("no compatible GPU adapter (WebGPU unavailable?): {e}")))?;
+            .map_err(|e| {
+                js_err(format!(
+                    "no compatible GPU adapter (WebGPU unavailable?): {e}"
+                ))
+            })?;
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -198,29 +202,31 @@ impl TurboMap {
         self.engine.pump_tiles();
     }
 
-    /// Tiles the engine is waiting on, as a JSON array of
-    /// `{"kind","layer","z","x","y"}` — the host fetches each and pushes the
-    /// bytes back via the matching `ingest_*`. `kind` is raster/hillshade/
-    /// vector/terrain; `layer` is `__terrain` for the shared DEM.
-    pub fn pending_tiles(&self) -> String {
-        let items: Vec<String> = self
-            .engine
-            .pending_tiles()
-            .into_iter()
-            .map(|p| {
-                let (kind, layer, t) = match p {
-                    PendingTile::Raster { layer_id, tile } => ("raster", layer_id, tile),
-                    PendingTile::Hillshade { layer_id, tile } => ("hillshade", layer_id, tile),
-                    PendingTile::Vector { layer_id, tile } => ("vector", layer_id, tile),
-                    PendingTile::Terrain { tile } => ("terrain", "__terrain".to_string(), tile),
-                };
-                format!(
-                    "{{\"kind\":\"{kind}\",\"layer\":\"{layer}\",\"z\":{},\"x\":{},\"y\":{}}}",
-                    t.z, t.x, t.y
-                )
-            })
-            .collect();
-        format!("[{}]", items.join(","))
+    /// One streaming step (the plan boundary, slice B3.3):
+    /// `{"start":[{"id","kind","layer","z","x","y"}],"cancel":[ids]}`.
+    /// Fetch each `start` (they are priority-ordered and budget-truncated to
+    /// `max_start`), abort the transports for every `cancel` id and report
+    /// them via [`report_fetch_cancelled`](Self::report_fetch_cancelled).
+    /// Deliveries go through the ordinary `ingest_*`; failures through
+    /// [`report_fetch_failed`](Self::report_fetch_failed). A start the host
+    /// chooses not to run (lane full) must be reported cancelled so the
+    /// engine can re-issue it.
+    pub fn streaming_plan(&mut self, max_start: u32) -> String {
+        self.engine.streaming_plan_json(max_start as usize)
+    }
+
+    /// Report a `start` the host failed (network/decode error) — the chunk
+    /// re-pends if still wanted. `id` from the plan JSON (session-scoped
+    /// counter, exact in a JS number).
+    pub fn report_fetch_failed(&mut self, id: f64) {
+        self.engine
+            .fetch_failed(turbomap_world::RequestId(id as u64));
+    }
+
+    /// Report a `cancel` as honoured (or a `start` the host declined).
+    pub fn report_fetch_cancelled(&mut self, id: f64) {
+        self.engine
+            .fetch_cancelled(turbomap_world::RequestId(id as u64));
     }
 
     /// Push a fetched raster tile (encoded PNG/JPEG/WebP, exactly as served).
@@ -232,13 +238,13 @@ impl TurboMap {
 
     /// Push a fetched DEM tile (encoded Terrain-RGB / Terrarium image).
     pub fn ingest_terrain_tile(&mut self, z: u8, x: u32, y: u32, bytes: &[u8]) -> bool {
-        self.engine.ingest_terrain_encoded(TileId::new(z, x, y), bytes)
+        self.engine
+            .ingest_terrain_encoded(TileId::new(z, x, y), bytes)
     }
 
     /// Push a fetched vector tile (raw MVT protobuf bytes).
     pub fn ingest_vector_tile(&mut self, layer: &str, z: u8, x: u32, y: u32, bytes: &[u8]) -> bool {
-        self.engine
-            .ingest_mvt(layer, TileId::new(z, x, y), bytes)
+        self.engine.ingest_mvt(layer, TileId::new(z, x, y), bytes)
     }
 
     /// Render one frame to the canvas. Advances any in-flight camera animation
@@ -344,7 +350,10 @@ impl TurboMap {
         // screen-space delta regardless of any open panel/sheet.
         let target = cam
             .pixel_to_world(
-                (vp.0 / 2.0 - self.inset_right / 2.0 - dx, vp.1 / 2.0 - self.inset / 2.0 - dy),
+                (
+                    vp.0 / 2.0 - self.inset_right / 2.0 - dx,
+                    vp.1 / 2.0 - self.inset / 2.0 - dy,
+                ),
                 vp,
             )
             .to_lat_lng();
@@ -427,39 +436,19 @@ impl TurboMap {
         vec![lat, lng, if hit { 1.0 } else { 0.0 }]
     }
 
-    /// Enable terrain cast shadows at `strength` in `[0,1]` (0 = off).
-    pub fn set_terrain_shadows(&mut self, strength: f32) {
-        self.engine.set_terrain_shadows(strength);
+    /// Features under a screen point (device px) within `tolerance_px`,
+    /// top-most first, as a JSON array (plan P6.4):
+    /// `[{"layer":"...","feature_id":"...","properties":{...}}, ...]`.
+    /// Scene circles answer with their geo-json feature properties, so a
+    /// tapped pin resolves to its domain id without host-side geometry math.
+    pub fn hit_test(&self, x: f64, y: f64, tolerance_px: f64) -> String {
+        turbomap_engine::hits_to_json(&self.engine.hit_test(ScreenPoint::new(x, y), tolerance_px))
     }
 
-    /// Toggle terrain sun-lighting in 3D. `true` = lit (Lambertian shading +
-    /// shadows + haze); `false` = the bare bright basemap over the displaced
-    /// relief, so a plain 2D→3D switch doesn't darken the scene (and the heavy
-    /// per-fragment shading path is skipped). The host ties this to "sun mode".
-    pub fn set_terrain_lit(&mut self, lit: bool) {
-        self.engine.set_terrain_lit(lit);
-    }
-
-    /// Toggle far-distance atmospheric coloration (aerial perspective). `true` =
-    /// distant terrain takes the sky's hue when tilted toward the horizon;
-    /// `false` = crisp at every angle. The web ties this to a "Distance haze"
-    /// setting (off by default).
-    pub fn set_aerial_haze(&mut self, on: bool) {
-        self.engine.set_aerial_haze(on);
-    }
-
-    /// Basemap brightness gain for the 3D sun-lit terrain (1.0 = unchanged).
-    /// The web host raises it for dark imagery (satellite) so it reads under the
-    /// same lighting that suits bright topo. No effect on the flat 2D map.
-    pub fn set_basemap_gain(&mut self, gain: f32) {
-        self.engine.set_basemap_gain(gain);
-    }
-
-    /// Drive sun lighting from a unix timestamp (seconds), or `null` for the
-    /// default fixed sun.
-    pub fn set_sun_time(&mut self, unix_secs: Option<f64>) {
-        self.engine.set_sun_time(unix_secs);
-    }
+    // Environment (lighting, shadows, haze, basemap gain) is scene state:
+    // declare it in the scene IR's `environment` block and re-apply the scene
+    // (plan P5.2 — one content plane). There are deliberately no imperative
+    // environment setters on this surface.
 }
 
 fn js_err(msg: String) -> JsValue {

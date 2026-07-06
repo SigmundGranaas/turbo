@@ -26,6 +26,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+/// Most named scopes a frame can time (each costs a query pair). Three are
+/// in use today (ao / frame-pass / clouds); headroom for D2 subsystems.
+const SCOPE_CAP: usize = 8;
+
 pub(crate) struct GpuTimestamps {
     query_set: wgpu::QuerySet,
     /// Plain-GPU buffer the query writes resolve into (QUERY_RESOLVE).
@@ -47,6 +51,19 @@ pub(crate) struct GpuTimestamps {
     /// reading arrives; lingers between frames so the metric is
     /// stable to display.
     pub last_duration_ns: u64,
+    /// Latest per-scope GPU times `(name, ns)`, one-frame delayed like
+    /// `last_duration_ns`. The decomposition of the frame total into the
+    /// frame's wgpu passes (slice D1) — CPU encode times can't see this.
+    pub last_scopes: Vec<(&'static str, u64)>,
+    /// Scope names opened this frame, in order (query pair `i` = queries
+    /// `2 + 2i` / `3 + 2i`).
+    scope_names: Vec<&'static str>,
+    /// Index of the currently open scope, if any — `scope_end` writes its
+    /// closing timestamp. No nesting (frame chunks are sequential).
+    open_scope: Option<usize>,
+    /// Scope names of the frame whose readback is in flight, so
+    /// `try_drain` can label the decoded pairs.
+    armed_names: Vec<&'static str>,
     /// True if `end` has been called this frame; gates `kick_async`.
     has_pending_resolve: bool,
 }
@@ -61,25 +78,29 @@ impl GpuTimestamps {
         // We need both. (TIMESTAMP_QUERY_INSIDE_PASSES is a third
         // gate for inside a render pass; we write at pass boundaries
         // only, so we don't need it.)
-        let needed = wgpu::Features::TIMESTAMP_QUERY
-            | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
+        let needed =
+            wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
         if !device.features().contains(needed) {
             return None;
         }
+        // Queries 0/1 bracket the whole frame; pairs from 2 up are the
+        // named scopes.
+        let count = (2 + 2 * SCOPE_CAP) as u32;
+        let bytes = (count as u64) * 8;
         let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
             label: Some("turbomap-frame-timestamps"),
             ty: wgpu::QueryType::Timestamp,
-            count: 2,
+            count,
         });
         let resolve_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("turbomap-frame-timestamps-resolve"),
-            size: 16, // 2 × u64
+            size: bytes,
             usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         let readback_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("turbomap-frame-timestamps-readback"),
-            size: 16,
+            size: bytes,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -91,6 +112,10 @@ impl GpuTimestamps {
             mapping_in_flight: Arc::new(AtomicBool::new(false)),
             ready: Arc::new(AtomicBool::new(false)),
             last_duration_ns: 0,
+            last_scopes: Vec::new(),
+            scope_names: Vec::new(),
+            open_scope: None,
+            armed_names: Vec::new(),
             has_pending_resolve: false,
         })
     }
@@ -103,19 +128,31 @@ impl GpuTimestamps {
         }
         let slice = self.readback_buffer.slice(..);
         let data = slice.get_mapped_range();
-        // Two little-endian u64 timestamps in raw GPU ticks.
-        let mut t0 = [0u8; 8];
-        let mut t1 = [0u8; 8];
-        t0.copy_from_slice(&data[0..8]);
-        t1.copy_from_slice(&data[8..16]);
-        let t0 = u64::from_le_bytes(t0);
-        let t1 = u64::from_le_bytes(t1);
-        drop(data);
-        self.readback_buffer.unmap();
+        // Little-endian u64 timestamps in raw GPU ticks: frame begin/end at
+        // 0/1, then one pair per armed scope.
+        let read = |i: usize| -> u64 {
+            let mut b = [0u8; 8];
+            b.copy_from_slice(&data[i * 8..i * 8 + 8]);
+            u64::from_le_bytes(b)
+        };
+        let t0 = read(0);
+        let t1 = read(1);
         // Some backends report monotonically-decreasing or wrapping
         // ticks if the queue resets; treat that as a noisy frame.
-        let ticks = t1.saturating_sub(t0);
-        self.last_duration_ns = (ticks as f64 * self.period_ns as f64) as u64;
+        let to_ns = |ticks: u64| (ticks as f64 * self.period_ns as f64) as u64;
+        self.last_duration_ns = to_ns(t1.saturating_sub(t0));
+        self.last_scopes = self
+            .armed_names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                let s0 = read(2 + 2 * i);
+                let s1 = read(3 + 2 * i);
+                (*name, to_ns(s1.saturating_sub(s0)))
+            })
+            .collect();
+        drop(data);
+        self.readback_buffer.unmap();
         self.ready.store(false, Ordering::Release);
         self.mapping_in_flight.store(false, Ordering::Release);
     }
@@ -133,17 +170,52 @@ impl GpuTimestamps {
         if !self.buffer_free() {
             return;
         }
+        self.scope_names.clear();
+        self.open_scope = None;
         encoder.write_timestamp(&self.query_set, 0);
         self.has_pending_resolve = true;
+    }
+
+    /// Open a named GPU scope at encoder level (between passes). Scopes are
+    /// sequential, not nested; extras past [`SCOPE_CAP`] are silently
+    /// dropped (the frame total still covers them).
+    pub fn scope_begin(&mut self, name: &'static str, encoder: &mut wgpu::CommandEncoder) {
+        if !self.has_pending_resolve || self.scope_names.len() == SCOPE_CAP {
+            return;
+        }
+        debug_assert!(self.open_scope.is_none(), "GPU scopes don't nest");
+        let i = self.scope_names.len();
+        encoder.write_timestamp(&self.query_set, (2 + 2 * i) as u32);
+        self.scope_names.push(name);
+        self.open_scope = Some(i);
+    }
+
+    /// Close the currently open scope. No-op when `scope_begin` was
+    /// skipped (readback busy / cap reached).
+    pub fn scope_end(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        if let Some(i) = self.open_scope.take() {
+            encoder.write_timestamp(&self.query_set, (3 + 2 * i) as u32);
+        }
     }
 
     pub fn end(&mut self, encoder: &mut wgpu::CommandEncoder) {
         if !self.has_pending_resolve {
             return;
         }
+        debug_assert!(
+            self.open_scope.is_none(),
+            "a GPU scope is still open at frame end"
+        );
         encoder.write_timestamp(&self.query_set, 1);
-        encoder.resolve_query_set(&self.query_set, 0..2, &self.resolve_buffer, 0);
-        encoder.copy_buffer_to_buffer(&self.resolve_buffer, 0, &self.readback_buffer, 0, 16);
+        let queries = (2 + 2 * self.scope_names.len()) as u32;
+        encoder.resolve_query_set(&self.query_set, 0..queries, &self.resolve_buffer, 0);
+        encoder.copy_buffer_to_buffer(
+            &self.resolve_buffer,
+            0,
+            &self.readback_buffer,
+            0,
+            queries as u64 * 8,
+        );
     }
 
     /// After the host submits the encoder built this frame, arm a
@@ -154,6 +226,9 @@ impl GpuTimestamps {
             return;
         }
         self.has_pending_resolve = false;
+        // Snapshot the scope labels for the frame whose readback is in
+        // flight — `try_drain` decodes against these.
+        self.armed_names = self.scope_names.clone();
         // Take ownership of the buffer; subsequent begin() will
         // short-circuit until try_drain releases it.
         self.mapping_in_flight.store(true, Ordering::Release);

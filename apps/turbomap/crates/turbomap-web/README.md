@@ -46,12 +46,20 @@ host-driven tile ingest, and a rendered frame — before any React work.
 ## API surface
 
 Mirrors the Kotlin/Swift FFI (`turbomap-ffi/src/lib.rs`): `TurboMap.create`
-(async), `apply_scene`, `pending_tiles` → `ingest_raster_tile` /
-`ingest_terrain_tile` / `ingest_vector_tile`, `render`, `tick`, `is_animating`,
-`resize`, `set_camera`, `camera_json`, `pan_by_pixels`, `zoom_around`,
-`orbit_around`, `ease_to`, `project`, `unproject`, `set_viewport_inset`,
-`set_terrain_shadows`, `set_realistic_water`, `set_sun_time`.
+(async), `apply_scene`, the streaming plan (`streaming_plan_json` →
+`ingest_raster_tile` / `ingest_terrain_tile` / `ingest_vector_tile`, with
+`report_fetch_failed` / `report_fetch_cancelled`), `render`, `tick`,
+`is_animating`, `resize`, `set_camera`, `camera_json`, `pan_by_pixels`,
+`zoom_around`, `orbit_around`, `ease_to`, `project`, `unproject`,
+`set_viewport_inset`.
 
-Tile IO is **host-driven**: read `pending_tiles()` (JSON
-`[{kind,layer,z,x,y}]`), fetch each (the host owns the URL templates + auth +
-caching), and push bytes back via the matching `ingest_*`.
+Tile IO is **host-driven** via the STREAMING PLAN (plan P5.1):
+`streaming_plan_json(max_start)` mints priority-ordered
+`{"start":[{id,kind,layer,z,x,y}],"cancel":[ids]}`; the host fetches (it owns
+the URL templates + auth + caching), pushes bytes back via the matching
+`ingest_*`, and reports failures/cancels by request id.
+
+Content is **scene-declared** (plan P5.2): lighting, terrain shadows, haze,
+basemap gain, clouds, and route tubes live in the Scene IR's `environment`
+block and `tube` layers — there are no imperative content setters on this
+surface.

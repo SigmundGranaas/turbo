@@ -1,279 +1,245 @@
-//! `MapHost` — owns the `Map` plus the tile-fetch pipeline.
+//! `FetchPipeline` — the desktop host's tile-transport loop.
 //!
-//! Before this existed, three near-identical drain loops and a
-//! 50-line "spawn fetches by priority" block lived inline in
-//! `App::on_redraw`. Every new tile kind (we're adding vector
-//! displacement next) required hand-copying the same five
-//! responsibilities into `app.rs`:
+//! Pre-P6.2 this module was `MapHost`: it OWNED the core `Map` and three
+//! decode-happy pumps. The app is now an ordinary Scene host on
+//! `TurbomapEngine` (the engine owns the map and the codec), so what
+//! remains here is exactly the host half of the streaming contract:
 //!
-//! 1. drain the worker channel
-//! 2. ingest decoded data into `Map`
-//! 3. track the `(layer, tile)` inflight set
-//! 4. honour the per-layer backpressure cap
-//! 5. retry-backoff on failure
+//! 1. take one `streaming_plan` per frame, sized to the free lane capacity
+//! 2. spawn raw-byte fetches on the [`crate::runtime::BytesPump`]s
+//! 3. drain finished fetches into `engine.ingest_*` (bytes, not decodes)
+//! 4. report declines/failures back (`fetch_cancelled` / `fetch_failed`)
+//! 5. keep the `(layer, tile)` inflight set + retry backoff
 //!
-//! Owning that pipeline here means the App never sees a pump
-//! directly. It calls `drain_workers` and `dispatch_fetches`,
-//! reads a `Workload` snapshot for the scheduler, and otherwise
-//! talks to the `Map` through accessors.
+//! This mirrors the pre-rewrite dispatch logic (it was already plan-driven,
+//! slice B3.3b) — only the ingest side changed from decoded payloads to
+//! encoded bytes.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use turbomap_core::{Map, PendingTile, TileId, TileSource, VectorStyle, VectorTileSource};
+use turbomap_core::{PendingTile, TileId};
+use turbomap_engine::TurbomapEngine;
 
-use crate::runtime::{RasterFetchPump, RasterOutcome, VectorFetchPump, VectorOutcome};
+use crate::runtime::BytesPump;
 use crate::schedule::Workload;
 
-/// Layer identifiers the App passes around so raster + vector
-/// + DEM fetches can be tracked in a single `inflight` set
-/// without colliding.
-pub const RASTER_LAYER_ID: &str = "kartverket-topo-grey";
-pub const HILLSHADE_LAYER_ID: &str = "turbo-dem";
-pub const VECTOR_LAYER_ID: &str = "versatiles-osm";
-/// Sentinel for terrain DEM tiles — they live at Map level,
-/// not on a named layer, but the inflight set still needs to
-/// disambiguate them from a basemap raster at the same TileId.
+/// Sentinel layer key for terrain DEM tiles — they live at engine level,
+/// not on a named layer, but the inflight set still needs to disambiguate
+/// them from a basemap raster at the same `TileId`.
 pub const TERRAIN_KEY: &str = "__terrain";
 
-/// Per-layer cap on outstanding network fetches. Bigger means
-/// faster fills on cold start; smaller means fast pan/zoom
-/// doesn't queue hundreds of doomed-stale fetches.
-pub const MAX_INFLIGHT_PER_LAYER: usize = 16;
+/// Per-lane cap on outstanding network fetches. Bigger means faster fills
+/// on cold start; smaller means fast pan/zoom doesn't queue hundreds of
+/// doomed-stale fetches.
+pub const MAX_INFLIGHT_PER_LANE: usize = 16;
 
-/// How long a tile that failed to load stays on the
-/// don't-retry list. Stops a single rate-limit response from
-/// snowballing into a per-frame retry storm.
+/// How long a tile that failed to load stays on the don't-retry list.
+/// Stops a single rate-limit response from snowballing into a per-frame
+/// retry storm.
 pub const RETRY_BACKOFF: Duration = Duration::from_secs(8);
 
-/// Composite owner of the `Map` and its background-fetch
-/// pipeline.
-pub struct MapHost {
-    map: Map,
-    vector_pump: VectorFetchPump,
-    raster_pump: RasterFetchPump,
-    /// `None` if the demo was launched without a DEM source
-    /// (no `TURBO_API_URL` env var). Pending Terrain tiles
-    /// from the Map are silently dropped in that case — the
-    /// hillshade layer just won't render until DEM is wired
-    /// in.
-    dem_pump: Option<RasterFetchPump>,
-    /// `(layer_id, tile_id)` — the layer prefix lets raster
-    /// and hillshade fetch the same (z,x,y) concurrently
-    /// without one silently masking the other (an earlier
-    /// bug from using a bare `HashSet<TileId>`).
-    inflight: HashSet<(&'static str, TileId)>,
-    /// Tiles whose last fetch failed, plus the timestamp.
-    /// `tick` GCs entries older than `RETRY_BACKOFF`.
-    recently_failed: HashMap<TileId, Instant>,
+/// The three transport lanes, one per pump. Vector layers all share one
+/// lane (they share the one vector endpoint); raster/DEM likewise.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Lane {
+    Vector,
+    Raster,
+    Terrain,
 }
 
-impl MapHost {
+pub struct FetchPipeline {
+    vector_pump: BytesPump,
+    raster_pump: BytesPump,
+    /// `None` if the demo was launched without a DEM source (no
+    /// `TURBO_API_URL` env var). Terrain starts from the plan are declined
+    /// in that case — the scene shouldn't declare a hillshade layer then
+    /// either, so in practice none are issued.
+    dem_pump: Option<BytesPump>,
+    /// `(lane, layer_id, tile)` — the lane + layer prefix lets raster and
+    /// terrain fetch the same `(z,x,y)` concurrently without one silently
+    /// masking the other.
+    inflight: HashSet<(Lane, String, TileId)>,
+    /// Fetches whose last attempt failed, plus the timestamp. `tick` GCs
+    /// entries older than [`RETRY_BACKOFF`].
+    recently_failed: HashMap<(Lane, String, TileId), Instant>,
+    /// Plan attempt ids for spawned fetches, so worker outcomes can report
+    /// `fetch_failed` (deliveries complete implicitly through `ingest_*`).
+    attempts: HashMap<(Lane, String, TileId), turbomap_core::RequestId>,
+}
+
+impl FetchPipeline {
     pub fn new(
-        map: Map,
-        vector_pump: VectorFetchPump,
-        raster_pump: RasterFetchPump,
-        dem_pump: Option<RasterFetchPump>,
+        vector_pump: BytesPump,
+        raster_pump: BytesPump,
+        dem_pump: Option<BytesPump>,
     ) -> Self {
         Self {
-            map,
             vector_pump,
             raster_pump,
             dem_pump,
             inflight: HashSet::new(),
             recently_failed: HashMap::new(),
+            attempts: HashMap::new(),
         }
     }
 
-    /// Direct access to the Map for input handling (camera
-    /// updates, markers, hit-test, etc.). Exposed because
-    /// nothing in those paths benefits from a wrapper.
-    pub fn map(&self) -> &Map {
-        &self.map
-    }
-    pub fn map_mut(&mut self) -> &mut Map {
-        &mut self.map
-    }
-
-    /// Per-tick advance + GC.
+    /// Per-tick GC of the retry-backoff list.
     pub fn tick(&mut self, now: Instant) {
-        self.map.tick(now);
         self.recently_failed
             .retain(|_, ts| now.duration_since(*ts) < RETRY_BACKOFF);
     }
 
-    /// Resize the map's render viewport (depth texture is
-    /// recreated inside `Map::resize`).
-    pub fn resize(&mut self, width: u32, height: u32) {
-        self.map.resize(width, height);
-    }
-
-    /// Render the map to `target` (single render pass per
-    /// visible layer, see `turbomap-core`).
-    pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
-        self.map.render(encoder, target);
-    }
-
-    /// Hook GPU-timestamp readback for the just-submitted
-    /// frame.
-    pub fn after_submit(&mut self) {
-        self.map.after_submit();
-    }
-
-    /// Drain decoded tiles from worker channels into the map.
-    /// Returns whether any work was applied (caller doesn't
-    /// currently use this but it's the natural shape for a
-    /// future "tick had effects" flag).
-    pub fn drain_workers(&mut self) -> bool {
-        let mut applied = false;
-        while let Ok(outcome) = self.vector_pump.rx.try_recv() {
-            applied = true;
-            match outcome {
-                VectorOutcome::Decoded {
-                    id,
-                    mesh,
-                    labels,
-                    icons,
-                    interactive,
-                } => {
-                    self.inflight.remove(&(VECTOR_LAYER_ID, id));
-                    self.recently_failed.remove(&id);
-                    self.map.ingest_vector_mesh(
-                        VECTOR_LAYER_ID,
-                        id,
-                        &mesh,
-                        labels,
-                        icons,
-                        interactive,
-                    );
+    /// Drain finished fetches from the worker channels into the engine.
+    /// Bytes go straight through `ingest_*` — the engine's codec decodes
+    /// off the render thread and applies under the per-frame budget.
+    pub fn drain(&mut self, engine: &mut TurbomapEngine) {
+        while let Ok(out) = self.vector_pump.rx.try_recv() {
+            let key = (Lane::Vector, out.layer, out.tile);
+            self.inflight.remove(&key);
+            match out.bytes {
+                Some(bytes) => {
+                    self.attempts.remove(&key);
+                    self.recently_failed.remove(&key);
+                    engine.ingest_mvt(&key.1, out.tile, &bytes);
                 }
-                VectorOutcome::Failed(id) => {
-                    self.inflight.remove(&(VECTOR_LAYER_ID, id));
-                    self.recently_failed.insert(id, Instant::now());
+                None => {
+                    if let Some(req) = self.attempts.remove(&key) {
+                        engine.fetch_failed(req);
+                    }
+                    self.recently_failed.insert(key, Instant::now());
                 }
             }
         }
-        while let Ok(outcome) = self.raster_pump.rx.try_recv() {
-            applied = true;
-            match outcome {
-                RasterOutcome::Decoded {
-                    id,
-                    rgba,
-                    width,
-                    height,
-                } => {
-                    self.inflight.remove(&(RASTER_LAYER_ID, id));
-                    self.recently_failed.remove(&id);
-                    self.map
-                        .ingest_raster(RASTER_LAYER_ID, id, &rgba, width, height);
+        while let Ok(out) = self.raster_pump.rx.try_recv() {
+            let key = (Lane::Raster, out.layer, out.tile);
+            self.inflight.remove(&key);
+            match out.bytes {
+                Some(bytes) => {
+                    self.attempts.remove(&key);
+                    self.recently_failed.remove(&key);
+                    engine.ingest_raster_encoded(&key.1, out.tile, &bytes);
                 }
-                RasterOutcome::Failed(id) => {
-                    self.inflight.remove(&(RASTER_LAYER_ID, id));
-                    self.recently_failed.insert(id, Instant::now());
+                None => {
+                    if let Some(req) = self.attempts.remove(&key) {
+                        engine.fetch_failed(req);
+                    }
+                    self.recently_failed.insert(key, Instant::now());
                 }
             }
         }
         if let Some(dem_pump) = self.dem_pump.as_ref() {
-            while let Ok(outcome) = dem_pump.rx.try_recv() {
-                applied = true;
-                match outcome {
-                    RasterOutcome::Decoded {
-                        id,
-                        rgba,
-                        width,
-                        height,
-                    } => {
-                        self.inflight.remove(&(TERRAIN_KEY, id));
-                        self.recently_failed.remove(&id);
-                        self.map.ingest_terrain_tile(id, &rgba, width, height);
+            let mut done = Vec::new();
+            while let Ok(out) = dem_pump.rx.try_recv() {
+                done.push(out);
+            }
+            for out in done {
+                let key = (Lane::Terrain, out.layer, out.tile);
+                self.inflight.remove(&key);
+                match out.bytes {
+                    Some(bytes) => {
+                        self.attempts.remove(&key);
+                        self.recently_failed.remove(&key);
+                        engine.ingest_terrain_encoded(out.tile, &bytes);
                     }
-                    RasterOutcome::Failed(id) => {
-                        self.inflight.remove(&(TERRAIN_KEY, id));
-                        self.recently_failed.insert(id, Instant::now());
+                    None => {
+                        if let Some(req) = self.attempts.remove(&key) {
+                            engine.fetch_failed(req);
+                        }
+                        self.recently_failed.insert(key, Instant::now());
                     }
                 }
             }
         }
-        applied
     }
 
-    /// Look at `Map::pending_tiles`, prioritise by distance
-    /// to the camera centre, then spawn fetches up to the
-    /// per-layer cap. Tiles in the recently-failed set are
-    /// skipped this tick.
-    pub fn dispatch_fetches(&mut self) {
-        let pending = self.map.pending_tiles();
-        let centre = self.map.camera().center.to_world();
-        let mut prioritised: Vec<PendingTile> = pending;
-        prioritised.sort_by(|a, b| {
-            let da = tile_distance_to(a, centre);
-            let db = tile_distance_to(b, centre);
-            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-        });
-        let mut vector_in = self
-            .inflight
-            .iter()
-            .filter(|(k, _)| *k == VECTOR_LAYER_ID)
-            .count();
-        let mut raster_in = self
-            .inflight
-            .iter()
-            .filter(|(k, _)| *k == RASTER_LAYER_ID)
-            .count();
-        let mut terrain_in = self
-            .inflight
-            .iter()
-            .filter(|(k, _)| *k == TERRAIN_KEY)
-            .count();
-        for pending in prioritised {
-            match pending {
-                PendingTile::Vector { tile, .. } => {
-                    if self.recently_failed.contains_key(&tile)
-                        || vector_in >= MAX_INFLIGHT_PER_LAYER
-                    {
-                        continue;
-                    }
-                    if self.inflight.insert((VECTOR_LAYER_ID, tile)) {
-                        self.vector_pump.spawn_fetch(tile);
-                        vector_in += 1;
-                    }
-                }
-                PendingTile::Raster { tile, .. } => {
-                    if self.recently_failed.contains_key(&tile)
-                        || raster_in >= MAX_INFLIGHT_PER_LAYER
-                    {
-                        continue;
-                    }
-                    if self.inflight.insert((RASTER_LAYER_ID, tile)) {
-                        self.raster_pump.spawn_fetch(tile);
-                        raster_in += 1;
-                    }
-                }
-                // Hillshade is fed by terrain DEM tiles, not its
-                // own pump — drop these.
-                PendingTile::Hillshade { .. } => {}
+    /// Take one engine `streaming_plan` sized to the free lane capacity and
+    /// spawn its `start` fetches (already globally ordered by the one
+    /// priority score). Every start carries a `RequestId`; starts we decline
+    /// (lane full, retry backoff, unsupported kind) are reported cancelled
+    /// so the engine re-issues them later, and `cancel` entries are
+    /// acknowledged immediately — a blocking `reqwest` fetch can't be
+    /// aborted mid-flight, but the inflight set prevents a duplicate spawn
+    /// and a late delivery simply completes whatever attempt is current.
+    pub fn dispatch(&mut self, engine: &mut TurbomapEngine) {
+        let (mut vector_in, mut raster_in, mut terrain_in) = (0usize, 0usize, 0usize);
+        for (lane, _, _) in &self.inflight {
+            match lane {
+                Lane::Vector => vector_in += 1,
+                Lane::Raster => raster_in += 1,
+                Lane::Terrain => terrain_in += 1,
+            }
+        }
+        let free = |used: usize| MAX_INFLIGHT_PER_LANE.saturating_sub(used);
+        let budget = free(vector_in) + free(raster_in) + free(terrain_in);
+        let plan = engine.streaming_plan(budget);
+        for id in plan.cancel {
+            engine.fetch_cancelled(id);
+        }
+        let mut declined: Vec<turbomap_core::RequestId> = Vec::new();
+        for req in plan.start {
+            let id = req.id;
+            let (lane, layer, tile, pump, lane_used) = match req.fetch {
+                PendingTile::Vector { layer_id, tile } => (
+                    Lane::Vector,
+                    layer_id,
+                    tile,
+                    &self.vector_pump,
+                    &mut vector_in,
+                ),
+                PendingTile::Raster { layer_id, tile } => (
+                    Lane::Raster,
+                    layer_id,
+                    tile,
+                    &self.raster_pump,
+                    &mut raster_in,
+                ),
                 PendingTile::Terrain { tile } => {
                     let Some(dem_pump) = self.dem_pump.as_ref() else {
+                        declined.push(id);
                         continue;
                     };
-                    if self.recently_failed.contains_key(&tile)
-                        || terrain_in >= MAX_INFLIGHT_PER_LAYER
-                    {
-                        continue;
-                    }
-                    if self.inflight.insert((TERRAIN_KEY, tile)) {
-                        dem_pump.spawn_fetch(tile);
-                        terrain_in += 1;
-                    }
+                    (
+                        Lane::Terrain,
+                        TERRAIN_KEY.to_string(),
+                        tile,
+                        dem_pump,
+                        &mut terrain_in,
+                    )
                 }
+                // Hillshade overlays are fed by terrain DEM tiles, not
+                // their own tile stream — decline these honestly.
+                PendingTile::Hillshade { .. } => {
+                    declined.push(id);
+                    continue;
+                }
+            };
+            let key = (lane, layer, tile);
+            if self.recently_failed.contains_key(&key)
+                || *lane_used >= MAX_INFLIGHT_PER_LANE
+                || !self.inflight.insert(key.clone())
+            {
+                declined.push(id);
+                continue;
             }
+            pump.spawn_fetch(key.1.clone(), tile);
+            self.attempts.insert(key, id);
+            *lane_used += 1;
+        }
+        // Declined starts go back to the engine so they re-issue on a
+        // later plan.
+        for id in declined {
+            engine.fetch_cancelled(id);
         }
     }
 
-    /// Snapshot for the render scheduler. Read once per tick
-    /// in `App::about_to_wait`.
-    pub fn workload(&self) -> Workload {
+    /// Snapshot for the render scheduler. Read once per tick in
+    /// `App::about_to_wait`. The engine's `is_animating` already folds in
+    /// its decode backlog (delivered-but-not-yet-drawable tiles apply
+    /// inside `render()`, so a sleeping host would strand them); the
+    /// backlog also counts as worker data so a fresh delivery wakes the
+    /// loop immediately.
+    pub fn workload(&self, engine: &TurbomapEngine) -> Workload {
         Workload {
             workers_have_data: !self.vector_pump.rx.is_empty()
                 || !self.raster_pump.rx.is_empty()
@@ -281,44 +247,10 @@ impl MapHost {
                     .dem_pump
                     .as_ref()
                     .map(|p| !p.rx.is_empty())
-                    .unwrap_or(false),
+                    .unwrap_or(false)
+                || engine.decode_backlog() > 0,
             workers_in_flight: !self.inflight.is_empty(),
-            map_animating: self.map.is_animating(),
+            map_animating: engine.is_animating(),
         }
     }
-}
-
-fn tile_distance_to(p: &PendingTile, centre: turbomap_core::WorldPoint) -> f64 {
-    let tile = match p {
-        PendingTile::Vector { tile, .. }
-        | PendingTile::Raster { tile, .. }
-        | PendingTile::Hillshade { tile, .. }
-        | PendingTile::Terrain { tile } => tile,
-    };
-    let n = (1u64 << tile.z) as f64;
-    let cx = (tile.x as f64 + 0.5) / n;
-    let cy = (tile.y as f64 + 0.5) / n;
-    let dx = cx - centre.x;
-    let dy = cy - centre.y;
-    (dx * dx + dy * dy).sqrt()
-}
-
-/// Convenience helper to construct a `MapHost` plus its pumps
-/// from a set of tile sources + a vector style. Used by
-/// `App::resumed` so that constructor doesn't need to spell
-/// out the pump wiring.
-pub fn build(
-    map: Map,
-    vector_source: Arc<dyn VectorTileSource>,
-    raster_source: Arc<dyn TileSource>,
-    dem_source: Option<Arc<dyn TileSource>>,
-    style: VectorStyle,
-    vector_workers: usize,
-    raster_workers: usize,
-    dem_workers: usize,
-) -> MapHost {
-    let vector_pump = VectorFetchPump::new(vector_source, style, vector_workers);
-    let raster_pump = RasterFetchPump::new(raster_source, raster_workers);
-    let dem_pump = dem_source.map(|d| RasterFetchPump::new(d, dem_workers));
-    MapHost::new(map, vector_pump, raster_pump, dem_pump)
 }

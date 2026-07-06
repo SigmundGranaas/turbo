@@ -27,18 +27,25 @@ use turbomap_engine::{
 use turbomap_golden::sources::{GaussianTerrainSource, ParchmentBasemap};
 use turbomap_golden::{headless, render_to_image, TARGET_FORMAT};
 use turbomap_scene::diff::{LayerChange, SourceChange};
-use turbomap_scene::{DemEncoding, Layer, LatLng, Paint, Scene, ScreenPoint, SourceDef};
+use turbomap_scene::{DemEncoding, LatLng, Layer, Paint, Scene, ScreenPoint, SourceDef};
 
 struct SyntheticResolver;
 impl SourceResolver for SyntheticResolver {
     fn resolve(&self, _id: &str, def: &SourceDef) -> ResolvedSource {
         match def {
             SourceDef::RasterXyz { .. } => ResolvedSource::Raster(Arc::new(ParchmentBasemap)),
-            SourceDef::DemXyz { .. } => ResolvedSource::Dem(Arc::new(GaussianTerrainSource::bergen())),
+            SourceDef::DemXyz { .. } => {
+                ResolvedSource::Dem(Arc::new(GaussianTerrainSource::bergen()))
+            }
             SourceDef::GeoJson { data } => {
                 ResolvedSource::Vector(Arc::new(GeoJsonVectorSource::new(data)))
             }
-            SourceDef::VectorXyz { .. } => ResolvedSource::Unsupported,
+            SourceDef::VectorXyz { .. }
+            | SourceDef::PmtilesRaster { .. }
+            | SourceDef::PmtilesVector { .. }
+            | SourceDef::PmtilesDem { .. }
+            | SourceDef::Field2D { .. }
+            | SourceDef::Chain { .. } => ResolvedSource::Unsupported,
         }
     }
 }
@@ -143,6 +150,11 @@ fn source_type(def: &SourceDef) -> &'static str {
         SourceDef::VectorXyz { .. } => "vector-xyz",
         SourceDef::GeoJson { .. } => "geojson",
         SourceDef::DemXyz { .. } => "dem-xyz",
+        SourceDef::PmtilesRaster { .. } => "pmtiles-raster",
+        SourceDef::PmtilesVector { .. } => "pmtiles-vector",
+        SourceDef::PmtilesDem { .. } => "pmtiles-dem",
+        SourceDef::Field2D { .. } => "field-2d",
+        SourceDef::Chain { .. } => "chain",
     }
 }
 
@@ -155,6 +167,7 @@ fn layer_type(layer: &Layer) -> &'static str {
         Layer::Circle { .. } => "circle",
         Layer::Symbol { .. } => "symbol",
         Layer::Hillshade { .. } => "hillshade",
+        Layer::Tube { .. } => "tube",
         Layer::Custom { .. } => "custom",
     }
 }
@@ -202,7 +215,11 @@ fn delta_json(delta: &SceneDelta) -> Value {
 
 fn main() {
     let args = parse_args();
-    let scene = args.scene.as_deref().map(load_scene).unwrap_or_else(default_scene);
+    let scene = args
+        .scene
+        .as_deref()
+        .map(load_scene)
+        .unwrap_or_else(default_scene);
 
     let gpu = headless().expect("no wgpu adapter (install mesa-vulkan-drivers for a software one)");
 
@@ -235,7 +252,9 @@ fn main() {
     let delta = engine.apply(scene.clone());
     let drain = engine.pump_tiles();
 
-    let image = render_to_image(&gpu, args.width, args.height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, args.width, args.height, |enc, view| {
+        engine.render(enc, view)
+    });
     engine.after_submit();
     image.save(&args.png).expect("write png");
 
