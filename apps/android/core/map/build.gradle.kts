@@ -22,4 +22,6 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.ui.test.junit4)
     testImplementation(libs.kotlinx.coroutines.test)
+    // Hermetic local tile server for the offline-download request-fidelity test.
+    testImplementation(libs.okhttp.mockwebserver)
 }
