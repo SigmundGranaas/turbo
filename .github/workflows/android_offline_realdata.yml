@@ -1,0 +1,68 @@
+name: Android offline — real Kartverket data (on demand)
+
+# Downloads ACTUAL Kartverket topo tiles for the Sjunkhatten region through the
+# production offline manager and validates the real download UX (real bytes on
+# disk, real size accounting, download → evict → re-download).
+#
+# It hits a live third-party service (cache.kartverket.no), so it is NOT on the
+# per-push/PR gate — a Kartverket outage or rate-limit must never red an
+# unrelated PR. Runs on manual dispatch and a weekly schedule instead, exactly
+# like the turbomap sim gates. The test itself is `assumeTrue`-skipped unless
+# TURBO_REAL_TILES=1, so it is inert everywhere else.
+on:
+  workflow_dispatch:
+  schedule:
+    # Mondays 03:15 UTC.
+    - cron: '15 3 * * 1'
+
+jobs:
+  real-offline:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/android
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+
+      - name: Install protoc (turbomap-mvt compiles .proto)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Rust + Android targets + cargo-ndk
+        run: |
+          rustup toolchain install 1.94.1 --profile minimal --target aarch64-linux-android --target x86_64-linux-android
+          cargo install cargo-ndk --locked
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/turbomap
+
+      # --rerun-tasks: the test is env-gated, so Gradle would otherwise treat a
+      # prior skipped run as up-to-date and not re-execute it.
+      - name: Download real Kartverket Sjunkhatten tiles + validate
+        env:
+          TURBO_REAL_TILES: "1"
+        run: >-
+          ./gradlew :core:map:testDebugUnitTest
+          --tests '*WgpuOfflineTileManagerRealNetworkTest*'
+          --rerun-tasks --no-configuration-cache
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-offline-report
+          path: apps/android/core/map/build/reports/tests/
+          if-no-files-found: ignore

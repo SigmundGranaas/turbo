@@ -460,3 +460,25 @@ download → evict → re-download UX validated there too.
   WebGPU-browser session for the web map. Then the payoff round
   (architecture Phase 5: water/snow/vegetation as pure subsystems) has
   a fully-adopted, fully-enforced foundation to land on.
+- _2026-07-05_: **P6.6 — real Kartverket data, not just the mechanism.**
+  The airplane-mode gate proved the store→render path with *synthetic*
+  tiles against an unresolvable host; that left the real download UX
+  (real bytes, real size accounting, evict→re-download) untested with
+  live data. Added `WgpuOfflineTileManagerRealNetworkTest` (JVM,
+  `core:map`): it drives the PRODUCTION `WgpuOfflineTileManager` — the
+  exact `MapStyles.turbomapRasterSpecs` URL knowledge + a real OkHttp
+  fetcher, no test doubles on the fetch path — to download the actual
+  Kartverket topo tiles for the **Sjunkhatten** box (67.25–67.27N,
+  15.00–15.04E, z8–9), then asserts every enumerated tile is on disk as
+  a real PNG (magic bytes), the region's `tileCount`/`sizeBytes` reflect
+  real bytes, and download→evict(delete)→re-download restores them.
+  Because it hits a live government service it is `assumeTrue`-gated on
+  `TURBO_REAL_TILES=1` — inert (skipped) on every per-push/PR run, so a
+  Kartverket outage can never red an unrelated PR — and runnable via the
+  new `android_offline_realdata` workflow (manual dispatch + weekly, the
+  sim-gate pattern). Compile-unverified here (no Android SDK; this
+  container's proxy also blocks Kartverket) — its first real execution is
+  that dispatch job. Documented follow-up: a `core:map` androidTest that
+  downloads real Sjunkhatten tiles and then *renders* them offline on the
+  emulator, closing the real-tile→pixel chain (the synthetic on-device
+  gate + this real-fetch gate already cover both halves separately).
