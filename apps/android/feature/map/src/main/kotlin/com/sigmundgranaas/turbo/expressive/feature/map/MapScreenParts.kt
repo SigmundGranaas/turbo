@@ -46,13 +46,39 @@ internal fun nearbyCheckpoints(state: RouteUiState, markers: List<Marker>): List
 }
 
 /** Export a single marker as a .geojson file and fire a share chooser. */
-internal fun shareMarkerGeoJson(context: android.content.Context, marker: Marker) {
+internal fun shareMarkerGeoJson(context: android.content.Context, marker: Marker) =
+    shareMarkerFile(
+        context,
+        marker,
+        fileName = com.sigmundgranaas.turbo.expressive.feature.markers.MarkerGeoJson.fileName(marker.name),
+        body = com.sigmundgranaas.turbo.expressive.feature.markers.MarkerGeoJson.encode(listOf(marker)),
+        mime = "application/geo+json",
+    )
+
+/** Export a single marker as a GPX `<wpt>` file — the waypoint format GPS
+ *  devices import — and fire a share chooser. */
+internal fun shareMarkerGpx(context: android.content.Context, marker: Marker) =
+    shareMarkerFile(
+        context,
+        marker,
+        fileName = com.sigmundgranaas.turbo.expressive.feature.markers.MarkerGpx.fileName(marker.name),
+        body = com.sigmundgranaas.turbo.expressive.feature.markers.MarkerGpx.encode(listOf(marker)),
+        mime = "application/gpx+xml",
+    )
+
+private fun shareMarkerFile(
+    context: android.content.Context,
+    marker: Marker,
+    fileName: String,
+    body: String,
+    mime: String,
+) {
     val dir = java.io.File(context.cacheDir, "markers").apply { mkdirs() }
-    val file = java.io.File(dir, com.sigmundgranaas.turbo.expressive.feature.markers.MarkerGeoJson.fileName(marker.name))
-    file.writeText(com.sigmundgranaas.turbo.expressive.feature.markers.MarkerGeoJson.encode(listOf(marker)))
+    val file = java.io.File(dir, fileName)
+    file.writeText(body)
     val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-        type = "application/geo+json"
+        type = mime
         putExtra(android.content.Intent.EXTRA_STREAM, uri)
         clipData = android.content.ClipData.newRawUri(marker.name, uri)
         addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)

@@ -37,6 +37,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Navigation
@@ -514,6 +515,14 @@ fun MapScreen(
                         label = context.getString(R.string.marker_add_to_collection),
                         icon = androidx.compose.material.icons.Icons.Rounded.Folder,
                         onInvoke = { ui.addToCollection = marker },
+                    ),
+                    // GPX <wpt> export beside the standard GeoJSON share — the waypoint
+                    // format GPS devices (Garmin/Gaia/Locus) actually import.
+                    com.sigmundgranaas.turbo.expressive.core.map.MapEntityAction(
+                        id = "export_gpx",
+                        label = context.getString(R.string.marker_export_format, "GPX"),
+                        icon = androidx.compose.material.icons.Icons.Rounded.FileUpload,
+                        onInvoke = { shareMarkerGpx(context, marker) },
                     ),
                 ),
                 body = {

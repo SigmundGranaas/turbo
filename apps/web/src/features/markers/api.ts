@@ -90,3 +90,44 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string> 
     return '';
   }
 }
+
+// ── Export ────────────────────────────────────────────────────────────────
+
+/** Waypoint export formats: GPX `<wpt>` (what GPS devices import) and a
+ *  GeoJSON FeatureCollection of Points with `{title, description?, icon?}`
+ *  properties — the same shape the Android client (and the old Flutter app)
+ *  emits, so exported files stay interchangeable. */
+export type MarkerExportFormat = 'gpx' | 'geojson';
+
+export function serializeMarkers(
+  markers: Marker[],
+  fmt: MarkerExportFormat,
+): { text: string; ext: string; mime: string } {
+  if (fmt === 'gpx') return { text: toGpxWaypoints(markers), ext: 'gpx', mime: 'application/gpx+xml' };
+  return { text: toGeoJsonPoints(markers), ext: 'geojson', mime: 'application/geo+json' };
+}
+
+function toGpxWaypoints(markers: Marker[]): string {
+  const esc = (s: string) => s.replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c] ?? c);
+  const wpts = markers
+    .map((m) => {
+      const desc = m.description ? `\n    <desc>${esc(m.description)}</desc>` : '';
+      const sym = m.icon ? `\n    <sym>${esc(m.icon)}</sym>` : '';
+      return `  <wpt lat="${m.lat}" lon="${m.lng}">\n    <name>${esc(m.name)}</name>${desc}${sym}\n  </wpt>`;
+    })
+    .join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Turbo" xmlns="http://www.topografix.com/GPX/1/1">\n${wpts}\n</gpx>\n`;
+}
+
+function toGeoJsonPoints(markers: Marker[]): string {
+  const features = markers.map((m) => ({
+    type: 'Feature',
+    properties: {
+      title: m.name,
+      ...(m.description ? { description: m.description } : {}),
+      ...(m.icon ? { icon: m.icon } : {}),
+    },
+    geometry: { type: 'Point', coordinates: [m.lng, m.lat] },
+  }));
+  return JSON.stringify({ type: 'FeatureCollection', features });
+}

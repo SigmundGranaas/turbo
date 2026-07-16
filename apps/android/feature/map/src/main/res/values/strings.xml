@@ -57,6 +57,7 @@
 
     <!-- Marker editor -->
     <string name="marker_add_to_collection">Add to collection</string>
+    <string name="marker_export_format">Export %1$s</string>
     <string name="marker_add_photo">Add photo</string>
 
     <!-- Layers sheet -->
