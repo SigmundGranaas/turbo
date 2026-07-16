@@ -166,6 +166,25 @@ max_grade_deg = 12.0
 turn_penalty_s = 12.0
 
 # ============================================================
+# Avoid Marked / round-trip self-avoidance.
+# ============================================================
+# The router penalises the GRAPH EDGES an avoided geometry runs along
+# (edge-based, never a spatial mesh buffer — a buffer would let the
+# route "shadow-walk" ~radius metres off-trail, parallel to the
+# corridor, forever). Off-trail base cost stays high, so the cheapest
+# way to avoid a trail is a genuinely divergent marked trail; only when
+# none exists does re-using the avoided edges win.
+#   edge_multiplier : cost multiplier on an avoided edge. Strong but
+#                     FINITE (soft) so a start/end on an avoided edge
+#                     still routes (peels off ASAP) instead of failing.
+#   radius_m        : edge-projection distance for avoided geometry not
+#                     itself on the graph. NOT a no-go tube width;
+#                     per-request overridable via `avoid_radius_m`.
+[avoid]
+edge_multiplier = 8.0
+radius_m = 30.0
+
+# ============================================================
 # Surface multipliers (graph edges) — currently baked into the
 # graph artifact at build time. Listed here for transparency.
 # Migrating these to runtime is part of Stage 2 follow-on; once

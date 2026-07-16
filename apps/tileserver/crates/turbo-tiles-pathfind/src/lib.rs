@@ -23,6 +23,7 @@
     clippy::too_many_arguments
 )]
 
+pub(crate) mod avoid;
 pub mod config;
 pub mod contributor;
 pub mod core;

@@ -39,6 +39,39 @@ pub struct CostConfig {
     /// up steep ground. Opt-in; off by default until validated.
     #[serde(default)]
     pub grade_limited: GradeLimitedConfig,
+    /// "Avoid Marked" / round-trip self-avoidance knobs. `#[serde(default)]`
+    /// so configs predating the feature still parse.
+    #[serde(default)]
+    pub avoid: AvoidConfig,
+}
+
+/// Knobs for the per-request "avoid" feature — penalising the trail
+/// edges an avoided geometry runs along, so the router detours onto a
+/// divergent trail instead of shadow-walking parallel off-trail.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AvoidConfig {
+    /// Multiplier applied to the walk-seconds cost of every graph edge
+    /// an avoided geometry projects onto. Strong but FINITE (soft): a
+    /// start/end sitting on an avoided edge still yields a route (it
+    /// peels off as soon as it can) instead of a hard "no route".
+    pub edge_multiplier: f64,
+    /// Default edge-projection distance (m) for avoided geometry that
+    /// isn't itself on the graph — how far the penalty reaches onto
+    /// nearby edges. NOT a no-go tube width. Overridable per request
+    /// via `avoid_radius_m`.
+    pub radius_m: f64,
+}
+
+impl Default for AvoidConfig {
+    fn default() -> Self {
+        Self {
+            // ~8× makes an avoided trail clearly worse than a modestly
+            // longer divergent trail, while staying finite so a forced
+            // re-use (single-path spur) still solves.
+            edge_multiplier: 8.0,
+            radius_m: 30.0,
+        }
+    }
 }
 
 /// Knobs for the grade-limited (switchbacking) off-trail solver.

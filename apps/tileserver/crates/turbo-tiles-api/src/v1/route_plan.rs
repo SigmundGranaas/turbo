@@ -39,6 +39,23 @@ pub struct RoutePlanReq {
     /// Travel profile: "foot" (default), "bicycle", or "ski".
     #[serde(default)]
     pub profile: Option<String>,
+    /// Polylines to AVOID, each `[[lon, lat], …]`. Projected onto the
+    /// trail edges they run along; those edges get a strong-but-finite
+    /// cost penalty so the route detours onto a divergent trail (never
+    /// shadow-walks parallel off-trail). Used by the "Avoid Marked"
+    /// toggle, which passes the geometries of other on-map routes/tracks.
+    /// Omitted/empty = no avoidance.
+    #[serde(default)]
+    pub avoid: Vec<Vec<[f64; 2]>>,
+    /// Edge-projection distance (m) for `avoid` geometry not itself on
+    /// the graph. `None` uses the server's configured default (~30 m).
+    #[serde(default)]
+    pub avoid_radius_m: Option<f64>,
+    /// Round trip: solve origin → vias → far point, then a return leg
+    /// that avoids the outbound's edges, stitched into one loop. Soft —
+    /// a single-path spur returns an out-and-back rather than failing.
+    #[serde(default)]
+    pub round_trip: bool,
 }
 
 /// GeoJSON `LineString` of the route in `[lon, lat]` order.
@@ -102,6 +119,10 @@ pub async fn plan(
     // Default to the "balanced" preset (the app's default) when omitted.
     let preset = req.preset.clone().or_else(|| Some("balanced".to_string()));
     apply_preset(&state, &preset, &mut prefs).map_err(ApiError::BadRequest)?;
+    // Avoidance / round-trip ride on top of the preset (not part of it).
+    prefs.avoid = req.avoid.clone();
+    prefs.avoid_radius_m = req.avoid_radius_m;
+    prefs.round_trip = req.round_trip;
 
     let points = req.points.clone();
     // Concurrency-gated + off the async worker: the solve holds MBs of
@@ -153,6 +174,10 @@ pub async fn plan_stream(
     if let Err(msg) = apply_preset(&state, &preset, &mut prefs) {
         return sse_error(msg);
     }
+    // Avoidance / round-trip ride on top of the preset (not part of it).
+    prefs.avoid = req.avoid.clone();
+    prefs.avoid_radius_m = req.avoid_radius_m;
+    prefs.round_trip = req.round_trip;
     // Our streaming recorder is the live channel; don't let `solve` install
     // a second in-memory recorder that would shadow it (see pathfind.rs).
     prefs.record = false;

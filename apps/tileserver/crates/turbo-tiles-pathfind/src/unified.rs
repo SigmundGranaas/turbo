@@ -216,6 +216,15 @@ pub(crate) fn solve_unified(
     // elevation gain (Naismith-style). 0 = none (default). Higher = "less
     // height difference" — prefer flatter detours.
     mesh_gain_k: f32,
+    // "Avoid" set: graph edge ids whose per-metre cost is multiplied by
+    // `avoid_multiplier`. Edge-based, so an avoided trail becomes
+    // expensive while the mesh beside it stays at ordinary off-trail
+    // cost — the route detours onto a divergent trail, never shadow-walks
+    // parallel off-trail. Empty = no avoidance.
+    avoid_edges: &std::collections::HashSet<u32>,
+    // Strong-but-finite multiplier for avoided edges (soft: a start/end on
+    // an avoided edge still routes). 1.0 = no effect.
+    avoid_multiplier: f32,
 ) -> Option<UnifiedRoute> {
     let corr = corridor_shape(from, to, cell_m)?;
     let nx = corr.nx as usize;
@@ -315,7 +324,14 @@ pub(crate) fn solve_unified(
         if total <= 0.0 {
             continue;
         }
-        let per_m = cost.total_walk_seconds / total;
+        let mut per_m = cost.total_walk_seconds / total;
+        // Edge-based avoidance: this trail edge runs along avoided
+        // geometry, so make traversing it expensive (but finite). The
+        // penalty rides on every sub-segment via `per_m`, so a partial
+        // splice pays proportionally.
+        if avoid_multiplier > 1.0 && avoid_edges.contains(&eid) {
+            per_m *= avoid_multiplier as f64;
+        }
 
         // Split indices: both junctions + interior vertices inside the corridor.
         let last = poly.len() - 1;

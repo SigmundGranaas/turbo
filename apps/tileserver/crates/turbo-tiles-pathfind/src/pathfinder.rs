@@ -415,6 +415,29 @@ pub struct Prefs {
     ///   the operator strongly trusts the trail network.
     #[serde(default)]
     pub off_trail_base: Option<f64>,
+    /// Polylines to AVOID, in EPSG:4326 `[lon, lat]` order. Each is
+    /// projected onto the trail (graph) edges it runs along; those
+    /// edges get a strong-but-finite cost multiplier in the unified
+    /// solver's Dijkstra leg (see [`crate::avoid`]). Empty by default.
+    ///
+    /// Edge-based, NOT a spatial mesh buffer: the mesh alongside an
+    /// avoided trail keeps its ordinary (high) off-trail cost, so the
+    /// router can't escape by shadow-walking parallel off-trail — it
+    /// takes a divergent marked trail instead.
+    #[serde(default)]
+    pub avoid: Vec<Vec<[f64; 2]>>,
+    /// Edge-projection distance (m) for [`Self::avoid`]. `None` reads
+    /// `cost_config.avoid.radius_m` (default 30 m).
+    #[serde(default)]
+    pub avoid_radius_m: Option<f64>,
+    /// Round-trip self-avoidance. When true, [`Pathfinder::solve_route`]
+    /// solves the outbound leg (origin → vias → far point), injects the
+    /// outbound geometry into the avoid set, then solves the return leg
+    /// (far point → origin) so it diverges, and stitches the two into
+    /// one loop. Soft: a single-path spur gracefully returns an
+    /// out-and-back rather than failing.
+    #[serde(default)]
+    pub round_trip: bool,
 }
 
 fn default_snap_radius_m() -> f32 {
@@ -485,6 +508,9 @@ impl Default for Prefs {
             off_trail_base: None,
             cost_config_override: None,
             cost_mode: CostMode::default(),
+            avoid: Vec::new(),
+            avoid_radius_m: None,
+            round_trip: false,
         }
     }
 }
@@ -507,6 +533,17 @@ impl Prefs {
         self.mesh_pad_m.map(f64::to_bits).hash(&mut h);
         self.refusal_snap_m.to_bits().hash(&mut h);
         self.off_trail_base.map(f64::to_bits).hash(&mut h);
+        // Avoid set + projection radius change a leg's solved geometry,
+        // so they must partition the per-leg cache. `round_trip` does
+        // NOT: it's resolved into two ordinary legs before caching.
+        self.avoid_radius_m.map(f64::to_bits).hash(&mut h);
+        for pl in &self.avoid {
+            (pl.len() as u64).hash(&mut h);
+            for c in pl {
+                c[0].to_bits().hash(&mut h);
+                c[1].to_bits().hash(&mut h);
+            }
+        }
         // Sort layer_weights for a deterministic order (HashMap iteration
         // order isn't stable).
         let mut lw: Vec<(&str, u32)> = self
@@ -1110,6 +1147,54 @@ impl Pathfinder {
         if points.len() < 2 {
             return Err(PathfindError::DegenerateInputs { dist_m: 0.0 });
         }
+        if prefs.round_trip {
+            return self.solve_round_trip(points, prefs);
+        }
+        self.solve_route_once(points, prefs)
+    }
+
+    /// Round-trip self-avoidance: solve the outbound leg
+    /// (origin → vias → far point), inject the outbound geometry into
+    /// the avoid set, then solve the return leg (far point → origin) so
+    /// the return diverges, and stitch the two into one loop.
+    ///
+    /// Soft by construction: the return uses the same finite avoid
+    /// multiplier, so a single-path spur (no divergent trail) gracefully
+    /// returns an out-and-back rather than failing with NoRoute.
+    fn solve_round_trip(&self, points: &[[f64; 2]], prefs: Prefs) -> Result<Path, PathfindError> {
+        // Outbound: the caller's ordered points, WITHOUT the round-trip
+        // flag (else infinite recursion).
+        let mut outbound_prefs = prefs.clone();
+        outbound_prefs.round_trip = false;
+        let outbound = self.solve_route_once(points, outbound_prefs)?;
+
+        // Feed the outbound geometry back as an avoided polyline (in the
+        // request's [lon, lat] space). Projected onto the graph, it flags
+        // exactly the trail edges the outbound leg ran along — "the
+        // outbound leg's edges injected into the avoid layer".
+        let mut return_prefs = prefs.clone();
+        return_prefs.round_trip = false;
+        return_prefs.avoid.push(outbound.geometry.clone());
+
+        // Return: far point → origin (a single leg; vias belong to the
+        // outbound). far = last requested point, origin = first.
+        let far = *points.last().expect("len >= 2 checked by caller");
+        let origin = points[0];
+        let ret = self.solve_route_once(&[far, origin], return_prefs)?;
+
+        // Stitch outbound (origin→…→far) + return (far→origin) into one
+        // continuous loop. Recording/debug from the sub-solves is dropped
+        // (round trip is orchestration, not a single traced solve).
+        let mut loop_path = stitch_legs(vec![outbound, ret]);
+        loop_path.recording = None;
+        loop_path.debug = None;
+        Ok(loop_path)
+    }
+
+    fn solve_route_once(&self, points: &[[f64; 2]], prefs: Prefs) -> Result<Path, PathfindError> {
+        if points.len() < 2 {
+            return Err(PathfindError::DegenerateInputs { dist_m: 0.0 });
+        }
 
         // Recorder + tracer installed ONCE around ALL segments so the
         // recording/trace spans the whole multi-leg solve (same
@@ -1475,6 +1560,34 @@ impl Pathfinder {
         // was ~130 s; at ~70 m it's a handful of seconds.
         let dist_m = ((to_xy.x - from_xy.x).powi(2) + (to_xy.y - from_xy.y).powi(2)).sqrt();
         let cell_m = (dist_m / 180.0).clamp(10.0, 70.0);
+
+        // Project the avoided polylines (if any) onto the trail edges they
+        // run along. The penalty lands on the GRAPH (Dijkstra) leg only —
+        // the off-trail mesh keeps its ordinary high cost, so the router
+        // can't shadow-walk parallel off-trail to escape the corridor.
+        let avoid_edges = if prefs.avoid.is_empty() {
+            std::collections::HashSet::new()
+        } else {
+            let radius = prefs
+                .avoid_radius_m
+                .unwrap_or(effective_cfg.avoid.radius_m)
+                .max(0.0);
+            let polylines_utm: Vec<Vec<(f64, f64)>> = prefs
+                .avoid
+                .iter()
+                .map(|pl| {
+                    pl.iter()
+                        .map(|c| {
+                            let u = wgs84_to_utm33n(c[0], c[1]);
+                            (u.x, u.y)
+                        })
+                        .collect()
+                })
+                .collect();
+            crate::avoid::project_avoided_edges(graph, &polylines_utm, radius)
+        };
+        let avoid_multiplier = effective_cfg.avoid.edge_multiplier as f32;
+
         let route = crate::unified::solve_unified(
             graph,
             dem,
@@ -1487,6 +1600,8 @@ impl Pathfinder {
             off_trail_factor,
             mesh_max_grade_deg,
             mesh_gain_k,
+            &avoid_edges,
+            avoid_multiplier,
         )
         .ok_or(PathfindError::NoRoute)?;
 
