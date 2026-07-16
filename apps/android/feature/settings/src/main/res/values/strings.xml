@@ -36,6 +36,16 @@
     <string name="settings_account_signed_in">Signed in</string>
     <string name="settings_account_sign_in">Sign in</string>
     <string name="settings_account_sign_in_sub">Sync your tracks and markers across devices</string>
+    <string name="settings_gestures">Gestures</string>
+    <string name="settings_gestures_sub">Tune how the map responds to touch</string>
+    <string name="settings_gesture_long_press">Long-press delay</string>
+    <string name="settings_gesture_rotation">Rotation strictness</string>
+    <string name="settings_gesture_move_guard">Jitter tolerance</string>
+    <string name="settings_gesture_flick">Flick damping</string>
+    <string name="settings_experimental">Experimental</string>
+    <string name="settings_experimental_sub">Unfinished features — may be rough</string>
+    <string name="settings_experimental_trails">Hiking trails layer</string>
+    <string name="settings_experimental_clouds">Clouds layer</string>
     <string name="settings_location_marker">Location marker</string>
     <string name="settings_location_marker_sub">Colour of the my-position dot</string>
     <string name="settings_heading_beam">Heading beam</string>

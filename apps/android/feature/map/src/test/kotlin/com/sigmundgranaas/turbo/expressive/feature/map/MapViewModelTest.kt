@@ -88,6 +88,9 @@ private class FakeSettings : SettingsRepository {
     override suspend fun setLocationDotColor(colorHex: String?) = Unit
     override suspend fun setShowHeadingBeam(enabled: Boolean) = Unit
     override suspend fun setBaseLayer(layer: BaseLayer) { state.value = state.value.copy(baseLayer = layer) }
+    override suspend fun setGestures(gestures: com.sigmundgranaas.turbo.expressive.domain.GestureSettings) = Unit
+    override suspend fun setExperimentalTrails(enabled: Boolean) = Unit
+    override suspend fun setExperimentalClouds(enabled: Boolean) = Unit
     override suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double) {
         state.value = state.value.copy(lastCameraLat = lat, lastCameraLng = lng, lastCameraZoom = zoom)
     }

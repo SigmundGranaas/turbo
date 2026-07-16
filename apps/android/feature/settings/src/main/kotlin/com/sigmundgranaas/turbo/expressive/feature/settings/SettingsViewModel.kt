@@ -47,4 +47,8 @@ class SettingsViewModel @Inject constructor(
     fun setWifiOnly(enabled: Boolean) = viewModelScope.launch { repository.setDownloadOverWifiOnly(enabled) }
     fun setLocationDotColor(colorHex: String?) = viewModelScope.launch { repository.setLocationDotColor(colorHex) }
     fun setShowHeadingBeam(enabled: Boolean) = viewModelScope.launch { repository.setShowHeadingBeam(enabled) }
+    fun setGestures(gestures: com.sigmundgranaas.turbo.expressive.domain.GestureSettings) =
+        viewModelScope.launch { repository.setGestures(gestures) }
+    fun setExperimentalTrails(enabled: Boolean) = viewModelScope.launch { repository.setExperimentalTrails(enabled) }
+    fun setExperimentalClouds(enabled: Boolean) = viewModelScope.launch { repository.setExperimentalClouds(enabled) }
 }

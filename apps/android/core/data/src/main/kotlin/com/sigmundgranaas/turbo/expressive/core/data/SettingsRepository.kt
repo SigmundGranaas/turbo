@@ -46,6 +46,13 @@ interface SettingsRepository {
     /** Select a custom basemap by id (null = back to the built-in base layer). */
     suspend fun selectCustomTileSource(id: String?)
 
+    /** Persist the tunable gesture feel (Settings → Gestures). */
+    suspend fun setGestures(gestures: com.sigmundgranaas.turbo.expressive.domain.GestureSettings)
+
+    /** Toggle an experimental map layer's availability (Trails / Clouds). */
+    suspend fun setExperimentalTrails(enabled: Boolean)
+    suspend fun setExperimentalClouds(enabled: Boolean)
+
     /** Persist the map camera so reopening the app returns to where the user left it. */
     suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double)
 }
@@ -72,6 +79,12 @@ class DataStoreSettingsRepository @Inject constructor(
         val HEADING_BEAM = booleanPreferencesKey("show_heading_beam")
         val CUSTOM_SOURCES = stringPreferencesKey("custom_tile_sources")
         val CUSTOM_SELECTED = stringPreferencesKey("custom_tile_source_selected")
+        val GESTURE_LONG_PRESS_MS = androidx.datastore.preferences.core.longPreferencesKey("gesture_long_press_ms")
+        val GESTURE_MOVE_GUARD_DP = androidx.datastore.preferences.core.floatPreferencesKey("gesture_move_guard_dp")
+        val GESTURE_ROTATE_GATE_DEG = androidx.datastore.preferences.core.floatPreferencesKey("gesture_rotate_gate_deg")
+        val GESTURE_FLING_HALF_LIFE_MS = androidx.datastore.preferences.core.longPreferencesKey("gesture_fling_half_life_ms")
+        val EXPERIMENTAL_TRAILS = booleanPreferencesKey("experimental_trails")
+        val EXPERIMENTAL_CLOUDS = booleanPreferencesKey("experimental_clouds")
     }
 
     override val settings: Flow<UserSettings> = context.settingsDataStore.data.map { prefs ->
@@ -94,6 +107,14 @@ class DataStoreSettingsRepository @Inject constructor(
             showHeadingBeam = prefs[Keys.HEADING_BEAM] ?: true,
             customTileSources = decodeCustomSources(prefs[Keys.CUSTOM_SOURCES]),
             selectedCustomSourceId = prefs[Keys.CUSTOM_SELECTED],
+            gestures = com.sigmundgranaas.turbo.expressive.domain.GestureSettings(
+                longPressMs = prefs[Keys.GESTURE_LONG_PRESS_MS] ?: 500L,
+                movementGuardDp = prefs[Keys.GESTURE_MOVE_GUARD_DP] ?: 18f,
+                rotationGateDeg = prefs[Keys.GESTURE_ROTATE_GATE_DEG] ?: 10f,
+                flingHalfLifeMs = prefs[Keys.GESTURE_FLING_HALF_LIFE_MS] ?: 300L,
+            ),
+            experimentalTrails = prefs[Keys.EXPERIMENTAL_TRAILS] ?: false,
+            experimentalClouds = prefs[Keys.EXPERIMENTAL_CLOUDS] ?: false,
         )
     }
 
@@ -167,6 +188,23 @@ class DataStoreSettingsRepository @Inject constructor(
             it[Keys.CAM_LNG] = lng
             it[Keys.CAM_ZOOM] = zoom
         }
+    }
+
+    override suspend fun setGestures(gestures: com.sigmundgranaas.turbo.expressive.domain.GestureSettings) {
+        context.settingsDataStore.edit {
+            it[Keys.GESTURE_LONG_PRESS_MS] = gestures.longPressMs
+            it[Keys.GESTURE_MOVE_GUARD_DP] = gestures.movementGuardDp
+            it[Keys.GESTURE_ROTATE_GATE_DEG] = gestures.rotationGateDeg
+            it[Keys.GESTURE_FLING_HALF_LIFE_MS] = gestures.flingHalfLifeMs
+        }
+    }
+
+    override suspend fun setExperimentalTrails(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.EXPERIMENTAL_TRAILS] = enabled }
+    }
+
+    override suspend fun setExperimentalClouds(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.EXPERIMENTAL_CLOUDS] = enabled }
     }
 }
 

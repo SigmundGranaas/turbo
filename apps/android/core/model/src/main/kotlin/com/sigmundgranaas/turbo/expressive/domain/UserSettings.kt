@@ -32,4 +32,22 @@ data class UserSettings(
     /** When set (and present in [customTileSources]), that custom source is the
      *  active basemap instead of [baseLayer]. Cleared by picking a built-in. */
     val selectedCustomSourceId: String? = null,
+    /** Tunable map-gesture feel (Settings → Gestures). See the map overhaul spec. */
+    val gestures: GestureSettings = GestureSettings(),
+    /** Experimental features gated behind an explicit opt-in (off by default): the
+     *  Trails and Clouds map layers only appear in the layers sheet when enabled. */
+    val experimentalTrails: Boolean = false,
+    val experimentalClouds: Boolean = false,
+)
+
+/**
+ * Renderer-agnostic mirror of the gesture tunables (the turbomap `GestureConfig`
+ * lives in the Android-only module; this domain type is what persists + flows to
+ * the UI). Defaults match the shipped feel. See the map overhaul spec, Phase 0.
+ */
+data class GestureSettings(
+    val longPressMs: Long = 500L,
+    val movementGuardDp: Float = 18f,
+    val rotationGateDeg: Float = 10f,
+    val flingHalfLifeMs: Long = 300L,
 )

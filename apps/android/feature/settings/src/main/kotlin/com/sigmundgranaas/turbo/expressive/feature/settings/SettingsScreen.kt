@@ -23,13 +23,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.Hiking
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.CloudSync
+import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.Straighten
+import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -205,6 +209,56 @@ fun SettingsScreen(
             }
             SettingsGroup {
                 ListRowItem(
+                    Icons.Rounded.TouchApp, stringResource(R.string.settings_gestures),
+                    subtitle = stringResource(R.string.settings_gestures_sub),
+                )
+                val g = settings.gestures
+                GestureSlider(
+                    label = stringResource(R.string.settings_gesture_long_press),
+                    value = g.longPressMs.toFloat(),
+                    range = 250f..800f,
+                    valueLabel = "${g.longPressMs} ms",
+                    testTag = "gestureLongPress",
+                ) { viewModel.setGestures(g.copy(longPressMs = it.toLong())) }
+                GestureSlider(
+                    label = stringResource(R.string.settings_gesture_rotation),
+                    value = g.rotationGateDeg,
+                    range = 5f..30f,
+                    valueLabel = "${g.rotationGateDeg.toInt()}°",
+                    testTag = "gestureRotation",
+                ) { viewModel.setGestures(g.copy(rotationGateDeg = it)) }
+                GestureSlider(
+                    label = stringResource(R.string.settings_gesture_move_guard),
+                    value = g.movementGuardDp,
+                    range = 8f..32f,
+                    valueLabel = "${g.movementGuardDp.toInt()} dp",
+                    testTag = "gestureMoveGuard",
+                ) { viewModel.setGestures(g.copy(movementGuardDp = it)) }
+                GestureSlider(
+                    label = stringResource(R.string.settings_gesture_flick),
+                    value = g.flingHalfLifeMs.toFloat(),
+                    range = 150f..600f,
+                    valueLabel = "${g.flingHalfLifeMs} ms",
+                    testTag = "gestureFlick",
+                ) { viewModel.setGestures(g.copy(flingHalfLifeMs = it.toLong())) }
+            }
+            SettingsGroup {
+                ListRowItem(
+                    Icons.Rounded.Science, stringResource(R.string.settings_experimental),
+                    subtitle = stringResource(R.string.settings_experimental_sub),
+                )
+                ListRowItem(
+                    Icons.Rounded.Hiking, stringResource(R.string.settings_experimental_trails),
+                    trailing = { Switch(settings.experimentalTrails, { haptics.toggle(it); viewModel.setExperimentalTrails(it) }, modifier = Modifier.testTag("experimentalTrails")) },
+                )
+                HorizontalDivider(color = cs.outlineVariant)
+                ListRowItem(
+                    Icons.Rounded.Cloud, stringResource(R.string.settings_experimental_clouds),
+                    trailing = { Switch(settings.experimentalClouds, { haptics.toggle(it); viewModel.setExperimentalClouds(it) }, modifier = Modifier.testTag("experimentalClouds")) },
+                )
+            }
+            SettingsGroup {
+                ListRowItem(
                     Icons.Rounded.Info, stringResource(R.string.settings_about),
                     subtitle = stringResource(R.string.settings_about_sub),
                     trailing = { Icon(Icons.Rounded.ChevronRight, null, tint = cs.onSurfaceVariant) },
@@ -242,6 +296,32 @@ private fun DotSwatch(color: Color, selected: Boolean, onClick: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         if (selected) Icon(Icons.Rounded.Check, null, tint = Color.White, modifier = Modifier.size(18.dp))
+    }
+}
+
+/** A labelled slider row for one gesture tunable (Settings → Gestures). The
+ *  current value shows on the right so the abstract number is legible. */
+@Composable
+private fun GestureSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    valueLabel: String,
+    testTag: String,
+    onChange: (Float) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.padding(vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
+            Text(valueLabel, style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant)
+        }
+        androidx.compose.material3.Slider(
+            value = value.coerceIn(range.start, range.endInclusive),
+            onValueChange = onChange,
+            valueRange = range,
+            modifier = Modifier.testTag(testTag),
+        )
     }
 }
 

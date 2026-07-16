@@ -32,6 +32,9 @@ private class MutableSettingsRepository : SettingsRepository {
     override suspend fun selectCustomTileSource(id: String?) = state.update { it.copy(selectedCustomSourceId = id) }
     override suspend fun setLocationDotColor(colorHex: String?) = state.update { it.copy(locationDotColorHex = colorHex) }
     override suspend fun setShowHeadingBeam(enabled: Boolean) = state.update { it.copy(showHeadingBeam = enabled) }
+    override suspend fun setGestures(gestures: com.sigmundgranaas.turbo.expressive.domain.GestureSettings) = state.update { it.copy(gestures = gestures) }
+    override suspend fun setExperimentalTrails(enabled: Boolean) = state.update { it.copy(experimentalTrails = enabled) }
+    override suspend fun setExperimentalClouds(enabled: Boolean) = state.update { it.copy(experimentalClouds = enabled) }
     override suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double) =
         state.update { it.copy(lastCameraLat = lat, lastCameraLng = lng, lastCameraZoom = zoom) }
 }
@@ -62,5 +65,24 @@ class SettingsViewModelTest {
         }
         assertFalse(repo.state.value.metricUnits)
         assertTrue(repo.state.value.followLocation)
+    }
+
+    @Test
+    fun `gesture tunables and experimental flags round-trip through settings`() = runTest(mainRule.dispatcher) {
+        val repo = MutableSettingsRepository()
+        val vm = SettingsViewModel(repo, FakeAuthRepository())
+
+        // A stricter rotation gate + faster long-press — the values the map
+        // detector reads, so this proves the settings actually reach it.
+        vm.setGestures(
+            com.sigmundgranaas.turbo.expressive.domain.GestureSettings(longPressMs = 400L, rotationGateDeg = 20f),
+        )
+        vm.setExperimentalTrails(true)
+        mainRule.dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(400L, repo.state.value.gestures.longPressMs)
+        assertEquals(20f, repo.state.value.gestures.rotationGateDeg, 0f)
+        assertTrue(repo.state.value.experimentalTrails)
+        assertFalse(repo.state.value.experimentalClouds) // untouched stays off
     }
 }
