@@ -196,8 +196,11 @@ fun TurbomapMapView(
                 }
                 .pointerInput(onMapTap, onMapLongClick) {
                     detectTapAndLongPress(
-                        onTap = { o -> controller.unproject(o.x, o.y)?.let { onMapTap?.invoke(it) } },
-                        onLongPress = { o -> controller.unproject(o.x, o.y)?.let(onMapLongClick) },
+                        // Ground (terrain-aware) unprojection: taps/long-presses PLACE things
+                        // (waypoints, markers), so the point must round-trip through the
+                        // terrain-lifted overlay projection back to the tapped pixel.
+                        onTap = { o -> controller.unprojectGround(o.x, o.y)?.let { onMapTap?.invoke(it) } },
+                        onLongPress = { o -> controller.unprojectGround(o.x, o.y)?.let(onMapLongClick) },
                     )
                 },
         )
@@ -626,6 +629,19 @@ internal class TurbomapSurfaceController {
         if (handle == 0L) return null
         val r = NativeSurfaceMap.nativeUnproject(handle, xPx.toDouble(), yPx.toDouble())
         return if (r.size >= 3 && r[2] == 1.0) LatLng(r[0], r[1]) else null
+    }
+
+    /**
+     * TERRAIN-aware ground point under a screen pixel (identical to [unproject]
+     * in 2D / with no relief), or null before the map is ready. Taps place things
+     * — waypoints, markers, route stops — and placement must invert the
+     * terrain-LIFTED render projection, or the committed geo point re-projects to
+     * a different pixel in 3D and the pin "lands somewhere else".
+     */
+    fun unprojectGround(xPx: Float, yPx: Float): LatLng? {
+        if (handle == 0L) return null
+        val r = NativeSurfaceMap.nativeUnprojectGround(handle, xPx.toDouble(), yPx.toDouble())
+        return if (r.size >= 5 && r[4] == 1.0) LatLng(r[0], r[1]) else unproject(xPx, yPx)
     }
 
     /** Coalesced nudge — ask the reconcile loop to run a pass as soon as it can. */

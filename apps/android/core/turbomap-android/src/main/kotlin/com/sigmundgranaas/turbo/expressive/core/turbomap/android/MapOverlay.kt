@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -234,11 +235,13 @@ fun MapOverlay(
                 selected = index == selectedWaypoint,
                 cameraTick = cameraTick,
                 project = { engine.toScreen(wp).let { Offset(it.first, it.second) } },
-                // Commit a dragged waypoint via the FLAT unproject, not the terrain raycast: a
-                // waypoint is a lat/lng route point, and the flat plane is stable + predictable.
-                // The raycast (sphere-trace) over-shot badly at tilt — dropping the pin kilometres
-                // away from where it was released. The pin still RENDERS lifted onto the relief.
-                toGround = { o -> engine.fromScreen(o.x, o.y) },
+                // Commit a dragged waypoint via the TERRAIN raycast so the drop inverts the
+                // terrain-lifted render projection ([toScreen]). The flat unproject can NOT be
+                // used here: in 3D it intersects the z=0 plane below the relief, so the committed
+                // point re-projected (lifted) lands at a different pixel — the drag-lands-wrong /
+                // snap-back bug. (An early raycast over-shot at tilt, which is why this was once
+                // flat; the first-hit cone-march fix made the raycast the correct inverse.)
+                toGround = { o -> engine.screenToGround(o.x, o.y) },
                 onTap = { onWaypointTap(index) },
                 onLongPress = { onWaypointLongPress(index) },
                 onDragStart = { onWaypointDragStart(index) },
@@ -335,6 +338,20 @@ internal fun WaypointMarkerView(
         else -> cs.primary
     }
 
+    // The gesture coroutine below is keyed on `index` only, so its closures live across
+    // recompositions: they MUST read the current parameters through rememberUpdatedState.
+    // Reading the raw parameters instead froze `wp` (via `project`) at first-composition
+    // time — the SECOND drag of a pin then anchored at the pin's ORIGINAL position, landing
+    // the drop wildly off (and a third drag "snapped back" to the first drop). The layout
+    // offset follows recomposition, so the pin LOOKED right while every commit was wrong.
+    val currentProject by rememberUpdatedState(project)
+    val currentToGround by rememberUpdatedState(toGround)
+    val currentOnMoved by rememberUpdatedState(onMoved)
+    val currentOnDragStart by rememberUpdatedState(onDragStart)
+    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
+    val currentOnTap by rememberUpdatedState(onTap)
+    val currentOnLongPress by rememberUpdatedState(onLongPress)
+
     // Accumulated finger delta during a drag, HELD after drop until the committed waypoint
     // reprojects (no jump-back). Applied as a draw-only graphicsLayer translation — NOT a
     // layout offset. If the layout offset followed the drag, the box (which carries the
@@ -349,10 +366,11 @@ internal fun WaypointMarkerView(
 
     // The pin floats this far ABOVE its ground ring while dragging — a visual lift only (it's a
     // graphicsLayer translation, NOT part of the commit), so the raised pin is visible above the
-    // fingertip while the ring marks the actual drop point under the finger. Big enough to clear
-    // a fingertip.
+    // fingertip while the ring marks the actual drop point under the finger. A fingertip contact
+    // patch is ~48 dp and the pad of the finger hides more above it — 76 dp puts the lifted pin
+    // clearly in view (52 dp still sat half-under the finger).
     val lift by animateDpAsState(
-        if (dragging) 52.dp else 0.dp,
+        if (dragging) 76.dp else 0.dp,
         spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "wpLift",
     )
@@ -382,30 +400,30 @@ internal fun WaypointMarkerView(
                         // the finger 1:1 and commits exactly under it.
                         dragOffset = Offset.Zero
                         dragging = true
-                        onDragStart()
+                        currentOnDragStart()
                     },
                     onDrag = { change, amount ->
                         change.consume()
                         dragOffset += amount
                     },
                     onDragEnd = {
-                        val drop = project() + dragOffset
+                        val drop = currentProject() + dragOffset
                         dragging = false
                         // End the drag session BEFORE committing so the move's re-solve isn't
                         // swallowed by the suppression; keep `dragOffset` until `wp` updates so
                         // the pin holds the drop spot (no jump-back).
-                        onDragEnd()
-                        onMoved(toGround(drop))
+                        currentOnDragEnd()
+                        currentOnMoved(currentToGround(drop))
                     },
                     onDragCancel = {
                         dragging = false
                         dragOffset = Offset.Zero
-                        onDragEnd()
+                        currentOnDragEnd()
                     },
                 )
             }
             .pointerInput(index) {
-                detectTapGestures(onTap = { onTap() }, onLongPress = { onLongPress() })
+                detectTapGestures(onTap = { currentOnTap() }, onLongPress = { currentOnLongPress() })
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -467,22 +485,27 @@ internal fun WaypointMarkerView(
 /**
  * The "where it'll land" target shown under a lifted waypoint: a pulsing ring plus a solid
  * centre dot marking the exact ground point the drop will commit to. Purely decorative —
- * no input — and centred on the drag anchor.
+ * no input — and centred on the drag anchor. Sized to read AROUND a fingertip (~48 dp
+ * contact patch): a 56 dp ring stays visible as a rim while the finger covers its centre,
+ * and the white under-stroke keeps it legible on any basemap colour.
  */
 @Composable
 private fun DragLandingIndicator(color: Color, modifier: Modifier = Modifier) {
     val pulse = rememberInfiniteTransition(label = "wpLanding")
     val t by pulse.animateFloat(
-        initialValue = 0.72f,
+        initialValue = 0.78f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(750), RepeatMode.Reverse),
         label = "wpLandingPulse",
     )
-    Canvas(modifier.size(34.dp)) {
+    Canvas(modifier.size(56.dp)) {
         val r = size.minDimension / 2f
-        drawCircle(color = color.copy(alpha = 0.22f), radius = r * t, center = center)
-        drawCircle(color = color, radius = r * 0.92f * t, center = center, style = Stroke(width = 3f))
-        drawCircle(color = color, radius = r * 0.18f, center = center)
+        drawCircle(color = color.copy(alpha = 0.18f), radius = r * t, center = center)
+        // White halo under the coloured ring — contrast against dark AND light ground.
+        drawCircle(color = Color.White.copy(alpha = 0.9f), radius = r * 0.92f * t, center = center, style = Stroke(width = 9f))
+        drawCircle(color = color, radius = r * 0.92f * t, center = center, style = Stroke(width = 5f))
+        drawCircle(color = Color.White, radius = r * 0.14f + 3f, center = center)
+        drawCircle(color = color, radius = r * 0.14f, center = center)
     }
 }
 

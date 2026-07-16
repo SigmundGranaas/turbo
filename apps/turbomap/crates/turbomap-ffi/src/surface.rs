@@ -314,23 +314,14 @@ impl OnScreen {
                 self.engine.set_camera(c);
             }
             Cmd::PanByPixels { dx, dy } => {
-                // Recenter so the world point under (centre − finger-delta) becomes
-                // the new centre — exactly the old onTransform logic, but here on the
-                // render thread against the LIVE camera. Sequential queued pans thus
-                // compose (each sees the previous one's result), and the ground-plane
-                // `pixel_to_world` is identical to the 2D path → no pitch jitter.
-                let cs = self.engine.camera();
-                let cam = Camera::new(CoreLatLng::new(cs.center.lat, cs.center.lng), cs.zoom)
-                    .with_pitch(cs.pitch_deg)
-                    .with_bearing(cs.bearing_deg)
-                    .with_viewport_inset(self.inset);
-                let vp = (self.config.width as f64, self.config.height as f64);
-                let target = cam
-                    .pixel_to_world((vp.0 / 2.0 - dx, vp.1 / 2.0 - dy), vp)
-                    .to_lat_lng();
-                let mut c = cs;
-                c.center = LatLng::new(target.lat, target.lng);
-                self.engine.set_camera(c);
+                // Ground-plane pan against the LIVE camera on the render thread, so
+                // sequential queued pans compose (each sees the previous result).
+                // Must stay inset-neutral: the old inline `pixel_to_world` round-trip
+                // baked the bottom viewport inset into the sample point, adding a
+                // constant northward `inset/2` px drift PER MOVE EVENT — with the
+                // record/follow sheet's inset active, a single swipe (dozens of
+                // events) compounded that into the map flying away.
+                self.engine.pan_by_pixels(dx, dy);
             }
             Cmd::Fling(vx, vy) => self.engine.fling((vx, vy)),
             Cmd::ZoomFling { v, fx, fy } => self.engine.zoom_fling(v, (fx, fy)),

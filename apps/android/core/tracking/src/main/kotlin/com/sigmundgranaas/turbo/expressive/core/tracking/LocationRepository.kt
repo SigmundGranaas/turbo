@@ -7,21 +7,25 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.location.altitude.AltitudeConverter
 import android.os.Build
 import android.os.Bundle
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 /**
- * A single GPS fix with optional altitude (metres above the WGS84 ellipsoid),
- * horizontal [accuracyM] (68 % radius in metres; null when unknown), and the
- * instantaneous ground [speedMps] reported by the provider (metres/second; null
- * when the fix carries no speed — e.g. a coarse network fix).
+ * A single GPS fix with optional altitude (metres above mean sea level where the
+ * platform can convert — see [AndroidLocationRepository]; raw ellipsoid height
+ * otherwise), horizontal [accuracyM] (68 % radius in metres; null when unknown),
+ * and the instantaneous ground [speedMps] reported by the provider
+ * (metres/second; null when the fix carries no speed — e.g. a coarse network fix).
  */
 data class LocationSample(
     val position: LatLng,
@@ -74,18 +78,46 @@ class AndroidLocationRepository @Inject constructor(
         }
 
     @SuppressLint("MissingPermission")
-    override fun samples(): Flow<LocationSample> = callbackFlow {
+    override fun samples(): Flow<LocationSample> =
+        acceptedFixes()
+            .map { it.toSample() }
+            // Off the main thread: the geoid lookup in toSample() may hit disk.
+            .flowOn(Dispatchers.Default)
+
+    private fun Location.toSample() = LocationSample(
+        LatLng(latitude, longitude),
+        mslAltitudeOrNull(this),
+        if (hasAccuracy()) accuracy.toDouble() else null,
+        if (hasSpeed()) speed.toDouble() else null,
+        if (hasBearing()) bearing.toDouble() else null,
+    )
+
+    /**
+     * Altitude above mean sea level, or null when the fix has none. GPS reports
+     * height above the WGS84 **ellipsoid**, which runs ~20–50 m above the geoid
+     * in most of the world (≈ +40 m in Norway) — recording it raw made every
+     * profile read visibly too high. On API 34+ the platform geoid model
+     * converts to orthometric (MSL) height; older devices keep the raw value.
+     */
+    private fun mslAltitudeOrNull(location: Location): Double? {
+        if (!location.hasAltitude()) return null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (!location.hasMslAltitude()) {
+                runCatching { altitudeConverter.value.addMslAltitudeToLocation(context, location) }
+            }
+            if (location.hasMslAltitude()) return location.mslAltitudeMeters
+        }
+        return location.altitude
+    }
+
+    private val altitudeConverter = lazy { AltitudeConverter() }
+
+    @SuppressLint("MissingPermission")
+    private fun acceptedFixes(): Flow<Location> = callbackFlow {
         if (!hasPermission()) {
             close()
             return@callbackFlow
         }
-        fun Location.toSample() = LocationSample(
-            LatLng(latitude, longitude),
-            if (hasAltitude()) altitude else null,
-            if (hasAccuracy()) accuracy.toDouble() else null,
-            if (hasSpeed()) speed.toDouble() else null,
-            if (hasBearing()) bearing.toDouble() else null,
-        )
         // Drop inaccurate / stale / teleporting fixes before anyone sees them — in
         // particular the (often stale) last-known seed below, the resume-teleport source.
         val filter = LocationFilter()
@@ -96,7 +128,7 @@ class AndroidLocationRepository @Inject constructor(
             val intervalMs = if (lastFixTime > 0L) (location.time - lastFixTime).toDouble().coerceAtLeast(1.0) else 1000.0
             lastFixTime = location.time
             if (filter.accept(LatLng(location.latitude, location.longitude), accuracyM, ageMs, intervalMs)) {
-                trySend(location.toSample())
+                trySend(location)
             }
         }
         val listener = object : LocationListener {

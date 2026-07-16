@@ -305,14 +305,26 @@ fun MapScreen(
     }
 
     // While recording, keep the camera on the latest fix — recording implies movement,
-    // even if the user never toggled "follow".
-    LaunchedEffect(recState.userLocation, recState.recording) {
-        if (recState.recording) recState.userLocation?.let { ui.controller?.flyTo(it, 16.0) }
+    // even if the user never toggled "follow". Auto-follow re-arms when recording
+    // starts, but a manual pan MUST release it (onUserPanned → setFollowing(false)):
+    // gating on recState.recording alone re-centred on every fix while the user was
+    // trying to look around, fighting the gesture.
+    LaunchedEffect(recState.recording) {
+        if (recState.recording) viewModel.setFollowing(true)
+    }
+    LaunchedEffect(recState.userLocation, recState.recording, state.following) {
+        if (recState.recording && state.following) {
+            recState.userLocation?.let { ui.controller?.flyTo(it, 16.0) }
+        }
     }
 
-    // While following, keep the camera centred on the latest fix.
-    LaunchedEffect(state.userLocation, state.following) {
-        if (state.following) state.userLocation?.let { ui.controller?.flyTo(it, 15.0) }
+    // While following, keep the camera centred on the latest fix. Recording owns
+    // the camera when both are active (it targets zoom 16, this one 15 — letting
+    // both run would make the two effects fight over the camera every fix).
+    LaunchedEffect(state.userLocation, state.following, recState.recording) {
+        if (state.following && !recState.recording) {
+            state.userLocation?.let { ui.controller?.flyTo(it, 15.0) }
+        }
     }
 
     // Mirror the follow session onto a foreground Live Update (lock-screen widget):

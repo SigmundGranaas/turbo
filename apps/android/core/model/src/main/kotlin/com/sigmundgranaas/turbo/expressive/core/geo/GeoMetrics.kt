@@ -33,23 +33,41 @@ object GeoMetrics {
         return total
     }
 
-    /** Cumulative ascent/descent from a per-point elevation series (nulls skipped). */
+    /**
+     * Cumulative ascent/descent from a per-point elevation series (nulls skipped).
+     * Uses a ±[ELEVATION_HYSTERESIS_M] hysteresis band: a delta only counts once
+     * the series has moved that far from the last committed elevation, so GPS
+     * vertical jitter (metre-scale oscillation on every fix) doesn't get summed
+     * into hundreds of phantom climb metres over a long track. Sustained climbs
+     * commit their full height — the reference advances to the current elevation
+     * each time the band is crossed, losing nothing.
+     */
     fun gainLoss(elevations: List<Double?>?): Pair<Double?, Double?> {
         if (elevations == null) return null to null
         var asc = 0.0
         var desc = 0.0
-        var prev: Double? = null
+        var ref: Double? = null
         for (e in elevations) {
             val cur = e ?: continue
-            val p = prev
-            if (p != null) {
-                val delta = cur - p
-                if (delta > 0) asc += delta else desc += -delta
+            val r = ref
+            if (r == null) {
+                ref = cur
+                continue
             }
-            prev = cur
+            val delta = cur - r
+            if (delta >= ELEVATION_HYSTERESIS_M) {
+                asc += delta
+                ref = cur
+            } else if (delta <= -ELEVATION_HYSTERESIS_M) {
+                desc += -delta
+                ref = cur
+            }
         }
         return asc to desc
     }
+
+    /** GPS vertical noise is typically a few metres per fix; 3 m filters it without hiding real climbs. */
+    private const val ELEVATION_HYSTERESIS_M = 3.0
 
     /**
      * Rough energy estimate (kcal) for a hike of [distanceM] with [ascentM] of

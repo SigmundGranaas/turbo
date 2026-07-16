@@ -34,6 +34,26 @@ class GeoMetricsTest {
     }
 
     @Test
+    fun `gain and loss ignore metre-scale gps jitter`() {
+        // Vertical GPS noise oscillates ±1–2 m around the true elevation on every
+        // fix; a naive delta sum turns an hour of that into phantom climb.
+        val jitter = listOf(100.0, 101.5, 99.0, 100.5, 99.5, 101.0, 100.0)
+        val (asc, desc) = GeoMetrics.gainLoss(jitter)
+        assertEquals(0.0, asc!!, 1e-6)
+        assertEquals(0.0, desc!!, 1e-6)
+    }
+
+    @Test
+    fun `gain keeps the full height of a slow steady climb`() {
+        // 100 → 112 m in 2 m steps: smaller than the hysteresis band per fix,
+        // but the committed reference must ratchet so nothing is lost overall.
+        val climb = (0..6).map { 100.0 + it * 2.0 }
+        val (asc, desc) = GeoMetrics.gainLoss(climb)
+        assertEquals(12.0, asc!!, 1e-6)
+        assertEquals(0.0, desc!!, 1e-6)
+    }
+
+    @Test
     fun `naismith eta grows with ascent`() {
         val flat = GeoMetrics.etaSeconds(5000.0, 0.0)
         val climby = GeoMetrics.etaSeconds(5000.0, 600.0)
