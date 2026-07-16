@@ -27,4 +27,9 @@ data class UserSettings(
     val locationDotColorHex: String? = null,
     /** Whether the my-position dot grows a heading beam when the fix has a course. */
     val showHeadingBeam: Boolean = true,
+    /** User-added XYZ basemaps ("add your own map URL"), in add order. */
+    val customTileSources: List<CustomTileSource> = emptyList(),
+    /** When set (and present in [customTileSources]), that custom source is the
+     *  active basemap instead of [baseLayer]. Cleared by picking a built-in. */
+    val selectedCustomSourceId: String? = null,
 )

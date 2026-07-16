@@ -82,6 +82,9 @@ private class FakeSettings : SettingsRepository {
     override suspend fun setThemeMode(mode: ThemeMode) = Unit
     override suspend fun setCloudSyncEnabled(enabled: Boolean) = Unit
     override suspend fun setDownloadOverWifiOnly(enabled: Boolean) = Unit
+    override suspend fun addCustomTileSource(source: com.sigmundgranaas.turbo.expressive.domain.CustomTileSource) = Unit
+    override suspend fun removeCustomTileSource(id: String) = Unit
+    override suspend fun selectCustomTileSource(id: String?) = Unit
     override suspend fun setLocationDotColor(colorHex: String?) = Unit
     override suspend fun setShowHeadingBeam(enabled: Boolean) = Unit
     override suspend fun setBaseLayer(layer: BaseLayer) { state.value = state.value.copy(baseLayer = layer) }

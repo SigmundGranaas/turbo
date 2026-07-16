@@ -25,6 +25,11 @@ private class MutableSettingsRepository : SettingsRepository {
     override suspend fun setCloudSyncEnabled(enabled: Boolean) = state.update { it.copy(cloudSyncEnabled = enabled) }
     override suspend fun setDownloadOverWifiOnly(enabled: Boolean) = state.update { it.copy(downloadOverWifiOnly = enabled) }
     override suspend fun setBaseLayer(layer: com.sigmundgranaas.turbo.expressive.domain.BaseLayer) = state.update { it.copy(baseLayer = layer) }
+    override suspend fun addCustomTileSource(source: com.sigmundgranaas.turbo.expressive.domain.CustomTileSource) =
+        state.update { it.copy(customTileSources = it.customTileSources + source, selectedCustomSourceId = source.id) }
+    override suspend fun removeCustomTileSource(id: String) =
+        state.update { it.copy(customTileSources = it.customTileSources.filterNot { s -> s.id == id }) }
+    override suspend fun selectCustomTileSource(id: String?) = state.update { it.copy(selectedCustomSourceId = id) }
     override suspend fun setLocationDotColor(colorHex: String?) = state.update { it.copy(locationDotColorHex = colorHex) }
     override suspend fun setShowHeadingBeam(enabled: Boolean) = state.update { it.copy(showHeadingBeam = enabled) }
     override suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double) =

@@ -76,6 +76,13 @@
     <string name="layers_wind_sub">Animated flow field</string>
     <string name="layers_offline">Offline</string>
     <string name="layers_download_area">Download this area</string>
+    <string name="layers_custom_add">Add map…</string>
+    <string name="layers_custom_add_title">Add a custom map</string>
+    <string name="layers_custom_name">Name</string>
+    <string name="layers_custom_url">Tile URL template</string>
+    <string name="layers_custom_url_invalid">Needs http(s) and {z}/{x}/{y} placeholders</string>
+    <string name="layers_custom_confirm">Add</string>
+    <string name="layers_custom_remove">Remove custom map</string>
 
     <!-- Conditions: most strings moved to :feature:weather. These stay because the
          map's own UI (long-press mini-readout, sea card) still uses them. -->

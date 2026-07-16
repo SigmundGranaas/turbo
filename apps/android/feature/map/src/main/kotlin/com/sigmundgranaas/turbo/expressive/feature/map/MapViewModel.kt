@@ -80,6 +80,9 @@ data class MapUiState(
     val locationDotColorHex: String? = null,
     /** Whether the my-position heading beam is drawn (settings toggle). */
     val showHeadingBeam: Boolean = true,
+    /** User-added XYZ basemaps, and the active one (null = built-in [baseLayer]). */
+    val customTileSources: List<com.sigmundgranaas.turbo.expressive.domain.CustomTileSource> = emptyList(),
+    val selectedCustomSource: com.sigmundgranaas.turbo.expressive.domain.CustomTileSource? = null,
 )
 
 /** Holds the map home's UI state; markers + live location come from repositories. */
@@ -161,6 +164,8 @@ class MapViewModel @Inject constructor(
                         settingsLoaded = true,
                         locationDotColorHex = s.locationDotColorHex,
                         showHeadingBeam = s.showHeadingBeam,
+                        customTileSources = s.customTileSources,
+                        selectedCustomSource = s.customTileSources.firstOrNull { c -> c.id == s.selectedCustomSourceId },
                     )
                 }
             }
@@ -214,6 +219,26 @@ class MapViewModel @Inject constructor(
     fun dismissLocationNotice() = _state.update { it.copy(locationNotice = null) }
 
     // Persist the choice; the settings collector above reflects it back into state.
+    fun addCustomTileSource(name: String, urlTemplate: String) {
+        viewModelScope.launch {
+            settings.addCustomTileSource(
+                com.sigmundgranaas.turbo.expressive.domain.CustomTileSource(
+                    id = java.util.UUID.randomUUID().toString(),
+                    name = name.trim().ifBlank { "Custom map" },
+                    urlTemplate = urlTemplate.trim(),
+                ),
+            )
+        }
+    }
+
+    fun removeCustomTileSource(id: String) {
+        viewModelScope.launch { settings.removeCustomTileSource(id) }
+    }
+
+    fun selectCustomTileSource(id: String?) {
+        viewModelScope.launch { settings.selectCustomTileSource(id) }
+    }
+
     fun setBaseLayer(layer: BaseLayer) {
         viewModelScope.launch { settings.setBaseLayer(layer) }
     }

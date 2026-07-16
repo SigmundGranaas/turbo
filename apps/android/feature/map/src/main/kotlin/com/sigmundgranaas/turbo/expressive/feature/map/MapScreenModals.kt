@@ -52,6 +52,8 @@ internal fun MapScreenModals(
     recDistanceM: Double,
     recPointCount: Int,
     baseLayer: BaseLayer,
+    customSources: List<com.sigmundgranaas.turbo.expressive.domain.CustomTileSource>,
+    selectedCustomId: String?,
     cloudsAvailable: Boolean,
     onOpenOffline: () -> Unit,
     openTrackTool: (TrackMode) -> Unit,
@@ -109,6 +111,11 @@ internal fun MapScreenModals(
         MapLayersSheet(
             selected = baseLayer,
             onSelectBase = viewModel::setBaseLayer,
+            customSources = customSources,
+            selectedCustomId = selectedCustomId,
+            onSelectCustom = viewModel::selectCustomTileSource,
+            onAddCustom = viewModel::addCustomTileSource,
+            onRemoveCustom = viewModel::removeCustomTileSource,
             onDownloadArea = {
                 ui.controller?.let { ctrl ->
                     val bounds = ctrl.visibleBounds()

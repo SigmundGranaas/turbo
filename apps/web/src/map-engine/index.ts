@@ -11,5 +11,7 @@ export {
   baseSourceId,
   basemapGain,
   buildBaseScene,
+  resolveBaseLayer,
+  setCustomBaseLayers,
 } from './scene';
 export type { BaseLayerId, BaseLayerDef, Scene, SourceDef, Layer } from './scene';

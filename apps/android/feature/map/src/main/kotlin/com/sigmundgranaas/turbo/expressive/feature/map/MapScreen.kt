@@ -579,7 +579,7 @@ fun MapScreen(
                 Box(Modifier.fillMaxSize())
             } else if (state.settingsLoaded) {
                 TurbomapMapView(
-                    rasters = MapStyles.turbomapRasterSpecs(state.baseLayer, ui.activeOverlays),
+                    rasters = MapStyles.turbomapRasterSpecs(state.baseLayer, ui.activeOverlays, state.selectedCustomSource),
                     vectors = MapStyles.turbomapVectorSpecs(),
                     initialCamera = state.lastCamera ?: MapDefaults.fallbackCamera,
                     initialZoom = state.lastCameraZoom ?: MapDefaults.fallbackZoom,
@@ -1204,6 +1204,8 @@ fun MapScreen(
         recDistanceM = recState.distanceM,
         recPointCount = recState.points.size,
         baseLayer = state.baseLayer,
+        customSources = state.customTileSources,
+        selectedCustomId = state.selectedCustomSource?.id,
         cloudsAvailable = true, // the wgpu engine (now the only one) renders clouds
         onOpenOffline = onOpenOffline,
         openTrackTool = openTrackTool,

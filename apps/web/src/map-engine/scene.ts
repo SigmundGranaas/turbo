@@ -152,6 +152,22 @@ export function baseSourceId(base: BaseLayerId): string {
   return `basemap-${base}`;
 }
 
+// User-added XYZ basemaps, registered by the host (a React effect syncs the
+// uiStore's persisted list here — scene building stays store-agnostic).
+let customBaseLayers: Record<string, BaseLayerDef> = {};
+
+/** Replace the registered custom base layers (keyed by id). */
+export function setCustomBaseLayers(defs: Record<string, BaseLayerDef>): void {
+  customBaseLayers = defs;
+}
+
+/** Resolve a base-layer id: built-in catalog first, then the user's custom
+ *  sources; unknown ids (e.g. a deleted custom layer still persisted as the
+ *  selection) fall back to the default topo rather than a blank map. */
+export function resolveBaseLayer(base: BaseLayerId): BaseLayerDef {
+  return BASE_LAYERS[base] ?? customBaseLayers[base] ?? BASE_LAYERS.norgeskart;
+}
+
 /** 3D sun-lit basemap brightness gain. Satellite imagery is intrinsically dark
  *  (forest/rock + baked lighting), so under the terrain sun-lighting it reads
  *  near-black at the brightness that suits bright topo — lift it. Only affects
@@ -167,7 +183,7 @@ export function basemapGain(base: BaseLayerId): number {
  *  terrain, so markers/overlays land off the true ground point. 2D must be a
  *  flat, bright, perfectly-registered map; 3D opts terrain in. */
 export function buildBaseScene(base: BaseLayerId, terrain = false): Scene {
-  const def = BASE_LAYERS[base];
+  const def = resolveBaseLayer(base);
   const id = baseSourceId(base);
   const sources: Scene['sources'] = {
     [id]: {

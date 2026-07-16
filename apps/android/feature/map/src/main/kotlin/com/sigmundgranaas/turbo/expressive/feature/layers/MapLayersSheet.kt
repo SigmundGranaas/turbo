@@ -19,12 +19,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Air
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Hiking
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Satellite
 import androidx.compose.material.icons.rounded.Terrain
 import androidx.compose.material.icons.rounded.Waves
@@ -37,6 +40,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,6 +56,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
+import com.sigmundgranaas.turbo.expressive.domain.CustomTileSource
 import com.sigmundgranaas.turbo.expressive.domain.OverlayId
 import com.sigmundgranaas.turbo.expressive.feature.map.R
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
@@ -65,6 +73,13 @@ fun MapLayersSheet(
     onDismiss: () -> Unit,
     activeOverlays: Set<OverlayId> = emptySet(),
     onToggleOverlay: (OverlayId, Boolean) -> Unit = { _, _ -> },
+    // User-added XYZ basemaps ("add your own map URL"). When [selectedCustomId]
+    // is set that source is the active base and the built-in cards deselect.
+    customSources: List<CustomTileSource> = emptyList(),
+    selectedCustomId: String? = null,
+    onSelectCustom: (String?) -> Unit = {},
+    onAddCustom: (name: String, urlTemplate: String) -> Unit = { _, _ -> },
+    onRemoveCustom: (String) -> Unit = {},
     // Procedural weather-clouds overlay (wgpu engine only). The row is hidden
     // unless [cloudsAvailable]; toggling drives the bottom scrubber.
     cloudsAvailable: Boolean = false,
@@ -89,10 +104,60 @@ fun MapLayersSheet(
             Spacer(Modifier.height(18.dp))
             SectionLabel(stringResource(R.string.layers_base))
             Spacer(Modifier.height(12.dp))
+            // A custom source being active deselects the built-in cards.
+            val builtinSelected: (BaseLayer) -> Boolean = { selectedCustomId == null && selected == it }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                LayerCard(BaseLayer.Norgeskart, Icons.Rounded.Terrain, selected == BaseLayer.Norgeskart, Modifier.weight(1f)) { onSelectBase(BaseLayer.Norgeskart) }
-                LayerCard(BaseLayer.Osm, Icons.Rounded.Map, selected == BaseLayer.Osm, Modifier.weight(1f)) { onSelectBase(BaseLayer.Osm) }
-                LayerCard(BaseLayer.Satellite, Icons.Rounded.Satellite, selected == BaseLayer.Satellite, Modifier.weight(1f)) { onSelectBase(BaseLayer.Satellite) }
+                LayerCard(BaseLayer.Norgeskart, Icons.Rounded.Terrain, builtinSelected(BaseLayer.Norgeskart), Modifier.weight(1f)) { onSelectBase(BaseLayer.Norgeskart) }
+                LayerCard(BaseLayer.Osm, Icons.Rounded.Map, builtinSelected(BaseLayer.Osm), Modifier.weight(1f)) { onSelectBase(BaseLayer.Osm) }
+                LayerCard(BaseLayer.Satellite, Icons.Rounded.Satellite, builtinSelected(BaseLayer.Satellite), Modifier.weight(1f)) { onSelectBase(BaseLayer.Satellite) }
+            }
+
+            var showAddCustom by remember { mutableStateOf(false) }
+            Spacer(Modifier.height(14.dp))
+            customSources.forEach { source ->
+                val active = source.id == selectedCustomId
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(TurboRadius.m))
+                        .clickable { haptics.toggle(true); onSelectCustom(if (active) null else source.id) }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                ) {
+                    Icon(Icons.Rounded.Public, null, tint = if (active) cs.primary else cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.size(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(source.name, style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                        Text(
+                            source.urlTemplate,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = cs.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (active) {
+                        Icon(Icons.Rounded.Check, null, tint = cs.primary, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.size(8.dp))
+                    }
+                    Icon(
+                        Icons.Rounded.Close,
+                        stringResource(R.string.layers_custom_remove),
+                        tint = cs.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp).clickable { onRemoveCustom(source.id) },
+                    )
+                }
+            }
+            androidx.compose.material3.TextButton(onClick = { showAddCustom = true }) {
+                Icon(Icons.Rounded.Add, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.size(6.dp))
+                Text(stringResource(R.string.layers_custom_add))
+            }
+            if (showAddCustom) {
+                AddCustomMapDialog(
+                    onConfirm = { name, url -> onAddCustom(name, url); showAddCustom = false },
+                    onDismiss = { showAddCustom = false },
+                )
             }
 
             Spacer(Modifier.height(22.dp))
@@ -144,6 +209,57 @@ fun MapLayersSheet(
             }
         }
     }
+}
+
+/** Name + XYZ URL form for a user-added basemap, with live template validation
+ *  (http(s) + `{z}`/`{x}`/`{y}` — the same rule the web picker applies). */
+@Composable
+private fun AddCustomMapDialog(onConfirm: (name: String, url: String) -> Unit, onDismiss: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    var name by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf("") }
+    val urlValid = CustomTileSource.isValidTemplate(url)
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.layers_custom_add_title)) },
+        text = {
+            Column {
+                androidx.compose.material3.OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.layers_custom_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                androidx.compose.material3.OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text(stringResource(R.string.layers_custom_url)) },
+                    placeholder = { Text("https://example.com/tiles/{z}/{x}/{y}.png") },
+                    singleLine = true,
+                    isError = url.isNotBlank() && !urlValid,
+                    supportingText = {
+                        if (url.isNotBlank() && !urlValid) {
+                            Text(stringResource(R.string.layers_custom_url_invalid), color = cs.error)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                onClick = { onConfirm(name, url) },
+                enabled = urlValid,
+            ) { Text(stringResource(R.string.layers_custom_confirm)) }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                Text(stringResource(com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_cancel))
+            }
+        },
+    )
 }
 
 /** Icon + localized title/subtitle string-ids for an overlay row. */

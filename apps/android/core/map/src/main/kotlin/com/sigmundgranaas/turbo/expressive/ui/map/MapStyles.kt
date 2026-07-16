@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.ui.map
 
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
+import com.sigmundgranaas.turbo.expressive.domain.CustomTileSource
 import com.sigmundgranaas.turbo.expressive.domain.OverlayId
 import com.sigmundgranaas.turbo.expressive.domain.TurbomapScene
 
@@ -73,9 +74,19 @@ object MapStyles {
      * [TurbomapScene.RasterSpec]s (bottom→top). Lets the wgpu host fetch the
      * identical tiles without reimplementing the URL knowledge.
      */
-    fun turbomapRasterSpecs(base: BaseLayer, overlays: Set<OverlayId> = emptySet()): List<TurbomapScene.RasterSpec> {
-        val (id, url) = baseTiles(base)
-        val baseSpec = TurbomapScene.RasterSpec(id, url, maxZoom = baseMaxZoom(base))
+    fun turbomapRasterSpecs(
+        base: BaseLayer,
+        overlays: Set<OverlayId> = emptySet(),
+        /** A user-added XYZ source; when non-null it REPLACES the built-in base.
+         *  Its id is namespaced per source so switching re-fetches (no stale cache). */
+        custom: CustomTileSource? = null,
+    ): List<TurbomapScene.RasterSpec> {
+        val baseSpec = if (custom != null) {
+            TurbomapScene.RasterSpec("custom_${custom.id}", custom.urlTemplate, maxZoom = custom.maxZoom)
+        } else {
+            val (id, url) = baseTiles(base)
+            TurbomapScene.RasterSpec(id, url, maxZoom = baseMaxZoom(base))
+        }
         val overlaySpecs = overlays.mapNotNull { ov ->
             overlayTiles(ov)?.let {
                 TurbomapScene.RasterSpec("ov_${ov.name}", it.first, maxZoom = overlayMaxZoom(ov))

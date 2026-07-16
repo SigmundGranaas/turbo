@@ -9,8 +9,11 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
+import com.sigmundgranaas.turbo.expressive.domain.CustomTileSource
 import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
 import com.sigmundgranaas.turbo.expressive.domain.UserSettings
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -33,6 +36,15 @@ interface SettingsRepository {
 
     /** Show/hide the my-position heading beam. */
     suspend fun setShowHeadingBeam(enabled: Boolean)
+
+    /** Add a user-supplied XYZ basemap and make it the active base. */
+    suspend fun addCustomTileSource(source: CustomTileSource)
+
+    /** Remove a custom basemap; if it was active, fall back to the built-in [UserSettings.baseLayer]. */
+    suspend fun removeCustomTileSource(id: String)
+
+    /** Select a custom basemap by id (null = back to the built-in base layer). */
+    suspend fun selectCustomTileSource(id: String?)
 
     /** Persist the map camera so reopening the app returns to where the user left it. */
     suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double)
@@ -58,6 +70,8 @@ class DataStoreSettingsRepository @Inject constructor(
         val CAM_ZOOM = doublePreferencesKey("last_camera_zoom")
         val LOCATION_DOT_COLOR = stringPreferencesKey("location_dot_color")
         val HEADING_BEAM = booleanPreferencesKey("show_heading_beam")
+        val CUSTOM_SOURCES = stringPreferencesKey("custom_tile_sources")
+        val CUSTOM_SELECTED = stringPreferencesKey("custom_tile_source_selected")
     }
 
     override val settings: Flow<UserSettings> = context.settingsDataStore.data.map { prefs ->
@@ -78,6 +92,8 @@ class DataStoreSettingsRepository @Inject constructor(
             lastCameraZoom = prefs[Keys.CAM_ZOOM],
             locationDotColorHex = prefs[Keys.LOCATION_DOT_COLOR],
             showHeadingBeam = prefs[Keys.HEADING_BEAM] ?: true,
+            customTileSources = decodeCustomSources(prefs[Keys.CUSTOM_SOURCES]),
+            selectedCustomSourceId = prefs[Keys.CUSTOM_SELECTED],
         )
     }
 
@@ -106,7 +122,33 @@ class DataStoreSettingsRepository @Inject constructor(
     }
 
     override suspend fun setBaseLayer(layer: BaseLayer) {
-        context.settingsDataStore.edit { it[Keys.BASE_LAYER] = layer.id }
+        context.settingsDataStore.edit {
+            it[Keys.BASE_LAYER] = layer.id
+            // Picking a built-in releases any active custom basemap.
+            it.remove(Keys.CUSTOM_SELECTED)
+        }
+    }
+
+    override suspend fun addCustomTileSource(source: CustomTileSource) {
+        context.settingsDataStore.edit { prefs ->
+            val next = decodeCustomSources(prefs[Keys.CUSTOM_SOURCES]).filterNot { it.id == source.id } + source
+            prefs[Keys.CUSTOM_SOURCES] = encodeCustomSources(next)
+            prefs[Keys.CUSTOM_SELECTED] = source.id
+        }
+    }
+
+    override suspend fun removeCustomTileSource(id: String) {
+        context.settingsDataStore.edit { prefs ->
+            val next = decodeCustomSources(prefs[Keys.CUSTOM_SOURCES]).filterNot { it.id == id }
+            prefs[Keys.CUSTOM_SOURCES] = encodeCustomSources(next)
+            if (prefs[Keys.CUSTOM_SELECTED] == id) prefs.remove(Keys.CUSTOM_SELECTED)
+        }
+    }
+
+    override suspend fun selectCustomTileSource(id: String?) {
+        context.settingsDataStore.edit {
+            if (id == null) it.remove(Keys.CUSTOM_SELECTED) else it[Keys.CUSTOM_SELECTED] = id
+        }
     }
 
     override suspend fun setLocationDotColor(colorHex: String?) {
@@ -127,3 +169,25 @@ class DataStoreSettingsRepository @Inject constructor(
         }
     }
 }
+
+/** Persistence shape for one custom basemap (JSON list under one preference key). */
+@Serializable
+private data class CustomSourceDto(
+    val id: String,
+    val name: String,
+    val urlTemplate: String,
+    val maxZoom: Int = CustomTileSource.DEFAULT_MAX_ZOOM,
+)
+
+private val customSourcesJson = Json { ignoreUnknownKeys = true }
+
+private fun encodeCustomSources(sources: List<CustomTileSource>): String =
+    customSourcesJson.encodeToString(sources.map { CustomSourceDto(it.id, it.name, it.urlTemplate, it.maxZoom) })
+
+private fun decodeCustomSources(encoded: String?): List<CustomTileSource> =
+    encoded?.takeIf { it.isNotBlank() }?.let { json ->
+        runCatching {
+            customSourcesJson.decodeFromString<List<CustomSourceDto>>(json)
+                .map { CustomTileSource(it.id, it.name, it.urlTemplate, it.maxZoom) }
+        }.getOrDefault(emptyList())
+    } ?: emptyList()
