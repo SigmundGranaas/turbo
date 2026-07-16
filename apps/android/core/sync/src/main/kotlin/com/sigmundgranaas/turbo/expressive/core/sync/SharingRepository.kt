@@ -44,6 +44,9 @@ interface SharingRepository {
     suspend fun addGroupMember(groupId: String, userId: String): Outcome<Unit> = unsupported()
     suspend fun removeGroupMember(groupId: String, userId: String): Outcome<Unit> = unsupported()
 
+    /** Set a resource's default visibility: "private" / "friends" / "unlisted_link" / "public". */
+    suspend fun setVisibility(resourceId: String, visibility: String): Outcome<Unit> = unsupported()
+
     companion object {
         const val ROLE_VIEWER = "viewer"
         private fun <T> unsupported(): Outcome<T> = Outcome.Failure(UnsupportedOperationException())
@@ -156,6 +159,16 @@ class KtorSharingRepository @Inject constructor(
     override suspend fun removeGroupMember(groupId: String, userId: String): Outcome<Unit> = runCatching {
         val resp = http.request("$base/groups/$groupId/members/$userId") { method = HttpMethod.Delete }
         check(resp.status.isSuccess()) { "removeGroupMember ${resp.status}" }
+        Unit
+    }.fold({ Outcome.Success(it) }, { Outcome.Failure(it) })
+
+    override suspend fun setVisibility(resourceId: String, visibility: String): Outcome<Unit> = runCatching {
+        val resp = http.request("$base/resources/$resourceId/visibility") {
+            method = HttpMethod.Put
+            contentType(ContentType.Application.Json)
+            setBody(SetVisibilityRequest(visibility))
+        }
+        check(resp.status.isSuccess()) { "setVisibility ${resp.status}" }
         Unit
     }.fold({ Outcome.Success(it) }, { Outcome.Failure(it) })
 

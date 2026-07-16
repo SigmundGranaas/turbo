@@ -41,6 +41,7 @@ public static class SharingModule
         services.AddScoped<IGrantService, EfGrantService>();
         services.AddScoped<IShareInviteService, EfShareInviteService>();
         services.AddScoped<IResourceSyncService, EfResourceSyncService>();
+        services.AddScoped<IResourceVisibilityService, EfResourceVisibilityService>();
         services.AddScoped<IUserProfileService, EfUserProfileService>();
 
         // Integration: subscribe to payload-module events and maintain the

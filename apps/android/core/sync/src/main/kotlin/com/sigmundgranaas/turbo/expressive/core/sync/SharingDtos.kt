@@ -10,6 +10,13 @@ data class UserProfileDto(
     val createdAt: String? = null,
 )
 
+/** PUT /api/sharing/resources/{id}/visibility body — wire values
+ *  "private" / "friends" / "unlisted_link" / "public". */
+@Serializable
+data class SetVisibilityRequest(
+    val visibility: String,
+)
+
 /** POST /api/sharing/grants/links body. */
 @Serializable
 data class GrantAsLinkRequest(

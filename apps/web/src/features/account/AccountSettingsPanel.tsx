@@ -8,6 +8,7 @@ import { SidePanel, Eyebrow, Tabs, FilledField } from '../../ui/Panel';
 import { Btn } from '../../ui/Glass';
 import { Icon } from '../../ui/Icon';
 import { Cookie } from '../../ui/Cookie';
+import { FriendsSection } from './FriendsSection';
 
 const THEME_ORDER: ThemeMode[] = ['system', 'light', 'dark'];
 
@@ -109,6 +110,8 @@ export function AccountSettingsPanel({ dark, onClose }: { dark: boolean; onClose
             </button>
           </div>
         )}
+
+        {signedIn && <FriendsSection />}
 
         <Eyebrow style={{ margin: '24px 0 10px' }}>Appearance</Eyebrow>
         <Tabs
