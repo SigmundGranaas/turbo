@@ -38,7 +38,7 @@ private object NoopSharingRepository : SharingRepository {
     override suspend fun sharedResources(since: String?) = Outcome.Success(com.sigmundgranaas.turbo.expressive.core.sync.ResourceSyncPageDto())
 }
 
-private fun pathsViewModel(repo: PathRepository) = PathsViewModel(repo, NoopSharingRepository)
+private fun pathsViewModel(repo: PathRepository) = PathsViewModel(repo, NoopSharingRepository, NoElevations)
 
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)

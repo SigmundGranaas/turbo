@@ -48,6 +48,11 @@ abstract class DataModule {
     abstract fun bindPathRepository(impl: RoomPathRepository): PathRepository
 
     @Binds
+    abstract fun bindElevationRepository(
+        impl: com.sigmundgranaas.turbo.expressive.core.data.TileserverElevationRepository,
+    ): com.sigmundgranaas.turbo.expressive.core.data.ElevationRepository
+
+    @Binds
     abstract fun bindRecentSearchRepository(impl: DataStoreRecentSearchRepository): RecentSearchRepository
 
     @Binds

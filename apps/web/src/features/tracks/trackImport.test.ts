@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTrack, trackStats } from './trackImport';
+import { parseTrack, trackStats, needsElevationBackfill, mergeElevations } from './trackImport';
 
 const GPX = `<?xml version="1.0"?>
 <gpx version="1.1"><trk><name>QA Imported Track</name><trkseg>
@@ -84,5 +84,28 @@ describe('trackStats', () => {
     const climb = trackStats(pts, [100, 102, 104, 106, 108, 110, 112]);
     expect(climb.ascentM).toBeCloseTo(12, 5);
     expect(climb.descentM).toBeCloseTo(0, 5);
+  });
+});
+
+/** DEM elevation backfill on import (the user's goal: a working elevation chart
+ *  for GeoJSON/route files that carry no <ele>): tracks missing most elevation
+ *  qualify; a file that brought its own data is left alone; merging prefers the
+ *  file's value per vertex and falls back to the DEM sample. */
+describe('elevation backfill decisions', () => {
+  it('qualifies a track with no elevation data', () => {
+    expect(needsElevationBackfill([null, null, null], 3)).toBe(true);
+  });
+
+  it('leaves a mostly-complete file alone', () => {
+    expect(needsElevationBackfill([10, 20, null, 30], 4)).toBe(false);
+  });
+
+  it('skips degenerate and oversized tracks', () => {
+    expect(needsElevationBackfill([null], 1)).toBe(false);
+    expect(needsElevationBackfill(Array(5000).fill(null), 5000)).toBe(false);
+  });
+
+  it('merges per vertex: file value wins, sample fills, null where neither knows', () => {
+    expect(mergeElevations([12, null, null], [100, 200, null], 3)).toEqual([12, 200, null]);
   });
 });

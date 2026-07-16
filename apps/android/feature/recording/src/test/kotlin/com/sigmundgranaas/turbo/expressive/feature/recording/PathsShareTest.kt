@@ -45,7 +45,7 @@ class PathsShareTest {
 
     @Test
     fun `a synced track yields a shareable link`() = runTest(dispatcher) {
-        val vm = PathsViewModel(FakePathRepo(remote = "srv-1"), FakeSharing(Outcome.Success("https://kart.sandring.no/link/tok")))
+        val vm = PathsViewModel(FakePathRepo(remote = "srv-1"), FakeSharing(Outcome.Success("https://kart.sandring.no/link/tok")), NoElevations)
         var result: PathsViewModel.ShareLinkResult? = null
         vm.createShareLink("p-1") { result = it }
         advanceUntilIdle()
@@ -55,7 +55,7 @@ class PathsShareTest {
 
     @Test
     fun `an un-synced track reports NotSynced without calling the server`() = runTest(dispatcher) {
-        val vm = PathsViewModel(FakePathRepo(remote = null), FakeSharing(Outcome.Failure(RuntimeException("should not be called"))))
+        val vm = PathsViewModel(FakePathRepo(remote = null), FakeSharing(Outcome.Failure(RuntimeException("should not be called"))), NoElevations)
         var result: PathsViewModel.ShareLinkResult? = null
         vm.createShareLink("p-1") { result = it }
         advanceUntilIdle()

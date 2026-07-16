@@ -59,6 +59,58 @@ pub async fn sample(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct SamplesReq {
+    /// WGS84 (lon, lat) points to sample, in order.
+    pub points: Vec<[f64; 2]>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SamplesResp {
+    /// One entry PER INPUT POINT, in order; `None` where the point falls
+    /// outside DEM coverage or on nodata.
+    pub elev_m: Vec<Option<f32>>,
+    pub took_us: u64,
+}
+
+/// Per-vertex batch sampling — the elevation-backfill primitive. Unlike
+/// [`profile`] (which RESAMPLES uniformly along a line), this answers at the
+/// exact points given, so a client can fill the missing `elevations[i]` of an
+/// imported track vertex-for-vertex in one round-trip.
+pub async fn samples(
+    State(state): State<ApiState>,
+    Json(req): Json<SamplesReq>,
+) -> Result<Json<SamplesResp>, ApiError> {
+    let dem = state
+        .dem
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("dem"))?;
+    if req.points.is_empty() {
+        return Err(ApiError::BadRequest("points must be non-empty".into()));
+    }
+    if req.points.len() > 4096 {
+        return Err(ApiError::BadRequest(
+            "at most 4096 points per request".into(),
+        ));
+    }
+    let projected: Vec<PointXY> = req
+        .points
+        .iter()
+        .map(|p| wgs84_to_utm33n(p[0], p[1]))
+        .collect();
+    let start = Instant::now();
+    // Best-effort per point: out-of-coverage/nodata → None (Dem::profile
+    // samples the given points verbatim).
+    let elev = dem
+        .profile(&projected)
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+    let took_us = start.elapsed().as_micros() as u64;
+    Ok(Json(SamplesResp {
+        elev_m: elev,
+        took_us,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ProfileReq {
     /// WGS84 (lon, lat) vertices of the line.
     pub line: Vec<[f64; 2]>,

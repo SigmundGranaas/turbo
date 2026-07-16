@@ -129,6 +129,28 @@ function parseGeoJson(text: string): ParsedTrack | null {
  *  hiding real climbs. Mirrors Android `GeoMetrics.ELEVATION_HYSTERESIS_M`. */
 const ELEVATION_HYSTERESIS_M = 3.0;
 
+/** The tileserver caps one `/v1/elev/samples` request; larger imports skip backfill. */
+const MAX_BACKFILL_POINTS = 4096;
+
+/** Whether an imported track should get DEM elevation backfill: at least half
+ *  the points lack elevation (a file that mostly HAS data keeps its own) and the
+ *  track fits one sampling request. Mirrors the Android import behaviour. */
+export function needsElevationBackfill(elevations: (number | null)[], pointCount: number): boolean {
+  if (pointCount < 2 || pointCount > MAX_BACKFILL_POINTS) return false;
+  const missing = pointCount - elevations.filter((e) => e != null).length;
+  return missing * 2 >= pointCount;
+}
+
+/** Merge DEM-sampled elevations under the file's own: a vertex keeps the value
+ *  the file brought and falls back to the sample; null where neither knows. */
+export function mergeElevations(
+  existing: (number | null)[],
+  sampled: (number | null)[],
+  pointCount: number,
+): (number | null)[] {
+  return Array.from({ length: pointCount }, (_, i) => existing[i] ?? sampled[i] ?? null);
+}
+
 /** Distance (metres) + ascent/descent from elevation deltas. Mirrors Android
  *  `GeoMetrics` — including its ±3 m hysteresis band: a delta only counts once
  *  the series has moved that far from the last committed elevation, so recorded

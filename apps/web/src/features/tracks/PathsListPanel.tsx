@@ -8,7 +8,8 @@ import { Icon } from '../../ui/Icon';
 import { useUiStore } from '../../store/uiStore';
 import { formatDistance, formatElev } from '../../format';
 import { useCreateTrack } from './useTracks';
-import { parseTrack, trackStats } from './trackImport';
+import { parseTrack, trackStats, needsElevationBackfill, mergeElevations } from './trackImport';
+import { sampleElevations } from '../../api/elevation';
 
 type SortKey = 'newest' | 'name' | 'longest';
 const SORTS: { key: SortKey; label: string }[] = [
@@ -61,13 +62,23 @@ export function PathsListPanel({
         setImportErr('Couldn’t read a track from that file (need GPX, KML or GeoJSON with ≥ 2 points).');
         return;
       }
-      const stats = trackStats(parsed.points, parsed.elevations);
-      const hasEle = parsed.elevations.some((e) => e != null);
+      // Files without per-point elevation get theirs from the tileserver DEM
+      // (best-effort — a sampling outage just imports the track without them).
+      let elevations = parsed.elevations;
+      if (needsElevationBackfill(elevations, parsed.points.length)) {
+        try {
+          elevations = mergeElevations(elevations, await sampleElevations(parsed.points), parsed.points.length);
+        } catch {
+          /* keep the file's own (possibly empty) elevations */
+        }
+      }
+      const stats = trackStats(parsed.points, elevations);
+      const hasEle = elevations.some((e) => e != null);
       const name = parsed.name?.trim() || file.name.replace(/\.[^.]+$/, '');
       const created = await create.mutateAsync({
         name,
         points: parsed.points,
-        elevations: hasEle ? parsed.elevations.map((e) => e ?? 0) : undefined,
+        elevations: hasEle ? elevations.map((e) => e ?? 0) : undefined,
         distanceM: stats.distanceM,
         ascentM: stats.ascentM,
         descentM: stats.descentM,

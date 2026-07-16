@@ -44,6 +44,7 @@ pub fn router() -> Router<ApiState> {
         .route("/:resource/:id", get(resource::detail))
         // Stage 1: elevation primitive
         .route("/elev/sample", post(elev::sample))
+        .route("/elev/samples", post(elev::samples))
         .route("/elev/profile", post(elev::profile))
         .route("/debug/elev/coverage", get(elev::coverage))
         .route("/debug/elev/bench", get(elev::bench))
