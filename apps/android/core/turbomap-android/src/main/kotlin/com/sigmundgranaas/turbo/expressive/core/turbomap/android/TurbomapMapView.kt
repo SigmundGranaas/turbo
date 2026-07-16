@@ -96,6 +96,8 @@ fun TurbomapMapView(
     userLocation: LatLng? = null,
     /** Course over ground (deg, 0 = N) for the my-position heading beam; null = no heading. */
     userHeading: Float? = null,
+    /** My-position dot colour; null = the default blue. A settings customization. */
+    userDotColor: Color? = null,
     markers: List<Marker> = emptyList(),
     selectedMarkerId: String? = null,
     markerFallbackColor: Color = Color(0xFF8F4C38),
@@ -217,6 +219,7 @@ fun TurbomapMapView(
                 markerFallbackColor = markerFallbackColor,
                 userLocation = userLocation,
                 userHeading = userHeading,
+                userDotColor = userDotColor,
                 onMarkerClick = onMarkerClick,
                 photoPins = photoPins,
                 onPhotoPinClick = onPhotoPinClick,

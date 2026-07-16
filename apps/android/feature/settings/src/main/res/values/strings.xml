@@ -33,4 +33,8 @@
     <string name="settings_cloud_sync_sub">Back up tracks, markers and collections to your account</string>
     <string name="settings_wifi_only">Download over Wi-Fi only</string>
     <string name="settings_wifi_only_sub">Pause offline map downloads on mobile data</string>
+    <string name="settings_location_marker">Location marker</string>
+    <string name="settings_location_marker_sub">Colour of the my-position dot</string>
+    <string name="settings_heading_beam">Heading beam</string>
+    <string name="settings_heading_beam_sub">Show your direction of travel on the dot</string>
 </resources>

@@ -25,6 +25,8 @@ interface UiState {
   following: boolean;
   /** Far-distance atmospheric haze in 3D (persisted). Off by default. */
   distanceHaze: boolean;
+  /** My-position dot colour (CSS hex, persisted); undefined = the default blue. */
+  locationDotColor?: string;
   /** Last camera pose (persisted) — restored on the next load. */
   camera?: SavedCamera;
   setTheme: (t: ThemeMode) => void;
@@ -34,6 +36,7 @@ interface UiState {
   setLayers: (v: boolean) => void;
   setFollowing: (v: boolean) => void;
   setDistanceHaze: (v: boolean) => void;
+  setLocationDotColor: (c: string | undefined) => void;
   setCamera: (c: SavedCamera) => void;
 }
 
@@ -54,6 +57,7 @@ export const useUiStore = create<UiState>()(
       setLayers: (layers) => set({ layers }),
       setFollowing: (following) => set({ following }),
       setDistanceHaze: (distanceHaze) => set({ distanceHaze }),
+      setLocationDotColor: (locationDotColor) => set({ locationDotColor }),
       setCamera: (camera) => set({ camera }),
     }),
     {
@@ -63,6 +67,7 @@ export const useUiStore = create<UiState>()(
         units: s.units,
         baseLayer: s.baseLayer,
         distanceHaze: s.distanceHaze,
+        locationDotColor: s.locationDotColor,
         camera: s.camera,
       }),
     },

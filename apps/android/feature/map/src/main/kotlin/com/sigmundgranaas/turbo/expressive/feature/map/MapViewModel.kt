@@ -76,6 +76,10 @@ data class MapUiState(
      *  when the flag arrives, discarding the camera restore (every launch reset
      *  to the world overview). */
     val settingsLoaded: Boolean = false,
+    /** My-position dot colour ("#RRGGBB"); null = default blue. Mirrors settings. */
+    val locationDotColorHex: String? = null,
+    /** Whether the my-position heading beam is drawn (settings toggle). */
+    val showHeadingBeam: Boolean = true,
 )
 
 /** Holds the map home's UI state; markers + live location come from repositories. */
@@ -155,6 +159,8 @@ class MapViewModel @Inject constructor(
                         },
                         lastCameraZoom = s.lastCameraZoom,
                         settingsLoaded = true,
+                        locationDotColorHex = s.locationDotColorHex,
+                        showHeadingBeam = s.showHeadingBeam,
                     )
                 }
             }

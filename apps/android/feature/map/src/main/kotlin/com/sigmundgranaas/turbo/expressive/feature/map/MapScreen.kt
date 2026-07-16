@@ -627,7 +627,11 @@ fun MapScreen(
                         else -> emptyList()
                     },
                     userLocation = state.userLocation,
-                    userHeading = state.userHeading,
+                    // The beam toggle gates the HEADING, not the dot — off = plain dot.
+                    userHeading = state.userHeading.takeIf { state.showHeadingBeam },
+                    userDotColor = state.locationDotColorHex
+                        ?.let(com.sigmundgranaas.turbo.expressive.domain.TurbomapScene::rgbaFromHex)
+                        ?.let { androidx.compose.ui.graphics.Color(it.r, it.g, it.b) },
                     // 3D mode: 1-finger orbit about the user location, two
                     // fingers pan. Only meaningful on this wgpu engine.
                     threeDMode = state.threeDMode,

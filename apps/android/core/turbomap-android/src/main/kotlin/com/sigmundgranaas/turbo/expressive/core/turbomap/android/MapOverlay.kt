@@ -100,6 +100,8 @@ fun MapOverlay(
     /** Course over ground in degrees (0 = N); when non-null the pin shows a heading beam whose
      *  on-screen direction is derived via the engine projection (correct under map rotation/tilt). */
     userHeading: Float? = null,
+    /** My-position dot colour; null = the default blue. A settings customization. */
+    userDotColor: Color? = null,
     onMarkerClick: (Marker) -> Unit = {},
     photoPins: List<PhotoPin> = emptyList(),
     onPhotoPinClick: (PhotoPin) -> Unit = {},
@@ -153,6 +155,7 @@ fun MapOverlay(
                 }
                 MyPositionPin(
                     screenHeadingDeg = screenHeading,
+                    dotColor = userDotColor ?: UserBlue,
                     modifier = Modifier
                         .offset {
                             @Suppress("UNUSED_EXPRESSION") cameraTick
@@ -179,6 +182,7 @@ fun MapOverlay(
                 val angle = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
                 OffScreenPositionChevron(
                     angleDeg = angle,
+                    dotColor = userDotColor ?: UserBlue,
                     modifier = Modifier
                         .offset { IntOffset((ex - boxPx / 2f).roundToInt(), (ey - boxPx / 2f).roundToInt()) }
                         .testTag("myPositionOffscreen"),
@@ -518,7 +522,7 @@ private val UserBlue = Color(0xFF1A73E8)
  * projection), so it stays correct as the map rotates or tilts.
  */
 @Composable
-private fun MyPositionPin(screenHeadingDeg: Float?, modifier: Modifier = Modifier) {
+private fun MyPositionPin(screenHeadingDeg: Float?, modifier: Modifier = Modifier, dotColor: Color = UserBlue) {
     Canvas(modifier.size(48.dp)) {
         val c = center
         val dot = 7.dp.toPx()
@@ -535,8 +539,8 @@ private fun MyPositionPin(screenHeadingDeg: Float?, modifier: Modifier = Modifie
                 drawPath(
                     beam,
                     brush = Brush.horizontalGradient(
-                        0f to UserBlue.copy(alpha = 0.55f),
-                        1f to UserBlue.copy(alpha = 0f),
+                        0f to dotColor.copy(alpha = 0.55f),
+                        1f to dotColor.copy(alpha = 0f),
                         startX = c.x,
                         endX = c.x + len,
                     ),
@@ -544,7 +548,7 @@ private fun MyPositionPin(screenHeadingDeg: Float?, modifier: Modifier = Modifie
             }
         }
         drawCircle(Color.White, radius = dot + 3.dp.toPx(), center = c)
-        drawCircle(UserBlue, radius = dot, center = c)
+        drawCircle(dotColor, radius = dot, center = c)
     }
 }
 
@@ -555,7 +559,7 @@ private fun MyPositionPin(screenHeadingDeg: Float?, modifier: Modifier = Modifie
  * rotation. The caller clamps it to the screen edge; tapping the locate button recentres the map.
  */
 @Composable
-private fun OffScreenPositionChevron(angleDeg: Float, modifier: Modifier = Modifier) {
+private fun OffScreenPositionChevron(angleDeg: Float, modifier: Modifier = Modifier, dotColor: Color = UserBlue) {
     Canvas(modifier.size(48.dp)) {
         val c = center
         val dot = 6.dp.toPx()
@@ -569,10 +573,10 @@ private fun OffScreenPositionChevron(angleDeg: Float, modifier: Modifier = Modif
                 lineTo(baseX, c.y + half)
                 close()
             }
-            drawPath(arrow, color = UserBlue)
+            drawPath(arrow, color = dotColor)
         }
         drawCircle(Color.White, radius = dot + 3.dp.toPx(), center = c)
-        drawCircle(UserBlue, radius = dot, center = c)
+        drawCircle(dotColor, radius = dot, center = c)
     }
 }
 

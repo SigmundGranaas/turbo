@@ -30,4 +30,6 @@ class SettingsViewModel @Inject constructor(
     fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { repository.setThemeMode(mode) }
     fun setCloudSync(enabled: Boolean) = viewModelScope.launch { repository.setCloudSyncEnabled(enabled) }
     fun setWifiOnly(enabled: Boolean) = viewModelScope.launch { repository.setDownloadOverWifiOnly(enabled) }
+    fun setLocationDotColor(colorHex: String?) = viewModelScope.launch { repository.setLocationDotColor(colorHex) }
+    fun setShowHeadingBeam(enabled: Boolean) = viewModelScope.launch { repository.setShowHeadingBeam(enabled) }
 }

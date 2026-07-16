@@ -294,17 +294,19 @@ function appendContent(sources: Scene['sources'], layers: Layer[], content: MapC
     }
   }
 
-  // The user-location fix: soft accuracy halo + white-ringed blue dot.
+  // The user-location fix: soft accuracy halo + white-ringed dot. The dot colour
+  // is a persisted user setting; default blue.
   if (content.userFix) {
+    const dot = content.userFixColor ? cssColorToScene(content.userFixColor) : LOCATION_BLUE;
     sources['content-user-location'] = { type: 'geo-json', data: multiPoint([content.userFix]) };
     layers.push({
       type: 'circle',
       id: 'content-user-location-halo',
       source: 'content-user-location',
-      color: { ...LOCATION_BLUE, a: 46 },
+      color: { ...dot, a: 46 },
       radius: 22,
     });
     layers.push({ type: 'circle', id: 'content-user-location-ring', source: 'content-user-location', color: WHITE, radius: 11 });
-    layers.push({ type: 'circle', id: 'content-user-location', source: 'content-user-location', color: LOCATION_BLUE, radius: 8 });
+    layers.push({ type: 'circle', id: 'content-user-location', source: 'content-user-location', color: dot, radius: 8 });
   }
 }

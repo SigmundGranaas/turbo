@@ -43,9 +43,11 @@ export interface MapContent {
   selectedPinId?: string;
   /** Latest geolocation fix; null hides the location dot. */
   userFix: LatLngPoint | null;
+  /** My-position dot colour (CSS hex); null = the default blue. A user setting. */
+  userFixColor: string | null;
 }
 
-let content: MapContent = { lines: {}, pins: [], selectedPinId: undefined, userFix: null };
+let content: MapContent = { lines: {}, pins: [], selectedPinId: undefined, userFix: null, userFixColor: null };
 let listener: (() => void) | undefined;
 
 export function currentMapContent(): MapContent {

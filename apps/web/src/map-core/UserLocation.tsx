@@ -1,12 +1,20 @@
 import { useEffect } from 'react';
 import { setMapContent } from './mapContent';
+import { useUiStore } from '../store/uiStore';
 
-/** The blue "you are here" dot — scene-declared map content (plan P6.3).
+/** The "you are here" dot — scene-declared map content (plan P6.3).
  *  Watches browser geolocation and publishes the latest fix to the content
  *  plane; the engine draws the accuracy halo + white-ringed dot as `circle`
- *  layers, draped on the terrain like everything else. No DOM: this
- *  component renders nothing. */
+ *  layers, draped on the terrain like everything else. The dot colour is a
+ *  persisted user setting (default blue). No DOM: this component renders
+ *  nothing. */
 export function UserLocationLayer() {
+  const dotColor = useUiStore((s) => s.locationDotColor);
+
+  useEffect(() => {
+    setMapContent({ userFixColor: dotColor ?? null });
+  }, [dotColor]);
+
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
     const id = navigator.geolocation.watchPosition(

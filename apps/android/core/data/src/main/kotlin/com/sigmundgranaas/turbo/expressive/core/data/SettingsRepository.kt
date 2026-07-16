@@ -28,6 +28,12 @@ interface SettingsRepository {
     suspend fun setDownloadOverWifiOnly(enabled: Boolean)
     suspend fun setBaseLayer(layer: BaseLayer)
 
+    /** My-position dot colour ("#RRGGBB"); null restores the default blue. */
+    suspend fun setLocationDotColor(colorHex: String?)
+
+    /** Show/hide the my-position heading beam. */
+    suspend fun setShowHeadingBeam(enabled: Boolean)
+
     /** Persist the map camera so reopening the app returns to where the user left it. */
     suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double)
 }
@@ -50,6 +56,8 @@ class DataStoreSettingsRepository @Inject constructor(
         val CAM_LAT = doublePreferencesKey("last_camera_lat")
         val CAM_LNG = doublePreferencesKey("last_camera_lng")
         val CAM_ZOOM = doublePreferencesKey("last_camera_zoom")
+        val LOCATION_DOT_COLOR = stringPreferencesKey("location_dot_color")
+        val HEADING_BEAM = booleanPreferencesKey("show_heading_beam")
     }
 
     override val settings: Flow<UserSettings> = context.settingsDataStore.data.map { prefs ->
@@ -68,6 +76,8 @@ class DataStoreSettingsRepository @Inject constructor(
             lastCameraLat = prefs[Keys.CAM_LAT],
             lastCameraLng = prefs[Keys.CAM_LNG],
             lastCameraZoom = prefs[Keys.CAM_ZOOM],
+            locationDotColorHex = prefs[Keys.LOCATION_DOT_COLOR],
+            showHeadingBeam = prefs[Keys.HEADING_BEAM] ?: true,
         )
     }
 
@@ -97,6 +107,16 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setBaseLayer(layer: BaseLayer) {
         context.settingsDataStore.edit { it[Keys.BASE_LAYER] = layer.id }
+    }
+
+    override suspend fun setLocationDotColor(colorHex: String?) {
+        context.settingsDataStore.edit {
+            if (colorHex == null) it.remove(Keys.LOCATION_DOT_COLOR) else it[Keys.LOCATION_DOT_COLOR] = colorHex
+        }
+    }
+
+    override suspend fun setShowHeadingBeam(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.HEADING_BEAM] = enabled }
     }
 
     override suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double) {

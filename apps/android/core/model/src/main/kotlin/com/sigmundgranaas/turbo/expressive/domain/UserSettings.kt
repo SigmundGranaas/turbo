@@ -23,4 +23,8 @@ data class UserSettings(
     val lastCameraLat: Double? = null,
     val lastCameraLng: Double? = null,
     val lastCameraZoom: Double? = null,
+    /** My-position dot colour ("#RRGGBB"); null = the default blue. */
+    val locationDotColorHex: String? = null,
+    /** Whether the my-position dot grows a heading beam when the fix has a course. */
+    val showHeadingBeam: Boolean = true,
 )

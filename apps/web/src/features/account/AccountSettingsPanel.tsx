@@ -11,6 +11,10 @@ import { Cookie } from '../../ui/Cookie';
 
 const THEME_ORDER: ThemeMode[] = ['system', 'light', 'dark'];
 
+/** My-position dot palette — the shared track palette so colour pickers read
+ *  the same across the app; the default blue is the separate first swatch. */
+const DOT_COLORS = ['#C75B39', '#059669', '#7C3AED', '#DB2777', '#D97706', '#0891B2', '#475569'];
+
 /** Account + settings side panel. Account: signed-in identity / sign-out, or an
  *  email-password + Google sign-in form. Settings: theme + units. Ports the
  *  design's SignIn + AccountSettings. */
@@ -20,6 +24,7 @@ export function AccountSettingsPanel({ dark, onClose }: { dark: boolean; onClose
   const theme = useUiStore((s) => s.theme);
   const units = useUiStore((s) => s.units);
   const distanceHaze = useUiStore((s) => s.distanceHaze);
+  const locationDotColor = useUiStore((s) => s.locationDotColor);
 
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
@@ -128,6 +133,29 @@ export function AccountSettingsPanel({ dark, onClose }: { dark: boolean; onClose
         <div style={{ margin: '8px 2px 0', font: '400 12px/17px var(--font-sans)', color: 'var(--on-surface-variant)' }}>
           Distance haze — distant terrain takes on a faint atmospheric colour when
           tilted toward the horizon.
+        </div>
+
+        <Eyebrow style={{ margin: '20px 0 10px' }}>Location dot</Eyebrow>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {[undefined, ...DOT_COLORS].map((c) => {
+            const sel = (c ?? null) === (locationDotColor ?? null);
+            return (
+              <button
+                key={c ?? 'default'}
+                title={c ?? 'Default blue'}
+                onClick={() => useUiStore.getState().setLocationDotColor(c)}
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: '50%',
+                  cursor: 'pointer',
+                  background: c ?? '#2563EB',
+                  border: sel ? '3px solid var(--on-surface)' : '3px solid transparent',
+                  boxShadow: '0 1px 3px rgba(0,0,0,.25)',
+                }}
+              />
+            );
+          })}
         </div>
 
         <Eyebrow style={{ margin: '24px 0 8px' }}>About</Eyebrow>
