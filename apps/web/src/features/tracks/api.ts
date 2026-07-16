@@ -11,6 +11,8 @@ export interface Track {
   description?: string;
   colorHex?: string;
   iconKey?: string;
+  /** Line-style key: `solid` (default) / `dotted` / `dashed` / `dash_dot`. */
+  lineStyleKey?: string;
   points: LatLng[];
   elevations?: number[];
   distanceM: number;
@@ -24,7 +26,7 @@ export interface Track {
 interface TrackResponse {
   id: string;
   geometry: { points: { longitude: number; latitude: number }[]; elevations?: number[] };
-  metadata: { name: string; description?: string; colorHex?: string; iconKey?: string };
+  metadata: { name: string; description?: string; colorHex?: string; iconKey?: string; lineStyleKey?: string };
   stats: { distanceMeters: number; ascentMeters?: number; descentMeters?: number; movingTimeSeconds?: number; recordedAt?: string };
   version?: number;
 }
@@ -35,6 +37,7 @@ const fromApi = (r: TrackResponse): Track => ({
   description: r.metadata.description,
   colorHex: r.metadata.colorHex,
   iconKey: r.metadata.iconKey,
+  lineStyleKey: r.metadata.lineStyleKey,
   points: r.geometry.points.map((p) => ({ lat: p.latitude, lng: p.longitude })),
   elevations: r.geometry.elevations,
   distanceM: r.stats.distanceMeters,
@@ -79,6 +82,20 @@ export interface TrackChanges {
   description?: string;
   colorHex?: string;
   iconKey?: string;
+  lineStyleKey?: string;
+}
+
+/** The map dash pattern for a track's `lineStyleKey` (px, relative to the 5 px
+ *  stroke); undefined = solid. The keys are the shared cross-client vocabulary
+ *  (`solid`/`dotted`/`dashed`/`dash_dot` — Android currently renders its 3D
+ *  tubes solid but preserves the key). */
+export function dashArrayFor(lineStyleKey: string | undefined): number[] | undefined {
+  switch (lineStyleKey) {
+    case 'dotted': return [1, 7];
+    case 'dashed': return [12, 8];
+    case 'dash_dot': return [12, 8, 1, 8];
+    default: return undefined;
+  }
 }
 
 /** All of the signed-in user's tracks; `[]` when unauthenticated. */

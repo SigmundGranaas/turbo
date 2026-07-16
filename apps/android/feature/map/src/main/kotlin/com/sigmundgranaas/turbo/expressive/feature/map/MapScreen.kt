@@ -160,6 +160,7 @@ fun MapScreen(
         val pts = path.path.points
         if (pts.size < 2) { onShowTrackConsumed(); return@LaunchedEffect }
         ui.displayedTrack = pts
+        ui.displayedTrackColor = path.colorHex
         ctrl.frameTo(pts)
         val ascent = path.path.ascentM ?: 0.0
         ui.selectionState.select(
@@ -188,7 +189,10 @@ fun MapScreen(
 
     // The opened track stays drawn only while its sheet is up.
     LaunchedEffect(ui.selectionState.selection?.id) {
-        if (ui.selectionState.selection?.id?.startsWith("track-") != true) ui.displayedTrack = null
+        if (ui.selectionState.selection?.id?.startsWith("track-") != true) {
+            ui.displayedTrack = null
+            ui.displayedTrackColor = null
+        }
     }
 
     val locationPermission = rememberLauncherForActivityResult(
@@ -577,6 +581,12 @@ fun MapScreen(
                         ui.trackMode == TrackMode.Line -> ui.linePoints.takeIf { it.size > 1 }?.toList()
                         ui.trackMode == TrackMode.Draw -> ui.drawPoints.takeIf { it.size > 1 }?.toList()
                         else -> ui.displayedTrack
+                    },
+                    // Only a saved track opened on the map carries a user colour; live
+                    // recording / following / sketching stay on the default tube colour.
+                    trackColor = when {
+                        recState.recording || routeState is RouteUiState.Following || ui.trackMode != null -> null
+                        else -> ui.displayedTrackColor?.let(com.sigmundgranaas.turbo.expressive.domain.TurbomapScene::rgbaFromHex)
                     },
                     // While following, draw the guide split at the arc-cursor: `route` is the
                     // bright road ahead, `routeCovered` the dim walked part (US-3); they meet

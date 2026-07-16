@@ -262,7 +262,7 @@ function appendContent(sources: Scene['sources'], layers: Layer[], content: MapC
       source: src,
       color: cssColorToScene(line.color),
       width: 5,
-      ...(line.dashed ? { dash_array: [2, 10] } : {}),
+      ...(line.dash ? { dash_array: line.dash } : line.dashed ? { dash_array: [2, 10] } : {}),
     });
   }
 

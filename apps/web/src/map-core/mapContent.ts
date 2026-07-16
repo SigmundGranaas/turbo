@@ -23,6 +23,9 @@ export interface MapLine {
   color?: string;
   /** Dashed preview styling (e.g. while the route solver is still running). */
   dashed?: boolean;
+  /** Explicit dash pattern (px) — a track's user-chosen line style. Wins over
+   *  [dashed]'s fixed preview pattern when both are set. */
+  dash?: number[];
 }
 
 /** One marker pin. `color` is the kind tint (CSS hex). */

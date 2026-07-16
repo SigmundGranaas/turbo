@@ -90,6 +90,12 @@ data class PathEntity(
     val plannedRoute: String? = null,
     /** Checkpoint splits recorded while following (D1), JSON-encoded; null/blank when none. */
     val phaseSplits: String? = null,
+    /** Display colour "#RRGGBB"; null = default. Mirrors the wire `colorHex`. */
+    val colorHex: String? = null,
+    /** Track icon key; pass-through of the wire `iconKey` (web edits it). */
+    val iconKey: String? = null,
+    /** Line-style key (solid/dotted/dashed/dash_dot); wire pass-through. */
+    val lineStyleKey: String? = null,
     // ── sync fields (see [MarkerEntity]) ──
     val remoteId: String? = null,
     val version: Long? = null,
@@ -257,7 +263,7 @@ interface PhotoDao {
         MarkerEntity::class, PathEntity::class,
         CollectionEntity::class, CollectionItemEntity::class, PhotoEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 abstract class TurboDatabase : RoomDatabase() {

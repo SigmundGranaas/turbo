@@ -93,6 +93,18 @@ object TurbomapScene {
         val clouds: CloudsSpec? = null,
     )
 
+    /** Parse "#RRGGBB" (case-insensitive, '#' optional) into an [Rgba]; null when malformed.
+     *  The inverse of the "#RRGGBB" `colorHex` convention tracks sync with. */
+    fun rgbaFromHex(hex: String): Rgba? {
+        val h = hex.removePrefix("#")
+        if (h.length != 6 || h.any { it.digitToIntOrNull(16) == null }) return null
+        return Rgba(
+            r = h.substring(0, 2).toInt(16),
+            g = h.substring(2, 4).toInt(16),
+            b = h.substring(4, 6).toInt(16),
+        )
+    }
+
     val TrackColor = Rgba(0, 105, 109)
     val RouteColor = Rgba(143, 76, 56)
     /** The dim already-walked segment in follow mode — a muted, desaturated

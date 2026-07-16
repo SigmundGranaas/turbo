@@ -16,7 +16,7 @@ import { LayerPicker } from './LayerPicker';
 import { MapContextMenu, type ContextMenuTarget } from './MapContextMenu';
 import { MarkerPins, MarkerDetailPanel, MarkerEditorPanel, useMarkers, useDeleteMarker, useSelection, openMarkerDetail, openMarkerEditor, openNewMarker, closeMarker, reverseGeocode } from '../features/markers';
 import { useRouting, RouteController, RoutePlannerPanel, openRouting, closeRouting, ROUTE_PROFILES } from '../features/routing';
-import { useTracks, useDeleteTrack, useCreateTrack, PathsListPanel, PathDetailPanel, TrackEditorPanel, type Track } from '../features/tracks';
+import { useTracks, useDeleteTrack, useCreateTrack, PathsListPanel, PathDetailPanel, TrackEditorPanel, dashArrayFor, type Track } from '../features/tracks';
 import { useCollections, CollectionsListPanel, CollectionDetailPanel, CollectionPicker } from '../features/collections';
 import type { CollectionItem } from '../api/collections';
 import { AccountSettingsPanel } from '../features/account';
@@ -566,6 +566,7 @@ export function MapScreen() {
           coords={selectedTrack.points}
           waypoints={[selectedTrack.points[0], selectedTrack.points[selectedTrack.points.length - 1]]}
           color={selectedTrack.colorHex || 'var(--primary)'}
+          dash={dashArrayFor(selectedTrack.lineStyleKey)}
           contentKey="track"
         />
       )}

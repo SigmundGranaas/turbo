@@ -182,7 +182,14 @@ internal fun PathEntity.toWriteRequest(): TrackWriteRequest {
             points = latLng.map { (lat, lng) -> WirePoint(longitude = lng, latitude = lat) },
             elevations = decodeElevationsComplete(elevations, latLng.size),
         ),
-        metadata = TrackMetadataDto(name = name),
+        // Carry the full metadata, not just the name — pushing name-only made an
+        // Android edit silently DISCARD a colour/style set on another client.
+        metadata = TrackMetadataDto(
+            name = name,
+            colorHex = colorHex,
+            iconKey = iconKey,
+            lineStyleKey = lineStyleKey,
+        ),
         stats = TrackStatsDto(
             distanceMeters = distanceM,
             ascentMeters = ascentM,
@@ -207,6 +214,9 @@ internal fun TrackResponseDto.toEntity(localId: String, readOnly: Boolean = fals
         createdAtEpochMs = Iso8601.toEpochMs(stats?.recordedAt) ?: Iso8601.toEpochMs(createdAt) ?: 0L,
         elevations = geometry.elevations?.takeIf { it.isNotEmpty() }?.joinToString(";") { it.toString() },
         activityKind = null,
+        colorHex = metadata.colorHex,
+        iconKey = metadata.iconKey,
+        lineStyleKey = metadata.lineStyleKey,
         remoteId = id,
         version = version,
         updatedAtEpochMs = Iso8601.toEpochMs(updatedAt),

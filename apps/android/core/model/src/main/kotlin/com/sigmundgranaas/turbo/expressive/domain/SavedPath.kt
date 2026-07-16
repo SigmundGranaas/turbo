@@ -17,4 +17,14 @@ data class SavedPath(
     val activityKind: ActivityKindId? = null,
     val plannedRoute: List<LatLng>? = null,
     val phaseSplits: List<PhaseSplit> = emptyList(),
+    /** Display colour as "#RRGGBB", null = the default track colour. Synced
+     *  (`TrackMetadataDto.colorHex`) so a colour picked on any client renders
+     *  everywhere. */
+    val colorHex: String? = null,
+    /** Icon key chosen for the track (web edits this today); pass-through synced. */
+    val iconKey: String? = null,
+    /** Line-style key (`solid`/`dotted`/`dashed`/`dash_dot`); pass-through synced.
+     *  Android renders tracks as 3D tubes, which draw solid regardless — the key is
+     *  kept so a style picked on another client survives an Android edit. */
+    val lineStyleKey: String? = null,
 )

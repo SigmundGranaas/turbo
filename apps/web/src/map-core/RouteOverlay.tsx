@@ -19,6 +19,7 @@ export function RouteOverlay({
   coords,
   waypoints,
   dashed,
+  dash,
   color = 'var(--primary)',
   contentKey = 'route',
   onWaypointDrag,
@@ -26,6 +27,8 @@ export function RouteOverlay({
   coords: LatLng[];
   waypoints: LatLng[];
   dashed?: boolean;
+  /** Explicit dash pattern (a track's user-chosen line style); wins over [dashed]. */
+  dash?: number[];
   /** Line + waypoint stroke colour (defaults to the theme primary). */
   color?: string;
   /** Content-plane key — lets independent owners (route planner, selected
@@ -43,8 +46,8 @@ export function RouteOverlay({
 
   // Publish the line to the content plane; clear it on unmount/empty.
   useEffect(() => {
-    setMapLine(contentKey, coords.length >= 2 ? { coords, color, dashed } : null);
-  }, [coords, color, dashed, contentKey]);
+    setMapLine(contentKey, coords.length >= 2 ? { coords, color, dashed, dash } : null);
+  }, [coords, color, dashed, dash, contentKey]);
   useEffect(() => () => setMapLine(contentKey, null), [contentKey]);
 
   // The ring currently being dragged — the per-frame projection skips it so the

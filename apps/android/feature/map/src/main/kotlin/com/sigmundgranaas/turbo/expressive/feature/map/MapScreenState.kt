@@ -39,6 +39,8 @@ class MapScreenState {
     var cameraIdleTick by mutableIntStateOf(0)
     /** A saved track opened on the map ("Show on map") — drawn + selected. */
     var displayedTrack by mutableStateOf<List<LatLng>?>(null)
+    /** The displayed track's user-chosen colour ("#RRGGBB"), null = default track colour. */
+    var displayedTrackColor by mutableStateOf<String?>(null)
 
     // ── Selection + live-sheet detents ──
     val selectionState = MapSelectionState()

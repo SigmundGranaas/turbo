@@ -10,6 +10,16 @@ import { useUpdateTrack } from './useTracks';
  *  swatch in lists). Mirrors the marker activity palette in spirit. */
 const TRACK_COLORS = ['#C75B39', '#2563EB', '#059669', '#7C3AED', '#DB2777', '#D97706', '#0891B2', '#475569'];
 
+/** Line styles a track can render with. Keys are the shared cross-client
+ *  vocabulary (synced as `lineStyleKey`; see `dashArrayFor` for the map
+ *  pattern); `preview` is only the button's SVG dash sample. */
+const LINE_STYLES = [
+  { key: 'solid', label: 'Solid', preview: undefined },
+  { key: 'dotted', label: 'Dotted', preview: '0.5 6' },
+  { key: 'dashed', label: 'Dashed', preview: '8 5' },
+  { key: 'dash_dot', label: 'Dash-dot', preview: '8 5 0.5 5' },
+];
+
 /** Edit a saved track's display metadata: name, note, icon, and line colour.
  *  Mirrors `MarkerEditorPanel`; saves via the tracks `PUT` changeset. */
 export function TrackEditorPanel({
@@ -27,6 +37,7 @@ export function TrackEditorPanel({
   const [note, setNote] = useState(track.description ?? '');
   const [iconName, setIconName] = useState(kindForIcon(track.iconKey).icon);
   const [color, setColor] = useState(track.colorHex || TRACK_COLORS[0]);
+  const [lineStyle, setLineStyle] = useState(track.lineStyleKey || 'solid');
 
   const update = useUpdateTrack();
   const busy = update.isPending;
@@ -40,6 +51,7 @@ export function TrackEditorPanel({
           description: note,
           iconKey: iconName,
           colorHex: color,
+          lineStyleKey: lineStyle,
         },
       },
       { onSuccess: onSaved },
@@ -81,6 +93,41 @@ export function TrackEditorPanel({
                   boxShadow: '0 1px 3px rgba(0,0,0,.25)',
                 }}
               />
+            );
+          })}
+        </div>
+
+        <Eyebrow style={{ margin: '22px 0 10px' }}>Line style</Eyebrow>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {LINE_STYLES.map((s) => {
+            const sel = s.key === lineStyle;
+            return (
+              <button
+                key={s.key}
+                title={s.label}
+                onClick={() => setLineStyle(s.key)}
+                style={{
+                  flex: 1,
+                  height: 40,
+                  borderRadius: sel ? 14 : 10,
+                  cursor: 'pointer',
+                  border: 'none',
+                  background: sel ? 'var(--primary)' : 'var(--surface-container-high)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <svg width="44" height="8" aria-label={s.label}>
+                  <line
+                    x1="2" y1="4" x2="42" y2="4"
+                    stroke={sel ? 'var(--on-primary)' : 'var(--primary)'}
+                    strokeWidth="3.5"
+                    strokeLinecap="round"
+                    strokeDasharray={s.preview}
+                  />
+                </svg>
+              </button>
             );
           })}
         </div>

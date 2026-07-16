@@ -91,4 +91,26 @@ class TrackWireTest {
         assertEquals(1500.0, req.stats!!.distanceMeters!!, 1e-9)
         assertNull(req.geometry.elevations) // none stored → omitted
     }
+
+    @Test
+    fun `display style survives the wire in both directions`() {
+        // Pull: a colour/style set on another client lands in the local row…
+        val dto = TrackResponseDto(
+            id = "srv-2",
+            geometry = TrackGeometryDto(points = listOf(WirePoint(10.5, 60.2), WirePoint(10.6, 60.3))),
+            metadata = TrackMetadataDto(name = "Styled", colorHex = "#2563EB", iconKey = "hiking", lineStyleKey = "dashed"),
+            version = 1,
+        )
+        val entity = dto.toEntity(localId = "local-2")
+        assertEquals("#2563EB", entity.colorHex)
+        assertEquals("hiking", entity.iconKey)
+        assertEquals("dashed", entity.lineStyleKey)
+
+        // …and push: an Android edit sends it back instead of silently dropping it
+        // (the old name-only metadata erased a colour picked on the web).
+        val req = entity.toWriteRequest()
+        assertEquals("#2563EB", req.metadata.colorHex)
+        assertEquals("hiking", req.metadata.iconKey)
+        assertEquals("dashed", req.metadata.lineStyleKey)
+    }
 }

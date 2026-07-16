@@ -87,6 +87,20 @@ class PathRepositoryTest {
     }
 
     @Test
+    fun `display style round-trips and clears`() = runTest {
+        val repo = RoomPathRepository(FakePathDao())
+        repo.save(sample.copy(colorHex = "#2563EB", iconKey = "hiking", lineStyleKey = "dashed"))
+        val styled = repo.byId("p-1")!!
+        assertEquals("#2563EB", styled.colorHex)
+        assertEquals("hiking", styled.iconKey)
+        assertEquals("dashed", styled.lineStyleKey)
+
+        // Picking "default" clears the colour rather than storing a sentinel.
+        repo.save(styled.copy(colorHex = null))
+        assertNull(repo.byId("p-1")!!.colorHex)
+    }
+
+    @Test
     fun `a followed track round-trips its planned route and phase splits`() = runTest {
         val repo = RoomPathRepository(FakePathDao())
         val followed = sample.copy(

@@ -7,5 +7,5 @@ export { PathsListPanel } from './PathsListPanel';
 export { PathDetailPanel } from './PathDetailPanel';
 export { TrackEditorPanel } from './TrackEditorPanel';
 export { useTracks, useCreateTrack, useUpdateTrack, useDeleteTrack } from './useTracks';
-export { serializeTrack, type Track, type TrackInput, type TrackChanges, type ExportFormat } from './api';
+export { serializeTrack, dashArrayFor, type Track, type TrackInput, type TrackChanges, type ExportFormat } from './api';
 export { parseTrack, trackStats } from './trackImport';

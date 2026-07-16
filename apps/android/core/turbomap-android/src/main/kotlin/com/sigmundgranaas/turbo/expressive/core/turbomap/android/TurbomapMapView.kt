@@ -83,6 +83,9 @@ fun TurbomapMapView(
     /** Vector (MVT) overlays — the realistic-water layer is one. Fetched host-side. */
     vectors: List<TurbomapScene.VectorSpec> = emptyList(),
     track: List<LatLng>? = null,
+    /** Tube colour for [track]; null = the default [TurbomapScene.TrackColor]. Lets a
+     *  saved track render in its user-chosen colour (live recording stays default). */
+    trackColor: TurbomapScene.Rgba? = null,
     route: List<LatLng>? = null,
     /** While following, the already-walked prefix of [route] — drawn as a dim tube
      *  behind the bright remaining-ahead [route] so progress reads at a glance (US-3). */
@@ -235,8 +238,8 @@ fun TurbomapMapView(
     }
     // Route + track render as raised 3D tubes — `tube` layers in the same
     // Scene document (plan P5.2), rebuilt whenever their geometry changes.
-    LaunchedEffect(track) {
-        controller.setRouteTube("track", track, TurbomapScene.TrackColor)
+    LaunchedEffect(track, trackColor) {
+        controller.setRouteTube("track", track, trackColor ?: TurbomapScene.TrackColor)
     }
     // The dim already-walked segment goes down first so the bright remaining-ahead
     // route tube renders over it where they meet at the progress cursor (US-3).

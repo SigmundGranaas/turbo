@@ -51,6 +51,13 @@ class PathsViewModel @Inject constructor(
         )
     }
 
+    /** Set (or clear with null) the track's display colour ("#RRGGBB"). Synced as
+     *  `colorHex`, so the choice renders on every client, not just this device. */
+    fun setColor(id: String, colorHex: String?) = viewModelScope.launch {
+        val existing = repository.byId(id) ?: return@launch
+        repository.save(existing.copy(colorHex = colorHex))
+    }
+
     /** Rename a track in place (save upserts by id), keeping its geometry + stats. */
     fun rename(id: String, name: String) = viewModelScope.launch {
         val trimmed = name.trim()

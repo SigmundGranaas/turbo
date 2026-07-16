@@ -112,6 +112,9 @@ internal fun PathEntity.toDomain(): SavedPath = SavedPath(
     activityKind = activityKind?.let { k -> runCatching { com.sigmundgranaas.turbo.expressive.domain.ActivityKindId.valueOf(k) }.getOrNull() },
     plannedRoute = plannedRoute?.takeIf { it.isNotBlank() }?.let(::decodePoints),
     phaseSplits = decodeSplits(phaseSplits),
+    colorHex = colorHex,
+    iconKey = iconKey,
+    lineStyleKey = lineStyleKey,
     path = decodePoints(points).let { pts ->
         GeoPath(
             points = pts,
@@ -140,4 +143,7 @@ internal fun SavedPath.toEntity(): PathEntity = PathEntity(
     activityKind = activityKind?.name,
     plannedRoute = plannedRoute?.takeIf { it.isNotEmpty() }?.let(::encodePoints),
     phaseSplits = encodeSplits(phaseSplits),
+    colorHex = colorHex,
+    iconKey = iconKey,
+    lineStyleKey = lineStyleKey,
 )

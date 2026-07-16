@@ -4,7 +4,9 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,10 +22,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.TrendingDown
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FileUpload
@@ -284,7 +289,8 @@ fun PathDetailScreen(
     Column(Modifier.fillMaxSize().background(cs.surface).statusBarsPadding().navigationBarsPadding()) {
         Box(Modifier.fillMaxWidth().height(240.dp).background(Brush.verticalGradient(listOf(cs.surfaceVariant, cs.surfaceContainerHigh)))) {
             if (path != null && path.path.points.size > 1) {
-                RouteSketch(path.path.points, cs.primary, Modifier.fillMaxSize().padding(24.dp))
+                // Sketch in the track's own colour so a colour pick previews instantly.
+                RouteSketch(path.path.points, path.colorHex?.let(::trackColorOf) ?: cs.primary, Modifier.fillMaxSize().padding(24.dp))
             }
             IconButton(onClick = onBack, modifier = Modifier.padding(6.dp)) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.paths_back), tint = cs.onSurface)
@@ -316,6 +322,9 @@ fun PathDetailScreen(
                 Spacer(Modifier.height(16.dp))
                 CheckpointSplitsCard(path.phaseSplits)
             }
+
+            Spacer(Modifier.height(16.dp))
+            TrackColorRow(selected = path.colorHex, onSelect = { viewModel.setColor(path.id, it) })
 
             Spacer(Modifier.height(16.dp))
             Button(
@@ -388,6 +397,61 @@ fun PathDetailScreen(
             onConfirm = { newName -> viewModel.rename(path.id, newName); showRename = false },
             onDismiss = { showRename = false },
         )
+    }
+}
+
+/** The shared track palette — the same hexes the web `TrackEditorPanel` offers, so a
+ *  colour picked on either client reads identically everywhere (synced as `colorHex`). */
+private val TrackColors = listOf(
+    "#C75B39", "#2563EB", "#059669", "#7C3AED", "#DB2777", "#D97706", "#0891B2", "#475569",
+)
+
+/** "#RRGGBB" → [Color]; falls back to the default track teal on malformed input. */
+private fun trackColorOf(hex: String): Color {
+    val h = hex.removePrefix("#")
+    if (h.length != 6 || h.any { it.digitToIntOrNull(16) == null }) return Color(0xFF00696D)
+    return Color(0xFF000000 or h.toLong(16))
+}
+
+/** One-row track colour picker: the default (engine teal, = null) plus the shared
+ *  palette. The selected swatch shows a check; the row scrolls on narrow screens. */
+@Composable
+private fun TrackColorRow(selected: String?, onSelect: (String?) -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ColorSwatch(
+            color = Color(0xFF00696D),
+            selected = selected == null,
+            outline = cs.outline,
+            onClick = { onSelect(null) },
+        )
+        TrackColors.forEach { hex ->
+            ColorSwatch(
+                color = trackColorOf(hex),
+                selected = selected.equals(hex, ignoreCase = true),
+                outline = cs.outline,
+                onClick = { onSelect(hex) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ColorSwatch(color: Color, selected: Boolean, outline: Color, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(color)
+            .then(if (selected) Modifier.border(3.dp, outline, CircleShape) else Modifier)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (selected) Icon(Icons.Rounded.Check, null, tint = Color.White, modifier = Modifier.size(18.dp))
     }
 }
 
