@@ -104,6 +104,7 @@ fun TurboNavGraph(
             SettingsScreen(
                 onBack = { nav.popBackStack() },
                 onOpenAbout = { nav.navigate(Routes.ABOUT) },
+                onOpenAccount = { nav.navigate(Routes.ACCOUNT) },
             )
         }
         composable(Routes.ABOUT) { AboutScreen(onBack = { nav.popBackStack() }) }

@@ -178,7 +178,15 @@ fun AuthScreen(
             OutlinedButton(
                 onClick = {
                     viewModel.beginGoogleSignIn { url ->
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                        // Chrome Custom Tab: in-app consent surface that shares Chrome's
+                        // session (often no re-login), returns via the turbo://oauth deep
+                        // link. Falls back to a plain browser intent without a tab provider.
+                        runCatching {
+                            androidx.browser.customtabs.CustomTabsIntent.Builder().build()
+                                .launchUrl(context, Uri.parse(url))
+                        }.recoverCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        }
                     }
                 },
                 enabled = !form.loading,

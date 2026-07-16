@@ -27,8 +27,19 @@ interface AuthRepository {
     /** Finish Google sign-in with the authorization code from the OAuth flow. */
     suspend fun loginWithGoogle(code: String): Outcome<Account>
 
-    /** Refresh the access token using the stored refresh token. */
+    /** Refresh the access token using the stored refresh token. Single-flight:
+     *  concurrent callers share one refresh. A SERVER-REJECTED refresh token
+     *  (revoked/expired) signs the user out — the session is dead and every
+     *  authed call would fail until re-auth; a transport error keeps the
+     *  session (offline must not log people out). */
     suspend fun refresh(): Outcome<Unit>
+
+    /** Validate the restored session against the server (GET session/me),
+     *  refreshing once on 401. Fixes drift: a session revoked server-side
+     *  flips to [AuthState.SignedOut]; a changed email is re-synced. Silent
+     *  on transport errors (offline start keeps the persisted session).
+     *  Default no-op so fakes/tests need not care. */
+    suspend fun validateSession() {}
 
     suspend fun logout()
 

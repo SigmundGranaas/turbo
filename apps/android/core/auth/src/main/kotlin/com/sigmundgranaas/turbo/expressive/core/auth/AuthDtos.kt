@@ -31,6 +31,14 @@ internal data class AuthResponse(
 @Serializable
 internal data class OAuthUrlResponse(val authorizationUrl: String)
 
+/** GET /api/auth/session/me — the server's view of the signed-in session. */
+@Serializable
+internal data class SessionMeResponse(
+    val accountId: String = "",
+    val email: String = "",
+    val isActive: Boolean = true,
+)
+
 /** Error envelope: { errorCode, message }. */
 @Serializable
 internal data class ApiError(val errorCode: String? = null, val message: String? = null)

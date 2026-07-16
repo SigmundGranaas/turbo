@@ -42,7 +42,14 @@ class AuthViewModel @Inject constructor(
         private set
 
     init {
-        viewModelScope.launch { repo.restore() }
+        viewModelScope.launch {
+            // Fast local restore first (guest-friendly, no network on the way to the
+            // map), then validate the session against the server in the background —
+            // a revocation/disabled account flips to SignedOut instead of leaving the
+            // app "signed in" with silently failing sync.
+            repo.restore()
+            repo.validateSession()
+        }
     }
 
     fun onEmail(v: String) { form = form.copy(email = v, error = null) }
@@ -85,14 +92,9 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    /** Finish Google sign-in with the authorization code captured from the redirect. */
-    fun completeGoogleSignIn(code: String) {
-        form = form.copy(loading = true, error = null)
-        viewModelScope.launch {
-            val result = repo.loginWithGoogle(code)
-            if (result is Outcome.Failure) form = form.copy(loading = false, error = result.error.message)
-        }
-    }
+    // NOTE: the OAuth redirect (turbo://oauth?code=…) is finished by MainActivity's
+    // deep-link handler calling AuthRepository.loginWithGoogle directly — this
+    // ViewModel only STARTS the flow (beginGoogleSignIn); it never sees the code.
 
     fun logout() {
         viewModelScope.launch { repo.logout() }

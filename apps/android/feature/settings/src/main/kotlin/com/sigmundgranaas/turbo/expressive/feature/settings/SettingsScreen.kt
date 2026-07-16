@@ -63,10 +63,12 @@ import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenAbout: () -> Unit = {},
+    onOpenAccount: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val cs = MaterialTheme.colorScheme
     val settings by viewModel.state.collectAsStateWithLifecycle()
+    val account by viewModel.account.collectAsStateWithLifecycle()
     val haptics = rememberTurboHaptics()
 
     Scaffold(
@@ -86,16 +88,27 @@ fun SettingsScreen(
             Modifier.fillMaxSize().padding(inner).verticalScroll(rememberScrollState()),
         ) {
             Spacer(Modifier.height(4.dp))
+            // Account header — the REAL signed-in identity (or a sign-in prompt);
+            // tapping opens the account screen either way.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth()
-                    .clip(RoundedCornerShape(TurboRadius.xl)).background(cs.primaryContainer).padding(18.dp),
+                    .clip(RoundedCornerShape(TurboRadius.xl)).background(cs.primaryContainer)
+                    .clickable(onClick = onOpenAccount)
+                    .padding(18.dp)
+                    .testTag("accountHeader"),
             ) {
-                Cookie(size = 56.dp, fill = cs.surface) { Text("S", style = MaterialTheme.typography.titleLarge, color = cs.onPrimaryContainer) }
+                val initial = account?.email?.trim()?.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+                Cookie(size = 56.dp, fill = cs.surface) { Text(initial, style = MaterialTheme.typography.titleLarge, color = cs.onPrimaryContainer) }
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Sigmund G.", style = MaterialTheme.typography.titleMedium, color = cs.onPrimaryContainer)
-                    Text("sigmund@sandring.no", style = MaterialTheme.typography.bodySmall, color = cs.onPrimaryContainer)
+                    if (account != null) {
+                        Text(stringResource(R.string.settings_account_signed_in), style = MaterialTheme.typography.titleMedium, color = cs.onPrimaryContainer)
+                        Text(account!!.email, style = MaterialTheme.typography.bodySmall, color = cs.onPrimaryContainer)
+                    } else {
+                        Text(stringResource(R.string.settings_account_sign_in), style = MaterialTheme.typography.titleMedium, color = cs.onPrimaryContainer)
+                        Text(stringResource(R.string.settings_account_sign_in_sub), style = MaterialTheme.typography.bodySmall, color = cs.onPrimaryContainer)
+                    }
                 }
                 Icon(Icons.Rounded.ChevronRight, null, tint = cs.onPrimaryContainer)
             }

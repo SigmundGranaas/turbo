@@ -37,6 +37,8 @@ private class MutableSettingsRepository : SettingsRepository {
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
+
+
 class SettingsViewModelTest {
 
     @get:Rule
@@ -45,7 +47,7 @@ class SettingsViewModelTest {
     @Test
     fun `setters persist and the state reflects them`() = runTest(mainRule.dispatcher) {
         val repo = MutableSettingsRepository()
-        val vm = SettingsViewModel(repo)
+        val vm = SettingsViewModel(repo, FakeAuthRepository())
 
         vm.state.test {
             assertEquals(UserSettings(), awaitItem()) // defaults

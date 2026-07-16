@@ -9,4 +9,6 @@ android {
 dependencies {
     implementation(project(":core:auth"))
     implementation(project(":core:sync"))
+    // Chrome Custom Tab for the Google consent page (in-app browser surface).
+    implementation(libs.androidx.browser)
 }

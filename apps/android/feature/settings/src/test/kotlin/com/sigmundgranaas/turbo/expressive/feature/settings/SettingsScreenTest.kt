@@ -1,11 +1,14 @@
 package com.sigmundgranaas.turbo.expressive.feature.settings
 
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import com.sigmundgranaas.turbo.expressive.core.auth.Account
+import com.sigmundgranaas.turbo.expressive.core.auth.AuthState
 import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
 import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
 import com.sigmundgranaas.turbo.expressive.domain.UserSettings
@@ -43,15 +46,44 @@ private class FakeSettingsRepository : SettingsRepository {
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34])
+
+
 class SettingsScreenTest {
 
     @get:Rule
     val composeRule = createComposeRule()
 
     @Test
+    fun `the account header shows the real signed-in identity`() {
+        composeRule.setContent {
+            SettingsScreen(
+                onBack = {},
+                viewModel = SettingsViewModel(
+                    FakeSettingsRepository(),
+                    FakeAuthRepository(AuthState.SignedIn(Account("a-1", "hiker@x.no"))),
+                ),
+            )
+        }
+        // The user's actual email — not a hardcoded identity block.
+        composeRule.onNodeWithText("hiker@x.no").assertExists()
+    }
+
+    @Test
+    fun `signed out shows a sign-in prompt, not a fake identity`() {
+        composeRule.setContent {
+            SettingsScreen(
+                onBack = {},
+                viewModel = SettingsViewModel(FakeSettingsRepository(), FakeAuthRepository(AuthState.SignedOut)),
+            )
+        }
+        composeRule.onNodeWithText("Sign in").assertExists()
+        composeRule.onAllNodesWithText("Sigmund G.").assertCountEquals(0)
+    }
+
+    @Test
     fun `toggling the units switch flips metric to imperial`() {
         composeRule.setContent {
-            SettingsScreen(onBack = {}, viewModel = SettingsViewModel(FakeSettingsRepository()))
+            SettingsScreen(onBack = {}, viewModel = SettingsViewModel(FakeSettingsRepository(), FakeAuthRepository()))
         }
         // Default is metric.
         composeRule.onNodeWithText("Metric · km, m").assertExists()
@@ -67,7 +99,7 @@ class SettingsScreenTest {
     @Test
     fun `selecting the Dark theme chip updates the appearance subtitle`() {
         composeRule.setContent {
-            SettingsScreen(onBack = {}, viewModel = SettingsViewModel(FakeSettingsRepository()))
+            SettingsScreen(onBack = {}, viewModel = SettingsViewModel(FakeSettingsRepository(), FakeAuthRepository()))
         }
         composeRule.onNodeWithText("Follow system").assertExists() // System default
 

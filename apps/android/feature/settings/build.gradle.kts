@@ -8,4 +8,6 @@ android {
 
 dependencies {
     implementation(project(":core:data"))
+    // Real signed-in identity for the account header (replaces the hardcoded block).
+    implementation(project(":core:auth"))
 }
