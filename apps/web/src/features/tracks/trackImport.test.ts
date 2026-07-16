@@ -72,4 +72,17 @@ describe('trackStats', () => {
     expect(s.distanceM).toBeGreaterThan(0);
     expect(s.ascentM).toBeUndefined();
   });
+
+  it('ignores metre-scale GPS jitter but keeps a slow steady climb (mirrors Android)', () => {
+    const pts = Array.from({ length: 7 }, (_, i) => ({ lat: 60.39 + i * 0.001, lng: 5.32 }));
+    // ±1.5 m oscillation around 100 m: pure noise, no real climb.
+    const jitter = trackStats(pts, [100, 101.5, 99, 100.5, 99.5, 101, 100]);
+    expect(jitter.ascentM).toBeCloseTo(0, 5);
+    expect(jitter.descentM).toBeCloseTo(0, 5);
+    // 100 → 112 m in 2 m steps: below the band per fix, but the reference
+    // ratchets so the full height still commits.
+    const climb = trackStats(pts, [100, 102, 104, 106, 108, 110, 112]);
+    expect(climb.ascentM).toBeCloseTo(12, 5);
+    expect(climb.descentM).toBeCloseTo(0, 5);
+  });
 });

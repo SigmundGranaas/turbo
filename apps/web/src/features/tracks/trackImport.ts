@@ -125,8 +125,16 @@ function parseGeoJson(text: string): ParsedTrack | null {
   return { name, points, elevations };
 }
 
+/** GPS vertical noise is typically a few metres per fix; 3 m filters it without
+ *  hiding real climbs. Mirrors Android `GeoMetrics.ELEVATION_HYSTERESIS_M`. */
+const ELEVATION_HYSTERESIS_M = 3.0;
+
 /** Distance (metres) + ascent/descent from elevation deltas. Mirrors Android
- *  `GeoMetrics`. Elevation totals are undefined when no elevation data exists. */
+ *  `GeoMetrics` — including its ±3 m hysteresis band: a delta only counts once
+ *  the series has moved that far from the last committed elevation, so recorded
+ *  GPS jitter doesn't sum into phantom climb metres (sustained climbs ratchet
+ *  the reference and lose nothing). Elevation totals are undefined when no
+ *  elevation data exists. */
 export function trackStats(points: LatLng[], elevations: (number | null)[]): {
   distanceM: number;
   ascentM?: number;
@@ -139,15 +147,21 @@ export function trackStats(points: LatLng[], elevations: (number | null)[]): {
   if (!hasEle) return { distanceM };
   let ascentM = 0;
   let descentM = 0;
-  let prev: number | null = null;
+  let ref: number | null = null;
   for (const e of elevations) {
     if (e == null) continue;
-    if (prev != null) {
-      const d = e - prev;
-      if (d > 0) ascentM += d;
-      else descentM -= d;
+    if (ref == null) {
+      ref = e;
+      continue;
     }
-    prev = e;
+    const d = e - ref;
+    if (d >= ELEVATION_HYSTERESIS_M) {
+      ascentM += d;
+      ref = e;
+    } else if (d <= -ELEVATION_HYSTERESIS_M) {
+      descentM -= d;
+      ref = e;
+    }
   }
   return { distanceM, ascentM, descentM };
 }
