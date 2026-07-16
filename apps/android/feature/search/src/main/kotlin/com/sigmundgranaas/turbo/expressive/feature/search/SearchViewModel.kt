@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.common.StringProvider
+import com.sigmundgranaas.turbo.expressive.core.data.AddressSearchRepository
+import com.sigmundgranaas.turbo.expressive.core.data.KommuneSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RecentSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
@@ -26,7 +28,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-enum class SearchResultType { Coordinate, Marker, Place, Trail }
+enum class SearchResultType { Coordinate, Marker, Place, Trail, Address, Kommune }
 
 data class SearchResult(
     val name: String,
@@ -46,9 +48,10 @@ data class SearchUiState(
 )
 
 /**
- * Search state holder. Each keystroke schedules a debounced lookup that fuses three
+ * Search state holder. Each keystroke schedules a debounced lookup that fuses the
  * sources: a parsed lat/lng coordinate (if the query is one), the user's local
- * markers (matched by name), and live Kartverket place names. The filter chips
+ * markers (matched by name), and the live Kartverket backends — place names,
+ * street addresses (Adresser) and municipalities (Kommuneinfo). The filter chips
  * (All / Markers / Places) actually narrow the surfaced list; a coordinate hit is
  * always shown since it's the most direct intent.
  */
@@ -58,6 +61,8 @@ class SearchViewModel @Inject constructor(
     private val markerRepository: MarkerRepository,
     private val recentSearchRepository: RecentSearchRepository,
     private val trailRepository: TrailSearchRepository,
+    private val addressRepository: AddressSearchRepository,
+    private val kommuneRepository: KommuneSearchRepository,
     private val strings: StringProvider,
 ) : ViewModel() {
     private val _state = MutableStateFlow(SearchUiState())
@@ -107,12 +112,17 @@ class SearchViewModel @Inject constructor(
 
         searchJob = viewModelScope.launch {
             kotlinx.coroutines.delay(DEBOUNCE_MS)
-            // Places (Kartverket stedsnavn) and named trails (Nasjonalturbase) are
-            // independent network sources — fan out concurrently and fuse.
+            // Places (Kartverket stedsnavn), named trails (Nasjonalturbase), street
+            // addresses (Adresser) and municipalities (Kommuneinfo) are independent
+            // network sources — fan out concurrently and fuse.
             val placesDeferred = async { repository.search(query) }
             val trailsDeferred = async { trailRepository.search(query) }
+            val addressesDeferred = async { addressRepository.search(query) }
+            val kommunerDeferred = async { kommuneRepository.search(query) }
             val placesOutcome = placesDeferred.await()
             val trailsOutcome = trailsDeferred.await()
+            val addressesOutcome = addressesDeferred.await()
+            val kommunerOutcome = kommunerDeferred.await()
 
             val places = (placesOutcome as? Outcome.Success)?.value.orEmpty().map {
                 SearchResult(it.name, it.description, ActivityKindId.Mountain, SearchResultType.Place, it.position.lat, it.position.lng)
@@ -120,13 +130,21 @@ class SearchViewModel @Inject constructor(
             val trails = (trailsOutcome as? Outcome.Success)?.value.orEmpty().map {
                 SearchResult(it.name, it.description, ActivityKindId.Hiking, SearchResultType.Trail, it.position.lat, it.position.lng)
             }
+            val addresses = (addressesOutcome as? Outcome.Success)?.value.orEmpty().map {
+                SearchResult(it.name, it.description, ActivityKindId.Cabin, SearchResultType.Address, it.position.lat, it.position.lng)
+            }
+            val kommuner = (kommunerOutcome as? Outcome.Success)?.value.orEmpty().map {
+                SearchResult(it.name, it.description, ActivityKindId.Park, SearchResultType.Kommune, it.position.lat, it.position.lng)
+            }
 
-            // Error only when BOTH network sources fail; a single failure still surfaces the other.
-            if (placesOutcome is Outcome.Failure && trailsOutcome is Outcome.Failure) {
+            val outcomes = listOf(placesOutcome, trailsOutcome, addressesOutcome, kommunerOutcome)
+            // Error only when EVERY network source fails; a partial failure still surfaces the rest.
+            if (outcomes.all { it is Outcome.Failure }) {
                 allResults = instant
                 _state.update { it.copy(loading = false, error = true, results = applyFilter(instant, it.filter)) }
             } else {
-                publish(instant + places + trails, loading = false)
+                // Municipalities first (broadest intent), then places/trails, then addresses.
+                publish(instant + kommuner + places + trails + addresses, loading = false)
             }
         }
     }
@@ -152,7 +170,9 @@ class SearchViewModel @Inject constructor(
     private fun applyFilter(results: List<SearchResult>, filter: Int): List<SearchResult> = results.filter {
         when (filter) {
             FILTER_MARKERS -> it.type == SearchResultType.Marker || it.type == SearchResultType.Coordinate
-            FILTER_PLACES -> it.type == SearchResultType.Place || it.type == SearchResultType.Trail || it.type == SearchResultType.Coordinate
+            // "Places" = everything geographic that isn't the user's own data:
+            // place names, trails, street addresses and municipalities.
+            FILTER_PLACES -> it.type != SearchResultType.Marker
             else -> true
         }
     }

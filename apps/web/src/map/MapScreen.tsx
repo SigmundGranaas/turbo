@@ -7,7 +7,7 @@ import { createShareLink, redeemLink, shareUrl } from '../api/sharing';
 import { useUiStore } from '../store/uiStore';
 import { usePaths } from '../store/pathsStore';
 import { useToast } from '../store/toast';
-import { searchPlaces, type PlaceHit } from '../api/places';
+import { searchPlaces, searchAddresses, searchKommuner, type PlaceHit } from '../api/places';
 import { parseCoord } from '../geo';
 import { MapSurface } from '../map-engine';
 import { UserLocationLayer, RouteOverlay, MapPointMarkers, useMapPoints, usePanelHost } from '../map-core';
@@ -79,8 +79,10 @@ export function MapScreen() {
     return c ? { lat: c.lat, lng: c.lng, zoom: c.zoom } : undefined;
   });
 
-  // Search: debounced place-name lookup (tileserver anchors) + "lat, lng"
-  // coordinate parse. Results render in a dropdown under the search field;
+  // Search: debounced lookup fusing three sources — place names (tileserver
+  // anchors), municipalities and street addresses (Geonorge) — plus a "lat,
+  // lng" coordinate parse. Municipalities lead (broadest intent), then places,
+  // then addresses. Results render in a dropdown under the search field;
   // selecting one eases the camera there.
   useEffect(() => {
     const coord = parseCoord(query);
@@ -93,7 +95,9 @@ export function MapScreen() {
       return;
     }
     const t = setTimeout(() => {
-      void searchPlaces(query).then(setResults).catch(() => setResults([]));
+      void Promise.all([searchKommuner(query), searchPlaces(query), searchAddresses(query)])
+        .then(([kommuner, places, addresses]) => setResults([...kommuner, ...places, ...addresses]))
+        .catch(() => setResults([]));
     }, 250);
     return () => clearTimeout(t);
   }, [query]);
@@ -630,12 +634,15 @@ export function MapScreen() {
                 }}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 20, color: 'var(--primary)' }}>
-                  {r.kind === 'coordinate' ? 'my_location' : 'place'}
+                  {r.kind === 'coordinate' ? 'my_location'
+                    : r.kind === 'address' ? 'home_pin'
+                    : r.kind === 'kommune' ? 'location_city'
+                    : 'place'}
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ font: '500 15px/19px var(--font-sans)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</div>
                   <div style={{ font: '400 12px/15px var(--font-sans)', color: 'var(--on-surface-variant)', textTransform: 'capitalize' }}>
-                    {r.kind.replace(/_/g, ' ')}
+                    {r.sub || r.kind.replace(/_/g, ' ')}
                   </div>
                 </div>
               </button>

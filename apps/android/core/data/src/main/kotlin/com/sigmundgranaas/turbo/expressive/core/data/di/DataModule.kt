@@ -53,6 +53,16 @@ abstract class DataModule {
     ): com.sigmundgranaas.turbo.expressive.core.data.ElevationRepository
 
     @Binds
+    abstract fun bindAddressSearchRepository(
+        impl: com.sigmundgranaas.turbo.expressive.core.data.GeonorgeAddressRepository,
+    ): com.sigmundgranaas.turbo.expressive.core.data.AddressSearchRepository
+
+    @Binds
+    abstract fun bindKommuneSearchRepository(
+        impl: com.sigmundgranaas.turbo.expressive.core.data.GeonorgeKommuneRepository,
+    ): com.sigmundgranaas.turbo.expressive.core.data.KommuneSearchRepository
+
+    @Binds
     abstract fun bindRecentSearchRepository(impl: DataStoreRecentSearchRepository): RecentSearchRepository
 
     @Binds

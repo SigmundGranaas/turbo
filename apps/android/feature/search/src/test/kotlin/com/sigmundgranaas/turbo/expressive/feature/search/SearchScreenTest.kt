@@ -47,6 +47,14 @@ private class StubTrailSearchRepository : TrailSearchRepository {
     override suspend fun search(query: String): Outcome<List<SearchHit>> = Outcome.Success(emptyList())
 }
 
+private class StubAddressRepository : com.sigmundgranaas.turbo.expressive.core.data.AddressSearchRepository {
+    override suspend fun search(query: String): Outcome<List<SearchHit>> = Outcome.Success(emptyList())
+}
+
+private class StubKommuneRepository : com.sigmundgranaas.turbo.expressive.core.data.KommuneSearchRepository {
+    override suspend fun search(query: String): Outcome<List<SearchHit>> = Outcome.Success(emptyList())
+}
+
 private class StubStringProvider : com.sigmundgranaas.turbo.expressive.core.common.StringProvider {
     override fun get(id: Int): String = "s$id"
     override fun get(id: Int, vararg formatArgs: Any): String = "s$id:" + formatArgs.joinToString()
@@ -69,7 +77,7 @@ class SearchScreenTest {
             SearchScreen(
                 onBack = {},
                 onPick = { lat, lng, name -> picked = Triple(lat, lng, name) },
-                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository(), StubRecentSearchRepository(), StubTrailSearchRepository(), StubStringProvider()),
+                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository(), StubRecentSearchRepository(), StubTrailSearchRepository(), StubAddressRepository(), StubKommuneRepository(), StubStringProvider()),
             )
         }
 
@@ -90,7 +98,7 @@ class SearchScreenTest {
             SearchScreen(
                 onBack = {},
                 onPick = { _, _, _ -> },
-                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository(), StubRecentSearchRepository(), StubTrailSearchRepository(), StubStringProvider()),
+                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository(), StubRecentSearchRepository(), StubTrailSearchRepository(), StubAddressRepository(), StubKommuneRepository(), StubStringProvider()),
             )
         }
         composeRule.onNode(hasSetTextAction()).performTextInput("Lyn")

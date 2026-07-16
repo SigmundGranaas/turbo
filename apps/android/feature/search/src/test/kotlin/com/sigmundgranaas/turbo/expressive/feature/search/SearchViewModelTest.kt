@@ -39,6 +39,18 @@ private class FakeTrailSearchRepository(
     override suspend fun search(query: String): Outcome<List<SearchHit>> = outcome
 }
 
+private class FakeAddressRepository(
+    var outcome: Outcome<List<SearchHit>> = Outcome.Success(emptyList()),
+) : com.sigmundgranaas.turbo.expressive.core.data.AddressSearchRepository {
+    override suspend fun search(query: String): Outcome<List<SearchHit>> = outcome
+}
+
+private class FakeKommuneRepository(
+    var outcome: Outcome<List<SearchHit>> = Outcome.Success(emptyList()),
+) : com.sigmundgranaas.turbo.expressive.core.data.KommuneSearchRepository {
+    override suspend fun search(query: String): Outcome<List<SearchHit>> = outcome
+}
+
 private class FakeMarkerRepository(initial: List<Marker> = emptyList()) : MarkerRepository {
     val markers = MutableStateFlow(initial)
     override fun observeAll(): Flow<List<Marker>> = markers
@@ -71,7 +83,7 @@ class SearchViewModelTest {
     @Test
     fun `query is debounced then mapped to results with coordinates`() = runTest(mainRule.dispatcher) {
         val repo = FakeSearchRepository(Outcome.Success(listOf(hit)))
-        val vm = SearchViewModel(repo, FakeMarkerRepository(), FakeRecentSearchRepository(), FakeTrailSearchRepository(), FakeStringProvider())
+        val vm = SearchViewModel(repo, FakeMarkerRepository(), FakeRecentSearchRepository(), FakeTrailSearchRepository(), FakeAddressRepository(), FakeKommuneRepository(), FakeStringProvider())
 
         vm.setQuery("Lyn")
         assertEquals("Lyn", vm.state.value.query)
@@ -89,7 +101,7 @@ class SearchViewModelTest {
     @Test
     fun `rapid keystrokes only fire one search for the latest query`() = runTest(mainRule.dispatcher) {
         val repo = FakeSearchRepository(Outcome.Success(listOf(hit)))
-        val vm = SearchViewModel(repo, FakeMarkerRepository(), FakeRecentSearchRepository(), FakeTrailSearchRepository(), FakeStringProvider())
+        val vm = SearchViewModel(repo, FakeMarkerRepository(), FakeRecentSearchRepository(), FakeTrailSearchRepository(), FakeAddressRepository(), FakeKommuneRepository(), FakeStringProvider())
 
         vm.setQuery("L")
         vm.setQuery("Ly")
@@ -102,9 +114,32 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `addresses and municipalities fuse into the results, municipality first`() = runTest(mainRule.dispatcher) {
+        val vm = SearchViewModel(
+            FakeSearchRepository(Outcome.Success(emptyList())),
+            FakeMarkerRepository(),
+            FakeRecentSearchRepository(),
+            FakeTrailSearchRepository(),
+            FakeAddressRepository(Outcome.Success(listOf(SearchHit("Storgata 1", "8006 BODØ", LatLng(67.28, 14.40))))),
+            FakeKommuneRepository(Outcome.Success(listOf(SearchHit("Bodø", "Nordland", LatLng(67.30, 14.50))))),
+            FakeStringProvider(),
+        )
+        vm.setQuery("bod")
+        advanceTimeBy(300)
+        runCurrent()
+
+        val types = vm.state.value.results.map { it.type }
+        assertTrue("address surfaced", SearchResultType.Address in types)
+        assertTrue("kommune surfaced", SearchResultType.Kommune in types)
+        // The municipality (broadest intent) sorts before the street address.
+        assertTrue(types.indexOf(SearchResultType.Kommune) < types.indexOf(SearchResultType.Address))
+        assertEquals("Bodø", vm.state.value.results[types.indexOf(SearchResultType.Kommune)].name)
+    }
+
+    @Test
     fun `blank query clears results without searching`() = runTest(mainRule.dispatcher) {
         val repo = FakeSearchRepository(Outcome.Success(listOf(hit)))
-        val vm = SearchViewModel(repo, FakeMarkerRepository(), FakeRecentSearchRepository(), FakeTrailSearchRepository(), FakeStringProvider())
+        val vm = SearchViewModel(repo, FakeMarkerRepository(), FakeRecentSearchRepository(), FakeTrailSearchRepository(), FakeAddressRepository(), FakeKommuneRepository(), FakeStringProvider())
         vm.setQuery("Lyn"); advanceTimeBy(300); runCurrent()
         assertEquals(1, vm.state.value.results.size)
 
@@ -113,10 +148,12 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun `error only when both network sources fail, and retry recovers`() = runTest(mainRule.dispatcher) {
+    fun `error only when every network source fails, and retry recovers`() = runTest(mainRule.dispatcher) {
         val repo = FakeSearchRepository(Outcome.Failure(RuntimeException("offline")))
         val trail = FakeTrailSearchRepository(Outcome.Failure(RuntimeException("offline")))
-        val vm = SearchViewModel(repo, FakeMarkerRepository(), FakeRecentSearchRepository(), trail, FakeStringProvider())
+        val address = FakeAddressRepository(Outcome.Failure(RuntimeException("offline")))
+        val kommune = FakeKommuneRepository(Outcome.Failure(RuntimeException("offline")))
+        val vm = SearchViewModel(repo, FakeMarkerRepository(), FakeRecentSearchRepository(), trail, address, kommune, FakeStringProvider())
         vm.setQuery("zzz"); advanceTimeBy(300); runCurrent()
 
         assertTrue(vm.state.value.results.isEmpty())
@@ -134,7 +171,7 @@ class SearchViewModelTest {
     fun `a places failure still surfaces trail hits`() = runTest(mainRule.dispatcher) {
         val repo = FakeSearchRepository(Outcome.Failure(RuntimeException("offline")))
         val trail = FakeTrailSearchRepository(Outcome.Success(listOf(SearchHit("Besseggen", "Trail", LatLng(61.5, 8.7)))))
-        val vm = SearchViewModel(repo, FakeMarkerRepository(), FakeRecentSearchRepository(), trail, FakeStringProvider())
+        val vm = SearchViewModel(repo, FakeMarkerRepository(), FakeRecentSearchRepository(), trail, FakeAddressRepository(), FakeKommuneRepository(), FakeStringProvider())
         vm.setQuery("Bess"); advanceTimeBy(300); runCurrent()
 
         assertTrue(!vm.state.value.error)
@@ -147,7 +184,7 @@ class SearchViewModelTest {
         val markers = FakeMarkerRepository(
             listOf(Marker("m1", "Camp Lyngen", ActivityKindId.Camping, LatLng(69.6, 20.0))),
         )
-        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(emptyList())), markers, FakeRecentSearchRepository(), FakeTrailSearchRepository(), FakeStringProvider())
+        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(emptyList())), markers, FakeRecentSearchRepository(), FakeTrailSearchRepository(), FakeAddressRepository(), FakeKommuneRepository(), FakeStringProvider())
         runCurrent() // let the marker flow collect
 
         vm.setQuery("lyng")
@@ -159,7 +196,7 @@ class SearchViewModelTest {
 
     @Test
     fun `a coordinate query yields a go-to-coordinate result`() = runTest(mainRule.dispatcher) {
-        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(emptyList())), FakeMarkerRepository(), FakeRecentSearchRepository(), FakeTrailSearchRepository(), FakeStringProvider())
+        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(emptyList())), FakeMarkerRepository(), FakeRecentSearchRepository(), FakeTrailSearchRepository(), FakeAddressRepository(), FakeKommuneRepository(), FakeStringProvider())
         vm.setQuery("69.65, 18.95")
         runCurrent()
 
@@ -173,7 +210,7 @@ class SearchViewModelTest {
         val markers = FakeMarkerRepository(
             listOf(Marker("m1", "Lyngen hut", ActivityKindId.Cabin, LatLng(69.6, 20.0))),
         )
-        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(listOf(hit))), markers, FakeRecentSearchRepository(), FakeTrailSearchRepository(), FakeStringProvider())
+        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(listOf(hit))), markers, FakeRecentSearchRepository(), FakeTrailSearchRepository(), FakeAddressRepository(), FakeKommuneRepository(), FakeStringProvider())
         runCurrent()
 
         vm.setQuery("Lyngen"); advanceTimeBy(300); runCurrent()
@@ -187,7 +224,7 @@ class SearchViewModelTest {
     @Test
     fun `recordPick persists a recent and clearRecents empties it`() = runTest(mainRule.dispatcher) {
         val recents = FakeRecentSearchRepository()
-        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(emptyList())), FakeMarkerRepository(), recents, FakeTrailSearchRepository(), FakeStringProvider())
+        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(emptyList())), FakeMarkerRepository(), recents, FakeTrailSearchRepository(), FakeAddressRepository(), FakeKommuneRepository(), FakeStringProvider())
 
         vm.recordPick(SearchResult("Lyngen", "Troms", ActivityKindId.Mountain, SearchResultType.Place, 69.6, 20.0))
         runCurrent()
@@ -201,7 +238,7 @@ class SearchViewModelTest {
     @Test
     fun `recordPick ignores results without coordinates`() = runTest(mainRule.dispatcher) {
         val recents = FakeRecentSearchRepository()
-        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(emptyList())), FakeMarkerRepository(), recents, FakeTrailSearchRepository(), FakeStringProvider())
+        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(emptyList())), FakeMarkerRepository(), recents, FakeTrailSearchRepository(), FakeAddressRepository(), FakeKommuneRepository(), FakeStringProvider())
 
         vm.recordPick(SearchResult("nowhere", "", ActivityKindId.Mountain, SearchResultType.Place, null, null))
         runCurrent()
