@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Glass, GlassIconBtn, Divider } from './Glass';
+import { compassVisible } from './compass';
 
 /** Bottom-right floating control cluster over the map — reduced (Phase 1) to the
  *  five essentials: Compass (reset-north), Layers, Location, and a zoom group.
@@ -8,11 +9,15 @@ import { Glass, GlassIconBtn, Divider } from './Glass';
 export interface MapRailState {
   layers?: boolean;
   following?: boolean;
+  /** Compass "Lock rotation" — pins the bearing so gestures can't rotate. */
+  rotationLocked?: boolean;
 }
 export interface MapRailHandlers {
   onLayers?: () => void;
   onRecenter?: () => void;
   onCompass?: () => void;
+  /** Toggle the persisted rotation lock (compass long-press / right-click). */
+  onToggleRotationLock?: () => void;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
 }
@@ -30,11 +35,17 @@ export function MapRail({
    *  frame so it points to true north as the map rotates. */
   getBearing?: () => number;
 }) {
-  const { layers, following } = state;
+  const { layers, following, rotationLocked } = state;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-end' }}>
       <Glass dark={dark} radius={22} style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <CompassBtn getBearing={getBearing} active={following} onClick={on.onCompass} />
+        <CompassBtn
+          getBearing={getBearing}
+          active={following}
+          locked={rotationLocked}
+          onClick={on.onCompass}
+          onToggleLock={on.onToggleRotationLock}
+        />
       </Glass>
       <Glass dark={dark} radius={22} style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
         <GlassIconBtn icon="layers" active={layers} title="Map layers" onClick={on.onLayers} />
@@ -56,11 +67,28 @@ export function MapRail({
   );
 }
 
-function CompassBtn({ getBearing, active, onClick }: { getBearing?: () => number; active?: boolean; onClick?: () => void }) {
+function CompassBtn({
+  getBearing,
+  active,
+  locked,
+  onClick,
+  onToggleLock,
+}: {
+  getBearing?: () => number;
+  active?: boolean;
+  locked?: boolean;
+  onClick?: () => void;
+  onToggleLock?: () => void;
+}) {
   const svgRef = useRef<SVGSVGElement>(null);
-  // Rotate the needle to point at true north as the camera bearing changes —
-  // driven off rAF + mutated directly (no React re-render per frame, mirrors
-  // how the marker layer projects).
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const holdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heldRef = useRef(false);
+  // Rotate the needle to point at true north as the camera bearing changes, and
+  // auto-hide the whole button when the map is within ~0.5° of north (spec's
+  // compassVisible rule) — unless rotation is LOCKED, where we keep it visible so
+  // the lock can be released. Driven off rAF + mutated directly (no React
+  // re-render per frame, mirrors how the marker layer projects).
   useEffect(() => {
     if (!getBearing) return;
     let raf = 0;
@@ -72,22 +100,50 @@ function CompassBtn({ getBearing, active, onClick }: { getBearing?: () => number
         svgRef.current.style.transform = `rotate(${-b}deg)`;
         last = b;
       }
+      if (btnRef.current) btnRef.current.style.display = compassVisible(b) || locked ? '' : 'none';
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [getBearing]);
+  }, [getBearing, locked]);
+
+  // Long-press (touch) or right-click toggles the rotation lock; a plain tap
+  // resets north.
+  const startHold = () => {
+    heldRef.current = false;
+    holdRef.current = setTimeout(() => {
+      heldRef.current = true;
+      onToggleLock?.();
+    }, 450);
+  };
+  const endHold = () => {
+    if (holdRef.current) clearTimeout(holdRef.current);
+    holdRef.current = null;
+  };
   return (
-    <button className="tm-icon-btn"
-      title="Compass · reset north"
-      onClick={onClick}
+    <button
+      ref={btnRef}
+      className="tm-icon-btn"
+      title={locked ? 'Rotation locked · long-press to unlock, tap to reset north' : 'Compass · tap to reset north, long-press to lock rotation'}
+      onClick={() => {
+        if (heldRef.current) return; // the long-press already toggled the lock
+        onClick?.();
+      }}
+      onPointerDown={startHold}
+      onPointerUp={endHold}
+      onPointerLeave={endHold}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onToggleLock?.();
+      }}
       style={{
+        position: 'relative',
         width: 48,
         height: 48,
         borderRadius: 18,
         cursor: 'pointer',
         border: 'none',
-        background: active ? 'var(--tertiary-container)' : 'transparent',
+        background: locked ? 'var(--secondary-container)' : active ? 'var(--tertiary-container)' : 'transparent',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -97,6 +153,20 @@ function CompassBtn({ getBearing, active, onClick }: { getBearing?: () => number
         <path fill={active ? 'var(--on-tertiary-container)' : 'var(--error)'} d="M17.4 4 L20.6 16 H14.2 Z" />
         <path fill={active ? 'var(--on-tertiary-container)' : 'var(--primary)'} d="M17.4 30 L14.2 18 H20.6 Z" opacity=".55" />
       </svg>
+      {locked && (
+        <span
+          className="material-symbols-outlined"
+          style={{
+            position: 'absolute',
+            right: 3,
+            bottom: 2,
+            fontSize: 13,
+            color: 'var(--on-secondary-container)',
+          }}
+        >
+          lock
+        </span>
+      )}
     </button>
   );
 }

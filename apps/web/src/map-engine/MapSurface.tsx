@@ -37,6 +37,11 @@ interface Props {
   /** The terrain point a live 3D orbit/tilt gesture pivots around (or `null`
    *  when it ends) — the host pins it on the relief. */
   onOrbit?: (anchor: { lat: number; lng: number } | null) => void;
+  /** Compass "Lock rotation" accessor — suppresses gesture bearing in both modes. */
+  isRotationLocked?: () => boolean;
+  /** Fired when a pan/pinch/orbit/wheel starts moving the camera — the host
+   *  dismisses the open map-point card. */
+  onPan?: () => void;
 }
 
 const DEFAULT_CAMERA: CameraInit = { lat: 60.39, lng: 5.32, zoom: 12 }; // Bergen
@@ -55,7 +60,7 @@ function ensureWasm(): Promise<unknown> {
  *  analogue of Android's `TurbomapMapView` — a thin host around the shared
  *  engine. Everything map-visual lives in the engine; this component only feeds
  *  it input + tiles and pumps frames. */
-export function MapSurface({ base = 'norgeskart', demPresent = false, exaggeration = 6, tiltEnabled = false, camera, onReady, onError, onTap, onLongPress, onOrbit }: Props) {
+export function MapSurface({ base = 'norgeskart', demPresent = false, exaggeration = 6, tiltEnabled = false, camera, onReady, onError, onTap, onLongPress, onOrbit, isRotationLocked, onPan }: Props) {
   const publish = useMapEnginePublisher();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mapRef = useRef<TurboMap | null>(null);
@@ -76,6 +81,10 @@ export function MapSurface({ base = 'norgeskart', demPresent = false, exaggerati
   onLongPressRef.current = onLongPress;
   const onOrbitRef = useRef<Props['onOrbit']>(onOrbit);
   onOrbitRef.current = onOrbit;
+  const isRotationLockedRef = useRef<Props['isRotationLocked']>(isRotationLocked);
+  isRotationLockedRef.current = isRotationLocked;
+  const onPanRef = useRef<Props['onPan']>(onPan);
+  onPanRef.current = onPan;
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -184,6 +193,8 @@ export function MapSurface({ base = 'norgeskart', demPresent = false, exaggerati
       onTap: (x, y, t) => onTapRef.current?.(x, y, t),
       onLongPress: (x, y) => onLongPressRef.current?.(x, y),
       onOrbit: (a) => onOrbitRef.current?.(a),
+      isRotationLocked: () => isRotationLockedRef.current?.() ?? false,
+      onPan: () => onPanRef.current?.(),
     });
 
     // Any direct interaction marks the next frame dirty so it draws immediately

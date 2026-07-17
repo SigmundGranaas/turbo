@@ -10,10 +10,22 @@ import { useToast } from '../store/toast';
 import { searchPlaces, searchAddresses, searchKommuner, type PlaceHit } from '../api/places';
 import { parseCoord } from '../geo';
 import { MapSurface } from '../map-engine';
-import { UserLocationLayer, RouteOverlay, MapPointMarkers, useMapPoints, usePanelHost, DEFAULT_3D_DETENT } from '../map-core';
+import {
+  UserLocationLayer,
+  RouteOverlay,
+  MapPointMarkers,
+  useMapPoints,
+  usePanelHost,
+  DEFAULT_3D_DETENT,
+  useOnline,
+  reduceMapPointCard,
+  MAP_POINT_CARD_HIDDEN,
+  type MapPointCard as MapPointCardState,
+  type MapPointCardEvent,
+} from '../map-core';
 import { SunSlider, useSun } from '../features/sun';
 import { LayerPicker } from './LayerPicker';
-import { MapContextMenu, type ContextMenuTarget } from './MapContextMenu';
+import { MapPointCard, type CardAnchor } from './MapPointCard';
 import { MarkerPins, WeatherPinChips, MarkerDetailPanel, MarkerEditorPanel, useMarkers, useDeleteMarker, useCreateMarker, useWeatherPinForecasts, useSelection, openMarkerDetail, openMarkerEditor, openNewMarker, closeMarker, reverseGeocode, type Marker } from '../features/markers';
 import { useRouting, RouteController, RoutePlannerPanel, openRouting, closeRouting, ROUTE_PROFILES } from '../features/routing';
 import { useTracks, useDeleteTrack, useCreateTrack, PathsListPanel, PathDetailPanel, TrackEditorPanel, dashArrayFor, type Track } from '../features/tracks';
@@ -49,6 +61,8 @@ export function MapScreen() {
   // camera field — the hard decoupling rule (neither slider moves the camera).
   const sun = useSun();
   const following = useUiStore((s) => s.following);
+  const rotationLocked = useUiStore((s) => s.rotationLocked);
+  const online = useOnline();
   const activePanel = usePanelHost((s) => s.active);
 
   const session = useSession();
@@ -70,7 +84,10 @@ export function MapScreen() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PlaceHit[]>([]);
   const toast = useToast((s) => s.message);
-  const [ctxMenu, setCtxMenu] = useState<ContextMenuTarget | null>(null);
+  // The unified map-point card (spec Phase 2), driven by the pure reducer. Its
+  // screen anchor is tracked alongside (presentation only, not card logic).
+  const [card, setCard] = useState<MapPointCardState>(MAP_POINT_CARD_HIDDEN);
+  const [cardAnchor, setCardAnchor] = useState<CardAnchor>({ x: 0, y: 0 });
   const [shareToken] = useState(() => new URLSearchParams(window.location.search).get('share'));
   const mapRef = useRef<TurboMap | null>(null);
   // Initial camera: restore the last saved pose so a reload returns to the same
@@ -189,19 +206,19 @@ export function MapScreen() {
     else root.removeAttribute('data-theme');
   }, [dark]);
 
-  // Show the click indicator (a ground ring) wherever the point menu is anchored,
-  // and clear it when the menu closes — the visible "you clicked here" marker.
+  // Show the click indicator (a ground ring) wherever the point card is anchored,
+  // and clear it when the card hides — the visible "you clicked here" marker.
   useEffect(() => {
-    useMapPoints.getState().setClick(ctxMenu ? { lat: ctxMenu.lat, lng: ctxMenu.lng } : null);
-  }, [ctxMenu]);
+    useMapPoints.getState().setClick(card.kind === 'shown' ? card.point : null);
+  }, [card]);
 
   // Escape dismisses the topmost overlay: the point menu first, otherwise the
   // open side panel (+ its tool state). Standard overlay convention.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (ctxMenu) {
-        setCtxMenu(null);
+      if (card.kind === 'shown') {
+        setCard(MAP_POINT_CARD_HIDDEN);
         return;
       }
       if (activePanel === null && !useRouting.getState().active) return;
@@ -213,7 +230,7 @@ export function MapScreen() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [ctxMenu, activePanel]);
+  }, [card, activePanel]);
 
   // Desktop: reserve the side panel's width as a right viewport inset so the
   // map renders/centres in the visible band left of the panel (the focus point
@@ -456,7 +473,7 @@ export function MapScreen() {
   // Tapping a weather-pin chip opens the point's forecast detail — the shared
   // conditions panel for the pin's point (the chip itself stays the highlight).
   const onWeatherPinTap = (m: Marker) => {
-    setCtxMenu(null);
+    setCard(MAP_POINT_CARD_HIDDEN);
     useSelection.getState().clear();
     showConditions(m.lat, m.lng, m.name);
   };
@@ -483,12 +500,13 @@ export function MapScreen() {
     useSelection.getState().clear();
   };
 
-  // Open the point contextual menu (the Android long-press menu) at a screen
-  // point: terrain-aware unproject to a geo point and anchor the menu there.
-  const openContextMenu = (x: number, y: number) => {
-    const g = groundLatLng(x, y);
-    if (!g) return;
-    setCtxMenu({ x, y, lat: g.lat, lng: g.lng });
+  // Drive the pure map-point-card reducer (spec Phase 2). Route/routing mode is
+  // "track mode" — the reducer suppresses the card there (taps place waypoints).
+  // A tap/long-press also records the screen anchor so the card can be placed.
+  const dispatchCard = (event: MapPointCardEvent, anchor?: CardAnchor) => {
+    const trackMode = useRouting.getState().active;
+    setCard((prev) => reduceMapPointCard(prev, event, trackMode));
+    if (anchor && (event.type === 'tap' || event.type === 'long-press')) setCardAnchor(anchor);
   };
 
   // Pins are scene-declared content (plan P6.3): a tap resolves through the
@@ -509,15 +527,17 @@ export function MapScreen() {
   };
 
   // A tap/click on the map (the gesture controller already filtered out drags,
-  // doubles, and long-presses). A pin hit selects the pin (or adds it as a
-  // waypoint while routing). While routing, any other tap adds a waypoint.
-  // Else a mouse click closes any open panel then opens the point menu; a
-  // touch tap dismisses an open menu/panel (touch opens the menu via
-  // long-press instead, so it doesn't fight double-tap-zoom).
-  const onMapTap = (x: number, y: number, pointerType: string) => {
+  // doubles, and long-presses) drives the card reducer — mirroring Android, an
+  // empty tap opens the card (or re-anchors an open one), an ENTITY (pin) tap
+  // yields so the entity detail wins, and in routing/track mode the tap places a
+  // waypoint (the reducer suppresses the card there). A fresh open also closes
+  // any open side panel (a map tap dismisses a detail view — web convention).
+  const onMapTap = (x: number, y: number) => {
     const pin = pinAtTap(x, y);
     if (pin) {
       onPinSelect(pin);
+      const g = groundLatLng(x, y);
+      if (g) dispatchCard({ type: 'tap', point: g, onEntity: true }); // entity wins → card hides
       return;
     }
     if (useRouting.getState().active) {
@@ -525,32 +545,24 @@ export function MapScreen() {
       if (g) useRouting.getState().addWaypoint(g);
       return;
     }
-    if (pointerType === 'mouse') {
-      // First click on the map closes whatever popup/panel is open — and opens
-      // nothing. Only when nothing is open does a click open the point menu.
-      if (ctxMenu || usePanelHost.getState().active) {
-        setCtxMenu(null);
-        dismissPanels();
-        return;
-      }
-      openContextMenu(x, y);
-      return;
-    }
-    // Touch tap on empty map → dismiss the menu / any open panel.
-    setCtxMenu(null);
-    dismissPanels();
+    const g = groundLatLng(x, y);
+    if (!g) return;
+    if (card.kind !== 'shown' && usePanelHost.getState().active) dismissPanels();
+    dispatchCard({ type: 'tap', point: g, onEntity: false }, { x, y });
   };
 
-  // Long-press (touch) → the point menu, even while routing (tap still adds
-  // waypoints). Mirrors the native long-press contextual menu.
+  // Long-press → the card, even over an entity (drop-on-top) and even while a
+  // panel is open; still suppressed in routing/track mode (tap adds waypoints).
   const onMapLongPress = (x: number, y: number) => {
     if (useRouting.getState().active) {
       const g = groundLatLng(x, y);
       if (g) useRouting.getState().addWaypoint(g);
       return;
     }
+    const g = groundLatLng(x, y);
+    if (!g) return;
     dismissPanels();
-    openContextMenu(x, y);
+    dispatchCard({ type: 'long-press', point: g }, { x, y });
   };
 
   const onPinSelect = (id: string) => {
@@ -558,7 +570,7 @@ export function MapScreen() {
       const mk = markers.find((x) => x.id === id);
       if (mk) useRouting.getState().addWaypoint({ lat: mk.lat, lng: mk.lng });
     } else {
-      setCtxMenu(null);
+      setCard(MAP_POINT_CARD_HIDDEN);
       useConditionsPanel.getState().close();
       openMarkerDetail(id);
     }
@@ -589,6 +601,8 @@ export function MapScreen() {
         onReady={onReady}
         onTap={onMapTap}
         onLongPress={onMapLongPress}
+        isRotationLocked={() => useUiStore.getState().rotationLocked}
+        onPan={() => setCard(MAP_POINT_CARD_HIDDEN)}
       />
       <RouteController />
       <MapPointMarkers />
@@ -715,11 +729,16 @@ export function MapScreen() {
         <MapRail
           dark={dark}
           getBearing={() => cam()?.bearing ?? 0}
-          state={{ layers, following }}
+          state={{ layers, following, rotationLocked }}
           on={{
             onLayers: () => useUiStore.getState().setLayers(!layers),
             onRecenter: recenter,
             onCompass: resetNorth,
+            onToggleRotationLock: () => {
+              const next = !useUiStore.getState().rotationLocked;
+              useUiStore.getState().setRotationLocked(next);
+              showToast(next ? 'Rotation locked' : 'Rotation unlocked');
+            },
             onZoomIn: () => zoom(1.4),
             onZoomOut: () => zoom(1 / 1.4),
           }}
@@ -891,24 +910,48 @@ export function MapScreen() {
         <CollectionPicker dark={dark} item={paths.pickerItem} onClose={() => usePaths.getState().closePicker()} />
       )}
 
-      {ctxMenu && (
-        <MapContextMenu
+      {card.kind === 'shown' && (
+        <MapPointCard
           dark={dark}
-          target={ctxMenu}
-          onNewMarker={() => void createMarkerLatLng(ctxMenu.lat, ctxMenu.lng)}
-          onWeatherPin={() => void dropWeatherPin(ctxMenu.lat, ctxMenu.lng)}
-          onRouteHere={() =>
-            useRouting.getState().active
-              ? useRouting.getState().addWaypoint({ lat: ctxMenu.lat, lng: ctxMenu.lng })
-              : routeHere(ctxMenu.lat, ctxMenu.lng)
-          }
-          onStartRoute={() => {
-            useConditionsPanel.getState().close();
-            useSelection.getState().clear();
-            openRouting({ lat: ctxMenu.lat, lng: ctxMenu.lng });
+          point={card.point}
+          anchor={cardAnchor}
+          expanded={card.expanded}
+          online={online}
+          onToggleAddMarker={() => dispatchCard({ type: 'toggle-add-marker' })}
+          onMarker={() => {
+            void createMarkerLatLng(card.point.lat, card.point.lng);
+            setCard(MAP_POINT_CARD_HIDDEN);
           }}
-          onForecast={(name) => showConditions(ctxMenu.lat, ctxMenu.lng, name)}
-          onClose={() => setCtxMenu(null)}
+          onPhoto={() => {
+            // Web has no camera-capture step; drop into the marker editor (where a
+            // photo can be attached) at this point. Deviation from Android's
+            // camera-first flow.
+            void createMarkerLatLng(card.point.lat, card.point.lng);
+            setCard(MAP_POINT_CARD_HIDDEN);
+          }}
+          onWeatherPin={() => {
+            // Phase 3 gave web a real persistent WeatherPin marker kind — drop one
+            // (it renders as a live temp+condition chip and taps into the forecast).
+            void dropWeatherPin(card.point.lat, card.point.lng);
+            setCard(MAP_POINT_CARD_HIDDEN);
+          }}
+          onRouteHere={() => {
+            if (useRouting.getState().active) useRouting.getState().addWaypoint({ lat: card.point.lat, lng: card.point.lng });
+            else routeHere(card.point.lat, card.point.lng);
+            setCard(MAP_POINT_CARD_HIDDEN);
+          }}
+          onMeasure={() => {
+            // No measure tool on web yet; the connectivity GATE (enabled online /
+            // disabled offline) is the faithfully-mirrored behaviour. Online tap is
+            // a placeholder until the measure/routing overhaul lands on web.
+            showToast('Measure is coming to the web app soon');
+            setCard(MAP_POINT_CARD_HIDDEN);
+          }}
+          onForecast={(name) => {
+            showConditions(card.point.lat, card.point.lng, name);
+            setCard(MAP_POINT_CARD_HIDDEN);
+          }}
+          onClose={() => setCard(MAP_POINT_CARD_HIDDEN)}
         />
       )}
 

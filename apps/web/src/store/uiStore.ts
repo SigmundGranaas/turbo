@@ -29,6 +29,9 @@ interface UiState {
   following: boolean;
   /** Far-distance atmospheric haze in 3D (persisted). Off by default. */
   distanceHaze: boolean;
+  /** Compass "Lock rotation" (persisted): suppresses gesture bearing changes in
+   *  both 2D (twist) and 3D (orbit's horizontal component); pitch stays free. */
+  rotationLocked: boolean;
   /** My-position dot colour (CSS hex, persisted); undefined = the default blue. */
   locationDotColor?: string;
   /** User-added XYZ basemaps (persisted). Registered with the scene resolver
@@ -43,6 +46,7 @@ interface UiState {
   setLayers: (v: boolean) => void;
   setFollowing: (v: boolean) => void;
   setDistanceHaze: (v: boolean) => void;
+  setRotationLocked: (v: boolean) => void;
   setLocationDotColor: (c: string | undefined) => void;
   addCustomLayer: (l: CustomBaseLayer) => void;
   removeCustomLayer: (id: string) => void;
@@ -59,6 +63,7 @@ export const useUiStore = create<UiState>()(
       layers: false,
       following: false,
       distanceHaze: false,
+      rotationLocked: false,
       customLayers: [],
       setTheme: (theme) => set({ theme }),
       setUnits: (units) => set({ units }),
@@ -67,6 +72,7 @@ export const useUiStore = create<UiState>()(
       setLayers: (layers) => set({ layers }),
       setFollowing: (following) => set({ following }),
       setDistanceHaze: (distanceHaze) => set({ distanceHaze }),
+      setRotationLocked: (rotationLocked) => set({ rotationLocked }),
       setLocationDotColor: (locationDotColor) => set({ locationDotColor }),
       addCustomLayer: (l) =>
         set((s) => ({ customLayers: [...s.customLayers.filter((c) => c.id !== l.id), l], baseLayer: l.id })),
@@ -85,6 +91,7 @@ export const useUiStore = create<UiState>()(
         units: s.units,
         baseLayer: s.baseLayer,
         distanceHaze: s.distanceHaze,
+        rotationLocked: s.rotationLocked,
         locationDotColor: s.locationDotColor,
         customLayers: s.customLayers,
         camera: s.camera,

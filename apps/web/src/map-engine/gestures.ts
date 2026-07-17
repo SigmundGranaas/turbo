@@ -1,4 +1,5 @@
 import type { TurboMap } from 'turbomap-web';
+import { RotationGatekeeper, pairAngleDeg, twistDeltaDeg } from './rotationGatekeeper';
 
 /** Semantic callbacks the host (MapScreen) wires to app behaviour. Coordinates
  *  are CSS pixels relative to the viewport (the canvas fills it); the host
@@ -18,6 +19,13 @@ export interface GestureCallbacks {
    *  pixel raycast onto the relief), or `null` when the gesture ends. The host
    *  shows a pin there so there's a visible anchor sitting on the 3D geometry. */
   onOrbit?: (anchor: { lat: number; lng: number } | null) => void;
+  /** Compass "Lock rotation": when true, gesture bearing changes are suppressed
+   *  in BOTH modes — the 2D twist can never engage and the 3D orbit's bearing is
+   *  pinned (pitch stays free). Sampled once at each two-finger gesture start. */
+  isRotationLocked?: () => boolean;
+  /** Fired when the user starts moving the camera (a pan/pinch/orbit/wheel) — the
+   *  host uses it to dismiss the open map-point card. */
+  onPan?: () => void;
 }
 
 // Tuning — mirror the feel of Google/Apple/Mapbox.
@@ -42,9 +50,12 @@ const isTouch = (t: string) => t === 'touch' || t === 'pen';
  *
  *  Touch model (identical to the Android app): 1 finger pans (inertial fling on
  *  release) in BOTH 2D and 3D; 2 fingers always zoom about the centroid, and the
- *  centroid's drag does the second axis — in 2D it pans, in 3D it ORBITS
- *  (horizontal → bearing, vertical → pitch) and never pans. Finger twist is
- *  ignored in both modes. Long-press adds a marker; double-tap zooms. Mouse
+ *  centroid's drag does the second axis — in 3D it ORBITS (horizontal → bearing,
+ *  vertical → pitch) and never pans; in 2D it pans, OR twist-rotates the bearing
+ *  when the RotationGatekeeper decides the finger-twist leads (a deliberate twist
+ *  rotates; a natural pinch/pan never wobbles the bearing). The compass "Lock
+ *  rotation" flag pins the bearing in both modes (pitch stays free).
+ *  Long-press adds a marker; double-tap zooms. Mouse
  *  (desktop only): drag pans, wheel/double-click zoom, right-drag or Ctrl/⌘-drag
  *  orbits + tilts. */
 export function attachMapGestures(
@@ -89,13 +100,22 @@ export function attachMapGestures(
   let orbitStartY = 0;
   let orbitArmed = false;
 
-  // --- two-finger gesture (Android parity: 2D → pan+zoom, 3D → orbit+zoom;
-  //     finger twist ignored in both modes) ---
+  // --- two-finger gesture (Android parity: 2D → pan+zoom+twist-rotate, 3D →
+  //     orbit+zoom). The RotationGatekeeper decides — once per gesture — whether
+  //     a 2D two-finger gesture rotates the bearing or pans/zooms. ---
   let twoIs3d = false; // 3D sampled once at gesture start so the grammar is stable
+  let twoLocked = false; // rotation-lock sampled once at gesture start
   let snapAx = 0; // rolling previous frame (for incremental deltas)
   let snapAy = 0;
   let snapBx = 0;
   let snapBy = 0;
+  // Fixed gesture-start snapshot, for the gatekeeper's cumulative-from-start deltas.
+  let startCx = 0;
+  let startCy = 0;
+  let startSpread = 0;
+  let prevPairAngle = 0; // rolling pair angle (deg), for per-frame twist
+  let cumTwist = 0; // accumulated finger-pair twist from start (deg)
+  let gate: RotationGatekeeper = new RotationGatekeeper();
   let pinchZoom = 0; // cumulative zoom levels, for zoom-fling
   let pinchV: { t: number; z: number }[] = [];
 
@@ -125,11 +145,21 @@ export function attachMapGestures(
     consumed = true; // the touch became a gesture, not a tap
     const [a, b] = sortedTwo();
     snapAx = a.x; snapAy = a.y; snapBx = b.x; snapBy = b.y;
-    // Sample the mode once: like Android, a mid-gesture 2D↔3D flip can't change
-    // whether the two-finger drag pans (tilt locked) or orbits (tilt enabled).
+    // Fixed start snapshot + a fresh gatekeeper for this gesture.
+    startCx = (a.x + b.x) / 2;
+    startCy = (a.y + b.y) / 2;
+    startSpread = Math.hypot(a.x - b.x, a.y - b.y);
+    prevPairAngle = pairAngleDeg(a.x, a.y, b.x, b.y);
+    cumTwist = 0;
+    // Sample the mode + rotation-lock once: like Android, a mid-gesture 2D↔3D
+    // flip can't change whether the two-finger drag pans (tilt locked) or orbits
+    // (tilt enabled), nor whether rotation is allowed.
     twoIs3d = cb.tiltEnabled();
+    twoLocked = cb.isRotationLocked?.() ?? false;
+    gate = new RotationGatekeeper({ rotationLocked: twoLocked });
     pinchZoom = 0;
     pinchV = [{ t: now(), z: 0 }];
+    cb.onPan?.(); // a two-finger gesture moves the camera → dismiss the point card
   };
 
   const cancelPendingTap = () => {
@@ -196,6 +226,7 @@ export function attachMapGestures(
       if (!orbitArmed) {
         if (Math.hypot(e.clientX - orbitStartX, e.clientY - orbitStartY) < ORBIT_ARM) return;
         orbitArmed = true;
+        cb.onPan?.(); // the camera is about to move → dismiss the point card
       }
       // drag right → rotate the map the way the drag points (grab-and-turn, like
       // Google/Apple), drag up → tilt toward horizon, pivot under cursor.
@@ -217,6 +248,7 @@ export function attachMapGestures(
     if (!moved && Math.hypot(dxTotal, dyTotal) > TAP_MOVE) {
       moved = true;
       clearLongPress();
+      cb.onPan?.(); // a pan started → dismiss the point card
     }
     if (moved) {
       const prev = panV[panV.length - 1];
@@ -244,17 +276,34 @@ export function attachMapGestures(
       if (pinchV.length > 8) pinchV.shift();
     }
 
-    // The centroid's translation drives the second axis (finger TWIST is ignored
-    // in both modes — Android parity). 2D: the drag pans. 3D: the drag ORBITS —
-    // horizontal → bearing, vertical → pitch — and never pans (orbit_around
-    // re-pins the centroid pixel so the map doesn't drift).
     const dCx = cx - prevCx;
     const dCy = cy - prevCy;
     if (twoIs3d) {
-      map.orbit_around(dCx * TOUCH_BEARING_PER_PX, -dCy * TOUCH_PITCH_PER_PX, ...focusPx(cx, cy));
+      // 3D: the centroid drag ORBITS — horizontal → bearing, vertical → pitch —
+      // and never pans (orbit_around re-pins the centroid pixel so the map
+      // doesn't drift). Under rotation-lock the bearing is pinned; pitch is free.
+      const dBearing = twoLocked ? 0 : dCx * TOUCH_BEARING_PER_PX;
+      map.orbit_around(dBearing, -dCy * TOUCH_PITCH_PER_PX, ...focusPx(cx, cy));
       reportOrbit(map, ...focusPx(cx, cy));
     } else {
-      map.pan_by_pixels(dCx * dpr, dCy * dpr);
+      // 2D: the gatekeeper decides — twist-rotate vs pan — from cumulative deltas
+      // since the gesture started, and locks the verdict. A natural pinch/pan
+      // never wobbles the bearing; a deliberate twist rotates about the centroid.
+      const angle = pairAngleDeg(a.x, a.y, b.x, b.y);
+      const dTwist = twistDeltaDeg(prevPairAngle, angle);
+      prevPairAngle = angle;
+      cumTwist += dTwist;
+      const pinchRatio = startSpread > 0 && dist > 0 ? dist / startSpread : 1;
+      const panFromStart = Math.hypot(cx - startCx, cy - startCy);
+      const verdict = gate.update(cumTwist, pinchRatio, panFromStart);
+      if (verdict === 'rotate') {
+        // Twist leads → rotate the bearing about the centroid (the pinch still
+        // zoomed above); never pan.
+        if (dTwist !== 0) map.orbit_around(dTwist, 0, ...focusPx(cx, cy));
+      } else if (verdict === 'pan-zoom') {
+        map.pan_by_pixels(dCx * dpr, dCy * dpr);
+      }
+      // 'undecided': zoom only (already applied) — hold pan/rotate one frame.
     }
     snapAx = a.x; snapAy = a.y; snapBx = b.x; snapBy = b.y;
   };
@@ -334,6 +383,7 @@ export function attachMapGestures(
     e.preventDefault();
     const map = cb.getMap();
     if (!map) return;
+    cb.onPan?.(); // a wheel zoom moves the camera → dismiss the point card
     // Scale the zoom by the ACTUAL wheel delta (normalised across deltaMode),
     // not a fixed step — otherwise a trackpad (which fires many tiny events)
     // zooms wildly. Mouse wheels send large deltas (one notch ≈ ±100), so they
