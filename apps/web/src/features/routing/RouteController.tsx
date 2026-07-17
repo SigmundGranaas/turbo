@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { RouteOverlay } from '../../map-core';
 import { useRouting } from './routingStore';
 import { planStream } from './api';
+import { stopColor } from './stops';
 
 /** Always-mounted routing controller: runs the SSE solver whenever the route
  *  inputs change and draws the planned/preview line over the map. Gated on the
@@ -12,6 +13,7 @@ export function RouteController() {
   const waypoints = useRouting((s) => s.waypoints);
   const preset = useRouting((s) => s.preset);
   const profile = useRouting((s) => s.profile);
+  const roundTrip = useRouting((s) => s.roundTrip);
   const preview = useRouting((s) => s.preview);
   const plan = useRouting((s) => s.plan);
 
@@ -27,6 +29,7 @@ export function RouteController() {
       waypoints,
       preset,
       profile,
+      roundTrip,
       {
         onProgress: (c) => useRouting.getState().setPreview(c),
         onResult: (p) => useRouting.getState().setPlan(p),
@@ -37,14 +40,17 @@ export function RouteController() {
       if (e.name !== 'AbortError') useRouting.getState().setStatus('error', 'Routing failed');
     });
     return () => ac.abort();
-  }, [active, waypoints, preset, profile]);
+  }, [active, waypoints, preset, profile, roundTrip]);
 
   const coords = plan?.coords ?? preview ?? [];
   if (coords.length === 0 && waypoints.length === 0) return null;
+  // Same colour rule as the planner list, so a stop reads identically here.
+  const stopColors = waypoints.map((w, i) => stopColor(i, waypoints.length - 1, w));
   return (
     <RouteOverlay
       coords={coords}
       waypoints={waypoints}
+      stopColors={stopColors}
       dashed={!plan}
       onWaypointDrag={(i, p) => useRouting.getState().updateWaypoint(i, p)}
     />

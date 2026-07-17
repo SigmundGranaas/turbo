@@ -21,6 +21,7 @@ export function RouteOverlay({
   dashed,
   dash,
   color = 'var(--primary)',
+  stopColors,
   contentKey = 'route',
   onWaypointDrag,
 }: {
@@ -31,6 +32,9 @@ export function RouteOverlay({
   dash?: number[];
   /** Line + waypoint stroke colour (defaults to the theme primary). */
   color?: string;
+  /** Per-waypoint ring stroke colours (start-green / via-palette / end-red), so a
+   *  stop reads identically on the map and in the list. Falls back to [color]. */
+  stopColors?: string[];
   /** Content-plane key — lets independent owners (route planner, selected
    *  track) each publish one line without clobbering the other. */
   contentKey?: string;
@@ -111,7 +115,7 @@ export function RouteOverlay({
           }}
           r={onWaypointDrag ? 9 : 8}
           fill="var(--surface)"
-          stroke={color}
+          stroke={stopColors?.[i] ?? color}
           strokeWidth={3.5}
           onPointerDown={onWaypointDrag ? onHandleDown(i) : undefined}
           onPointerMove={onWaypointDrag ? onHandleMove : undefined}

@@ -42,6 +42,7 @@ export async function planStream(
   points: LatLng[],
   preset: RoutePresetKey,
   profile: RouteProfile,
+  roundTrip: boolean,
   cb: PlanCallbacks,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -54,7 +55,15 @@ export async function planStream(
     // this.)
     credentials: 'omit',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({ points: points.map((p) => [p.lng, p.lat]), preset, profile }),
+    // `round_trip` is serialized only when set — an off toggle keeps the default
+    // request body byte-for-byte what it was, matching the Android client's wire
+    // contract (the Phase-5 backend returns a self-avoiding loop when it's true).
+    body: JSON.stringify({
+      points: points.map((p) => [p.lng, p.lat]),
+      preset,
+      profile,
+      ...(roundTrip ? { round_trip: true } : {}),
+    }),
     signal,
   });
   if (!res.ok || !res.body) {
