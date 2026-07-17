@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import org.junit.Assert.assertEquals
@@ -92,5 +93,49 @@ class WaypointsListTest {
         list()
         composeRule.onNodeWithTag("wpUp_0").assertIsNotEnabled()       // start can't go up
         composeRule.onNodeWithTag("wpDown_3").assertIsNotEnabled()     // destination can't go down
+    }
+
+    @Test
+    fun `a stop with no resolved name shows trimmed coordinates`() {
+        composeRule.setContent {
+            MaterialTheme {
+                WaypointsList(stops, statText = "", onMove = { _, _ -> }, onRemove = {}, onAddStop = {}, nameFor = { null })
+            }
+        }
+        // 69.60,18.90 → "69.6000, 18.9000" in the row's single-line slot.
+        composeRule.onNodeWithText("69.6000, 18.9000").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a resolved name replaces the coordinates in the same row`() {
+        val named = stops[1]
+        composeRule.setContent {
+            MaterialTheme {
+                WaypointsList(
+                    stops, statText = "", onMove = { _, _ -> }, onRemove = {}, onAddStop = {},
+                    nameFor = { p -> if (p == named) "Besseggen" else null },
+                )
+            }
+        }
+        composeRule.onNodeWithText("Besseggen").assertIsDisplayed()
+        // The via's coordinates are no longer shown (name swapped in place).
+        composeRule.onNodeWithText("69.6200, 18.9500").assertDoesNotExist()
+    }
+
+    @Test
+    fun `each visible row asks to resolve its name exactly once`() {
+        val asked = mutableListOf<LatLng>()
+        composeRule.setContent {
+            MaterialTheme {
+                WaypointsList(
+                    stops, statText = "", onMove = { _, _ -> }, onRemove = {}, onAddStop = {},
+                    onResolve = { asked += it },
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        // One resolve request per stop (the host caches; a re-render won't re-ask).
+        assertEquals(stops.toSet(), asked.toSet())
+        assertEquals(stops.size, asked.size)
     }
 }

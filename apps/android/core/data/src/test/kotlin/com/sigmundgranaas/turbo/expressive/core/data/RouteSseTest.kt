@@ -24,6 +24,16 @@ class RouteSseTest {
     }
 
     @Test
+    fun `round trip is serialized only when enabled`() {
+        val pts = listOf(LatLng(69.65, 18.95), LatLng(69.66, 18.96))
+        val on = RouteSse.encodeRequest(pts, RoutePreset.Balanced, "foot", roundTrip = true)
+        assertTrue(on.contains("\"round_trip\":true"))
+        // Default (off) keeps the request body unchanged — no field at all.
+        val off = RouteSse.encodeRequest(pts, RoutePreset.Balanced, "foot", roundTrip = false)
+        assertTrue(!off.contains("round_trip"))
+    }
+
+    @Test
     fun `progress frame maps lon-lat to LatLng`() {
         val event = RouteSse.parse("progress", """{"coordinates":[[18.95,69.65],[18.96,69.66]]}""")
         val progress = event as RouteStreamEvent.Progress

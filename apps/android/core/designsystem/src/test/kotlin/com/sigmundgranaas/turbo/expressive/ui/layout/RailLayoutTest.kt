@@ -76,6 +76,35 @@ class RailLayoutTest {
         assertTrue(placement(roomy, "zoomOut").visible)
     }
 
+    // ── Track-tool controls: locate (essential) + zoom in/out (non-essential). The create-
+    // track sheet grows over the bottom at taller detents, raising the band's bottom bound;
+    // the same layout keeps the locate button reachable and sheds the zoom cookies first. ──
+    private val trackItems = listOf(
+        RailItem("locate", h, essential = true),
+        RailItem("zoomIn", h, essential = false),
+        RailItem("zoomOut", h, essential = false),
+    )
+
+    @Test
+    fun `track controls all fit above a short (collapsed) sheet`() {
+        // Screen 800; a collapsed sheet reserves little → bottom bound stays low.
+        val out = layoutRail(trackItems, topBoundPx = 96f, bottomBoundPx = 700f, spacingPx = spacing)
+        assertTrue("locate stays", placement(out, "locate").visible)
+        assertTrue("zoom-in fits", placement(out, "zoomIn").visible)
+        assertTrue("zoom-out fits", placement(out, "zoomOut").visible)
+    }
+
+    @Test
+    fun `an expanded track sheet sheds the zoom cookies but keeps locate reachable`() {
+        // A tall sheet lifts the bottom bound so only the essential locate fits.
+        val out = layoutRail(trackItems, topBoundPx = 96f, bottomBoundPx = 190f, spacingPx = spacing)
+        assertTrue("locate stays un-occluded", placement(out, "locate").visible)
+        assertFalse("zoom-in sheds first", placement(out, "zoomIn").visible)
+        assertFalse("zoom-out sheds first", placement(out, "zoomOut").visible)
+        // Locate never rides up over the search bar / close button.
+        assertTrue(placement(out, "locate").topPx >= 96f)
+    }
+
     @Test
     fun `essentials never overlap the search bar even when the band is too short for them`() {
         // Degenerate: not even the three essentials fit. They stay visible (can't

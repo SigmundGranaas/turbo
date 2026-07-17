@@ -6,6 +6,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,35 +23,34 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.Loop
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.material.icons.rounded.Remove
-import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Gesture
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Timeline
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,8 +61,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.sigmundgranaas.turbo.expressive.domain.RoutePreset
-import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import kotlin.math.roundToInt
 
 /**
@@ -82,7 +82,11 @@ private val OffTrailColor = Color(0xFFD98A2B)
  * The unified bottom tool panel. Stateless: it renders the current [mode] + stats
  * and reports intent through callbacks, so it can be exercised headlessly. Mirrors
  * the design's TrackPanel — mode toggle, hero stat, route-only surface mix +
- * route-style row, and the undo/clear · Save/Follow action bar.
+ * round-trip toggle + stops manager, and the undo/clear · Save/Follow action bar.
+ *
+ * The grabber at the top is a real handle: dragging it steps the sheet between
+ * [TrackDetent]s (see [nextDetent]); at [TrackDetent.Collapsed] the route-only detail
+ * zones fold away so the map stays visible.
  */
 @Composable
 fun CreateTrackPanel(
@@ -92,10 +96,12 @@ fun CreateTrackPanel(
     unit: String,
     metaText: String,
     surfaces: Map<String, Double>,
-    presetLabel: String,
-    onRouteStyle: () -> Unit,
     stopCount: Int = 0,
     onManageStops: () -> Unit = {},
+    roundTrip: Boolean = false,
+    onToggleRoundTrip: () -> Unit = {},
+    detent: TrackDetent = TrackDetent.Default,
+    onDetentChange: (TrackDetent) -> Unit = {},
     canUndo: Boolean,
     canSave: Boolean,
     onUndo: () -> Unit,
@@ -106,6 +112,9 @@ fun CreateTrackPanel(
 ) {
     val cs = MaterialTheme.colorScheme
     val isRoute = mode == TrackMode.Route
+    // Only the route-detail zones respond to the detent; the mode toggle, hero stat
+    // and action bar are always shown so the tool never loses its primary controls.
+    val showDetail = detent != TrackDetent.Collapsed
     Surface(
         modifier = modifier.fillMaxWidth().testTag("createTrackPanel"),
         shape = RoundedCornerShape(32.dp),
@@ -114,12 +123,7 @@ fun CreateTrackPanel(
         shadowElevation = 8.dp,
     ) {
         Column {
-            Box(
-                Modifier.fillMaxWidth().padding(top = 12.dp),
-                contentAlignment = Alignment.TopCenter,
-            ) {
-                Box(Modifier.width(34.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(cs.outlineVariant))
-            }
+            DragHandle(detent = detent, onDetentChange = onDetentChange)
 
             // Zone 1 — the mode toggle (the primary decision): a connected button group
             // whose selected pill morphs its corner radius, springy M3-Expressive style.
@@ -154,27 +158,14 @@ fun CreateTrackPanel(
                 Text(metaText, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
             }
 
-            // Zone 3 — surface mix (route only).
-            if (isRoute && surfaces.values.sum() > 0.0) {
+            // Zone 3 — surface mix (route only, detail detents).
+            if (isRoute && showDetail && surfaces.values.sum() > 0.0) {
                 SurfaceMix(surfaces, Modifier.padding(start = 22.dp, end = 22.dp, top = 14.dp))
             }
 
-            // Zone 4 — route-style selector + stops manager (route only).
-            if (isRoute) {
-                Surface(
-                    onClick = onRouteStyle,
-                    shape = RoundedCornerShape(18.dp),
-                    color = cs.surfaceContainerHigh,
-                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp).height(56.dp).testTag("routeStyleRow"),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, end = 10.dp)) {
-                        Icon(Icons.Rounded.Tune, null, tint = cs.primary, modifier = Modifier.size(22.dp))
-                        Spacer(Modifier.width(14.dp))
-                        Text(stringResource(R.string.track_route_style), style = MaterialTheme.typography.titleMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
-                        Text(presetLabel, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.W700), color = cs.primary)
-                        Icon(Icons.Rounded.ExpandMore, null, tint = cs.primary, modifier = Modifier.size(22.dp))
-                    }
-                }
+            // Zone 4 — round-trip toggle + stops manager (route only, detail detents).
+            if (isRoute && showDetail) {
+                RoundTripRow(roundTrip = roundTrip, onToggle = onToggleRoundTrip)
                 // Stops manager — visible once a route exists (start + destination).
                 if (stopCount >= 2) {
                     Surface(
@@ -221,6 +212,62 @@ fun CreateTrackPanel(
                     Text(stringResource(R.string.route_follow))
                 }
             }
+        }
+    }
+}
+
+/**
+ * The grabber. A vertical drag accumulates delta; on release the sign of the travel
+ * (past a small slop) steps the sheet one [TrackDetent] via [nextDetent] — the pure,
+ * testable seam. Widened touch target so the thin bar is easy to grab.
+ */
+@Composable
+private fun DragHandle(detent: TrackDetent, onDetentChange: (TrackDetent) -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    var acc by remember { mutableFloatStateOf(0f) }
+    val slopPx = 24f
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(28.dp)
+            .draggable(
+                orientation = Orientation.Vertical,
+                state = rememberDraggableState { delta -> acc += delta },
+                onDragStopped = {
+                    dragDirection(acc, slopPx)?.let { dir -> onDetentChange(nextDetent(detent, dir)) }
+                    acc = 0f
+                },
+            )
+            .testTag("trackDragHandle"),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Box(
+            Modifier.padding(top = 12.dp).width(34.dp).height(4.dp)
+                .clip(RoundedCornerShape(2.dp)).background(cs.outlineVariant),
+        )
+    }
+}
+
+/** Round-trip toggle: appends the origin as the final destination and re-solves (the
+ *  solver loops back, self-avoiding the return leg). */
+@Composable
+private fun RoundTripRow(roundTrip: Boolean, onToggle: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Surface(
+        onClick = onToggle,
+        shape = RoundedCornerShape(18.dp),
+        color = cs.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp).height(56.dp).testTag("roundTripRow"),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, end = 16.dp)) {
+            Icon(Icons.Rounded.Loop, null, tint = cs.primary, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.track_round_trip), style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
+                Text(stringResource(R.string.track_round_trip_subtitle), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1)
+            }
+            Spacer(Modifier.width(10.dp))
+            Switch(checked = roundTrip, onCheckedChange = { onToggle() }, modifier = Modifier.testTag("roundTripSwitch"))
         }
     }
 }
@@ -280,59 +327,6 @@ private fun SurfaceMix(surfaces: Map<String, Double>, modifier: Modifier = Modif
     }
 }
 
-/** The single dialog: route-style preset picker (Balanced / Avoid roads / …). */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun RouteStyleSheet(selected: RoutePreset, onSelect: (RoutePreset) -> Unit, onDismiss: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = cs.surfaceContainerLow,
-    ) {
-        Column(Modifier.padding(start = 22.dp, end = 22.dp, bottom = 28.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Tune, null, tint = cs.primary, modifier = Modifier.size(24.dp))
-                Spacer(Modifier.width(10.dp))
-                Text(stringResource(R.string.track_route_style), style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.W700), color = cs.onSurface)
-            }
-            Text(
-                stringResource(R.string.track_route_style_subtitle),
-                style = MaterialTheme.typography.bodyMedium,
-                color = cs.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
-            )
-            RoutePreset.entries.forEach { p ->
-                val sel = p == selected
-                Surface(
-                    onClick = { onSelect(p) },
-                    shape = RoundedCornerShape(20.dp),
-                    color = if (sel) cs.secondaryContainer else cs.surfaceContainerHigh,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).testTag("preset_${p.key}"),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(14.dp)) {
-                        Box(
-                            Modifier.size(44.dp).clip(CircleShape).background(if (sel) cs.primary else cs.surface),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(p.icon, null, tint = if (sel) cs.onPrimary else cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
-                        }
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(p.label, style = MaterialTheme.typography.titleMedium, color = if (sel) cs.onSecondaryContainer else cs.onSurface)
-                            Text(p.description, style = MaterialTheme.typography.bodySmall, color = if (sel) cs.onSecondaryContainer.copy(alpha = 0.85f) else cs.onSurfaceVariant)
-                        }
-                        if (sel) {
-                            Spacer(Modifier.width(10.dp))
-                            Icon(Icons.Rounded.CheckCircle, null, tint = cs.primary, modifier = Modifier.size(24.dp))
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /** Top-left close affordance for the active tool. */
 @Composable
 fun CreateTrackCloseButton(onClose: () -> Unit, modifier: Modifier = Modifier) {
@@ -353,6 +347,9 @@ fun CreateTrackCloseButton(onClose: () -> Unit, modifier: Modifier = Modifier) {
 /**
  * A trimmed map control kept available while the tool owns the screen — zoom and
  * recenter, so building a route doesn't trap the camera (the full rail is hidden).
+ * [showZoom] drops the zoom cookies when the sheet's current detent leaves no room
+ * for them (decided by the pure `layoutRail`), and [bottomInset] slides the whole
+ * stack up to clear the sheet — the "smart slide" from the spec.
  */
 @Composable
 fun CreateTrackMapControls(
@@ -361,10 +358,12 @@ fun CreateTrackMapControls(
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     modifier: Modifier = Modifier,
+    showZoom: Boolean = true,
+    bottomInset: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     val cs = MaterialTheme.colorScheme
     androidx.compose.foundation.layout.Column(
-        modifier = modifier,
+        modifier = modifier.padding(bottom = bottomInset),
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -377,7 +376,7 @@ fun CreateTrackMapControls(
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    if (following) androidx.compose.material.icons.Icons.Rounded.MyLocation else androidx.compose.material.icons.Icons.Rounded.NearMe,
+                    if (following) Icons.Rounded.MyLocation else Icons.Rounded.NearMe,
                     stringResource(com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_my_location),
                     tint = if (following) cs.onTertiaryContainer else cs.primary,
                     modifier = Modifier.size(24.dp),
@@ -385,14 +384,17 @@ fun CreateTrackMapControls(
             }
         }
         // Zoom in/out as two standalone cookie buttons, matching the locate button
-        // above (and the main rail) — not a divided pill.
-        ZoomCookie(androidx.compose.material.icons.Icons.Rounded.Add, com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_zoom_in, onZoomIn)
-        ZoomCookie(androidx.compose.material.icons.Icons.Rounded.Remove, com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_zoom_out, onZoomOut)
+        // above (and the main rail) — not a divided pill. Hidden when the sheet leaves
+        // no room (the pure layoutRail sheds these non-essentials first).
+        if (showZoom) {
+            ZoomCookie(Icons.Rounded.Add, com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_zoom_in, onZoomIn)
+            ZoomCookie(Icons.Rounded.Remove, com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_zoom_out, onZoomOut)
+        }
     }
 }
 
 @Composable
-private fun ZoomCookie(icon: androidx.compose.ui.graphics.vector.ImageVector, descRes: Int, onClick: () -> Unit) {
+private fun ZoomCookie(icon: ImageVector, descRes: Int, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     Surface(
         onClick = onClick,

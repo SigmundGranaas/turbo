@@ -25,11 +25,17 @@ class SyntheticRouteRepository @Inject constructor() : RouteRepository {
         points: List<LatLng>,
         preset: RoutePreset,
         profile: String,
+        roundTrip: Boolean,
     ): Flow<RouteStreamEvent> = flow {
         if (points.size < 2) {
             emit(RouteStreamEvent.Failure("Need at least two points"))
             return@flow
         }
+        // Mirror the real solver's round-trip: append the origin so the offline
+        // "route" loops back to where it started (the real router self-avoids the
+        // return leg; the synthetic one just closes the polygon).
+        @Suppress("NAME_SHADOWING")
+        val points = if (roundTrip) points + points.first() else points
         // Stream a straight-line "best so far" first (mirrors the real solver's progress),
         // then the densified result a beat later so the solving animation is exercised.
         emit(RouteStreamEvent.Progress(points))

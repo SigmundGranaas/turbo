@@ -29,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,29 +38,32 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 
 private val RowHeight = 56.dp
 
-/** Stop-kind colours from the design (start green, end red, vias use the scheme primary). */
+/** Stop-kind colours from the design (start green, end red, vias use the categorical palette). */
 val StopStart = Color(0xFF2E7D32)
 val StopEnd = Color(0xFFC0392B)
 
-/** Per-stop colour: start green, end red, otherwise the route primary. */
+/**
+ * Per-stop colour: start green, end red; every via takes a stable categorical colour keyed on
+ * its coordinate (via [StopPalette]) so it survives a reorder or re-solve — the stop keeps its
+ * colour even as its index changes.
+ */
 @Composable
-fun stopColor(index: Int, last: Int): Color = when (index) {
+fun stopColor(index: Int, last: Int, point: LatLng): Color = when (index) {
     0 -> StopStart
     last -> StopEnd
-    else -> MaterialTheme.colorScheme.primary
+    else -> Color(StopPalette.colorOf(point))
 }
 
 /**
  * Manage the route's ordered stops (the design's "Define route" editor): every stop
- * (start → vias → destination) as a row with a drag handle, an A/B/C… letter badge
- * (flag for the destination), a role label + coordinates, and a remove button for
- * intermediate stops. Drag a row by its handle to reorder (one re-solve on drop),
- * or tap "Add stop" to drop the next one on the map.
+ * (start → vias → destination) as a row with reorder controls, an A/B/C… letter badge
+ * (flag for the destination), a role label + a name/coords line, and a remove button for
+ * intermediate stops. Each row lazily resolves a human name via [onResolve]; until then it
+ * shows trimmed coordinates in the same fixed slot (in-place swap, no reflow).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,6 +74,8 @@ fun WaypointsSheet(
     onRemove: (Int) -> Unit,
     onAddStop: () -> Unit,
     onDismiss: () -> Unit,
+    nameFor: (LatLng) -> String? = { null },
+    onResolve: (LatLng) -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
     ModalBottomSheet(
@@ -77,7 +83,7 @@ fun WaypointsSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = cs.surfaceContainerLow,
     ) {
-        WaypointsList(waypoints, statText, onMove, onRemove, onAddStop)
+        WaypointsList(waypoints, statText, onMove, onRemove, onAddStop, nameFor, onResolve)
     }
 }
 
@@ -89,6 +95,8 @@ fun WaypointsList(
     onMove: (from: Int, to: Int) -> Unit,
     onRemove: (Int) -> Unit,
     onAddStop: () -> Unit,
+    nameFor: (LatLng) -> String? = { null },
+    onResolve: (LatLng) -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
     val last = waypoints.lastIndex
@@ -115,7 +123,9 @@ fun WaypointsList(
                 StopRow(
                     index = index,
                     last = last,
-                    coords = formatCoords(point),
+                    point = point,
+                    secondary = StopLabels.label(nameFor(point), point),
+                    onResolve = { onResolve(point) },
                     // Reorder by explicit ↑/↓ — a drag-to-reorder inside the modal sheet
                     // loses the vertical gesture to the sheet itself, so it never fired.
                     onMoveUp = if (index > 0) ({ onMove(index, index - 1) }) else null,
@@ -154,14 +164,19 @@ fun WaypointsList(
 private fun StopRow(
     index: Int,
     last: Int,
-    coords: String,
+    point: LatLng,
+    secondary: String,
+    onResolve: () -> Unit,
     onMoveUp: (() -> Unit)?,
     onMoveDown: (() -> Unit)?,
     onRemove: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    val badge = stopColor(index, last)
+    val badge = stopColor(index, last, point)
     val isEndpoint = index == 0 || index == last
+    // Kick off the (lazy, cached) reverse-geocode once this row is composed. Never blocks:
+    // the row already shows coords; a resolved name swaps in place on the next recomposition.
+    LaunchedEffect(point) { onResolve() }
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = cs.surfaceContainerHigh,
@@ -190,7 +205,8 @@ private fun StopRow(
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(stopLabel(index, last), style = MaterialTheme.typography.titleSmall, color = cs.onSurface, maxLines = 1)
-                Text(coords, style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant, maxLines = 1)
+                // Single fixed-height line: coords now, name later — an in-place swap, no reflow.
+                Text(secondary, style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant, maxLines = 1, modifier = Modifier.testTag("wpSecondary_$index"))
             }
             // Remove — vias only; a route keeps its start and destination.
             if (!isEndpoint) {
