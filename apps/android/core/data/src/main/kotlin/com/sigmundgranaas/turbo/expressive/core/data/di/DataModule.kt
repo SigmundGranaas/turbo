@@ -81,6 +81,9 @@ abstract class DataModule {
             // Starts empty: the map opens on the user's real GPS location, and markers
             // are created by the user (or arrive via sync) — no seeded sample content.
             Room.databaseBuilder(context, TurboDatabase::class.java, "turbo.db")
+                // Weather pins (v11→v12) migrate in place so existing markers survive the
+                // upgrade; any *other* version gap still falls back to a clean rebuild.
+                .addMigrations(com.sigmundgranaas.turbo.expressive.core.data.database.MIGRATION_11_12)
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
 

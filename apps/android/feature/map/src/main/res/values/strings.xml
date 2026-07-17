@@ -56,6 +56,9 @@
     <string name="lp_add_photo">Add photo here</string>
     <string name="lp_measure">Measure</string>
     <string name="lp_measure_offline">Measure (needs a connection)</string>
+    <string name="lp_weather_pin">Weather pin here</string>
+    <!-- Default name for a dropped weather pin. -->
+    <string name="weather_pin_name">Weather pin</string>
 
     <!-- Marker editor -->
     <string name="marker_add_to_collection">Add to collection</string>
