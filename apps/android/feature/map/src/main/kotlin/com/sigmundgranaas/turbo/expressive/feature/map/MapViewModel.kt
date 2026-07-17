@@ -104,6 +104,9 @@ class MapViewModel @Inject constructor(
     private val _state = MutableStateFlow(MapUiState())
     val state: StateFlow<MapUiState> = _state.asStateFlow()
 
+    /** Lazy, cached reverse-geocoder for route stops (names resolve off the solve path). */
+    val stopNames = com.sigmundgranaas.turbo.expressive.feature.map.route.StopNames(reverseGeocode)
+
     /**
      * Latest sea state (MET wave/wind forecast) near the user, feeding the wgpu
      * water surface — wave direction + ferocity, whitecaps, shoreline foam. Null

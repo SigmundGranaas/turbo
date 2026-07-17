@@ -27,6 +27,7 @@ interface RouteRepository {
         points: List<LatLng>,
         preset: RoutePreset = RoutePreset.Balanced,
         profile: String = "foot",
+        roundTrip: Boolean = false,
     ): Flow<RouteStreamEvent>
 }
 
@@ -38,11 +39,12 @@ class HttpRouteRepository @Inject constructor(
         points: List<LatLng>,
         preset: RoutePreset,
         profile: String,
+        roundTrip: Boolean,
     ): Flow<RouteStreamEvent> = flow {
         client.preparePost("$BASE_URL/plan/stream") {
             contentType(ContentType.Application.Json)
             accept(ContentType.Text.EventStream)
-            setBody(RouteSse.encodeRequest(points, preset, profile))
+            setBody(RouteSse.encodeRequest(points, preset, profile, roundTrip))
         }.execute { response ->
             val channel = response.bodyAsChannel()
             var event: String? = null

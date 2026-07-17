@@ -8,8 +8,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.RoutePlan
-import com.sigmundgranaas.turbo.expressive.domain.RoutePreset
-import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -34,11 +32,7 @@ class RouteCardTest {
     @Test
     fun `done state shows stats and the action buttons`() {
         composeRule.setContent {
-            RouteCard(
-                state = RouteUiState.Done(plan),
-                preset = RoutePreset.Balanced,
-                onSelectPreset = {}, onFollow = {}, onSave = {}, onClear = {},
-            )
+            RouteCard(state = RouteUiState.Done(plan), onFollow = {}, onSave = {}, onClear = {})
         }
         composeRule.onNodeWithText("8.5 km").assertExists()
         composeRule.onNodeWithText("Follow").assertExists()
@@ -46,28 +40,21 @@ class RouteCardTest {
     }
 
     @Test
-    fun `tapping a preset chip reports the selection`() {
-        var picked: RoutePreset? = null
+    fun `the card exposes no route-style selector (Phase 4 removed it)`() {
         composeRule.setContent {
-            RouteCard(
-                state = RouteUiState.Done(plan),
-                preset = RoutePreset.Balanced,
-                onSelectPreset = { picked = it }, onFollow = {}, onSave = {}, onClear = {},
-            )
+            RouteCard(state = RouteUiState.Done(plan), onFollow = {}, onSave = {}, onClear = {})
         }
-        composeRule.onNodeWithText("Avoid roads").performClick()
-        assertEquals(RoutePreset.AvoidRoads, picked)
+        // The preset chips are gone; solving still defaults to Balanced under the hood.
+        composeRule.onNodeWithText("Avoid roads").assertDoesNotExist()
+        composeRule.onNodeWithText("Balanced").assertDoesNotExist()
+        composeRule.onNodeWithText("Trail purist").assertDoesNotExist()
     }
 
     @Test
     fun `tapping Follow starts following the route`() {
         var followed = false
         composeRule.setContent {
-            RouteCard(
-                state = RouteUiState.Done(plan),
-                preset = RoutePreset.Balanced,
-                onSelectPreset = {}, onFollow = { followed = true }, onSave = {}, onClear = {},
-            )
+            RouteCard(state = RouteUiState.Done(plan), onFollow = { followed = true }, onSave = {}, onClear = {})
         }
         composeRule.onNodeWithText("Follow").performClick()
         assert(followed)
@@ -79,11 +66,7 @@ class RouteCardTest {
     @Test
     fun `error state shows the message and dismiss`() {
         composeRule.setContent {
-            RouteCard(
-                state = RouteUiState.Error("No route found"),
-                preset = RoutePreset.Balanced,
-                onSelectPreset = {}, onFollow = {}, onSave = {}, onClear = {},
-            )
+            RouteCard(state = RouteUiState.Error("No route found"), onFollow = {}, onSave = {}, onClear = {})
         }
         composeRule.onNodeWithText("No route found").assertExists()
         composeRule.onNodeWithText("Dismiss").assertExists()

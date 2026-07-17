@@ -2,6 +2,7 @@ package com.sigmundgranaas.turbo.expressive.feature.map
 
 import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteUiState
 import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteViewModel
+import com.sigmundgranaas.turbo.expressive.feature.map.route.StopPalette
 import com.sigmundgranaas.turbo.expressive.feature.map.route.Waypoints
 
 import com.sigmundgranaas.turbo.expressive.core.tracking.FollowController
@@ -40,9 +41,13 @@ import org.junit.Test
 private class FakeRouteRepository(private val events: List<RouteStreamEvent>) : RouteRepository {
     var calls = 0
     var lastPreset: RoutePreset? = null
-    override fun planStream(points: List<LatLng>, preset: RoutePreset, profile: String): Flow<RouteStreamEvent> {
+    var lastPoints: List<LatLng> = emptyList()
+    var lastRoundTrip = false
+    override fun planStream(points: List<LatLng>, preset: RoutePreset, profile: String, roundTrip: Boolean): Flow<RouteStreamEvent> {
         calls++
         lastPreset = preset
+        lastPoints = points
+        lastRoundTrip = roundTrip
         return flowOf(*events.toTypedArray())
     }
 }
@@ -225,7 +230,7 @@ class RouteViewModelTest {
             val gate = MutableSharedFlow<RouteStreamEvent>(extraBufferCapacity = 8)
             val repo = object : RouteRepository {
                 var calls = 0
-                override fun planStream(points: List<LatLng>, preset: RoutePreset, profile: String): Flow<RouteStreamEvent> {
+                override fun planStream(points: List<LatLng>, preset: RoutePreset, profile: String, roundTrip: Boolean): Flow<RouteStreamEvent> {
                     calls++
                     return if (calls == 1) flowOf(RouteStreamEvent.Result(plan)) else gate
                 }
@@ -258,7 +263,7 @@ class RouteViewModelTest {
         val gate = MutableSharedFlow<RouteStreamEvent>(extraBufferCapacity = 8)
         val repo = object : RouteRepository {
             var calls = 0
-            override fun planStream(points: List<LatLng>, preset: RoutePreset, profile: String): Flow<RouteStreamEvent> {
+            override fun planStream(points: List<LatLng>, preset: RoutePreset, profile: String, roundTrip: Boolean): Flow<RouteStreamEvent> {
                 calls++
                 return if (calls == 1) flowOf(RouteStreamEvent.Result(plan)) else gate
             }
@@ -411,6 +416,73 @@ class RouteViewModelTest {
         val vm = RouteViewModel(FakeRouteRepository(emptyList()), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
         vm.appendWaypoint(a); advanceUntilIdle()
         assertEquals(emptyList<LatLng>(), vm.waypoints.value)
+    }
+
+    // ── Phase 4: reorder, colour retention, round trip ──
+
+    @Test
+    fun `moveWaypoint reorders the stops and re-solves once`() = runTest(mainRule.dispatcher) {
+        val repo = FakeRouteRepository(listOf(RouteStreamEvent.Result(plan)))
+        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        vm.planRoute(a, b); advanceUntilIdle()
+        val c = LatLng(69.02, 18.02)
+        vm.appendWaypoint(c); advanceUntilIdle() // order: a, b, c
+        val before = repo.calls
+
+        vm.moveWaypoint(2, 1); advanceUntilIdle() // move c ahead of b → a, c, b
+        assertEquals(listOf(a, c, b), vm.waypoints.value)
+        assertEquals("exactly one re-solve on the reorder", before + 1, repo.calls)
+    }
+
+    @Test
+    fun `a stop keeps its palette colour across a reorder and re-solve`() = runTest(mainRule.dispatcher) {
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        vm.planRoute(a, b); advanceUntilIdle()
+        val via1 = LatLng(69.02, 18.02)
+        val via2 = LatLng(69.03, 18.05)
+        vm.appendWaypoint(via1); advanceUntilIdle()
+        vm.appendWaypoint(via2); advanceUntilIdle() // a, b, via1, via2
+        val colourBefore = StopPalette.colorOf(via1)
+
+        // Reorder: the via changes index but must keep the colour the user sees for it.
+        vm.moveWaypoint(3, 2); advanceUntilIdle() // a, b, via2, via1
+        val moved = vm.waypoints.value
+        assertEquals(via1, moved[3]) // via1 moved to a new index…
+        assertEquals("colour follows the coordinate, not the index", colourBefore, StopPalette.colorOf(moved[3]))
+    }
+
+    @Test
+    fun `roundTrip appends the origin as the final destination when on`() {
+        assertEquals(listOf(a, b, a), Waypoints.roundTrip(listOf(a, b), on = true))
+        assertEquals(listOf(a, b), Waypoints.roundTrip(listOf(a, b), on = false))
+        // A degenerate list is never looped.
+        assertEquals(listOf(a), Waypoints.roundTrip(listOf(a), on = true))
+    }
+
+    @Test
+    fun `enabling round trip makes the solved line start and end at the origin`() = runTest(mainRule.dispatcher) {
+        // A round-trip-aware fake, like the real backend: when asked to loop, it returns a
+        // plan whose geometry ends back at the origin (the server self-avoids the return leg).
+        val repo = object : RouteRepository {
+            override fun planStream(points: List<LatLng>, preset: RoutePreset, profile: String, roundTrip: Boolean): Flow<RouteStreamEvent> {
+                val geo = if (roundTrip) points + points.first() else points
+                return flowOf(RouteStreamEvent.Result(plan.copy(geometry = geo)))
+            }
+        }
+        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        vm.planRoute(a, b); advanceUntilIdle()
+        // Out-and-back: ends at the destination, not the origin.
+        assertEquals(b, vm.state.value.polyline.last())
+
+        vm.setRoundTrip(true); advanceUntilIdle()
+        assertTrue(vm.roundTrip.value)
+        val loop = vm.state.value.polyline
+        assertEquals("loop starts at origin", a, loop.first())
+        assertEquals("loop ends back at origin", a, loop.last())
+
+        // Turning it off reverts to the plain out-and-back.
+        vm.setRoundTrip(false); advanceUntilIdle()
+        assertEquals(b, vm.state.value.polyline.last())
     }
 
     @Test

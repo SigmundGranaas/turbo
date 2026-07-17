@@ -1,5 +1,6 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
+import com.sigmundgranaas.turbo.expressive.feature.map.route.TrackDetent
 import com.sigmundgranaas.turbo.expressive.feature.map.route.TrackMode
 
 import androidx.compose.runtime.Stable
@@ -67,7 +68,8 @@ class MapScreenState {
     val drawPoints = mutableStateListOf<LatLng>()
     var routeOrigin by mutableStateOf<LatLng?>(null)
     var selectedWaypoint by mutableStateOf<Int?>(null)
-    var showRouteStyle by mutableStateOf(false)
+    /** The create-track panel's current height stop; the grabber drags it (see [TrackDetent]). */
+    var trackDetent by mutableStateOf(TrackDetent.Default)
     var showStops by mutableStateOf(false)
     var showTrackSave by mutableStateOf(false)
     var showTrackDiscard by mutableStateOf(false)

@@ -18,12 +18,20 @@ import kotlinx.serialization.json.Json
 object RouteSse {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun encodeRequest(points: List<LatLng>, preset: RoutePreset, profile: String): String =
+    fun encodeRequest(
+        points: List<LatLng>,
+        preset: RoutePreset,
+        profile: String,
+        roundTrip: Boolean = false,
+    ): String =
         json.encodeToString(
             RouteReqDto(
                 points = points.map { listOf(it.lng, it.lat) },
                 preset = preset.key,
                 profile = profile,
+                // Only serialize when set — keeps the default request body unchanged and
+                // lets the solver loop origin→vias→far→origin with return-leg self-avoidance.
+                roundTrip = roundTrip.takeIf { it },
             ),
         )
 
@@ -46,6 +54,7 @@ private data class RouteReqDto(
     val points: List<List<Double>>,
     val preset: String? = null,
     val profile: String? = null,
+    @SerialName("round_trip") val roundTrip: Boolean? = null,
 )
 
 @Serializable

@@ -5,7 +5,8 @@ import com.sigmundgranaas.turbo.expressive.feature.map.route.CreateTrackMapContr
 import com.sigmundgranaas.turbo.expressive.feature.map.route.CreateTrackPanel
 import com.sigmundgranaas.turbo.expressive.feature.map.route.CreateTrackUpdatingChip
 import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteCard
-import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteStyleSheet
+import com.sigmundgranaas.turbo.expressive.feature.map.route.StopLabels
+import com.sigmundgranaas.turbo.expressive.feature.map.route.TrackDetent
 import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteUiState
 import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteViewModel
 import com.sigmundgranaas.turbo.expressive.feature.map.route.TrackMode
@@ -90,6 +91,9 @@ import com.sigmundgranaas.turbo.expressive.feature.nav.NavDrawerContent
 import com.sigmundgranaas.turbo.expressive.feature.offline.OfflineViewModel
 import com.sigmundgranaas.turbo.expressive.feature.recording.RecordingViewModel
 import com.sigmundgranaas.turbo.expressive.ui.components.MapControlRail
+import com.sigmundgranaas.turbo.expressive.ui.layout.RailItem
+import com.sigmundgranaas.turbo.expressive.ui.layout.layoutRail
+import androidx.compose.ui.zIndex
 import com.sigmundgranaas.turbo.expressive.ui.components.NameInputDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.rememberTurboHaptics
 import com.sigmundgranaas.turbo.expressive.ui.components.SearchPill
@@ -138,8 +142,11 @@ fun MapScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val isOffline by offlineIndicator.offline.collectAsStateWithLifecycle()
     val routeState by routeViewModel.state.collectAsStateWithLifecycle()
-    val routePreset by routeViewModel.preset.collectAsStateWithLifecycle()
+    val roundTrip by routeViewModel.roundTrip.collectAsStateWithLifecycle()
     val toolWaypoints by routeViewModel.waypoints.collectAsStateWithLifecycle()
+    // Resolved stop names (lazy reverse-geocode); the state map recomposes rows as names land.
+    val stopNames = remember { viewModel.stopNames }
+    val resolvedStopNames = remember { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
     // Which on-map route stop is selected (so dragging it moves it). Reset with the tool.
     val recState by recordingViewModel.state.collectAsStateWithLifecycle()
     val recSession by recordingViewModel.session.collectAsStateWithLifecycle()
@@ -901,10 +908,8 @@ fun MapScreen(
                 val routeWaypoints by routeViewModel.waypoints.collectAsStateWithLifecycle()
                 RouteCard(
                     state = routeState,
-                    preset = routePreset,
                     waypointCount = routeWaypoints.size,
                     onRemoveStop = { index -> routeViewModel.removeWaypoint(index) },
-                    onSelectPreset = { routeViewModel.selectPreset(it) },
                     onFollow = {
                         if (viewModel.hasLocationPermission()) {
                             viewModel.enableLocation()
@@ -980,7 +985,31 @@ fun MapScreen(
                     modifier = Modifier.align(Alignment.TopStart)
                         .windowInsetsPadding(WindowInsets.statusBars).padding(16.dp),
                 )
-                // Keep zoom + recenter reachable — the full rail is hidden in the tool.
+                // Keep zoom + recenter reachable — the full rail is hidden in the tool. The
+                // sheet grows over the bottom of the screen at taller detents, so the rail
+                // (a) slides up to clear the sheet's inset and (b) sheds its non-essential
+                // zoom cookies when even that leaves no room — both decided by the same pure
+                // `layoutRail` seam the main rail uses. z-order keeps it ABOVE the sheet.
+                val trackSheetReserveDp = (configuration.screenHeightDp * ui.trackDetent.heightFraction).dp
+                val trackRailPlacements = run {
+                    val btn = with(density) { 52.dp.toPx() }
+                    val gap = with(density) { 10.dp.toPx() }
+                    val topPx = with(density) { 96.dp.toPx() } // below the search bar / close button
+                    val bottomPx = with(density) {
+                        (configuration.screenHeightDp.dp - trackSheetReserveDp).toPx()
+                    }
+                    layoutRail(
+                        items = listOf(
+                            RailItem("locate", btn, essential = true),
+                            RailItem("zoomIn", btn, essential = false),
+                            RailItem("zoomOut", btn, essential = false),
+                        ),
+                        topBoundPx = topPx,
+                        bottomBoundPx = bottomPx,
+                        spacingPx = gap,
+                    )
+                }
+                val trackZoomVisible = trackRailPlacements.first { it.id == "zoomIn" }.visible
                 CreateTrackMapControls(
                     following = state.following,
                     onLocate = {
@@ -993,7 +1022,10 @@ fun MapScreen(
                     },
                     onZoomIn = { ui.controller?.zoomIn() },
                     onZoomOut = { ui.controller?.zoomOut() },
+                    showZoom = trackZoomVisible,
+                    bottomInset = trackSheetReserveDp,
                     modifier = Modifier.align(Alignment.CenterEnd)
+                        .zIndex(1f)
                         .windowInsetsPadding(WindowInsets.statusBars).padding(end = 14.dp),
                 )
                 Column(
@@ -1018,10 +1050,12 @@ fun MapScreen(
                         unit = unitText,
                         metaText = meta,
                         surfaces = donePlan?.surfaces ?: emptyMap(),
-                        presetLabel = routePreset.label,
-                        onRouteStyle = { ui.showRouteStyle = true },
+                        roundTrip = roundTrip,
+                        onToggleRoundTrip = { routeViewModel.setRoundTrip(!roundTrip) },
                         stopCount = if (mode == TrackMode.Route) toolWaypoints.size else 0,
                         onManageStops = { ui.showStops = true },
+                        detent = ui.trackDetent,
+                        onDetentChange = { ui.trackDetent = it },
                         canUndo = canUndo,
                         canSave = canSave,
                         onUndo = {
@@ -1053,13 +1087,6 @@ fun MapScreen(
                     )
                 }
 
-                if (ui.showRouteStyle) {
-                    RouteStyleSheet(
-                        selected = routePreset,
-                        onSelect = { routeViewModel.selectPreset(it); ui.showRouteStyle = false },
-                        onDismiss = { ui.showRouteStyle = false },
-                    )
-                }
                 if (ui.showStops) {
                     WaypointsSheet(
                         waypoints = toolWaypoints,
@@ -1068,6 +1095,13 @@ fun MapScreen(
                         onRemove = { routeViewModel.removeWaypoint(it) },
                         onAddStop = { ui.showStops = false },
                         onDismiss = { ui.showStops = false },
+                        nameFor = { p -> resolvedStopNames[StopLabels.gridKey(p)] ?: stopNames.cached(p) },
+                        onResolve = { p ->
+                            val key = StopLabels.gridKey(p)
+                            if (key !in resolvedStopNames) {
+                                scope.launch { stopNames.resolve(p)?.let { resolvedStopNames[key] = it } }
+                            }
+                        },
                     )
                 }
                 if (ui.showTrackSave) {

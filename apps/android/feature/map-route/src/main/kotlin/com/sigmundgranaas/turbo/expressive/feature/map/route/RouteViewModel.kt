@@ -57,6 +57,12 @@ class RouteViewModel @Inject constructor(
     private val _preset = MutableStateFlow(RoutePreset.Balanced)
     val preset: StateFlow<RoutePreset> = _preset.asStateFlow()
 
+    // Round-trip: the solved route loops back to its origin. Sent to the solver as
+    // `round_trip` (it self-avoids the return leg); also drives the straight-line
+    // preview so the seeded line closes before the result lands.
+    private val _roundTrip = MutableStateFlow(false)
+    val roundTrip: StateFlow<Boolean> = _roundTrip.asStateFlow()
+
     /** Ordered route waypoints: first is the origin, last the destination, the rest stops. */
     private val _waypoints = MutableStateFlow<List<LatLng>>(emptyList())
     val waypoints: StateFlow<List<LatLng>> = _waypoints.asStateFlow()
@@ -197,11 +203,11 @@ class RouteViewModel @Inject constructor(
             is RouteUiState.Following -> current.plan.geometry
             else -> null
         }
-        if (!silentFollow) _state.value = RouteUiState.Solving(previous ?: points)
+        if (!silentFollow) _state.value = RouteUiState.Solving(previous ?: Waypoints.roundTrip(points, _roundTrip.value))
         job = viewModelScope.launch {
             if (debounce) kotlinx.coroutines.delay(DEBOUNCE_MS)
             try {
-                routes.planStream(points, _preset.value).collect { event ->
+                routes.planStream(points, _preset.value, roundTrip = _roundTrip.value).collect { event ->
                     when (event) {
                         is RouteStreamEvent.Progress ->
                             if (!silentFollow) {
@@ -236,6 +242,14 @@ class RouteViewModel @Inject constructor(
         resumeFollowing = true
         // Replace the origin with the live position, keep the stops + destination.
         setWaypoints(listOf(from) + current.drop(1), debounce = false)
+    }
+
+    /** Toggle round-trip and re-solve (no-op change is ignored). The origin becomes the
+     *  final destination too, so the line returns to where it started. */
+    fun setRoundTrip(on: Boolean) {
+        if (_roundTrip.value == on) return
+        _roundTrip.value = on
+        if (_waypoints.value.size >= 2) solve(debounce = false)
     }
 
     /** Re-plan the current trip with a different style. */
@@ -359,6 +373,15 @@ class RouteViewModel @Inject constructor(
 
 /** Pure waypoint geometry, isolated for testability. */
 object Waypoints {
+    /**
+     * The waypoint list to solve for a round-trip toggle: when [on], the origin is
+     * appended as the final destination so the route loops back to its start (and the
+     * previewed straight line closes); when off, the list is returned unchanged. A
+     * degenerate list (< 2 points) is never looped.
+     */
+    fun roundTrip(waypoints: List<LatLng>, on: Boolean): List<LatLng> =
+        if (on && waypoints.size >= 2) waypoints + waypoints.first() else waypoints
+
     /**
      * Insert [point] into [waypoints] at the position that adds the least extra
      * straight-line distance — i.e. on the segment whose detour through the point

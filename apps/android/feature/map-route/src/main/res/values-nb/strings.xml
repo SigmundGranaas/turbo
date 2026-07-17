@@ -17,8 +17,9 @@
     <string name="track_mode_draw">Tegn</string>
     <string name="track_mode_line">Linje</string>
     <string name="track_mode_route">Rute</string>
-    <string name="track_route_style">Rutestil</string>
-    <string name="track_route_style_subtitle">Hvordan ruta veier av stier, veier og stigning.</string>
+    <string name="track_round_trip">Rundtur</string>
+    <string name="track_round_trip_subtitle">Gå tilbake dit du startet.</string>
+    <string name="track_drag_handle">Endre størrelse</string>
     <string name="track_stops_row">Stopp</string>
     <string name="track_stops_title">Stopp</string>
     <string name="track_updating">Oppdaterer rute…</string>

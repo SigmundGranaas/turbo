@@ -17,8 +17,9 @@
     <string name="track_mode_draw">Draw</string>
     <string name="track_mode_line">Line</string>
     <string name="track_mode_route">Route</string>
-    <string name="track_route_style">Route style</string>
-    <string name="track_route_style_subtitle">How the route trades off trails, roads and climbing.</string>
+    <string name="track_round_trip">Round trip</string>
+    <string name="track_round_trip_subtitle">Loop back to where you started.</string>
+    <string name="track_drag_handle">Resize panel</string>
     <string name="track_stops_row">Stops</string>
     <string name="track_stops_title">Stops</string>
     <string name="track_updating">Updating route…</string>

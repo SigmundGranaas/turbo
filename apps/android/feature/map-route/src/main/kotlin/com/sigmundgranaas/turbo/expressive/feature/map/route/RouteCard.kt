@@ -37,7 +37,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
-import com.sigmundgranaas.turbo.expressive.domain.RoutePreset
 import com.sigmundgranaas.turbo.expressive.ui.theme.LocalMetricUnits
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import kotlin.math.roundToInt
@@ -46,8 +45,6 @@ import kotlin.math.roundToInt
 @Composable
 fun RouteCard(
     state: RouteUiState,
-    preset: RoutePreset,
-    onSelectPreset: (RoutePreset) -> Unit,
     onFollow: () -> Unit,
     onSave: () -> Unit,
     onClear: () -> Unit,
@@ -75,7 +72,6 @@ fun RouteCard(
                         Text(stringResource(R.string.route_solving), style = MaterialTheme.typography.titleMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
                         TextButton(onClick = onClear) { Text(stringResource(R.string.route_cancel)) }
                     }
-                    PresetRow(preset, onSelectPreset)
                 }
                 is RouteUiState.Error -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(state.message, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
@@ -94,7 +90,6 @@ fun RouteCard(
                     Spacer(Modifier.height(10.dp))
                     conditions()
                     StopsRow(waypointCount, onRemoveStop)
-                    PresetRow(preset, onSelectPreset)
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = onFollow, modifier = Modifier.weight(1f)) {
@@ -120,27 +115,6 @@ fun RouteCard(
             }
         }
     }
-}
-
-@Composable
-private fun PresetRow(selected: RoutePreset, onSelect: (RoutePreset) -> Unit) {
-    val cs = MaterialTheme.colorScheme
-    Spacer(Modifier.height(10.dp))
-    Row(
-        Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        RoutePreset.entries.forEach { p ->
-            FilterChip(
-                selected = p == selected,
-                onClick = { onSelect(p) },
-                label = { Text(p.label) },
-                leadingIcon = { Icon(p.icon, null, Modifier.size(18.dp)) },
-            )
-        }
-    }
-    Spacer(Modifier.height(6.dp))
-    Text(selected.description, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
 }
 
 /** Intermediate stops between origin and destination, each removable. */
