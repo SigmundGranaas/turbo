@@ -131,6 +131,9 @@ object TurbomapScene {
         // displace their vertices by elevation — real 3D terrain. The host
         // fetches the DEM tiles (it owns this same URL template). null = flat.
         demUrl: String? = null,
+        // Vertical exaggeration for the DEM mesh — the 3D-terrain slider's value
+        // (0 = flat). Defaults to the built-in look when the host doesn't dial it.
+        demExaggeration: Float = DEFAULT_3D_DETENT,
         measureColor: Rgba = MeasureColor,
         tubes: List<TubeSpec> = emptyList(),
         environment: EnvironmentSpec = EnvironmentSpec(),
@@ -157,7 +160,7 @@ object TurbomapScene {
             sources += "\"dem\": { \"type\": \"dem-xyz\", \"tiles\": [\"$demUrl\"], " +
                 "\"encoding\": \"mapbox-rgb\", \"halo\": $TERRAIN_HALO_PX }"
             layers += "{ \"type\": \"hillshade\", \"id\": \"hillshade\", \"source\": \"dem\", " +
-                "\"exaggeration\": $TERRAIN_EXAGGERATION, \"height_only\": true }"
+                "\"exaggeration\": $demExaggeration, \"height_only\": true }"
         }
 
         // Vector overlays (e.g. realistic water): an MVT source + a fill layer
@@ -253,14 +256,6 @@ object TurbomapScene {
 
     private const val MEASURE_WIDTH = 4.0
     private const val MEASURE_RADIUS = 4.0
-
-    /** Vertical exaggeration for 3D terrain over true Mercator scale. Pushed
-     *  hard (6×) so the height genuinely reads on a tilted phone screen —
-     *  real proportions are correct but, framed against the huge horizontal
-     *  extent of a map, look flat without strong exaggeration. Paired with
-     *  sun-direction shading + a steep tilt, the relief becomes dramatic.
-     *  Tunable; lower it if peaks feel caricatured. */
-    private const val TERRAIN_EXAGGERATION = 6.0
 
     /** DEM tile halo (px) — must equal the `?halo=N` the host fetches (MapStyles).
      *  Stitches adjacent terrain tiles crack-free. */

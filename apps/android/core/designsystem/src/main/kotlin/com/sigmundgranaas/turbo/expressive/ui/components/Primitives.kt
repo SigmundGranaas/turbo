@@ -16,17 +16,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AddLocationAlt
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Layers
-import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.material.icons.rounded.Remove
-import androidx.compose.material.icons.rounded.ViewInAr
 import androidx.compose.material.icons.rounded.Water
-import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -99,44 +95,23 @@ fun SearchPill(
 fun MapControlRail(
     modifier: Modifier = Modifier,
     following: Boolean = false,
-    creatingTrack: Boolean = false,
     bearing: Float = 0f,
     onCompass: (() -> Unit)? = null,
-    onAdd: (() -> Unit)? = null,
     onLayers: () -> Unit = {},
     onLocate: () -> Unit = {},
-    onCreateTrack: (() -> Unit)? = null,
     onZoomIn: () -> Unit = {},
     onZoomOut: () -> Unit = {},
-    threeD: Boolean = false,
-    onToggle3D: (() -> Unit)? = null,
-    sunMode: Boolean = false,
-    onToggleSun: (() -> Unit)? = null,
 ) {
+    // The five-button rail (spec Phase 1): Compass (auto-hide) · Layers · Location
+    // · + · −. Add-Marker + Route relocated to the quick-actions card; 3D + Sun to
+    // the layers-sheet sliders. Nothing else belongs on the rail.
     Column(modifier = modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        // Discoverable "add a place" — drops a new marker at the map centre. Long-press
-        // anywhere is the shortcut; this is the visible door for it.
-        if (onAdd != null) {
-            RailButton(Icons.Rounded.AddLocationAlt, stringResource(R.string.ds_add_place), active = true, onClick = onAdd)
-        }
         // Compass — only while the map is rotated; tap resets to north. Lives here
         // (in the inset rail) instead of MapLibre's off-screen default widget.
         if (onCompass != null && kotlin.math.abs(bearing) > 0.5f) {
             RailButton(Icons.Rounded.Explore, stringResource(R.string.ds_compass), rotation = -bearing, onClick = onCompass)
         }
-        // 2D/3D toggle — only supplied by the wgpu map; active = 3D (orbit gestures).
-        if (onToggle3D != null) {
-            RailButton(Icons.Rounded.ViewInAr, stringResource(R.string.ds_toggle_3d), active = threeD, onClick = onToggle3D)
-        }
-        // Sun mode — only on the wgpu map (3D terrain): lights the relief by a
-        // movable sun + casts shadows, with a time-of-day slider at the bottom.
-        if (onToggleSun != null) {
-            RailButton(Icons.Rounded.WbSunny, stringResource(R.string.ds_sun_mode), active = sunMode, onClick = onToggleSun)
-        }
         RailButton(Icons.Rounded.Layers, stringResource(R.string.ds_map_layers), onClick = onLayers)
-        if (onCreateTrack != null) {
-            RailButton(Icons.Rounded.Route, stringResource(R.string.ds_create_track), active = creatingTrack, onClick = onCreateTrack)
-        }
         RailButton(
             icon = if (following) Icons.Rounded.MyLocation else Icons.Rounded.NearMe,
             desc = stringResource(R.string.ds_my_location),

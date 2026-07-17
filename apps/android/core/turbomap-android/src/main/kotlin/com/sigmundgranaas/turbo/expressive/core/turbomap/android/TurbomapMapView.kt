@@ -67,12 +67,6 @@ import kotlin.math.abs
  * All native calls are marshalled to the main thread (the on-screen engine isn't
  * internally locked); only tile HTTP runs off-main, ingesting back on main.
  */
-/** Tilt eased in when 3D mode is entered — reads as 3D + gives clouds their rake. */
-// Entering 3D tilts steeply by default so the (exaggerated) relief reads
-// immediately. The engine allows up to 80°; 62° gives a dramatic, gamey
-// vantage while keeping the near ground legible.
-private const val DEFAULT_3D_PITCH_DEG = 62.0
-
 @Composable
 @Suppress("LongParameterList")
 fun TurbomapMapView(
@@ -113,13 +107,16 @@ fun TurbomapMapView(
     /** Pending route origin (first point before a destination exists) → drawn as an origin pin. */
     routeOrigin: LatLng? = null,
     onMarkerClick: (Marker) -> Unit = {},
-    // When true the map is in 3D mode: a 1-finger drag orbits about the user
-    // location (or screen centre if it's off-screen) and two fingers pan + zoom.
-    // Default false → unchanged 2D pan/zoom. See the 2D/3D mode design doc.
-    threeDMode: Boolean = false,
+    // When true, tilt/orbit gestures are unlocked (the 3D-terrain slider is > 0):
+    // a 1-finger drag orbits about the user location and two fingers pan + zoom.
+    // False → the flat 2D pan/zoom (pitch gestures rejected). The slider NEVER
+    // forces a tilt itself — the camera only pitches when the user orbits.
+    tiltEnabled: Boolean = false,
     // DEM tile URL template (Mapbox-Terrain-RGB, `{z}/{x}/{y}`). When non-null the
-    // ground displaces by real elevation (3D terrain). Pass it only in 3D mode.
+    // ground displaces by real elevation. Present when 3D OR 2D sun-lit relief is on.
     demUrl: String? = null,
+    // Vertical exaggeration for the DEM mesh — the 3D slider's dialed value.
+    demExaggeration: Float = com.sigmundgranaas.turbo.expressive.domain.DEFAULT_3D_DETENT,
     onMapLongClick: (LatLng) -> Unit = {},
     onMapTap: ((LatLng) -> Unit)? = null,
     onBearingChange: (Double) -> Unit = {},
@@ -147,17 +144,18 @@ fun TurbomapMapView(
     // The live user position is NOT in the scene anymore — it's a Compose MyPositionPin in
     // the overlay (stands on the terrain via the engine projection). See TurbomapScene.
 
-    // Latest 3D flag read by the long-lived gesture lambda (pointerInput(Unit) never
-    // restarts), so toggling 3D takes effect without recreating the detector.
-    val threeDState = rememberUpdatedState(threeDMode)
+    // Latest tilt-enable flag read by the long-lived gesture lambda (pointerInput(Unit)
+    // never restarts), so toggling 3D takes effect without recreating the detector.
+    val tiltEnabledState = rememberUpdatedState(tiltEnabled)
     // Same: the gesture lambda is captured once, so read the latest callback.
     val onUserPannedState = rememberUpdatedState(onUserPanned)
 
-    // 2D↔3D transition: ease into a default tilt on entering 3D (so it reads as
-    // 3D immediately + the cloud overlay gets its camera-ray side-reveal), back
-    // to flat on leaving. The orbit gesture takes over from there.
-    LaunchedEffect(threeDMode) {
-        controller.easePitch(if (threeDMode) DEFAULT_3D_PITCH_DEG else 0.0)
+    // Hard decoupling rule (Phase 1): the 3D slider must NEVER change the camera
+    // pitch. Entering 3D only *unlocks* orbit gestures — it does not auto-tilt.
+    // Leaving 3D (slider → 0) flattens the camera back to top-down so a 2D map is
+    // never stuck at an angle. The sun slider touches pitch in neither direction.
+    LaunchedEffect(tiltEnabled) {
+        if (!tiltEnabled) controller.easePitch(0.0)
     }
 
     Box(modifier.fillMaxSize()) {
@@ -191,7 +189,7 @@ fun TurbomapMapView(
                         },
                         onZoomFling = { zv, fx, fy -> controller.onZoomFling(zv, fx, fy) },
                         mode = {
-                            if (threeDState.value) MapGestureMode.ThreeD else MapGestureMode.TwoD
+                            if (tiltEnabledState.value) MapGestureMode.ThreeD else MapGestureMode.TwoD
                         },
                         onOrbit = { db, dp, fx, fy ->
                             onUserPannedState.value()
@@ -236,8 +234,8 @@ fun TurbomapMapView(
         }
     }
 
-    LaunchedEffect(rasters, vectors, measure, demUrl) {
-        controller.applyContent(rasters, vectors, measure, demUrl)
+    LaunchedEffect(rasters, vectors, measure, demUrl, demExaggeration) {
+        controller.applyContent(rasters, vectors, measure, demUrl, demExaggeration)
     }
     // Route + track render as raised 3D tubes — `tube` layers in the same
     // Scene document (plan P5.2), rebuilt whenever their geometry changes.
@@ -279,6 +277,8 @@ internal class TurbomapSurfaceController {
     private var vectors: List<TurbomapScene.VectorSpec> = emptyList()
     /** DEM tile URL template for 3D terrain ("terrain" pending tiles fetch this); null = flat. */
     private var demUrl: String? = null
+    /** Vertical exaggeration for the DEM mesh — the 3D-terrain slider's dialed value. */
+    private var demExaggeration: Float = com.sigmundgranaas.turbo.expressive.domain.DEFAULT_3D_DETENT
     /** Measure polyline — flat geojson content in the scene. */
     private var measure: List<LatLng> = emptyList()
 
@@ -457,6 +457,7 @@ internal class TurbomapSurfaceController {
         vectors = vectors,
         measure = measure,
         demUrl = demUrl,
+        demExaggeration = demExaggeration,
         tubes = tubes.values.toList(),
         environment = environment.copy(clouds = cloudsSpec()),
     )
@@ -498,12 +499,14 @@ internal class TurbomapSurfaceController {
         vectorSpecs: List<TurbomapScene.VectorSpec>,
         measurePts: List<LatLng>,
         demUrlTemplate: String?,
+        demExaggerationValue: Float = demExaggeration,
     ) {
         if (handle == 0L) return
         rasters = rasterSpecs
         vectors = vectorSpecs
         measure = measurePts
         demUrl = demUrlTemplate
+        demExaggeration = demExaggerationValue
         reapplyScene()
     }
 

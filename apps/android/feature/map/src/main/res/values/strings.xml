@@ -76,6 +76,13 @@
     <string name="layers_waves_sub">Marine swell heatmap</string>
     <string name="layers_wind">Wind</string>
     <string name="layers_wind_sub">Animated flow field</string>
+    <!-- Terrain & light (relocated 3D + Sun controls) -->
+    <string name="layers_terrain">Terrain &amp; light</string>
+    <string name="layers_3d">3D terrain</string>
+    <string name="layers_3d_sub">Tilt to explore relief · drag for exaggeration</string>
+    <string name="layers_sun">Sun</string>
+    <string name="layers_sun_sub">Light the relief · drag to move the sun</string>
+
     <string name="layers_offline">Offline</string>
     <string name="layers_download_area">Download this area</string>
     <string name="layers_custom_add">Add map…</string>

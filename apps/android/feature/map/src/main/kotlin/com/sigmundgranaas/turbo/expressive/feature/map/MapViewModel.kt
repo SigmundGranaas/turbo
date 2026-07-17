@@ -65,10 +65,15 @@ data class MapUiState(
     val lastCamera: LatLng? = null,
     val lastCameraZoom: Double? = null,
     /**
-     * 3D map mode: a 1-finger drag orbits about the user location, two fingers
-     * pan. Off = the 2D pan/zoom. Session state, toggled from the map rail.
+     * 3D terrain exaggeration `[0, MAX_3D_EXAGGERATION]` from the layers-sheet
+     * slider. 0 = flat 2D (tilt locked); > 0 = 3D (orbit/tilt gestures unlocked +
+     * terrain displaced by this exaggeration). Session state.
      */
-    val threeDMode: Boolean = false,
+    val threeDLevel: Float = 0f,
+    /** Settings → Experimental gate: the Hiking-trails layer row only appears when on. */
+    val experimentalTrails: Boolean = false,
+    /** Settings → Experimental gate: the Weather-clouds layer row only appears when on. */
+    val experimentalClouds: Boolean = false,
     /** True once the persisted settings (incl. the wgpu-map flag + last camera)
      *  have loaded at least once. The map host must wait for this so it's built
      *  ONCE with the right renderer + the restored camera — otherwise it builds
@@ -166,6 +171,8 @@ class MapViewModel @Inject constructor(
                         showHeadingBeam = s.showHeadingBeam,
                         customTileSources = s.customTileSources,
                         selectedCustomSource = s.customTileSources.firstOrNull { c -> c.id == s.selectedCustomSourceId },
+                        experimentalTrails = s.experimentalTrails,
+                        experimentalClouds = s.experimentalClouds,
                     )
                 }
             }
@@ -249,8 +256,8 @@ class MapViewModel @Inject constructor(
         viewModelScope.launch { settings.setLastCamera(lat, lng, zoom) }
     }
 
-    /** Toggle 3D map mode (orbit gestures). No-op effect unless the wgpu engine is active. */
-    fun setThreeDMode(value: Boolean) = _state.update { it.copy(threeDMode = value) }
+    /** Set the 3D-terrain exaggeration (layers-sheet slider). 0 = flat 2D. */
+    fun setThreeDLevel(value: Float) = _state.update { it.copy(threeDLevel = value) }
 
     /** Resolve a human label for [point] (used to pre-fill a new marker's name). */
     fun describePoint(point: LatLng) {

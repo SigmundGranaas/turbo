@@ -97,7 +97,7 @@ import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.layout.responsiveContentWidth
 import com.sigmundgranaas.turbo.expressive.core.turbomap.android.TurbomapMapView
 import com.sigmundgranaas.turbo.expressive.feature.map.radar.RadarOverlayControls
-import com.sigmundgranaas.turbo.expressive.feature.map.sun.SunOverlayControls
+import com.sigmundgranaas.turbo.expressive.feature.map.sun.DriveSunMode
 import com.sigmundgranaas.turbo.expressive.ui.map.MapStyles
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
@@ -567,6 +567,14 @@ fun MapScreen(
         }
         // wgpu engine failure (no fallback by design): surface it loudly.
         val wgpuError = remember { mutableStateOf<String?>(null) }
+        // The map's scene environment derived purely from the two layers-sheet
+        // sliders (3D terrain + Sun). Neither slider ever moves the camera —
+        // demPresent/exaggeration/tilt-unlock all flow from this one reducer, and
+        // both the map host and the sun driver read it.
+        val env = com.sigmundgranaas.turbo.expressive.domain.mapEnvironment(
+            threeDLevel = state.threeDLevel,
+            sunLevel = ui.sunLevel,
+        )
         Box(Modifier.fillMaxSize()) {
             // The wgpu turbomap renderer — the one and only map engine. Renders the
             // basemap + overlays + live track/route/measure/user/markers/waypoints/
@@ -638,12 +646,15 @@ fun MapScreen(
                     userDotColor = state.locationDotColorHex
                         ?.let(com.sigmundgranaas.turbo.expressive.domain.TurbomapScene::rgbaFromHex)
                         ?.let { androidx.compose.ui.graphics.Color(it.r, it.g, it.b) },
-                    // 3D mode: 1-finger orbit about the user location, two
-                    // fingers pan. Only meaningful on this wgpu engine.
-                    threeDMode = state.threeDMode,
-                    // In 3D, displace the ground by the real DEM heightmap (the
-                    // tileserver's Terrain-RGB). Null in 2D → flat, no DEM fetches.
-                    demUrl = if (state.threeDMode) MapStyles.TERRAIN_DEM_URL else null,
+                    // 3D unlocks 1-finger orbit + tilt gestures (never auto-tilts).
+                    // The sun slider lights relief without unlocking tilt, so this
+                    // tracks the 3D slider alone.
+                    tiltEnabled = env.tiltEnabled,
+                    // Load the DEM heightmap whenever relief is needed — 3D terrain OR
+                    // 2D sun-lit relief. Null → flat, no DEM fetches. Exaggeration is 0
+                    // in the 2D-sun case (flat mesh, still lit).
+                    demUrl = if (env.demPresent) MapStyles.TERRAIN_DEM_URL else null,
+                    demExaggeration = env.exaggeration,
                     markers = state.markers,
                     selectedMarkerId = ui.selectionState.selection?.id,
                     photoPins = photoClusters.map {
@@ -697,22 +708,11 @@ fun MapScreen(
                     .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
             )
 
-            // Sun mode — movable sun + atmosphere + cast shadows, with a time-of-
-            // day slider at the bottom (defaults to today/now). wgpu engine only;
-            // renders nothing when off. Sits above the radar scrubber if both on.
-            SunOverlayControls(
-                engine = ui.controller,
-                active = ui.sunModeOn,
-                onActiveChange = { ui.sunModeOn = it },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(
-                        start = 16.dp,
-                        end = 16.dp,
-                        bottom = if (ui.cloudsOn) 76.dp else 16.dp,
-                    ),
-            )
+            // Sun mode is driven by the layers-sheet Sun slider (ui.sunLevel), not a
+            // separate on-map control: the reducer maps the slider to a sun position
+            // (env.sunHour), and this effect rakes the wgpu terrain's sun + cast
+            // shadows to it. Off (level 0 → sunHour null) clears the shadows. wgpu only.
+            DriveSunMode(engine = ui.controller, sunHour = env.sunHour)
 
             // No silent blank: if the wgpu engine failed to start, say so.
             wgpuError.value?.let { msg ->
@@ -801,17 +801,14 @@ fun MapScreen(
                 } else {
                     0.dp
                 }
+                // The five-button rail (Phase 1): Compass (auto-hide) · Layers ·
+                // Location · + · −. Add-Marker + Route moved to the quick-actions
+                // card (a tap/long-press); 3D + Sun moved to the layers-sheet
+                // sliders. So the rail no longer takes onAdd/onCreateTrack/3D/Sun.
                 MapControlRail(
                     following = state.following,
-                    creatingTrack = false,
                     bearing = ui.bearing,
                     onCompass = { ui.controller?.resetNorth() },
-                    onAdd = { (ui.controller?.center() ?: state.userLocation)?.let { ui.newMarkerAt = it } },
-                    onCreateTrack = {
-                        // Don't silently drop an active follow when launching the build tool.
-                        if (routeState is RouteUiState.Following) ui.confirmReplaceFollow = true
-                        else openTrackTool(TrackMode.Route)
-                    },
                     onLayers = { ui.showLayers = true },
                     onLocate = {
                         if (viewModel.hasLocationPermission()) {
@@ -825,18 +822,6 @@ fun MapScreen(
                     },
                     onZoomIn = { ui.controller?.zoomIn() },
                     onZoomOut = { ui.controller?.zoomOut() },
-                    // 2D/3D toggle — the wgpu engine's orbit + tilt.
-                    threeD = state.threeDMode,
-                    onToggle3D = { viewModel.setThreeDMode(!state.threeDMode) },
-                    // Sun mode: movable sun + atmosphere + cast shadows. Turning it
-                    // on also flips to 3D — the relief, sky and shadows only read
-                    // under tilt.
-                    sunMode = ui.sunModeOn,
-                    onToggleSun = {
-                        val next = !ui.sunModeOn
-                        ui.sunModeOn = next
-                        if (next && !state.threeDMode) viewModel.setThreeDMode(true)
-                    },
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .windowInsetsPadding(WindowInsets.statusBars)
@@ -1231,7 +1216,15 @@ fun MapScreen(
         baseLayer = state.baseLayer,
         customSources = state.customTileSources,
         selectedCustomId = state.selectedCustomSource?.id,
-        cloudsAvailable = true, // the wgpu engine (now the only one) renders clouds
+        // Clouds is an experimental layer — the row only appears when the gate is on.
+        cloudsAvailable = state.experimentalClouds,
+        // Hiking-trails overlay row likewise gated behind its experimental toggle.
+        trailsAvailable = state.experimentalTrails,
+        // Layers-sheet 3D-terrain + Sun sliders (the relocated 3D/Sun controls).
+        threeDLevel = state.threeDLevel,
+        onThreeDLevel = viewModel::setThreeDLevel,
+        sunLevel = ui.sunLevel,
+        onSunLevel = { ui.sunLevel = it },
         onOpenOffline = onOpenOffline,
         openTrackTool = openTrackTool,
     )

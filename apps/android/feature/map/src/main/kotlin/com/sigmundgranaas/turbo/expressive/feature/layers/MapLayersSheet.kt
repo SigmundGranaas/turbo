@@ -31,11 +31,13 @@ import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Satellite
 import androidx.compose.material.icons.rounded.Terrain
 import androidx.compose.material.icons.rounded.Waves
+import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -57,6 +59,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.CustomTileSource
+import com.sigmundgranaas.turbo.expressive.domain.DEFAULT_3D_DETENT
+import com.sigmundgranaas.turbo.expressive.domain.MAX_3D_EXAGGERATION
 import com.sigmundgranaas.turbo.expressive.domain.OverlayId
 import com.sigmundgranaas.turbo.expressive.feature.map.R
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
@@ -85,6 +89,14 @@ fun MapLayersSheet(
     cloudsAvailable: Boolean = false,
     cloudsOn: Boolean = false,
     onToggleClouds: (Boolean) -> Unit = {},
+    // Hiking-trails overlay row is gated behind Settings → Experimental; hidden off.
+    trailsAvailable: Boolean = true,
+    // 3D-terrain slider: 0 = flat 2D (tilt locked); > 0 = 3D with this exaggeration.
+    threeDLevel: Float = 0f,
+    onThreeDLevel: (Float) -> Unit = {},
+    // Sun slider: 0 = off; > 0 lights the DEM relief (works in 2D top-down and 3D).
+    sunLevel: Float = 0f,
+    onSunLevel: (Float) -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
     val haptics = rememberTurboHaptics()
@@ -163,7 +175,11 @@ fun MapLayersSheet(
             Spacer(Modifier.height(22.dp))
             SectionLabel(stringResource(R.string.layers_overlays))
             Spacer(Modifier.height(8.dp))
-            MapStyles.renderableOverlays.forEach { overlay ->
+            // Hiking trails is experimental — drop its row unless the gate is on.
+            val overlays = MapStyles.renderableOverlays.filter {
+                it != OverlayId.Trails || trailsAvailable
+            }
+            overlays.forEach { overlay ->
                 val (icon, titleRes, subRes) = overlayRow(overlay)
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                     Icon(icon, null, tint = cs.primary, modifier = Modifier.size(22.dp))
@@ -195,6 +211,32 @@ fun MapLayersSheet(
                     )
                 }
             }
+
+            // ── Terrain & light: the relocated 3D + Sun controls ──────────────
+            // Both are pure sliders that never move the camera (the hard decoupling
+            // rule): 3D unlocks tilt gestures + exaggerates relief; Sun lights the
+            // relief top-down and works in 2D too.
+            Spacer(Modifier.height(22.dp))
+            SectionLabel(stringResource(R.string.layers_terrain))
+            Spacer(Modifier.height(4.dp))
+            LayerSlider(
+                icon = Icons.Rounded.Terrain,
+                title = stringResource(R.string.layers_3d),
+                subtitle = stringResource(R.string.layers_3d_sub),
+                value = threeDLevel,
+                valueRange = 0f..MAX_3D_EXAGGERATION,
+                defaultOn = DEFAULT_3D_DETENT,
+                onValueChange = onThreeDLevel,
+            )
+            LayerSlider(
+                icon = Icons.Rounded.WbSunny,
+                title = stringResource(R.string.layers_sun),
+                subtitle = stringResource(R.string.layers_sun_sub),
+                value = sunLevel,
+                valueRange = 0f..1f,
+                defaultOn = 0.5f,
+                onValueChange = onSunLevel,
+            )
 
             Spacer(Modifier.height(22.dp))
             SectionLabel(stringResource(R.string.layers_offline))
@@ -260,6 +302,50 @@ private fun AddCustomMapDialog(onConfirm: (name: String, url: String) -> Unit, o
             }
         },
     )
+}
+
+/**
+ * A layer row with an enable switch and, when on, a fine-tune slider — used for
+ * the 3D-terrain and Sun controls. The switch snaps [value] between 0 (off) and
+ * [defaultOn] (a sensible detent), so enabling doesn't force a drag from zero; the
+ * slider then tunes it. Neither control ever moves the camera — that decoupling
+ * lives in the map's environment reducer, not here.
+ */
+@Composable
+private fun LayerSlider(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    defaultOn: Float,
+    onValueChange: (Float) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val haptics = rememberTurboHaptics()
+    val on = value > 0f
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Icon(icon, null, tint = if (on) cs.primary else cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.size(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+            }
+            Switch(
+                checked = on,
+                onCheckedChange = { enabled -> haptics.toggle(enabled); onValueChange(if (enabled) defaultOn else 0f) },
+            )
+        }
+        if (on) {
+            Slider(
+                value = value.coerceIn(valueRange.start, valueRange.endInclusive),
+                onValueChange = onValueChange,
+                valueRange = valueRange,
+                modifier = Modifier.fillMaxWidth().padding(start = 34.dp),
+            )
+        }
+    }
 }
 
 /** Icon + localized title/subtitle string-ids for an overlay row. */

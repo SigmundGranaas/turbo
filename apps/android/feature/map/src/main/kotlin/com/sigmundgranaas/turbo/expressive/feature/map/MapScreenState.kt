@@ -54,9 +54,10 @@ class MapScreenState {
     /** Procedural weather-cloud overlay on/off (wgpu engine only). Toggled from
      *  the Layers sheet; drives the bottom scrubber control. */
     var cloudsOn by mutableStateOf(false)
-    /** Sun mode on/off (wgpu engine only): movable sun + atmosphere + terrain
-     *  cast shadows, with the bottom time-of-day slider. */
-    var sunModeOn by mutableStateOf(false)
+    /** Sun position `[0, 1]` (wgpu engine only): 0 = off; > 0 lights the DEM relief
+     *  by a movable sun + atmosphere + terrain cast shadows. Set from the layers-sheet
+     *  Sun slider; works in BOTH 2D (top-down lit) and 3D, and never tilts the camera. */
+    var sunLevel by mutableFloatStateOf(0f)
     /** The captured viewport awaiting the "download this area" size-confirm dialog. */
     var pendingDownloadArea by mutableStateOf<PendingDownloadArea?>(null)
 

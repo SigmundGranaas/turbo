@@ -55,6 +55,11 @@ internal fun MapScreenModals(
     customSources: List<com.sigmundgranaas.turbo.expressive.domain.CustomTileSource>,
     selectedCustomId: String?,
     cloudsAvailable: Boolean,
+    trailsAvailable: Boolean,
+    threeDLevel: Float,
+    onThreeDLevel: (Float) -> Unit,
+    sunLevel: Float,
+    onSunLevel: (Float) -> Unit,
     onOpenOffline: () -> Unit,
     openTrackTool: (TrackMode) -> Unit,
 ) {
@@ -127,9 +132,14 @@ internal fun MapScreenModals(
             },
             activeOverlays = ui.activeOverlays,
             onToggleOverlay = { id, on -> ui.activeOverlays = if (on) ui.activeOverlays + id else ui.activeOverlays - id },
+            trailsAvailable = trailsAvailable,
             cloudsAvailable = cloudsAvailable,
             cloudsOn = ui.cloudsOn,
             onToggleClouds = { ui.cloudsOn = it },
+            threeDLevel = threeDLevel,
+            onThreeDLevel = onThreeDLevel,
+            sunLevel = sunLevel,
+            onSunLevel = onSunLevel,
             onDismiss = { ui.showLayers = false },
         )
     }
