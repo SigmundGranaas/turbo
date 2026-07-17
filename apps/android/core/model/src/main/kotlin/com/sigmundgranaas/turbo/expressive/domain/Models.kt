@@ -34,6 +34,15 @@ enum class ActivityKindId(val key: String) {
     }
 }
 
+/**
+ * What role a [Marker] plays on the map. [Standard] is a plain user pin (its icon comes
+ * from the [ActivityKindId]); [WeatherPin] is a live, cached weather node — the very same
+ * persisted marker, distinguished only by this discriminator plus its cached forecast.
+ * Keeping the activity [ActivityKindId] separate means a weather pin never pollutes the
+ * 18-type activity picker.
+ */
+enum class MarkerKind { Standard, WeatherPin }
+
 /** A user marker pinned on the map. */
 data class Marker(
     val id: String,
@@ -44,6 +53,12 @@ data class Marker(
     val colorArgb: Long? = null,
     /** Free-text note the user attached to the pin. */
     val notes: String? = null,
+    /** Plain pin vs live weather node. Defaults to [MarkerKind.Standard]. */
+    val markerKind: MarkerKind = MarkerKind.Standard,
+    /** Last MET forecast cached on a [MarkerKind.WeatherPin] (offline-safe render source); null otherwise. */
+    val forecast: WeatherSnapshot? = null,
+    /** Epoch ms the [forecast] was fetched — drives staleness (>1h) and the "updated Nh ago" cue. */
+    val forecastFetchedAtEpochMs: Long? = null,
 )
 
 /** Base-map tile sources (matches the layer-selector in the design). */

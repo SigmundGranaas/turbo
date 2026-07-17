@@ -24,6 +24,13 @@ data class MarkerEntity(
     val lng: Double,
     val colorArgb: Long?,
     val notes: String? = null,
+    // ── weather-pin fields (see MIGRATION_11_12) ──
+    /** [MarkerKind] name — `"Standard"` for a plain pin, `"WeatherPin"` for a live weather node. */
+    val markerKind: String = "Standard",
+    /** JSON-encoded cached forecast for a weather pin (offline-safe render source); null otherwise. */
+    val cachedForecast: String? = null,
+    /** Epoch ms the [cachedForecast] was fetched — staleness + "updated Nh ago". */
+    val forecastFetchedAtEpochMs: Long? = null,
     // ── sync fields ──
     /** Server-assigned id once pushed (the local [id] stays stable). */
     val remoteId: String? = null,
@@ -263,7 +270,7 @@ interface PhotoDao {
         MarkerEntity::class, PathEntity::class,
         CollectionEntity::class, CollectionItemEntity::class, PhotoEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = false,
 )
 abstract class TurboDatabase : RoomDatabase() {
@@ -271,4 +278,15 @@ abstract class TurboDatabase : RoomDatabase() {
     abstract fun pathDao(): PathDao
     abstract fun collectionDao(): CollectionDao
     abstract fun photoDao(): PhotoDao
+}
+
+/**
+ * v11 → v12: weather pins. Adds the [MarkerEntity.markerKind] discriminator plus the
+ * cached-forecast columns to the `marker` table **without wiping data** — existing pins
+ * default to `"Standard"` with no cached forecast. `ADD COLUMN` is the whole change.
+ */
+val MIGRATION_11_12 = androidx.room.migration.Migration(11, 12) { db ->
+    db.execSQL("ALTER TABLE marker ADD COLUMN markerKind TEXT NOT NULL DEFAULT 'Standard'")
+    db.execSQL("ALTER TABLE marker ADD COLUMN cachedForecast TEXT")
+    db.execSQL("ALTER TABLE marker ADD COLUMN forecastFetchedAtEpochMs INTEGER")
 }

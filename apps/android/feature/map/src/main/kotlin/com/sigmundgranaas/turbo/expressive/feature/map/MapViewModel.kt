@@ -290,6 +290,35 @@ class MapViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Drop a live weather pin at [position]: persist a [MarkerKind.WeatherPin] marker
+     * immediately (so it shows on the map at once), then best-effort fetch MET and cache the
+     * forecast onto the node. Offline the pin still drops — its cache stays empty until the
+     * first online open, and the fetch never throws.
+     */
+    fun addWeatherPin(position: LatLng) {
+        viewModelScope.launch {
+            val id = "m-${UUID.randomUUID()}"
+            val base = com.sigmundgranaas.turbo.expressive.domain.Marker(
+                id = id,
+                name = strings.get(R.string.weather_pin_name),
+                kind = ActivityKindId.Viewpoint,
+                position = position,
+                markerKind = com.sigmundgranaas.turbo.expressive.domain.MarkerKind.WeatherPin,
+            )
+            markerRepository.upsert(base)
+            val cached = when (val outcome = conditions.forPoint(position)) {
+                is com.sigmundgranaas.turbo.expressive.core.common.Outcome.Success ->
+                    base.copy(
+                        forecast = com.sigmundgranaas.turbo.expressive.domain.WeatherSnapshot.from(outcome.value),
+                        forecastFetchedAtEpochMs = System.currentTimeMillis(),
+                    )
+                is com.sigmundgranaas.turbo.expressive.core.common.Outcome.Failure -> null
+            }
+            if (cached != null) markerRepository.upsert(cached)
+        }
+    }
+
     /** Persist edits to an existing marker (same id → Room replaces the row). */
     fun updateMarker(marker: Marker) {
         viewModelScope.launch { markerRepository.upsert(marker) }

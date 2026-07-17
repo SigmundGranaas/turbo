@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.AddLocationAlt
+import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Route
@@ -83,6 +84,8 @@ internal fun MapLongPressMenu(
     point: LatLng,
     anchor: Offset,
     onNewMarker: () -> Unit,
+    /** Drop a live weather pin at this point (a Marker of kind WeatherPin). */
+    onWeatherPin: () -> Unit,
     onRouteHere: () -> Unit,
     /** Begin building a route whose FIRST waypoint is this point (drops an origin pin). */
     onStartRouteHere: () -> Unit,
@@ -135,9 +138,9 @@ internal fun MapLongPressMenu(
         val margin = 12.dp
         val cardWidthPx = with(density) { cardWidth.toPx() }
         val marginPx = with(density) { margin.toPx() }
-        // Realistic card height (mini-weather + 5 action rows); errs tall so the clamp
+        // Realistic card height (mini-weather + 6 action rows); errs tall so the clamp
         // never lets the bottom action slip under the gesture-nav bar.
-        val estCardHeightPx = with(density) { 488.dp.toPx() }
+        val estCardHeightPx = with(density) { 540.dp.toPx() }
         val navBottomPx = WindowInsets.navigationBars.getBottom(density).toFloat()
         val statusTopPx = WindowInsets.statusBars.getTop(density).toFloat()
         val maxW = constraints.maxWidth.toFloat()
@@ -172,19 +175,20 @@ internal fun MapLongPressMenu(
                     // so the menu feels alive, and springs on press.
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         ActionRow(Icons.Rounded.AddLocationAlt, stringResource(R.string.lp_new_marker), onNewMarker, "lpNewMarker", index = 0, primary = true)
-                        ActionRow(Icons.Rounded.Navigation, stringResource(R.string.lp_route_here), onRouteHere, "lpRouteHere", index = 1)
-                        ActionRow(Icons.Rounded.TripOrigin, stringResource(R.string.lp_start_route), onStartRouteHere, "lpStartRoute", index = 2)
-                        ActionRow(Icons.Rounded.Route, stringResource(R.string.track_title), onCreateTrack, "lpCreateTrack", index = 3)
-                        ActionRow(Icons.Rounded.AddAPhoto, stringResource(R.string.lp_add_photo), onAddPhoto, "lpAddPhoto", index = 4)
+                        ActionRow(Icons.Rounded.Cloud, stringResource(R.string.lp_weather_pin), onWeatherPin, "lpWeatherPin", index = 1)
+                        ActionRow(Icons.Rounded.Navigation, stringResource(R.string.lp_route_here), onRouteHere, "lpRouteHere", index = 2)
+                        ActionRow(Icons.Rounded.TripOrigin, stringResource(R.string.lp_start_route), onStartRouteHere, "lpStartRoute", index = 3)
+                        ActionRow(Icons.Rounded.Route, stringResource(R.string.track_title), onCreateTrack, "lpCreateTrack", index = 4)
+                        ActionRow(Icons.Rounded.AddAPhoto, stringResource(R.string.lp_add_photo), onAddPhoto, "lpAddPhoto", index = 5)
                         if (onMeasure != null) {
-                            ActionRow(Icons.Rounded.Straighten, stringResource(R.string.lp_measure), onMeasure, "lpMeasure", index = 5)
+                            ActionRow(Icons.Rounded.Straighten, stringResource(R.string.lp_measure), onMeasure, "lpMeasure", index = 6)
                         } else {
                             ActionRow(
                                 Icons.Rounded.Straighten,
                                 stringResource(R.string.lp_measure_offline),
                                 onClick = {},
                                 tag = "lpMeasureOffline",
-                                index = 5,
+                                index = 6,
                                 enabled = false,
                             )
                         }

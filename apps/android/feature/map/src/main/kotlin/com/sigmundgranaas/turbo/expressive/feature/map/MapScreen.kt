@@ -1145,6 +1145,7 @@ fun MapScreen(
                         anchor = androidx.compose.ui.geometry.Offset(sx, sy),
                         placeLabel = lpDescription?.label,
                         onNewMarker = { ui.pointCard = MapPointCard.Hidden; ui.newMarkerAt = p },
+                        onWeatherPin = { ui.pointCard = MapPointCard.Hidden; viewModel.addWeatherPin(p) },
                         onRouteHere = {
                             ui.pointCard = MapPointCard.Hidden
                             val from = state.userLocation ?: ctrl.center()
