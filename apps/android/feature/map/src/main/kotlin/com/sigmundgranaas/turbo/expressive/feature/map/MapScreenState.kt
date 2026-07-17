@@ -81,9 +81,12 @@ class MapScreenState {
     /** Same resume prompt for a paused **follow** (US-4, Follow = Record). */
     var showFollowResumeBufferPrompt by mutableStateOf(false)
 
-    // ── Markers + on-map long-press ──
+    // ── Markers + the quick-actions map-point card ──
     var newMarkerAt by mutableStateOf<LatLng?>(null)
-    var longPressAt by mutableStateOf<LatLng?>(null)
+    /** The unified map-point card (tap or long-press). Driven by the pure
+     *  [reduceMapPointCard]; a tap opens it, an entity tap yields, a second tap
+     *  re-anchors, track mode suppresses it. Replaces the long-press-only menu. */
+    var pointCard by mutableStateOf<MapPointCard>(MapPointCard.Hidden)
     /** Point whose full weather forecast sheet is open (from the long-press readout). */
     var forecastAt by mutableStateOf<LatLng?>(null)
     var editingMarker by mutableStateOf<Marker?>(null)

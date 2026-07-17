@@ -556,7 +556,13 @@ fun MapScreen(
                 }
                 TrackMode.Line -> { haptics.toggle(true); ui.linePoints.add(p) }
                 TrackMode.Draw -> Unit // handled by the drag overlay
-                null -> ui.selectionState.clear()
+                // Not in a track tool: an empty-map tap opens the quick-actions card
+                // at the point (and clears any selection). A tap on an entity is
+                // consumed by that entity, not seen here — so this is always onEntity=false.
+                null -> {
+                    ui.selectionState.clear()
+                    ui.pointCard = reduceMapPointCard(ui.pointCard, MapPointCardEvent.Tap(p, onEntity = false), trackModeActive = false)
+                }
             }
         }
         // wgpu engine failure (no fallback by design): surface it loudly.
@@ -653,12 +659,20 @@ fun MapScreen(
                     onWaypointDragEnd = { routeViewModel.endWaypointDrag() },
                     routeOrigin = if (ui.trackMode == TrackMode.Route) ui.routeOrigin else null,
                     onMarkerClick = { marker -> ui.selectionState.select(markerSelection(marker)) },
-                    onMapLongClick = { if (ui.trackMode == null) { haptics.longPress(); ui.longPressAt = it } },
+                    onMapLongClick = { p ->
+                        val next = reduceMapPointCard(ui.pointCard, MapPointCardEvent.LongPress(p), trackModeActive = ui.trackMode != null)
+                        if (next != ui.pointCard) haptics.longPress()
+                        ui.pointCard = next
+                    },
                     onMapTap = { p -> onMapTapForMode(p) },
                     onBearingChange = { ui.bearing = it.toFloat(); ui.cameraIdleTick++ },
                     // A manual pan/zoom/orbit releases camera-follow so it doesn't
                     // snap back to the dot (US-6) — the wgpu engine was missing this.
-                    onUserPanned = { viewModel.setFollowing(false) },
+                    onUserPanned = {
+                        viewModel.setFollowing(false)
+                        // A manual pan dismisses the map-point card.
+                        if (ui.pointCard is MapPointCard.Shown) ui.pointCard = MapPointCard.Hidden
+                    },
                     onMapReady = { ui.controller = it },
                     onEngineError = {
                         wgpuError.value = it
@@ -1110,9 +1124,9 @@ fun MapScreen(
             // so the bloom can scale/fade back out after longPressAt clears.
             val lpVisible = remember { MutableTransitionState(false) }
             val lpShown = remember { mutableStateOf<LatLng?>(null) }
-            LaunchedEffect(ui.longPressAt) {
-                val target = ui.longPressAt
-                if (target != null) { lpShown.value = target; lpVisible.targetState = true }
+            val cardPoint = (ui.pointCard as? MapPointCard.Shown)?.point
+            LaunchedEffect(cardPoint) {
+                if (cardPoint != null) { lpShown.value = cardPoint; lpVisible.targetState = true }
                 else lpVisible.targetState = false
             }
             LaunchedEffect(lpVisible.isIdle, lpVisible.currentState) {
@@ -1130,9 +1144,9 @@ fun MapScreen(
                         point = p,
                         anchor = androidx.compose.ui.geometry.Offset(sx, sy),
                         placeLabel = lpDescription?.label,
-                        onNewMarker = { ui.longPressAt = null; ui.newMarkerAt = p },
+                        onNewMarker = { ui.pointCard = MapPointCard.Hidden; ui.newMarkerAt = p },
                         onRouteHere = {
-                            ui.longPressAt = null
+                            ui.pointCard = MapPointCard.Hidden
                             val from = state.userLocation ?: ctrl.center()
                             openTrackTool(TrackMode.Route)
                             routeViewModel.planRoute(from, p)
@@ -1141,16 +1155,27 @@ fun MapScreen(
                             // Begin a route whose FIRST waypoint is this point: enter Route mode
                             // and drop the origin (shown as an origin pin). The next tap sets the
                             // destination → planRoute, exactly like tapping the origin on the map.
-                            ui.longPressAt = null
+                            ui.pointCard = MapPointCard.Hidden
                             haptics.toggle(true)
                             openTrackTool(TrackMode.Route)
                             ui.routeOrigin = p
                             ui.selectedWaypoint = null
                         },
-                        onCreateTrack = { ui.longPressAt = null; openTrackTool(TrackMode.Route) },
-                        onOpenForecast = { ui.longPressAt = null; ui.forecastAt = p },
+                        onCreateTrack = { ui.pointCard = MapPointCard.Hidden; openTrackTool(TrackMode.Route) },
+                        // Measure = Line mode with this point pre-placed. Online only —
+                        // offline the row is disabled (null) with a "needs a connection" hint.
+                        onMeasure = if (isOffline) {
+                            null
+                        } else {
+                            {
+                                ui.pointCard = MapPointCard.Hidden
+                                openTrackTool(TrackMode.Line)
+                                ui.linePoints.add(p)
+                            }
+                        },
+                        onOpenForecast = { ui.pointCard = MapPointCard.Hidden; ui.forecastAt = p },
                         onAddPhoto = {
-                            ui.longPressAt = null
+                            ui.pointCard = MapPointCard.Hidden
                             ui.pendingPhotoAt = p
                             addPhotoLauncher.launch(
                                 androidx.activity.result.PickVisualMediaRequest(
@@ -1158,7 +1183,7 @@ fun MapScreen(
                                 ),
                             )
                         },
-                        onDismiss = { ui.longPressAt = null },
+                        onDismiss = { ui.pointCard = MapPointCard.Hidden },
                     )
                 }
             }

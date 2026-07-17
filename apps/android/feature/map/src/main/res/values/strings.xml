@@ -54,6 +54,8 @@
     <string name="lp_route_here">Route here</string>
     <string name="lp_start_route">Start route here</string>
     <string name="lp_add_photo">Add photo here</string>
+    <string name="lp_measure">Measure</string>
+    <string name="lp_measure_offline">Measure (needs a connection)</string>
 
     <!-- Marker editor -->
     <string name="marker_add_to_collection">Add to collection</string>

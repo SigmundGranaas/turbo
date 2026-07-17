@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.AddLocationAlt
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material.icons.rounded.Straighten
 import androidx.compose.material.icons.rounded.TripOrigin
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -87,6 +88,9 @@ internal fun MapLongPressMenu(
     onStartRouteHere: () -> Unit,
     onCreateTrack: () -> Unit,
     onAddPhoto: () -> Unit,
+    /** Measure from this point (Line mode). Null when offline — the row shows a
+     *  disabled "not available offline" state instead of opening a dead tool. */
+    onMeasure: (() -> Unit)?,
     onDismiss: () -> Unit,
     /** Tapping the weather readout opens the full forecast for this point. */
     onOpenForecast: () -> Unit,
@@ -172,6 +176,18 @@ internal fun MapLongPressMenu(
                         ActionRow(Icons.Rounded.TripOrigin, stringResource(R.string.lp_start_route), onStartRouteHere, "lpStartRoute", index = 2)
                         ActionRow(Icons.Rounded.Route, stringResource(R.string.track_title), onCreateTrack, "lpCreateTrack", index = 3)
                         ActionRow(Icons.Rounded.AddAPhoto, stringResource(R.string.lp_add_photo), onAddPhoto, "lpAddPhoto", index = 4)
+                        if (onMeasure != null) {
+                            ActionRow(Icons.Rounded.Straighten, stringResource(R.string.lp_measure), onMeasure, "lpMeasure", index = 5)
+                        } else {
+                            ActionRow(
+                                Icons.Rounded.Straighten,
+                                stringResource(R.string.lp_measure_offline),
+                                onClick = {},
+                                tag = "lpMeasureOffline",
+                                index = 5,
+                                enabled = false,
+                            )
+                        }
                     }
                 }
             }
@@ -242,10 +258,19 @@ private fun ActionRow(
     tag: String,
     index: Int,
     primary: Boolean = false,
+    enabled: Boolean = true,
 ) {
     val cs = MaterialTheme.colorScheme
-    val container = if (primary) cs.secondaryContainer else cs.surfaceContainerHighest
-    val onContainer = if (primary) cs.onSecondaryContainer else cs.onSurface
+    val container = when {
+        !enabled -> cs.surfaceContainerHighest.copy(alpha = 0.5f)
+        primary -> cs.secondaryContainer
+        else -> cs.surfaceContainerHighest
+    }
+    val onContainer = when {
+        !enabled -> cs.onSurfaceVariant.copy(alpha = 0.6f)
+        primary -> cs.onSecondaryContainer
+        else -> cs.onSurface
+    }
     // Drive the staggered entrance: start hidden on first composition, then animate in.
     var appeared by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { appeared = true }
