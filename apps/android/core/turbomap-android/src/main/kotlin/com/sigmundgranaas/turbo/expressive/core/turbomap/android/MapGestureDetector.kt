@@ -355,9 +355,9 @@ internal suspend fun PointerInputScope.detectMapGestures(
  *
  * - a SECOND finger landing at any point cancels the long-press entirely (it's a
  *   pan/zoom/rotate, not a point selection);
- * - holding one finger still (within slop) past the long-press timeout merely *arms*
- *   the long-press — [onLongPress] fires when that finger is **released**, not while
- *   it's down;
+ * - holding one finger still (within slop) past the long-press timeout fires
+ *   [onLongPress] immediately, while the finger is **still down** (not on release),
+ *   so the menu appears the instant the press registers;
  * - a quick release within slop before the timeout fires [onTap];
  * - moving beyond slop is a pan and does neither (the map detector takes over).
  */
@@ -397,22 +397,16 @@ internal suspend fun PointerInputScope.detectTapAndLongPress(
         }
         when {
             armed -> {
-                // Phase 2: wait for the SINGLE finger to lift, firing on release. A second
-                // finger landing, or wandering past slop, cancels (no menu).
-                var cancelled = false
+                // Fire the moment the hold passes the timeout — while the finger is still
+                // down — so the menu appears when the press registers, not on release
+                // (waiting for release felt unresponsive). A second finger or a wander
+                // past slop BEFORE the timeout already prevented arming (Phase 1), so once
+                // armed the long-press is committed; drain the rest of this gesture so it
+                // fires exactly once and the tap branch can't also run.
+                onLongPress(downPos)
                 while (true) {
                     val event = awaitPointerEvent()
-                    if (event.changes.count { it.pressed } > 1) cancelled = true
-                    val change = event.changes.firstOrNull { it.id == down.id }
-                    if (change != null && change.pressed &&
-                        (change.position - downPos).getDistance() > slop
-                    ) {
-                        cancelled = true
-                    }
-                    if (change == null || !change.pressed) {
-                        if (!cancelled) onLongPress(downPos) // released cleanly → select the point
-                        break
-                    }
+                    if (event.changes.none { it.pressed }) break
                 }
             }
             multiFinger -> Unit // two fingers — never a tap/long-press

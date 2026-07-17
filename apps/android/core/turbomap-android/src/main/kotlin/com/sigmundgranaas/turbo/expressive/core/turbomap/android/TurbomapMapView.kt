@@ -109,6 +109,8 @@ fun TurbomapMapView(
     /** Pending route origin (first point before a destination exists) → drawn as an origin pin. */
     routeOrigin: LatLng? = null,
     onMarkerClick: (Marker) -> Unit = {},
+    /** Long-press on a marker (e.g. a weather pin → its selection card w/ Delete). */
+    onMarkerLongPress: (Marker) -> Unit = {},
     // When true, tilt/orbit gestures are unlocked (the 3D-terrain slider is > 0):
     // a 1-finger drag orbits about the user location and two fingers pan + zoom.
     // False → the flat 2D pan/zoom (pitch gestures rejected). The slider NEVER
@@ -238,6 +240,7 @@ fun TurbomapMapView(
                 userHeading = userHeading,
                 userDotColor = userDotColor,
                 onMarkerClick = onMarkerClick,
+                onMarkerLongPress = onMarkerLongPress,
                 photoPins = photoPins,
                 onPhotoPinClick = onPhotoPinClick,
                 waypoints = waypoints,

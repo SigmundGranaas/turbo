@@ -15,6 +15,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -116,6 +117,9 @@ fun MapOverlay(
     /** My-position dot colour; null = the default blue. A settings customization. */
     userDotColor: Color? = null,
     onMarkerClick: (Marker) -> Unit = {},
+    /** Long-press on a marker — e.g. a weather pin, whose tap opens its forecast, so
+     *  long-press is its route to the selection card (Edit / Delete / …). */
+    onMarkerLongPress: (Marker) -> Unit = {},
     photoPins: List<PhotoPin> = emptyList(),
     onPhotoPinClick: (PhotoPin) -> Unit = {},
     waypoints: List<LatLng> = emptyList(),
@@ -247,7 +251,10 @@ fun MapOverlay(
                             IntOffset((x - wChipW / 2f).roundToInt(), (y - wChipH).roundToInt())
                         }
                         .testTag("weatherPin")
-                        .clickable { onMarkerClick(m) },
+                        .combinedClickable(
+                            onClick = { onMarkerClick(m) },
+                            onLongClick = { onMarkerLongPress(m) },
+                        ),
                 )
             } else {
                 val boxPx = with(density) { (if (selected) 42.dp else 33.dp).toPx() }
@@ -261,7 +268,10 @@ fun MapOverlay(
                             val (x, y) = engine.toScreen(m.position)
                             IntOffset((x - boxPx / 2f).roundToInt(), (y - boxPx).roundToInt())
                         }
-                        .clickable { onMarkerClick(m) },
+                        .combinedClickable(
+                            onClick = { onMarkerClick(m) },
+                            onLongClick = { onMarkerLongPress(m) },
+                        ),
                 )
             }
         }

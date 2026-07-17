@@ -32,11 +32,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.AddLocationAlt
 import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Place
-import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Straighten
-import androidx.compose.material.icons.rounded.TripOrigin
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -83,13 +82,15 @@ internal fun MapLongPressMenu(
     visibleState: MutableTransitionState<Boolean>,
     point: LatLng,
     anchor: Offset,
+    /** Whether the Add-Marker split button is expanded to its add sub-options
+     *  (Weather pin / Photo), which replace Route here + Measure while open. */
+    expanded: Boolean,
+    /** The chevron on the Add-Marker split button — toggles [expanded]. */
+    onToggleAddOptions: () -> Unit,
     onNewMarker: () -> Unit,
     /** Drop a live weather pin at this point (a Marker of kind WeatherPin). */
     onWeatherPin: () -> Unit,
     onRouteHere: () -> Unit,
-    /** Begin building a route whose FIRST waypoint is this point (drops an origin pin). */
-    onStartRouteHere: () -> Unit,
-    onCreateTrack: () -> Unit,
     onAddPhoto: () -> Unit,
     /** Measure from this point (Line mode). Null when offline — the row shows a
      *  disabled "not available offline" state instead of opening a dead tool. */
@@ -138,9 +139,9 @@ internal fun MapLongPressMenu(
         val margin = 12.dp
         val cardWidthPx = with(density) { cardWidth.toPx() }
         val marginPx = with(density) { margin.toPx() }
-        // Realistic card height (mini-weather + 6 action rows); errs tall so the clamp
-        // never lets the bottom action slip under the gesture-nav bar.
-        val estCardHeightPx = with(density) { 540.dp.toPx() }
+        // Realistic card height (mini-weather + 3 compact action rows); errs a touch
+        // tall so the clamp never lets the bottom action slip under the gesture-nav bar.
+        val estCardHeightPx = with(density) { 340.dp.toPx() }
         val navBottomPx = WindowInsets.navigationBars.getBottom(density).toFloat()
         val statusTopPx = WindowInsets.statusBars.getTop(density).toFloat()
         val maxW = constraints.maxWidth.toFloat()
@@ -171,26 +172,34 @@ internal fun MapLongPressMenu(
                 Column(Modifier.padding(12.dp)) {
                     MiniWeather(conditions, point, placeLabel, onClick = onOpenForecast)
                     Spacer(Modifier.height(10.dp))
-                    // A simple list of actions — each rises + fades in with a slight stagger
-                    // so the menu feels alive, and springs on press.
+                    // A compact list — the Add-Marker split button, then either the
+                    // primary actions (Route here + Measure) or, when the chevron is
+                    // open, the add sub-options (Weather pin + Photo) in their place.
+                    // Each rises + fades in with a slight stagger and springs on press.
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        ActionRow(Icons.Rounded.AddLocationAlt, stringResource(R.string.lp_new_marker), onNewMarker, "lpNewMarker", index = 0, primary = true)
-                        ActionRow(Icons.Rounded.Cloud, stringResource(R.string.lp_weather_pin), onWeatherPin, "lpWeatherPin", index = 1)
-                        ActionRow(Icons.Rounded.Navigation, stringResource(R.string.lp_route_here), onRouteHere, "lpRouteHere", index = 2)
-                        ActionRow(Icons.Rounded.TripOrigin, stringResource(R.string.lp_start_route), onStartRouteHere, "lpStartRoute", index = 3)
-                        ActionRow(Icons.Rounded.Route, stringResource(R.string.track_title), onCreateTrack, "lpCreateTrack", index = 4)
-                        ActionRow(Icons.Rounded.AddAPhoto, stringResource(R.string.lp_add_photo), onAddPhoto, "lpAddPhoto", index = 5)
-                        if (onMeasure != null) {
-                            ActionRow(Icons.Rounded.Straighten, stringResource(R.string.lp_measure), onMeasure, "lpMeasure", index = 6)
+                        AddMarkerSplitRow(
+                            label = stringResource(R.string.lp_new_marker),
+                            expanded = expanded,
+                            onAdd = onNewMarker,
+                            onToggle = onToggleAddOptions,
+                        )
+                        if (expanded) {
+                            ActionRow(Icons.Rounded.Cloud, stringResource(R.string.lp_weather_pin), onWeatherPin, "lpWeatherPin", index = 1)
+                            ActionRow(Icons.Rounded.AddAPhoto, stringResource(R.string.lp_add_photo), onAddPhoto, "lpAddPhoto", index = 2)
                         } else {
-                            ActionRow(
-                                Icons.Rounded.Straighten,
-                                stringResource(R.string.lp_measure_offline),
-                                onClick = {},
-                                tag = "lpMeasureOffline",
-                                index = 6,
-                                enabled = false,
-                            )
+                            ActionRow(Icons.Rounded.Navigation, stringResource(R.string.lp_route_here), onRouteHere, "lpRouteHere", index = 1)
+                            if (onMeasure != null) {
+                                ActionRow(Icons.Rounded.Straighten, stringResource(R.string.lp_measure), onMeasure, "lpMeasure", index = 2)
+                            } else {
+                                ActionRow(
+                                    Icons.Rounded.Straighten,
+                                    stringResource(R.string.lp_measure_offline),
+                                    onClick = {},
+                                    tag = "lpMeasureOffline",
+                                    index = 2,
+                                    enabled = false,
+                                )
+                            }
                         }
                     }
                 }
@@ -248,6 +257,86 @@ private fun MiniWeather(state: ConditionsUiState, point: LatLng, placeLabel: Str
             state.conditions.avalanche?.dangerLevel?.takeIf { it >= 3 }?.let { lvl ->
                 Text("⚠ $lvl", style = MaterialTheme.typography.labelMedium, color = cs.error)
             }
+        }
+    }
+}
+
+/**
+ * The Add-Marker split button: the left area adds a normal marker ([onAdd]); the
+ * trailing chevron ([onToggle]) swaps the rest of the menu between the primary
+ * actions and the add sub-options (Weather pin / Photo). Two independent tap
+ * targets separated by a hairline divider, styled as the menu's primary row.
+ */
+@Composable
+private fun AddMarkerSplitRow(
+    label: String,
+    expanded: Boolean,
+    onAdd: () -> Unit,
+    onToggle: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    // Same staggered entrance as the first ActionRow (index 0) so the whole list
+    // blooms together.
+    var appeared by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { appeared = true }
+    val progress by animateFloatAsState(
+        targetValue = if (appeared) 1f else 0f,
+        animationSpec = tween(durationMillis = 300, delayMillis = 0, easing = FastOutSlowInEasing),
+        label = "lpSplitEnter",
+    )
+    val chevronRot by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+        label = "lpChevron",
+    )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer { alpha = progress; translationY = (1f - progress) * 18.dp.toPx() }
+            .clip(RoundedCornerShape(18.dp))
+            .background(cs.secondaryContainer),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Primary tap target: add a normal marker.
+        Row(
+            Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(18.dp))
+                .pressScaleClickable(onClick = onAdd, onClickLabel = label)
+                .testTag("lpNewMarker")
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).background(cs.primary.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.AddLocationAlt, null, tint = cs.primary, modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.W600),
+                color = cs.onSecondaryContainer,
+            )
+        }
+        // Hairline divider between the two tap targets.
+        Box(Modifier.width(1.dp).height(30.dp).background(cs.onSecondaryContainer.copy(alpha = 0.22f)))
+        // Chevron tap target: reveal / hide the add sub-options.
+        Box(
+            Modifier
+                .clip(RoundedCornerShape(18.dp))
+                .pressScaleClickable(onClick = onToggle, onClickLabel = label)
+                .testTag("lpAddMarkerToggle")
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Rounded.ExpandMore,
+                null,
+                tint = cs.onSecondaryContainer,
+                modifier = Modifier.size(24.dp).graphicsLayer { rotationZ = chevronRot },
+            )
         }
     }
 }

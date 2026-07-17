@@ -705,6 +705,13 @@ fun MapScreen(
                             ui.selectionState.select(markerSelection(marker))
                         }
                     },
+                    onMarkerLongPress = { marker ->
+                        // Long-press opens the selection card (Edit / Delete / Share / …).
+                        // For a weather pin this is the only route to it (tap = forecast),
+                        // so this is how a weather pin gets deleted.
+                        haptics.longPress()
+                        ui.selectionState.select(markerSelection(marker))
+                    },
                     onMapLongClick = { p ->
                         val next = reduceMapPointCard(ui.pointCard, MapPointCardEvent.LongPress(p), trackModeActive = ui.trackMode != null)
                         if (next != ui.pointCard) haptics.longPress()
@@ -1193,6 +1200,16 @@ fun MapScreen(
                         point = p,
                         anchor = androidx.compose.ui.geometry.Offset(sx, sy),
                         placeLabel = lpDescription?.label,
+                        // The Add-Marker split button's chevron toggles the card's
+                        // `expanded` state (Weather pin / Photo replace Route here + Measure).
+                        expanded = (ui.pointCard as? MapPointCard.Shown)?.expanded == true,
+                        onToggleAddOptions = {
+                            ui.pointCard = reduceMapPointCard(
+                                ui.pointCard,
+                                MapPointCardEvent.ToggleAddMarker,
+                                trackModeActive = ui.trackMode != null,
+                            )
+                        },
                         onNewMarker = { ui.pointCard = MapPointCard.Hidden; ui.newMarkerAt = p },
                         onWeatherPin = { ui.pointCard = MapPointCard.Hidden; viewModel.addWeatherPin(p) },
                         onRouteHere = {
@@ -1201,17 +1218,6 @@ fun MapScreen(
                             openTrackTool(TrackMode.Route)
                             routeViewModel.planRoute(from, p)
                         },
-                        onStartRouteHere = {
-                            // Begin a route whose FIRST waypoint is this point: enter Route mode
-                            // and drop the origin (shown as an origin pin). The next tap sets the
-                            // destination → planRoute, exactly like tapping the origin on the map.
-                            ui.pointCard = MapPointCard.Hidden
-                            haptics.toggle(true)
-                            openTrackTool(TrackMode.Route)
-                            ui.routeOrigin = p
-                            ui.selectedWaypoint = null
-                        },
-                        onCreateTrack = { ui.pointCard = MapPointCard.Hidden; openTrackTool(TrackMode.Route) },
                         // Measure = Line mode with this point pre-placed. Online only —
                         // offline the row is disabled (null) with a "needs a connection" hint.
                         onMeasure = if (isOffline) {
