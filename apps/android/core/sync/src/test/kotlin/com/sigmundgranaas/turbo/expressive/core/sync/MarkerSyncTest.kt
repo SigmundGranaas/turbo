@@ -76,6 +76,39 @@ class MarkerSyncTest {
     }
 
     @Test
+    fun `a weather pin survives the sync round-trip via the namespaced wire icon`() {
+        val pin = MarkerEntity(
+            id = "l1", name = "Storm watch", kind = "viewpoint", lat = 61.0, lng = 9.0,
+            colorArgb = null, markerKind = "WeatherPin",
+        )
+        // What we PUT to the server carries the kind folded into the icon…
+        val wireIcon = pin.toWriteRequest().display.icon
+        assertEquals("weatherpin:viewpoint", wireIcon)
+        // …and what the server echoes back restores the WeatherPin role (was lost → Standard before).
+        val echoed = LocationResponseDto(
+            id = "srv-1",
+            geometry = LocationGeometryDto(longitude = 9.0, latitude = 61.0),
+            display = pin.toWriteRequest().display,
+            updatedAt = "2024-01-01T00:00:00Z",
+            version = 1,
+        )
+        val restored = echoed.toEntity("l1")
+        assertEquals("WeatherPin", restored.markerKind)
+        assertEquals("viewpoint", restored.kind) // the activity icon is preserved too
+    }
+
+    @Test
+    fun `a plain marker round-trips as Standard with an untouched icon`() {
+        val plain = MarkerEntity(id = "l1", name = "Camp", kind = "tent", lat = 61.0, lng = 9.0, colorArgb = null)
+        assertEquals("tent", plain.toWriteRequest().display.icon) // no prefix for a plain pin
+        val restored = LocationResponseDto(
+            id = "s", display = plain.toWriteRequest().display, updatedAt = "2024-01-01T00:00:00Z",
+        ).toEntity("l1")
+        assertEquals("Standard", restored.markerKind)
+        assertEquals("tent", restored.kind)
+    }
+
+    @Test
     fun `a fresh remote marker is inserted as clean`() = runTest {
         val dao = FakeMarkerDao()
         val remote = FakeLocationRemote(LocationsDeltaDto(items = listOf(remoteMarker("srv-1", "Summit", 60.2, 10.5, "2024-01-01T11:00:00Z", 4)), serverTime = "2024-02-01T00:00:00Z"))

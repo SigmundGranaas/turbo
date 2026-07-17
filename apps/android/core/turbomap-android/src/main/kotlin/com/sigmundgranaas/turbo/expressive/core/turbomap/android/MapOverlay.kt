@@ -17,17 +17,27 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AcUnit
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.Grain
+import androidx.compose.material.icons.rounded.NightsStay
 import androidx.compose.material.icons.rounded.TripOrigin
+import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -62,9 +72,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.MapEngine
 import com.sigmundgranaas.turbo.expressive.domain.Marker
+import com.sigmundgranaas.turbo.expressive.domain.MarkerKind
+import com.sigmundgranaas.turbo.expressive.domain.weatherPinUiState
 import com.sigmundgranaas.turbo.expressive.ui.components.MarkerPin
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
 import kotlin.math.atan2
@@ -106,6 +119,9 @@ fun MapOverlay(
     photoPins: List<PhotoPin> = emptyList(),
     onPhotoPinClick: (PhotoPin) -> Unit = {},
     waypoints: List<LatLng> = emptyList(),
+    /** Per-waypoint pin colour (parallel to [waypoints]); a via's stable palette colour so the
+     *  on-map pin matches its stop-list dot. Empty / short → the built-in start/end/via fallback. */
+    waypointColors: List<Color> = emptyList(),
     selectedWaypoint: Int? = null,
     onWaypointTap: (Int) -> Unit = {},
     onWaypointLongPress: (Int) -> Unit = {},
@@ -216,19 +232,38 @@ fun MapOverlay(
         }
         markers.forEach { m ->
             val selected = m.id == selectedMarkerId
-            val boxPx = with(density) { (if (selected) 42.dp else 33.dp).toPx() }
-            MarkerPin(
-                icon = m.kind.icon,
-                selected = selected,
-                color = m.colorArgb?.let { Color(it) } ?: markerFallbackColor,
-                modifier = Modifier
-                    .offset {
-                        @Suppress("UNUSED_EXPRESSION") cameraTick
-                        val (x, y) = engine.toScreen(m.position)
-                        IntOffset((x - boxPx / 2f).roundToInt(), (y - boxPx).roundToInt())
-                    }
-                    .clickable { onMarkerClick(m) },
-            )
+            if (m.markerKind == MarkerKind.WeatherPin) {
+                // A weather pin reads as a live temp + condition chip (from its cached forecast),
+                // not a plain map pin — tapping it opens the forecast detail (host wiring).
+                val wChipW = with(density) { WEATHER_CHIP_W.toPx() }
+                val wChipH = with(density) { WEATHER_CHIP_H.toPx() }
+                WeatherPinChip(
+                    marker = m,
+                    selected = selected,
+                    modifier = Modifier
+                        .offset {
+                            @Suppress("UNUSED_EXPRESSION") cameraTick
+                            val (x, y) = engine.toScreen(m.position)
+                            IntOffset((x - wChipW / 2f).roundToInt(), (y - wChipH).roundToInt())
+                        }
+                        .testTag("weatherPin")
+                        .clickable { onMarkerClick(m) },
+                )
+            } else {
+                val boxPx = with(density) { (if (selected) 42.dp else 33.dp).toPx() }
+                MarkerPin(
+                    icon = m.kind.icon,
+                    selected = selected,
+                    color = m.colorArgb?.let { Color(it) } ?: markerFallbackColor,
+                    modifier = Modifier
+                        .offset {
+                            @Suppress("UNUSED_EXPRESSION") cameraTick
+                            val (x, y) = engine.toScreen(m.position)
+                            IntOffset((x - boxPx / 2f).roundToInt(), (y - boxPx).roundToInt())
+                        }
+                        .clickable { onMarkerClick(m) },
+                )
+            }
         }
         // Editable route waypoints — drawn last so they sit above markers.
         waypoints.forEachIndexed { index, wp ->
@@ -236,6 +271,7 @@ fun MapOverlay(
                 wp = wp,
                 index = index,
                 last = waypoints.lastIndex,
+                pinColor = waypointColors.getOrNull(index),
                 selected = index == selectedWaypoint,
                 cameraTick = cameraTick,
                 project = { engine.toScreen(wp).let { Offset(it.first, it.second) } },
@@ -272,6 +308,57 @@ fun MapOverlay(
 
 private val WpStart = Color(0xFF2E7D32)
 private val WpEnd = Color(0xFFC0392B)
+
+// Nominal weather-chip footprint used to anchor it (bottom-centre) over its point.
+private val WEATHER_CHIP_W = 66.dp
+private val WEATHER_CHIP_H = 34.dp
+
+/**
+ * A weather pin rendered as a compact "condition + temperature" chip from its cached forecast
+ * (the pure [weatherPinUiState] presenter). A still-fetching pin (no cache yet) shows a neutral
+ * cloud + "…". Self-contained Material glyphs so the overlay stays free of the weather module's
+ * SVG assets; the rich yr.no symbols live in the tap-through forecast sheet.
+ */
+@Composable
+private fun WeatherPinChip(marker: Marker, selected: Boolean, modifier: Modifier = Modifier) {
+    val cs = MaterialTheme.colorScheme
+    val ui = weatherPinUiState(marker, System.currentTimeMillis())
+    val glyph = weatherGlyph(ui?.symbolCode)
+    val tempLabel = ui?.temperatureC?.let { "${it.roundToInt()}°" } ?: "…"
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = cs.surfaceContainerHighest,
+        shadowElevation = if (selected) 6.dp else 3.dp,
+        border = if (selected) androidx.compose.foundation.BorderStroke(2.dp, cs.primary) else null,
+        modifier = modifier.height(WEATHER_CHIP_H),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            modifier = Modifier.padding(horizontal = 9.dp),
+        ) {
+            Icon(glyph, null, tint = cs.primary, modifier = Modifier.size(18.dp))
+            Text(
+                tempLabel,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.W700),
+                color = cs.onSurface,
+            )
+        }
+    }
+}
+
+/** Map a MET symbol code to a self-contained Material weather glyph (keyword match, cloud default). */
+private fun weatherGlyph(symbolCode: String?): ImageVector {
+    val code = symbolCode?.lowercase().orEmpty()
+    return when {
+        "thunder" in code -> Icons.Rounded.Bolt
+        "snow" in code || "sleet" in code -> Icons.Rounded.AcUnit
+        "rain" in code || "drizzle" in code || "shower" in code -> Icons.Rounded.Grain
+        "clearsky_night" in code || "fair_night" in code -> Icons.Rounded.NightsStay
+        "clearsky" in code || "fair" in code || "sun" in code -> Icons.Rounded.WbSunny
+        else -> Icons.Rounded.Cloud
+    }
+}
 
 /** A static route-origin pin: the same green [WpStart] disc + [TripOrigin][Icons.Rounded.TripOrigin]
  *  badge as a committed waypoint[0], used for the pending origin before a route exists. */
@@ -324,6 +411,8 @@ internal fun WaypointMarkerView(
     last: Int,
     selected: Boolean,
     cameraTick: Int,
+    /** Resolved pin colour; null falls back to the built-in start-green / end-red / via-primary. */
+    pinColor: Color? = null,
     project: () -> Offset,
     toGround: (Offset) -> LatLng,
     onTap: () -> Unit,
@@ -336,7 +425,9 @@ internal fun WaypointMarkerView(
     val density = LocalDensity.current
     val sizeDp = if (selected) 40.dp else 32.dp
     val boxPx = with(density) { sizeDp.toPx() }
-    val color = when (index) {
+    // The stop's own palette colour (matches its list-row dot) when provided; otherwise the
+    // built-in role fallback (start green / end red / via primary).
+    val color = pinColor ?: when (index) {
         0 -> WpStart
         last -> WpEnd
         else -> cs.primary

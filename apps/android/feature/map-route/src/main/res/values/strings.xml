@@ -27,6 +27,7 @@
     <string name="wp_end">Destination</string>
     <string name="wp_move_down">Move stop down</string>
     <string name="wp_move_up">Move stop up</string>
+    <string name="wp_reorder">Drag to reorder stop</string>
     <string name="wp_remove">Remove stop</string>
     <string name="wp_start">Start</string>
     <string name="wp_stop">Stop %1$d</string>

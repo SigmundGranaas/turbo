@@ -51,4 +51,5 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { repository.setGestures(gestures) }
     fun setExperimentalTrails(enabled: Boolean) = viewModelScope.launch { repository.setExperimentalTrails(enabled) }
     fun setExperimentalClouds(enabled: Boolean) = viewModelScope.launch { repository.setExperimentalClouds(enabled) }
+    fun setRotationLocked(enabled: Boolean) = viewModelScope.launch { repository.setRotationLocked(enabled) }
 }

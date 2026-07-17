@@ -159,24 +159,55 @@ internal fun MarkerEntity.toLocalState() = LocalState(
     isTombstone = deletedAtEpochMs != null,
 )
 
+/**
+ * The server's location model has no marker-kind field — only free-form name/description/icon.
+ * So the [MarkerKind] discriminator rides in the `icon` string: a weather pin is written as
+ * `weatherpin:<activityIcon>`, a plain pin stays `<activityIcon>`. This is how a WeatherPin's
+ * role survives a round-trip and a second device instead of degrading to Standard. Other clients
+ * that don't know the prefix just render an unknown icon (a default glyph) — the discriminator is
+ * preserved on the wire, never lost. Pure → unit-tested. See MarkerKind (core/model), Phase 3.
+ */
+internal const val WEATHER_PIN_ICON_PREFIX = "weatherpin:"
+
+/** The activity icon + marker-kind name decoded from a wire `icon` string. */
+internal data class DecodedIcon(val activityIcon: String, val markerKind: String)
+
+/** Fold the marker kind into the single wire `icon` field (see [WEATHER_PIN_ICON_PREFIX]). */
+internal fun encodeWireIcon(activityIcon: String, markerKind: String): String =
+    if (markerKind == "WeatherPin") "$WEATHER_PIN_ICON_PREFIX$activityIcon" else activityIcon
+
+/** Recover (activityIcon, markerKind) from a wire `icon` string; blanks fall back to a mountain pin. */
+internal fun decodeWireIcon(wireIcon: String?): DecodedIcon {
+    val raw = wireIcon?.takeIf { it.isNotBlank() } ?: "mountain"
+    if (!raw.startsWith(WEATHER_PIN_ICON_PREFIX)) return DecodedIcon(raw, "Standard")
+    val icon = raw.removePrefix(WEATHER_PIN_ICON_PREFIX).takeIf { it.isNotBlank() } ?: "mountain"
+    return DecodedIcon(icon, "WeatherPin")
+}
+
 internal fun MarkerEntity.toWriteRequest() = LocationWriteRequest(
     geometry = LocationGeometryDto(longitude = lng, latitude = lat),
-    // The server location model carries name/description/icon — colour is local-only.
-    display = LocationDisplayDto(name = name, description = notes, icon = kind),
+    // The server location model carries name/description/icon — colour is local-only; the
+    // marker-kind discriminator is namespaced into `icon` (see [encodeWireIcon]).
+    display = LocationDisplayDto(name = name, description = notes, icon = encodeWireIcon(kind, markerKind)),
 )
 
-internal fun LocationResponseDto.toEntity(localId: String, readOnly: Boolean = false) = MarkerEntity(
-    id = localId,
-    name = display.name?.takeIf { it.isNotBlank() } ?: "Marker",
-    kind = display.icon?.takeIf { it.isNotBlank() } ?: "mountain",
-    lat = geometry.latitude,
-    lng = geometry.longitude,
-    colorArgb = null,
-    notes = display.description,
-    remoteId = id,
-    version = version,
-    updatedAtEpochMs = Iso8601.toEpochMs(updatedAt),
-    deletedAtEpochMs = null,
-    dirty = false,
-    readOnly = readOnly,
-)
+internal fun LocationResponseDto.toEntity(localId: String, readOnly: Boolean = false): MarkerEntity {
+    val decoded = decodeWireIcon(display.icon)
+    return MarkerEntity(
+        id = localId,
+        name = display.name?.takeIf { it.isNotBlank() } ?: "Marker",
+        kind = decoded.activityIcon,
+        // WeatherPin survives the wire; its cached forecast is not synced (live data re-fetches).
+        markerKind = decoded.markerKind,
+        lat = geometry.latitude,
+        lng = geometry.longitude,
+        colorArgb = null,
+        notes = display.description,
+        remoteId = id,
+        version = version,
+        updatedAtEpochMs = Iso8601.toEpochMs(updatedAt),
+        deletedAtEpochMs = null,
+        dirty = false,
+        readOnly = readOnly,
+    )
+}

@@ -34,6 +34,8 @@
     <string name="ds_zoom_in">Zoom in</string>
     <string name="ds_zoom_out">Zoom out</string>
     <string name="ds_compass">Reset to north</string>
+    <string name="ds_lock_rotation">Lock rotation</string>
+    <string name="ds_rotation_locked">Rotation locked</string>
     <string name="ds_add_place">Add a place</string>
 
     <!-- Activity / marker kinds -->

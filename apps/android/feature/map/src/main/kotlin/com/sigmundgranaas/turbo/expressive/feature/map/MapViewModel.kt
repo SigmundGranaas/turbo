@@ -74,6 +74,10 @@ data class MapUiState(
     val experimentalTrails: Boolean = false,
     /** Settings → Experimental gate: the Weather-clouds layer row only appears when on. */
     val experimentalClouds: Boolean = false,
+    /** Compass "Lock rotation" (persisted): suppresses gesture bearing changes in both modes. */
+    val rotationLocked: Boolean = false,
+    /** Twist strictness (deg) that must lead to engage a 2D rotate — Settings → Gestures. */
+    val rotationGateDeg: Float = 10f,
     /** True once the persisted settings (incl. the wgpu-map flag + last camera)
      *  have loaded at least once. The map host must wait for this so it's built
      *  ONCE with the right renderer + the restored camera — otherwise it builds
@@ -176,10 +180,17 @@ class MapViewModel @Inject constructor(
                         selectedCustomSource = s.customTileSources.firstOrNull { c -> c.id == s.selectedCustomSourceId },
                         experimentalTrails = s.experimentalTrails,
                         experimentalClouds = s.experimentalClouds,
+                        rotationLocked = s.rotationLocked,
+                        rotationGateDeg = s.gestures.rotationGateDeg,
                     )
                 }
             }
         }
+    }
+
+    /** Compass long-press "Lock rotation" toggle → persisted. */
+    fun setRotationLocked(enabled: Boolean) {
+        viewModelScope.launch { settings.setRotationLocked(enabled) }
     }
 
     fun hasLocationPermission(): Boolean = location.hasPermission()

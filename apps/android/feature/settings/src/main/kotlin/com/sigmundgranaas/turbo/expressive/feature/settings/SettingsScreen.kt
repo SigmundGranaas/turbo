@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Science
+import androidx.compose.material.icons.rounded.ScreenLockRotation
 import androidx.compose.material.icons.rounded.Straighten
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Wifi
@@ -241,6 +242,14 @@ fun SettingsScreen(
                     valueLabel = "${g.flingHalfLifeMs} ms",
                     testTag = "gestureFlick",
                 ) { viewModel.setGestures(g.copy(flingHalfLifeMs = it.toLong())) }
+                HorizontalDivider(color = cs.outlineVariant)
+                // Durable home for the compass long-press "Lock rotation" toggle — the
+                // reliable unlock path when the compass is hidden (map pointing north).
+                ListRowItem(
+                    Icons.Rounded.ScreenLockRotation, stringResource(R.string.settings_lock_rotation),
+                    subtitle = stringResource(R.string.settings_lock_rotation_sub),
+                    trailing = { Switch(settings.rotationLocked, { haptics.toggle(it); viewModel.setRotationLocked(it) }, modifier = Modifier.testTag("rotationLockSwitch")) },
+                )
             }
             SettingsGroup {
                 ListRowItem(

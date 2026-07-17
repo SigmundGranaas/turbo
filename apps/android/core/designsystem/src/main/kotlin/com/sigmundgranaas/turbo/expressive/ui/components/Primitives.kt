@@ -1,6 +1,8 @@
 package com.sigmundgranaas.turbo.expressive.ui.components
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -16,24 +19,34 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Water
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -97,6 +110,9 @@ fun MapControlRail(
     following: Boolean = false,
     bearing: Float = 0f,
     onCompass: (() -> Unit)? = null,
+    /** Compass long-press → "Lock rotation" toggle; null hides the mini-menu. */
+    rotationLocked: Boolean = false,
+    onToggleRotationLock: (() -> Unit)? = null,
     onLayers: () -> Unit = {},
     onLocate: () -> Unit = {},
     onZoomIn: () -> Unit = {},
@@ -106,10 +122,17 @@ fun MapControlRail(
     // · + · −. Add-Marker + Route relocated to the quick-actions card; 3D + Sun to
     // the layers-sheet sliders. Nothing else belongs on the rail.
     Column(modifier = modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        // Compass — only while the map is rotated; tap resets to north. Lives here
-        // (in the inset rail) instead of MapLibre's off-screen default widget.
-        if (onCompass != null && kotlin.math.abs(bearing) > 0.5f) {
-            RailButton(Icons.Rounded.Explore, stringResource(R.string.ds_compass), rotation = -bearing, onClick = onCompass)
+        // Compass — shows only while the map is rotated off north (tap resets to north,
+        // long-press toggles rotation lock). Hidden at north — including locked + north
+        // (a locked map can't drift off north, so there's nothing to reset). The durable
+        // unlock lives in Settings → Gestures so hiding here never traps the lock on.
+        if (onCompass != null && compassVisible(bearing)) {
+            CompassButton(
+                bearing = bearing,
+                rotationLocked = rotationLocked,
+                onCompass = onCompass,
+                onToggleRotationLock = onToggleRotationLock,
+            )
         }
         RailButton(Icons.Rounded.Layers, stringResource(R.string.ds_map_layers), onClick = onLayers)
         RailButton(
@@ -122,6 +145,89 @@ fun MapControlRail(
         // not a divided pill, which read as a different control entirely.
         RailButton(Icons.Rounded.Add, stringResource(R.string.ds_zoom_in), onClick = onZoomIn)
         RailButton(Icons.Rounded.Remove, stringResource(R.string.ds_zoom_out), onClick = onZoomOut)
+    }
+}
+
+/**
+ * Compass auto-hide rule (pure → unit-tested): the widget shows only when the map is
+ * rotated more than ~0.5° off north. Rotation-lock does not change this — a locked map
+ * simply can't drift off north, so it stays hidden (the spec's "locked + north ⇒ hidden").
+ */
+fun compassVisible(bearingDeg: Float): Boolean = kotlin.math.abs(bearingDeg) > 0.5f
+
+/**
+ * Rail compass: a needle that rotates with the bearing behind a subtle field-of-view wedge
+ * (cosmetic heading cue). Tap resets to north; long-press opens a mini-menu with the
+ * persisted "Lock rotation" toggle (see [MapControlRail]). A small padlock badge marks the
+ * locked state.
+ */
+@Composable
+private fun CompassButton(
+    bearing: Float,
+    rotationLocked: Boolean,
+    onCompass: () -> Unit,
+    onToggleRotationLock: (() -> Unit)?,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    var menuOpen by remember { mutableStateOf(false) }
+    val wedge = MaterialTheme.colorScheme.primary
+    Box {
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = if (rotationLocked) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+            shadowElevation = 3.dp,
+            modifier = Modifier
+                .size(52.dp)
+                .pressScale(interactionSource)
+                .combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = ripple(),
+                    onClick = onCompass,
+                    onLongClick = if (onToggleRotationLock != null) ({ menuOpen = true }) else null,
+                ),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                // FOV wedge behind the needle — points where the map's "up" faces. Cosmetic.
+                Canvas(modifier = Modifier.size(30.dp).rotate(-bearing)) {
+                    val w = size.width
+                    val h = size.height
+                    val p = Path().apply {
+                        moveTo(w / 2f, h * 0.52f)
+                        lineTo(w * 0.32f, h * 0.04f)
+                        lineTo(w * 0.68f, h * 0.04f)
+                        close()
+                    }
+                    drawPath(p, color = wedge.copy(alpha = 0.28f))
+                }
+                Icon(
+                    imageVector = Icons.Rounded.Explore,
+                    contentDescription = stringResource(R.string.ds_compass),
+                    tint = if (rotationLocked) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp).rotate(-bearing),
+                )
+                if (rotationLocked) {
+                    Icon(
+                        imageVector = Icons.Rounded.Lock,
+                        contentDescription = stringResource(R.string.ds_rotation_locked),
+                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-4).dp, y = (-4).dp).size(13.dp),
+                    )
+                }
+            }
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.ds_lock_rotation)) },
+                onClick = {
+                    onToggleRotationLock?.invoke()
+                    menuOpen = false
+                },
+                leadingIcon = {
+                    Icon(if (rotationLocked) Icons.Rounded.Lock else Icons.Rounded.LockOpen, contentDescription = null)
+                },
+                trailingIcon = { if (rotationLocked) Icon(Icons.Rounded.Check, contentDescription = null) },
+            )
+        }
     }
 }
 

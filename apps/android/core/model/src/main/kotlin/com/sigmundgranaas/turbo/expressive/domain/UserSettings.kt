@@ -34,6 +34,9 @@ data class UserSettings(
     val selectedCustomSourceId: String? = null,
     /** Tunable map-gesture feel (Settings → Gestures). See the map overhaul spec. */
     val gestures: GestureSettings = GestureSettings(),
+    /** Compass "Lock rotation": when on, gesture bearing changes are suppressed in both 2D and
+     *  3D (pitch stays free). Toggled from the compass long-press menu or Settings → Gestures. */
+    val rotationLocked: Boolean = false,
     /** Experimental features gated behind an explicit opt-in (off by default): the
      *  Trails and Clouds map layers only appear in the layers sheet when enabled. */
     val experimentalTrails: Boolean = false,

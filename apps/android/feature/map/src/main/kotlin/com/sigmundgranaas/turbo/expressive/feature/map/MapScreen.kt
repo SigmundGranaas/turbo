@@ -6,6 +6,7 @@ import com.sigmundgranaas.turbo.expressive.feature.map.route.CreateTrackPanel
 import com.sigmundgranaas.turbo.expressive.feature.map.route.CreateTrackUpdatingChip
 import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteCard
 import com.sigmundgranaas.turbo.expressive.feature.map.route.StopLabels
+import com.sigmundgranaas.turbo.expressive.feature.map.route.stopColor
 import com.sigmundgranaas.turbo.expressive.feature.map.route.TrackDetent
 import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteUiState
 import com.sigmundgranaas.turbo.expressive.feature.map.route.RouteViewModel
@@ -448,6 +449,14 @@ fun MapScreen(
     // Marker pending delete-confirmation (null = no dialog).
     // Marker whose "add to collection" picker is open (null = closed).
 
+    // Weather pins: keep each pin's cached forecast fresh so its on-map chip renders a live
+    // temp + condition. Only absent/stale pins fetch (pure decision), and only when online.
+    val weatherPinViewModel: com.sigmundgranaas.turbo.expressive.feature.conditions.WeatherPinViewModel = hiltViewModel()
+    val weatherPins = remember(state.markers) {
+        state.markers.filter { it.markerKind == com.sigmundgranaas.turbo.expressive.domain.MarkerKind.WeatherPin }
+    }
+    LaunchedEffect(weatherPins, isOffline) { weatherPinViewModel.refreshPins(weatherPins, online = !isOffline) }
+
     // Geotagged photos → clustered thumbnail pins on the map; tap a cluster → grid → viewer.
     val photosViewModel: com.sigmundgranaas.turbo.expressive.feature.photos.PhotosViewModel = hiltViewModel()
     val mapPhotos by photosViewModel.onMapPhotos.collectAsStateWithLifecycle()
@@ -657,6 +666,10 @@ fun MapScreen(
                     // The sun slider lights relief without unlocking tilt, so this
                     // tracks the 3D slider alone.
                     tiltEnabled = env.tiltEnabled,
+                    // Compass "Lock rotation" (persisted) suppresses gesture bearing changes in
+                    // both modes; the twist strictness comes from Settings → Gestures.
+                    rotationLocked = state.rotationLocked,
+                    rotationGateDeg = state.rotationGateDeg,
                     // Load the DEM heightmap whenever relief is needed — 3D terrain OR
                     // 2D sun-lit relief. Null → flat, no DEM fetches. Exaggeration is 0
                     // in the 2D-sun case (flat mesh, still lit).
@@ -669,6 +682,13 @@ fun MapScreen(
                     },
                     onPhotoPinClick = { pin -> ui.openCluster = photoClusters.firstOrNull { it.id == pin.id } },
                     waypoints = if (ui.trackMode == TrackMode.Route) toolWaypoints else emptyList(),
+                    // Colour each on-map via to match its stop-list dot (start green / end red /
+                    // via = coordinate-stable palette), so a stop reads the same in both places.
+                    waypointColors = if (ui.trackMode == TrackMode.Route) {
+                        toolWaypoints.mapIndexed { i, wp -> stopColor(i, toolWaypoints.lastIndex, wp) }
+                    } else {
+                        emptyList()
+                    },
                     selectedWaypoint = ui.selectedWaypoint,
                     onWaypointTap = { ui.selectedWaypoint = if (ui.selectedWaypoint == it) null else it },
                     onWaypointLongPress = { haptics.reject(); routeViewModel.removeWaypoint(it); ui.selectedWaypoint = null },
@@ -676,7 +696,15 @@ fun MapScreen(
                     onWaypointMoved = { i, p -> ui.selectedWaypoint = i; routeViewModel.moveWaypointTo(i, p) },
                     onWaypointDragEnd = { routeViewModel.endWaypointDrag() },
                     routeOrigin = if (ui.trackMode == TrackMode.Route) ui.routeOrigin else null,
-                    onMarkerClick = { marker -> ui.selectionState.select(markerSelection(marker)) },
+                    onMarkerClick = { marker ->
+                        // A weather pin opens its forecast detail; a plain marker opens the
+                        // selection card. (markerKind is the discriminator, not the icon.)
+                        if (marker.markerKind == com.sigmundgranaas.turbo.expressive.domain.MarkerKind.WeatherPin) {
+                            ui.forecastAt = marker.position
+                        } else {
+                            ui.selectionState.select(markerSelection(marker))
+                        }
+                    },
                     onMapLongClick = { p ->
                         val next = reduceMapPointCard(ui.pointCard, MapPointCardEvent.LongPress(p), trackModeActive = ui.trackMode != null)
                         if (next != ui.pointCard) haptics.longPress()
@@ -816,6 +844,8 @@ fun MapScreen(
                     following = state.following,
                     bearing = ui.bearing,
                     onCompass = { ui.controller?.resetNorth() },
+                    rotationLocked = state.rotationLocked,
+                    onToggleRotationLock = { viewModel.setRotationLocked(!state.rotationLocked) },
                     onLayers = { ui.showLayers = true },
                     onLocate = {
                         if (viewModel.hasLocationPermission()) {

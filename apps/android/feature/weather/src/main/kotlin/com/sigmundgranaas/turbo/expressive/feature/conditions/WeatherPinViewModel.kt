@@ -37,6 +37,39 @@ class WeatherPinViewModel @Inject constructor(
 
     private val now: Long get() = System.currentTimeMillis()
 
+    /** Pin ids with a fetch in flight, so a burst of marker emissions doesn't re-fetch the same pin. */
+    private val inFlight = mutableSetOf<String>()
+
+    /**
+     * Populate/refresh the cached forecast on each weather pin so the on-map chips can render a
+     * live temp + condition. Only pins the pure [weatherPinFetchDecision] marks `Fetch` (absent or
+     * stale, and online) actually hit MET; each fetch persists back onto the node so the glyph
+     * paints from cache thereafter (and stays put offline). Never throws.
+     */
+    fun refreshPins(pins: List<Marker>, online: Boolean) {
+        if (!online) return
+        pins.forEach { marker ->
+            val cacheAge = marker.forecastFetchedAtEpochMs?.let { (now - it).coerceAtLeast(0L) }
+            if (weatherPinFetchDecision(cacheAge, online) != WeatherPinFetch.Fetch) return@forEach
+            if (!inFlight.add(marker.id)) return@forEach
+            viewModelScope.launch {
+                try {
+                    when (val outcome = conditions.forPoint(marker.position)) {
+                        is Outcome.Success -> markers.upsert(
+                            marker.copy(
+                                forecast = WeatherSnapshot.from(outcome.value),
+                                forecastFetchedAtEpochMs = now,
+                            ),
+                        )
+                        is Outcome.Failure -> Unit
+                    }
+                } finally {
+                    inFlight.remove(marker.id)
+                }
+            }
+        }
+    }
+
     /**
      * Open a weather pin: render its cache immediately, then refresh if [online] and stale.
      * [online] is passed in (from the screen's connectivity) so the decision stays a driven,

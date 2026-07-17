@@ -53,6 +53,9 @@ interface SettingsRepository {
     suspend fun setExperimentalTrails(enabled: Boolean)
     suspend fun setExperimentalClouds(enabled: Boolean)
 
+    /** Persist the compass "Lock rotation" toggle (suppresses gesture bearing changes). */
+    suspend fun setRotationLocked(enabled: Boolean)
+
     /** Persist the map camera so reopening the app returns to where the user left it. */
     suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double)
 }
@@ -85,6 +88,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val GESTURE_FLING_HALF_LIFE_MS = androidx.datastore.preferences.core.longPreferencesKey("gesture_fling_half_life_ms")
         val EXPERIMENTAL_TRAILS = booleanPreferencesKey("experimental_trails")
         val EXPERIMENTAL_CLOUDS = booleanPreferencesKey("experimental_clouds")
+        val ROTATION_LOCKED = booleanPreferencesKey("rotation_locked")
     }
 
     override val settings: Flow<UserSettings> = context.settingsDataStore.data.map { prefs ->
@@ -115,6 +119,7 @@ class DataStoreSettingsRepository @Inject constructor(
             ),
             experimentalTrails = prefs[Keys.EXPERIMENTAL_TRAILS] ?: false,
             experimentalClouds = prefs[Keys.EXPERIMENTAL_CLOUDS] ?: false,
+            rotationLocked = prefs[Keys.ROTATION_LOCKED] ?: false,
         )
     }
 
@@ -205,6 +210,10 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setExperimentalClouds(enabled: Boolean) {
         context.settingsDataStore.edit { it[Keys.EXPERIMENTAL_CLOUDS] = enabled }
+    }
+
+    override suspend fun setRotationLocked(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.ROTATION_LOCKED] = enabled }
     }
 }
 

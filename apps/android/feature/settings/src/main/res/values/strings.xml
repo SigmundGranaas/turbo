@@ -42,6 +42,8 @@
     <string name="settings_gesture_rotation">Rotation strictness</string>
     <string name="settings_gesture_move_guard">Jitter tolerance</string>
     <string name="settings_gesture_flick">Flick damping</string>
+    <string name="settings_lock_rotation">Lock map rotation</string>
+    <string name="settings_lock_rotation_sub">Keep the map pointing north — gestures never rotate it</string>
     <string name="settings_experimental">Experimental</string>
     <string name="settings_experimental_sub">Unfinished features — may be rough</string>
     <string name="settings_experimental_trails">Hiking trails layer</string>

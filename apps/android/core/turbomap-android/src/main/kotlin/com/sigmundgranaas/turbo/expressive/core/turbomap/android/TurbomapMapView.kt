@@ -98,6 +98,8 @@ fun TurbomapMapView(
     photoPins: List<PhotoPin> = emptyList(),
     onPhotoPinClick: (PhotoPin) -> Unit = {},
     waypoints: List<LatLng> = emptyList(),
+    /** Per-waypoint pin colour (parallel to [waypoints]) so on-map vias match their stop-list dots. */
+    waypointColors: List<androidx.compose.ui.graphics.Color> = emptyList(),
     selectedWaypoint: Int? = null,
     onWaypointTap: (Int) -> Unit = {},
     onWaypointLongPress: (Int) -> Unit = {},
@@ -112,6 +114,13 @@ fun TurbomapMapView(
     // False → the flat 2D pan/zoom (pitch gestures rejected). The slider NEVER
     // forces a tilt itself — the camera only pitches when the user orbits.
     tiltEnabled: Boolean = false,
+    // Compass "Lock rotation" (persisted): when true, gesture bearing changes are suppressed
+    // in BOTH modes — the 2D twist never engages and the 3D orbit's horizontal (bearing)
+    // component is pinned; pitch stays free. See MapGestureDetector.detectMapGestures.
+    rotationLocked: Boolean = false,
+    // Twist (deg from gesture start) that must lead pinch/pan to engage a 2D bearing rotate —
+    // the Settings → Gestures "rotation strictness". Sampled once per gesture by the detector.
+    rotationGateDeg: Float = GestureConfig.DEFAULT_ROTATION_GATE_DEG,
     // DEM tile URL template (Mapbox-Terrain-RGB, `{z}/{x}/{y}`). When non-null the
     // ground displaces by real elevation. Present when 3D OR 2D sun-lit relief is on.
     demUrl: String? = null,
@@ -147,8 +156,10 @@ fun TurbomapMapView(
     // Latest tilt-enable flag read by the long-lived gesture lambda (pointerInput(Unit)
     // never restarts), so toggling 3D takes effect without recreating the detector.
     val tiltEnabledState = rememberUpdatedState(tiltEnabled)
-    // Same: the gesture lambda is captured once, so read the latest callback.
+    // Same: the gesture lambda is captured once, so read the latest callback / flags.
     val onUserPannedState = rememberUpdatedState(onUserPanned)
+    val rotationLockedState = rememberUpdatedState(rotationLocked)
+    val rotationGateDegState = rememberUpdatedState(rotationGateDeg)
 
     // Hard decoupling rule (Phase 1): the 3D slider must NEVER change the camera
     // pitch. Entering 3D only *unlocks* orbit gestures — it does not auto-tilt.
@@ -195,6 +206,8 @@ fun TurbomapMapView(
                             onUserPannedState.value()
                             controller.onOrbit(db, dp, fx, fy)
                         },
+                        rotationLocked = { rotationLockedState.value },
+                        rotationGateDeg = { rotationGateDegState.value },
                     )
                 }
                 .pointerInput(onMapTap, onMapLongClick) {
@@ -222,6 +235,7 @@ fun TurbomapMapView(
                 photoPins = photoPins,
                 onPhotoPinClick = onPhotoPinClick,
                 waypoints = waypoints,
+                waypointColors = waypointColors,
                 selectedWaypoint = selectedWaypoint,
                 onWaypointTap = onWaypointTap,
                 onWaypointLongPress = onWaypointLongPress,
