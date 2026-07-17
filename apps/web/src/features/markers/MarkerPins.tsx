@@ -18,12 +18,16 @@ export function MarkerPins({
 }) {
   useEffect(() => {
     setMapContent({
-      pins: markers.map((mk) => ({
-        id: mk.id,
-        lat: mk.lat,
-        lng: mk.lng,
-        color: kindForIcon(mk.icon).color,
-      })),
+      // Weather pins draw as live DOM chips (WeatherPinChips), not plain scene
+      // pins — so they're excluded here; Standard markers are unchanged.
+      pins: markers
+        .filter((mk) => mk.markerKind !== 'WeatherPin')
+        .map((mk) => ({
+          id: mk.id,
+          lat: mk.lat,
+          lng: mk.lng,
+          color: kindForIcon(mk.icon).color,
+        })),
       selectedPinId: selectedId,
     });
   }, [markers, selectedId]);

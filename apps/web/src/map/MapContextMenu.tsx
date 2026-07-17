@@ -30,6 +30,7 @@ export function MapContextMenu({
   dark,
   target,
   onNewMarker,
+  onWeatherPin,
   onRouteHere,
   onStartRoute,
   onForecast,
@@ -38,6 +39,7 @@ export function MapContextMenu({
   dark: boolean;
   target: ContextMenuTarget;
   onNewMarker: () => void;
+  onWeatherPin: () => void;
   onRouteHere: () => void;
   onStartRoute: () => void;
   onForecast: (name: string) => void;
@@ -81,13 +83,14 @@ export function MapContextMenu({
 
   const actions: Action[] = [
     { key: 'marker', label: 'New marker', icon: 'add_location_alt', primary: true, run: act(onNewMarker) },
+    { key: 'weather-pin', label: 'Weather pin', icon: 'device_thermostat', run: act(onWeatherPin) },
     { key: 'route', label: 'Route here', icon: 'navigation', run: act(onRouteHere) },
     { key: 'start', label: 'Start route here', icon: 'trip_origin', run: act(onStartRoute) },
   ];
 
   // Anchor near the press, but keep the whole card on-screen.
   const W = 248;
-  const H = 230;
+  const H = 282;
   const left = Math.max(8, Math.min(window.innerWidth - W - 8, target.x));
   const top = Math.max(8, Math.min(window.innerHeight - H - 8, target.y));
   const temp = wxQ.data ? `${Math.round(wxQ.data.now.tempC)}°` : wxQ.isLoading ? '…' : '—';

@@ -9,6 +9,7 @@ const camp: Marker = {
   description: 'by the river',
   icon: 'camping',
   version: 1,
+  markerKind: 'Standard',
 };
 
 /** Exporting markers (the user's goal): the file opens in GPS tools — GPX

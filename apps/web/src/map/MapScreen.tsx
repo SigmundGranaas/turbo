@@ -14,7 +14,7 @@ import { UserLocationLayer, RouteOverlay, MapPointMarkers, useMapPoints, usePane
 import { SunSlider, useSun } from '../features/sun';
 import { LayerPicker } from './LayerPicker';
 import { MapContextMenu, type ContextMenuTarget } from './MapContextMenu';
-import { MarkerPins, MarkerDetailPanel, MarkerEditorPanel, useMarkers, useDeleteMarker, useSelection, openMarkerDetail, openMarkerEditor, openNewMarker, closeMarker, reverseGeocode } from '../features/markers';
+import { MarkerPins, WeatherPinChips, MarkerDetailPanel, MarkerEditorPanel, useMarkers, useDeleteMarker, useCreateMarker, useWeatherPinForecasts, useSelection, openMarkerDetail, openMarkerEditor, openNewMarker, closeMarker, reverseGeocode, type Marker } from '../features/markers';
 import { useRouting, RouteController, RoutePlannerPanel, openRouting, closeRouting, ROUTE_PROFILES } from '../features/routing';
 import { useTracks, useDeleteTrack, useCreateTrack, PathsListPanel, PathDetailPanel, TrackEditorPanel, dashArrayFor, type Track } from '../features/tracks';
 import { useCollections, CollectionsListPanel, CollectionDetailPanel, CollectionPicker } from '../features/collections';
@@ -54,6 +54,7 @@ export function MapScreen() {
   const session = useSession();
   const markersQ = useMarkers();
   const del = useDeleteMarker();
+  const createMarker = useCreateMarker();
   const sel = useSelection();
   const paths = usePaths();
   const tracksQ = useTracks();
@@ -159,6 +160,9 @@ export function MapScreen() {
   };
 
   const markers = markersQ.data ?? [];
+  // Keep every dropped/open weather pin's cached forecast live (fetch when
+  // absent/stale + online, dedupe in-flight, persist onto the marker).
+  useWeatherPinForecasts(markers);
   const tracks = tracksQ.data ?? [];
   const collections = collectionsQ.data ?? [];
   const selectedMarker = sel.selectedId ? markers.find((m) => m.id === sel.selectedId) : undefined;
@@ -439,6 +443,24 @@ export function MapScreen() {
     openNewMarker(lat, lng, await reverseGeocode(lat, lng));
   };
 
+  // Drop a weather pin: a persisted marker (kind WeatherPin) at the point,
+  // named from a reverse geocode. It renders as a live chip and the refresh
+  // hook fetches + caches its forecast (online). Unlike a Standard marker this
+  // drops immediately — no editor sheet.
+  const dropWeatherPin = async (lat: number, lng: number) => {
+    useConditionsPanel.getState().close();
+    const name = (await reverseGeocode(lat, lng)) || 'Weather pin';
+    createMarker.mutate({ lat, lng, name, icon: 'mountain', markerKind: 'WeatherPin' });
+  };
+
+  // Tapping a weather-pin chip opens the point's forecast detail — the shared
+  // conditions panel for the pin's point (the chip itself stays the highlight).
+  const onWeatherPinTap = (m: Marker) => {
+    setCtxMenu(null);
+    useSelection.getState().clear();
+    showConditions(m.lat, m.lng, m.name);
+  };
+
   // Screen (CSS px) → geo, raycast onto the 3D relief so a click lands on the
   // mountainside the user actually sees in a tilted view — not the point
   // downhill where a flat-plane ray would reach sea level. Falls back to the
@@ -580,6 +602,7 @@ export function MapScreen() {
         />
       )}
       <MarkerPins markers={markers} selectedId={markerPanel ? sel.selectedId : undefined} />
+      <WeatherPinChips markers={markers} onTap={onWeatherPinTap} />
       <UserLocationLayer />
 
       {/* left: app-shell nav rail (desktop) */}
@@ -873,6 +896,7 @@ export function MapScreen() {
           dark={dark}
           target={ctxMenu}
           onNewMarker={() => void createMarkerLatLng(ctxMenu.lat, ctxMenu.lng)}
+          onWeatherPin={() => void dropWeatherPin(ctxMenu.lat, ctxMenu.lng)}
           onRouteHere={() =>
             useRouting.getState().active
               ? useRouting.getState().addWaypoint({ lat: ctxMenu.lat, lng: ctxMenu.lng })

@@ -1,9 +1,21 @@
 import { ApiError, apiFetch } from '../../api/client';
+import {
+  decodeWireIcon,
+  encodeWireIcon,
+  type MarkerKind,
+  type WeatherSnapshot,
+} from './weatherPin';
 
 /** A map marker / POI. Mirrors the geo `Location` aggregate
  *  (`/api/geo/Locations`): name/description/icon + a point + a version for
  *  optimistic concurrency. There is no server-side colour — the pin tint is
- *  derived from the activity kind (icon). See port doc 06. */
+ *  derived from the activity kind (icon). See port doc 06.
+ *
+ *  `markerKind` distinguishes a live weather pin from an ordinary POI. The geo
+ *  aggregate has no kind field, so it rides on `icon` over the wire (see the
+ *  wire-icon codec) and `icon` here is always the plain activity icon. A weather
+ *  pin caches its last forecast on the node (`forecast` + fetch timestamp) so it
+ *  renders instantly and offline-safe; that cache is client-side only. */
 export interface Marker {
   id: string;
   lat: number;
@@ -12,6 +24,9 @@ export interface Marker {
   description: string;
   icon: string;
   version: number;
+  markerKind: MarkerKind;
+  forecast?: WeatherSnapshot;
+  forecastFetchedAtEpochMs?: number;
 }
 
 interface LocationResponse {
@@ -21,15 +36,19 @@ interface LocationResponse {
   version: number;
 }
 
-const fromApi = (r: LocationResponse): Marker => ({
-  id: r.id,
-  lat: r.geometry.latitude,
-  lng: r.geometry.longitude,
-  name: r.display.name,
-  description: r.display.description ?? '',
-  icon: r.display.icon ?? '',
-  version: r.version,
-});
+const fromApi = (r: LocationResponse): Marker => {
+  const { activityIcon, markerKind } = decodeWireIcon(r.display.icon ?? '');
+  return {
+    id: r.id,
+    lat: r.geometry.latitude,
+    lng: r.geometry.longitude,
+    name: r.display.name,
+    description: r.display.description ?? '',
+    icon: activityIcon,
+    version: r.version,
+    markerKind,
+  };
+};
 
 export interface MarkerInput {
   lat: number;
@@ -37,6 +56,8 @@ export interface MarkerInput {
   name: string;
   icon: string;
   description?: string;
+  /** Defaults to `Standard`; a dropped weather pin passes `WeatherPin`. */
+  markerKind?: MarkerKind;
 }
 
 /** All of the signed-in user's markers. Returns `[]` when unauthenticated
@@ -55,7 +76,11 @@ export async function createMarker(input: MarkerInput): Promise<Marker> {
   const r = await apiFetch<LocationResponse>('/api/geo/Locations', {
     method: 'POST',
     body: JSON.stringify({
-      display: { name: input.name, description: input.description ?? '', icon: input.icon },
+      display: {
+        name: input.name,
+        description: input.description ?? '',
+        icon: encodeWireIcon(input.icon, input.markerKind ?? 'Standard'),
+      },
       geometry: { longitude: input.lng, latitude: input.lat },
     }),
   });
@@ -68,7 +93,7 @@ export async function updateMarker(m: Marker): Promise<Marker> {
     headers: { 'If-Match': String(m.version) },
     body: JSON.stringify({
       geometry: { longitude: m.lng, latitude: m.lat },
-      display: { name: m.name, description: m.description, icon: m.icon },
+      display: { name: m.name, description: m.description, icon: encodeWireIcon(m.icon, m.markerKind) },
     }),
   });
   return fromApi(r);
