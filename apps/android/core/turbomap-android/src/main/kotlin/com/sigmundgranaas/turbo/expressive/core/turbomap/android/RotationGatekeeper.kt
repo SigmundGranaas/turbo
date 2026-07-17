@@ -40,25 +40,35 @@ internal class RotationGatekeeper(
      * [pinchRatioFromStart] current spread ÷ start spread (1 = no pinch),
      * [panPxFromStart] centroid displacement from the start point (px).
      * Returns the (possibly newly-locked) verdict.
+     *
+     * The decision is DOMINANCE, not first-past-the-post: each candidate motion is
+     * normalised against its own engage-gate (twist/[rotationGateDeg],
+     * pinch/[pinchThreshold], pan/[panSlopPx]) and rotation wins only when the
+     * TWIST is the largest of the three once any of them reaches its gate. That
+     * matters because a real two-finger twist is never perfectly pivoted — the
+     * centroid always drifts a little (an asymmetric pivot) and the spread wobbles
+     * a percent or two. The old "twist crosses first, clean of ANY pan/pinch" rule
+     * meant that incidental centroid drift crossed the pan-slop before the twist
+     * reached its gate, so a deliberate rotation resolved to PanZoom and rotation
+     * was effectively unreachable. Dominance lets the twist win as long as it is
+     * the dominant motion, while a pan/pinch that only incidentally twists still
+     * resolves to PanZoom.
      */
     fun update(twistDegFromStart: Float, pinchRatioFromStart: Float, panPxFromStart: Float): TwoFingerVerdict {
         if (verdict != TwoFingerVerdict.Undecided) return verdict
-        if (rotationLocked) {
-            // Locked: only pan/zoom can ever engage; twist is inert.
-            if (abs(pinchRatioFromStart - 1f) >= pinchThreshold || panPxFromStart >= panSlopPx) {
-                verdict = TwoFingerVerdict.PanZoom
-            }
-            return verdict
-        }
-        val twistCrossed = abs(twistDegFromStart) >= rotationGateDeg
-        val pinchCrossed = abs(pinchRatioFromStart - 1f) >= pinchThreshold
-        val panCrossed = panPxFromStart >= panSlopPx
-        verdict = when {
-            // Rotation only if twist LEADS — clean of pinch and pan (a same-frame
-            // tie falls through to PanZoom, the conservative choice).
-            twistCrossed && !pinchCrossed && !panCrossed -> TwoFingerVerdict.Rotate
-            pinchCrossed || panCrossed -> TwoFingerVerdict.PanZoom
-            else -> TwoFingerVerdict.Undecided
+        // Locked (compass "Lock rotation" / rotation disabled): the twist can never
+        // lead, so zero its progress — only pan/pinch can engage, always PanZoom.
+        val twist = if (rotationLocked) 0f else abs(twistDegFromStart) / rotationGateDeg
+        val pinch = abs(pinchRatioFromStart - 1f) / pinchThreshold
+        val pan = panPxFromStart / panSlopPx
+        val lead = maxOf(twist, pinch, pan)
+        // No candidate has reached its gate yet — keep waiting.
+        if (lead < 1f) return TwoFingerVerdict.Undecided
+        // A gate was reached: rotate iff the twist is the dominant motion.
+        verdict = if (twist >= 1f && twist >= pinch && twist >= pan) {
+            TwoFingerVerdict.Rotate
+        } else {
+            TwoFingerVerdict.PanZoom
         }
         return verdict
     }
@@ -66,5 +76,47 @@ internal class RotationGatekeeper(
     companion object {
         const val DEFAULT_PINCH_THRESHOLD = 0.04f
         const val DEFAULT_PAN_SLOP_PX = 24f // ~8dp at mdpi; the detector passes a density-scaled value
+    }
+}
+
+/** The verdict for a 3D two-finger gesture: whether it orbits (pivots) or zooms. */
+internal enum class OrbitZoomVerdict { Undecided, Orbit, Zoom }
+
+/**
+ * The 3D counterpart to [RotationGatekeeper]: decides — once per two-finger
+ * gesture — whether the gesture ORBITS the camera (a centroid drag: horizontal →
+ * bearing, vertical → pitch) or ZOOMS it (a spread pinch), and LOCKS that verdict
+ * for the rest of the gesture. In 3D the two are SEPARATED — one two-finger
+ * gesture either pivots or zooms, never both at once (the previous behaviour, a
+ * drag that also zoomed on every frame, is the "I can still zoom, not just
+ * rotate" complaint). Same dominance rule as [RotationGatekeeper]: whichever
+ * normalised motion leads once a gate is reached wins; a tie favours Orbit
+ * because dragging to pivot is the primary 3D interaction and zoom should only
+ * take over when the pinch clearly dominates.
+ *
+ * Pure — fed accumulated deltas from gesture start; no Compose, no touch.
+ */
+internal class OrbitZoomGatekeeper(
+    /** Centroid travel (px) that counts as an orbit drag — the platform touch slop. */
+    private val dragGatePx: Float = RotationGatekeeper.DEFAULT_PAN_SLOP_PX,
+    /** Pinch magnitude (|ratio − 1|) that counts as a zoom. ~4%. */
+    private val pinchThreshold: Float = RotationGatekeeper.DEFAULT_PINCH_THRESHOLD,
+) {
+    private var verdict = OrbitZoomVerdict.Undecided
+    val current: OrbitZoomVerdict get() = verdict
+
+    /**
+     * Fold in the gesture's cumulative state since it started:
+     * [dragPxFromStart] centroid displacement from the start point (px),
+     * [pinchRatioFromStart] current spread ÷ start spread (1 = no pinch).
+     */
+    fun update(dragPxFromStart: Float, pinchRatioFromStart: Float): OrbitZoomVerdict {
+        if (verdict != OrbitZoomVerdict.Undecided) return verdict
+        val drag = dragPxFromStart / dragGatePx
+        val pinch = abs(pinchRatioFromStart - 1f) / pinchThreshold
+        val lead = maxOf(drag, pinch)
+        if (lead < 1f) return OrbitZoomVerdict.Undecided
+        verdict = if (drag >= pinch) OrbitZoomVerdict.Orbit else OrbitZoomVerdict.Zoom
+        return verdict
     }
 }

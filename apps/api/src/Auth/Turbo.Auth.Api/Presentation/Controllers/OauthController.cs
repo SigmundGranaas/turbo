@@ -36,15 +36,41 @@ namespace Turboapi.Auth.Presentation.Controllers
         }
 
         [HttpGet("{provider}/url")]
-        public IActionResult GetAuthorizationUrl(string provider, [FromQuery] string? state)
+        public IActionResult GetAuthorizationUrl(string provider, [FromQuery] string? state, [FromQuery] bool mobile = false)
         {
             var adapter = _providerAdapters.FirstOrDefault(p => p.ProviderName.Equals(provider, StringComparison.OrdinalIgnoreCase));
             if (adapter == null)
             {
                 return NotFound($"Provider '{provider}' not supported.");
             }
-            var url = adapter.GetAuthorizationUrl(state);
+            // Native (mobile) clients pass ?mobile=true so Google returns the code to
+            // the mobile-callback hop (which bounces it into the app), NOT the web
+            // callback that redirects to the web frontend. Web clients omit it.
+            var redirectOverride = mobile ? MobileRedirectUri(provider) : null;
+            var url = adapter.GetAuthorizationUrl(state, redirectOverride);
             return Ok(new { AuthorizationUrl = url });
+        }
+
+        /// <summary>
+        /// The MOBILE OAuth hop. Google redirects here (an https URL it will accept
+        /// as a redirect_uri for a Web client) with the authorization code; we bounce
+        /// it into the native app via its custom scheme (turbo://oauth?code=…). The
+        /// app then POSTs the code to <c>mobile-signin</c>, which exchanges it against
+        /// this SAME redirect_uri. No cookies, no token exchange happen here.
+        /// </summary>
+        [HttpGet("{provider}/mobile-callback")]
+        public IActionResult MobileCallback(string provider, [FromQuery] string? code, [FromQuery] string? state, [FromQuery] string? error)
+        {
+            var googleSettings = HttpContext.RequestServices.GetRequiredService<IOptions<GoogleAuthSettings>>().Value;
+            var scheme = string.IsNullOrWhiteSpace(googleSettings.MobileReturnScheme) ? "turbo://oauth" : googleSettings.MobileReturnScheme;
+
+            var query = new List<string>();
+            if (!string.IsNullOrEmpty(code)) query.Add($"code={Uri.EscapeDataString(code)}");
+            if (!string.IsNullOrEmpty(state)) query.Add($"state={Uri.EscapeDataString(state)}");
+            if (!string.IsNullOrEmpty(error)) query.Add($"error={Uri.EscapeDataString(error)}");
+            var sep = scheme.Contains('?') ? "&" : "?";
+            var target = query.Count > 0 ? $"{scheme}{sep}{string.Join("&", query)}" : scheme;
+            return Redirect(target);
         }
 
         /// <summary>
@@ -62,11 +88,13 @@ namespace Turboapi.Auth.Presentation.Controllers
             var command = new AuthenticateWithOAuthCommand(
                 request.Provider,
                 request.Code,
-                CreateCallbackRedirectUri(request.Provider),
+                // The code was obtained via the mobile-callback redirect_uri, so the
+                // exchange MUST present that same value (Google enforces the match).
+                MobileRedirectUri(request.Provider),
                 request.State);
 
             var result = await _authHandler.Handle(command, HttpContext.RequestAborted);
-            
+
             // This endpoint *only* returns JSON. It never sets cookies or redirects.
             return HandleResult(result);
         }
@@ -143,6 +171,23 @@ namespace Turboapi.Auth.Presentation.Controllers
             // This might need to be more dynamic if you add more providers.
             var googleSettings = HttpContext.RequestServices.GetRequiredService<IOptions<GoogleAuthSettings>>().Value;
             return googleSettings.RedirectUri;
+        }
+
+        /// <summary>
+        /// The redirect_uri used by BOTH the mobile authorization request and the
+        /// mobile-signin code exchange (Google requires them to be identical). Uses
+        /// the configured <see cref="GoogleAuthSettings.MobileRedirectUri"/>, else
+        /// derives the mobile-callback URL off the current request host so a missing
+        /// config still works in dev.
+        /// </summary>
+        private string MobileRedirectUri(string provider)
+        {
+            var googleSettings = HttpContext.RequestServices.GetRequiredService<IOptions<GoogleAuthSettings>>().Value;
+            if (!string.IsNullOrWhiteSpace(googleSettings.MobileRedirectUri))
+            {
+                return googleSettings.MobileRedirectUri;
+            }
+            return $"{Request.Scheme}://{Request.Host}/api/auth/oauth/{provider.ToLowerInvariant()}/mobile-callback";
         }
     }
 }

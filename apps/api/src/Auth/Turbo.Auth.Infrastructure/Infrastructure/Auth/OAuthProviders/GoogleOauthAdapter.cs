@@ -41,9 +41,12 @@ namespace Turboapi.Auth.Infrastructure.Auth.OAuthProviders
             }
         }
 
-        public string GetAuthorizationUrl(string? state = null, params string[]? scopes)
+        public string GetAuthorizationUrl(string? state = null, string? redirectUriOverride = null, params string[]? scopes)
         {
-            if (string.IsNullOrWhiteSpace(_settings.ClientId) || string.IsNullOrWhiteSpace(_settings.RedirectUri) || string.IsNullOrWhiteSpace(_settings.AuthorizationEndpoint))
+            // The mobile flow passes its own redirect_uri (the mobile-callback hop);
+            // web passes none and uses the configured default.
+            var redirectUri = string.IsNullOrWhiteSpace(redirectUriOverride) ? _settings.RedirectUri : redirectUriOverride;
+            if (string.IsNullOrWhiteSpace(_settings.ClientId) || string.IsNullOrWhiteSpace(redirectUri) || string.IsNullOrWhiteSpace(_settings.AuthorizationEndpoint))
             {
                 _logger.LogError("{ProviderName} adapter is not properly configured for GetAuthorizationUrl (ClientId, RedirectUri, or AuthorizationEndpoint missing).", ProviderName);
                 throw new InvalidOperationException($"{ProviderName} OAuth provider is not properly configured.");
@@ -52,7 +55,7 @@ namespace Turboapi.Auth.Infrastructure.Auth.OAuthProviders
             var scopesToUse = scopes != null && scopes.Length > 0 ? scopes : _settings.DefaultScopes;
             var queryParams = HttpUtility.ParseQueryString(string.Empty);
             queryParams["client_id"] = _settings.ClientId;
-            queryParams["redirect_uri"] = _settings.RedirectUri;
+            queryParams["redirect_uri"] = redirectUri;
             queryParams["response_type"] = "code";
             queryParams["scope"] = string.Join(" ", scopesToUse);
             if (!string.IsNullOrWhiteSpace(state))

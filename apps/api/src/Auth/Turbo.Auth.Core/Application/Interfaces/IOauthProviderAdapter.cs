@@ -19,9 +19,10 @@ namespace Turboapi.Auth.Application.Interfaces
         /// Generates the URL to redirect the user to for authorization at the OAuth provider.
         /// </summary>
         /// <param name="state">An optional opaque value used to maintain state between the request and callback.</param>
+        /// <param name="redirectUriOverride">Optional override for the redirect_uri (e.g. the mobile flow's redirect); null uses the configured default.</param>
         /// <param name="scopes">Optional scopes to request. If null or empty, default scopes from configuration will be used.</param>
         /// <returns>The authorization URL.</returns>
-        string GetAuthorizationUrl(string? state = null, params string[]? scopes);
+        string GetAuthorizationUrl(string? state = null, string? redirectUriOverride = null, params string[]? scopes);
 
         /// <summary>
         /// Exchanges an authorization code for OAuth tokens (access token, refresh token, ID token).

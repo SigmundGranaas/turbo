@@ -195,7 +195,13 @@ fun TurbomapMapView(
                             controller.onTransform(panX, panY, zoom, fx, fy)
                         },
                         onFling = { vx, vy ->
-                            onUserPannedState.value()
+                            // Only an actual fling (non-zero release velocity) is a manual
+                            // camera move — report it so the host releases follow + dismisses
+                            // the map-point card. EVERY tap and long-press also ends here with
+                            // a (0,0) rest (the detector's no-fling path); reporting that as a
+                            // pan would instantly dismiss the card the tap/long-press just
+                            // opened — the "taps and long-presses do nothing" regression.
+                            if (vx != 0f || vy != 0f) onUserPannedState.value()
                             controller.onFling(vx, vy)
                         },
                         onZoomFling = { zv, fx, fy -> controller.onZoomFling(zv, fx, fy) },

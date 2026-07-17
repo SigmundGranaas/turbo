@@ -40,7 +40,11 @@ class KtorAuthRepository @Inject constructor(
         authCall("$base/api/auth/auth/login", LoginRequest(email, password))
 
     override suspend fun googleAuthUrl(): Outcome<String> = runCatching {
-        val response = client.get("$base/api/auth/oauth/google/url")
+        // mobile=true → the server hands back a consent URL whose redirect_uri is the
+        // mobile-callback hop, which bounces the code into the app via turbo://oauth.
+        // Without it the server bakes in the WEB callback and login dead-ends on the
+        // web frontend (never returns to the app).
+        val response = client.get("$base/api/auth/oauth/google/url?mobile=true")
         if (!response.status.isSuccess()) throw AuthException("Couldn't start Google sign-in (${response.status.value})")
         response.body<OAuthUrlResponse>().authorizationUrl
     }.fold(

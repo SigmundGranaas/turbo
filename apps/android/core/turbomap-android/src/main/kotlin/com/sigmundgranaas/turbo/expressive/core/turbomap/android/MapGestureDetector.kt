@@ -33,13 +33,16 @@ internal const val MIN_FLING_VELOCITY_DP = 160f
 internal const val MOVE_SLOP_DP = 18f
 
 /**
- * **2D:** two-finger gestures pan + zoom, and — when the finger TWIST clearly leads (the
- * [RotationGatekeeper]'s sequence lock) — rotate the bearing about the centroid. A natural
- * pinch or pan never wobbles the bearing; a deliberate twist rotates. 2D never tilts.
+ * Both modes SEPARATE the two-finger gesture into a single intent, locked for the gesture:
  *
- * **3D:** the two-finger DRAG orbits the camera (never pans — panning is one-finger): the
- * centroid's horizontal drag rotates the bearing and its vertical drag tilts the pitch. The
- * finger TWIST does nothing. The spread still pinch-zooms about the centroid.
+ * **2D:** a two-finger gesture is EITHER pan+zoom OR twist-rotate (the [RotationGatekeeper]'s
+ * sequence lock) — never both. A natural pinch or pan never wobbles the bearing; a deliberate
+ * twist rotates the bearing about the centroid and does not also zoom. 2D never tilts.
+ *
+ * **3D:** a two-finger gesture is EITHER an orbit OR a zoom (the [OrbitZoomGatekeeper]'s
+ * sequence lock) — never both. A centroid DRAG orbits (horizontal → bearing, vertical →
+ * pitch); a spread pinch zooms. The finger TWIST does nothing; two fingers never pan
+ * (panning is one-finger).
  *
  * In **both** modes, `rotationLocked` (compass "Lock rotation") suppresses every bearing
  * change — the 2D twist and the horizontal component of the 3D orbit — while pitch stays free.
@@ -203,6 +206,9 @@ internal suspend fun PointerInputScope.detectMapGestures(
         // One gatekeeper per gesture: it locks its rotate-vs-pan-zoom verdict once and holds it
         // (the sequence lock). Fed accumulated two-finger deltas below; drives 2D only.
         val gate = RotationGatekeeper(rotationGateDeg = rotationGateDeg(), panSlopPx = panSlopPx, rotationLocked = locked)
+        // 3D counterpart: locks the two-finger gesture to EITHER orbit (drag) OR
+        // zoom (pinch) so the two are separated instead of both firing per frame.
+        val orbitGate = OrbitZoomGatekeeper(dragGatePx = panSlopPx)
         tracker.addPosition(first.uptimeMillis, first.position)
         val downPos = first.position
         var prevCount = 1
@@ -266,17 +272,28 @@ internal suspend fun PointerInputScope.detectMapGestures(
                 if (ratio != 1f) zoomTracker.addRatio(t, ratio)
 
                 if (gestureMode == MapGestureMode.ThreeD) {
-                    // 3D: the two-finger DRAG orbits the camera — horizontal drag rotates the
-                    // bearing, vertical drag tilts the pitch. Finger TWIST does nothing. Two
-                    // fingers never pan (panning is one-finger); the spread still pinch-zooms
-                    // about the centroid. Under rotation-lock the bearing is pinned; pitch is free.
-                    if (ratio != 1f) onTransform(0f, 0f, ratio, centroid.x, centroid.y)
-                    val dBearing = if (locked) 0f else pan.x * BEARING_PER_PX
-                    val dPitch = -pan.y * PITCH_PER_PX
-                    if (dBearing != 0f || dPitch != 0f) onOrbit(dBearing, dPitch, centroid.x, centroid.y)
+                    // 3D: the two-finger gesture is SEPARATED into orbit XOR zoom by a
+                    // sequence lock — a centroid DRAG orbits (horizontal → bearing, vertical
+                    // → pitch); a spread pinch zooms; neither leaks into the other. Finger
+                    // TWIST does nothing; two fingers never pan (panning is one-finger).
+                    // Under rotation-lock only the bearing is pinned — pitch stays free.
+                    when (orbitGate.update(
+                        dragPxFromStart = (centroid - twoFingerStartCentroid).getDistance(),
+                        pinchRatioFromStart = if (twoFingerStartSpread > 0f && spread > 0f) spread / twoFingerStartSpread else 1f,
+                    )) {
+                        OrbitZoomVerdict.Orbit -> {
+                            val dBearing = if (locked) 0f else pan.x * BEARING_PER_PX
+                            val dPitch = -pan.y * PITCH_PER_PX
+                            if (dBearing != 0f || dPitch != 0f) onOrbit(dBearing, dPitch, centroid.x, centroid.y)
+                        }
+                        OrbitZoomVerdict.Zoom -> if (ratio != 1f) onTransform(0f, 0f, ratio, centroid.x, centroid.y)
+                        // Still deciding: hold a frame or two until the lock resolves (the
+                        // gate crosses almost immediately, so this is imperceptible).
+                        OrbitZoomVerdict.Undecided -> Unit
+                    }
                 } else {
-                    // 2D: pan + zoom, plus twist-rotate when the gatekeeper says the twist leads.
-                    // Per-frame twist is only meaningful for exactly two fingers; 3+ is pan-zoom.
+                    // 2D: pan + zoom, OR twist-rotate — separated by the gatekeeper's sequence
+                    // lock. Per-frame twist is only meaningful for exactly two fingers; 3+ is pan-zoom.
                     var dTwistDeg = 0f
                     val verdict = if (count == 2) {
                         val angle = pairAngleRad(pressed)
@@ -292,15 +309,14 @@ internal suspend fun PointerInputScope.detectMapGestures(
                         TwoFingerVerdict.PanZoom
                     }
                     when (verdict) {
-                        // Twist leads → rotate the bearing about the centroid; the pinch still zooms.
-                        TwoFingerVerdict.Rotate -> {
-                            if (dTwistDeg != 0f) onOrbit(dTwistDeg, 0f, centroid.x, centroid.y)
-                            if (ratio != 1f) onTransform(0f, 0f, ratio, centroid.x, centroid.y)
-                        }
+                        // Twist leads → rotate the bearing ONLY (separated from zoom): a
+                        // locked-to-rotate gesture spins the bearing and nothing else; pinch
+                        // to zoom is its own pan-zoom gesture.
+                        TwoFingerVerdict.Rotate -> if (dTwistDeg != 0f) onOrbit(dTwistDeg, 0f, centroid.x, centroid.y)
                         // Decided pan-and-zoom (or 3+ fingers): the classic 2D grammar.
                         TwoFingerVerdict.PanZoom -> onTransform(pan.x, pan.y, ratio, centroid.x, centroid.y)
-                        // Still deciding: zoom only (both outcomes zoom) and hold pan/rotate one frame.
-                        TwoFingerVerdict.Undecided -> if (ratio != 1f) onTransform(0f, 0f, ratio, centroid.x, centroid.y)
+                        // Still deciding: hold until the sequence lock resolves (a frame or two).
+                        TwoFingerVerdict.Undecided -> Unit
                     }
                 }
 

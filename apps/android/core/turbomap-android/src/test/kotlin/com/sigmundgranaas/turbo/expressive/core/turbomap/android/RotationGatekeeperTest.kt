@@ -34,11 +34,29 @@ class RotationGatekeeperTest {
         assertEquals(TwoFingerVerdict.PanZoom, gate.update(twistDegFromStart = 40f, pinchRatioFromStart = 1.10f, panPxFromStart = 5f))
     }
 
-    /** A centroid pan that crosses first is pan-and-zoom, not rotation. */
+    /** A centroid pan that clearly dominates is pan-and-zoom, not rotation. */
     @Test
     fun `pan-first suppresses rotation`() {
         val gate = RotationGatekeeper(rotationGateDeg = 10f, panSlopPx = panSlop)
         assertEquals(TwoFingerVerdict.PanZoom, gate.update(twistDegFromStart = 2f, pinchRatioFromStart = 1.0f, panPxFromStart = 30f))
+    }
+
+    /**
+     * The regression that made 2D rotation unreachable: a real two-finger twist is
+     * never a perfect pivot — the centroid always drifts a little, often PAST the
+     * pan-slop, before the twist reaches its gate. The old "clean of any pan" rule
+     * then locked PanZoom and rotation never fired. Dominance fixes it: when the
+     * twist is the dominant motion it rotates even though the incidental centroid
+     * drift has crossed the pan-slop.
+     */
+    @Test
+    fun `a dominant twist rotates even when incidental centroid drift crossed the pan-slop`() {
+        val gate = RotationGatekeeper(rotationGateDeg = 10f, panSlopPx = panSlop)
+        // twist 11° (normalised 1.1) leads the 26 px drift (normalised 1.08), no pinch.
+        assertEquals(
+            TwoFingerVerdict.Rotate,
+            gate.update(twistDegFromStart = 11f, pinchRatioFromStart = 1.0f, panPxFromStart = 26f),
+        )
     }
 
     /** When twist and pinch cross in the SAME frame, we can't tell which led —
