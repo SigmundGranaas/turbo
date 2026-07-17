@@ -6,10 +6,10 @@ import type { TurboMap } from 'turbomap-web';
 export interface GestureCallbacks {
   /** The live engine, or null before it boots. */
   getMap: () => TurboMap | null;
-  /** Current 3D state (so a tilt/orbit gesture knows whether to request 3D). */
-  is3d: () => boolean;
-  /** Request a flip to 3D — fired when an orbit/tilt gesture begins in 2D. */
-  onEnter3d: () => void;
+  /** Whether pitch/orbit gestures are accepted (the derived `tiltEnabled` — true
+   *  only when the 3D slider is > 0). When false, orbit/tilt input is a no-op and
+   *  two-finger drag pans instead of orbiting: the map is locked top-down. */
+  tiltEnabled: () => boolean;
   /** A click (mouse) / tap (touch) that wasn't a drag, double, or long-press. */
   onTap: (x: number, y: number, pointerType: string) => void;
   /** A touch long-press (~500ms held still) — the mobile "add marker" gesture. */
@@ -126,8 +126,8 @@ export function attachMapGestures(
     const [a, b] = sortedTwo();
     snapAx = a.x; snapAy = a.y; snapBx = b.x; snapBy = b.y;
     // Sample the mode once: like Android, a mid-gesture 2D↔3D flip can't change
-    // whether the two-finger drag pans (2D) or orbits (3D).
-    twoIs3d = cb.is3d();
+    // whether the two-finger drag pans (tilt locked) or orbits (tilt enabled).
+    twoIs3d = cb.tiltEnabled();
     pinchZoom = 0;
     pinchV = [{ t: now(), z: 0 }];
   };
@@ -142,9 +142,14 @@ export function attachMapGestures(
   const onDown = (e: PointerEvent) => {
     canvas.focus?.();
     const map = cb.getMap();
-    // Mouse orbit/tilt — armed only after real movement (a bare right-click
-    // must NOT flip into 3D).
+    // Mouse orbit/tilt — armed only after real movement (a bare right-click must
+    // NOT tilt). Locked entirely when tilt is disabled (2D): swallow the event so
+    // the map stays top-down and no context menu pops.
     if (wantsOrbit(e)) {
+      if (!cb.tiltEnabled()) {
+        e.preventDefault();
+        return;
+      }
       orbitId = e.pointerId;
       orbitPrevX = e.clientX;
       orbitPrevY = e.clientY;
@@ -191,7 +196,6 @@ export function attachMapGestures(
       if (!orbitArmed) {
         if (Math.hypot(e.clientX - orbitStartX, e.clientY - orbitStartY) < ORBIT_ARM) return;
         orbitArmed = true;
-        if (!cb.is3d()) cb.onEnter3d();
       }
       // drag right → rotate the map the way the drag points (grab-and-turn, like
       // Google/Apple), drag up → tilt toward horizon, pivot under cursor.
@@ -364,11 +368,13 @@ export function attachMapGestures(
     const cx = (canvas.clientWidth / 2) * dpr;
     const cy = (canvas.clientHeight / 2) * dpr;
     let handled = true;
+    // Shift+arrows rotate/tilt — only when tilt is enabled (3D). Locked ⇒ pan.
+    const tilt = cb.tiltEnabled();
     switch (e.key) {
-      case 'ArrowUp': if (e.shiftKey) map.orbit_around(0, 6, cx, cy); else map.pan_by_pixels(0, PAN); break;
-      case 'ArrowDown': if (e.shiftKey) map.orbit_around(0, -6, cx, cy); else map.pan_by_pixels(0, -PAN); break;
-      case 'ArrowLeft': if (e.shiftKey) map.orbit_around(-10, 0, cx, cy); else map.pan_by_pixels(PAN, 0); break;
-      case 'ArrowRight': if (e.shiftKey) map.orbit_around(10, 0, cx, cy); else map.pan_by_pixels(-PAN, 0); break;
+      case 'ArrowUp': if (e.shiftKey && tilt) map.orbit_around(0, 6, cx, cy); else map.pan_by_pixels(0, PAN); break;
+      case 'ArrowDown': if (e.shiftKey && tilt) map.orbit_around(0, -6, cx, cy); else map.pan_by_pixels(0, -PAN); break;
+      case 'ArrowLeft': if (e.shiftKey && tilt) map.orbit_around(-10, 0, cx, cy); else map.pan_by_pixels(PAN, 0); break;
+      case 'ArrowRight': if (e.shiftKey && tilt) map.orbit_around(10, 0, cx, cy); else map.pan_by_pixels(-PAN, 0); break;
       case '+': case '=': map.zoom_around_animated(1.6, cx, cy, 200); break;
       case '-': case '_': map.zoom_around_animated(1 / 1.6, cx, cy, 200); break;
       case '0': {

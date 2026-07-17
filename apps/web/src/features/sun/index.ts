@@ -1,5 +1,7 @@
-/** `sun` feature slice — time-of-day sun-lighting + cast shadows on the 3D
- *  terrain. Public API: the `useSun()` tool hook (on/hour/toggle/setHour) and
- *  the `<SunSlider>` control. Owns its on/off + time-of-day state. */
+/** `sun` feature slice — the map's terrain + light "control center". The two
+ *  layers-sheet sliders (3D terrain + Sun) reduce to a scene environment via
+ *  `deriveMapEnvironment`; this slice applies the sun-lighting side-effects and
+ *  exposes the derived env + setters. Public API: the `useSun()` hook and the
+ *  bottom `<SunSlider>` time scrubber. Neither slider ever moves the camera. */
 export { useSun } from './useSun';
-export { SunSlider } from './SunSlider';
+export { SunSlider, sunLevelToHour } from './SunSlider';

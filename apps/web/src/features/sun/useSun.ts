@@ -1,64 +1,68 @@
-import { useMapEngine } from '../../map-core';
-import { setMapEnvironment } from '../../map-core';
+import { useEffect } from 'react';
+import { deriveMapEnvironment, setMapEnvironment, type DerivedEnv } from '../../map-core';
 import { useUiStore } from '../../store/uiStore';
-import { useSunStore, nowHour } from './sunStore';
+import { useSunStore } from './sunStore';
 
-interface Cam {
-  lat: number;
-  lng: number;
-  zoom: number;
-  pitch: number;
-  bearing: number;
+/** Cast-shadow strength while the sun is on — strong enough to read on relief
+ *  (matches Android's `SUN_MODE_SHADOW_STRENGTH`). */
+const SUN_MODE_SHADOW_STRENGTH = 0.85;
+
+/** UTC seconds for today's date at a fractional local `hour`. The engine solves
+ *  the sun's azimuth/altitude from this instant at the camera location. */
+function unixForHourToday(hour: number): number {
+  const d = new Date();
+  d.setHours(Math.floor(hour), Math.round((hour - Math.floor(hour)) * 60), 0, 0);
+  return d.getTime() / 1000;
 }
 
-/** The sun tool's behaviour: toggle sun-mode and sweep the time-of-day, applied
- *  to the live engine. Turning sun on ensures 3D (sun-lighting needs relief) and
- *  enables cast shadows; turning it off clears both. Reads the engine from the
- *  kernel context — no prop-drilled map handle. */
-export function useSun() {
-  const engine = useMapEngine();
-  const on = useSunStore((s) => s.on);
-  const hour = useSunStore((s) => s.hour);
+/**
+ * The map's "control center": the two layers-sheet sliders (3D terrain + Sun)
+ * reduced to a derived scene environment, with the lighting side-effects applied
+ * to the live scene.
+ *
+ * The **hard decoupling rule** lives here by omission: this hook never touches
+ * the camera. Turning the sun on lights the relief top-down; turning 3D on only
+ * unlocks tilt *gestures*. Neither slider sets a pitch — that's the caller's job,
+ * and only in response to a gesture. Mirrors Android's `mapEnvironment` +
+ * `DriveSunMode` split.
+ */
+export function useSun(): {
+  threeDLevel: number;
+  sunLevel: number;
+  env: DerivedEnv;
+  setThreeDLevel: (v: number) => void;
+  setSunLevel: (v: number) => void;
+} {
+  const threeDLevel = useUiStore((s) => s.threeDLevel);
+  const sunLevel = useSunStore((s) => s.level);
+  const env = deriveMapEnvironment(threeDLevel, sunLevel);
 
-  // Apply a time-of-day (hours past local midnight) as the engine sun time.
-  const applyHour = (h: number) => {
-    if (!engine) return;
-    const d = new Date();
-    d.setHours(Math.floor(h), Math.round((h - Math.floor(h)) * 60), 0, 0);
-    setMapEnvironment({ lighting: { mode: 'time-tracked', unix_seconds: d.getTime() / 1000 } });
-  };
-
-  const toggle = () => {
-    if (!engine) return;
-    const next = !useSunStore.getState().on;
-    if (next) {
-      // Sun-lighting needs relief to read — ensure 3D first (tilt + terrain).
-      if (!useUiStore.getState().threeD) {
-        try {
-          const c = JSON.parse(engine.camera_json()) as Cam;
-          engine.set_camera(c.lat, c.lng, c.zoom, 60, c.bearing);
-        } catch {
-          /* camera not ready */
-        }
-        useUiStore.getState().setThreeD(true);
-      }
-      const h = nowHour(); // start at the real clock, then the slider sweeps it
-      useSunStore.getState().setHour(h);
-      applyHour(h);
-      // Cast shadows (peaks shadow the valleys) — what makes relief read as
-      // distinct, like the native app. Only on in sun mode.
-      setMapEnvironment({ 'terrain-shadows': 0.7 });
+  // Drive the scene lighting from the derived sun position. Sun on ⇒ time-tracked
+  // lighting raked to `sunHour` + cast shadows + terrain-lit relief. Sun off ⇒
+  // default lighting, no shadows, and the bare bright basemap draws over any 3D
+  // relief (the heavy per-fragment shading path is skipped — a big perf win).
+  // Runs purely off the reduced env — no camera involved.
+  useEffect(() => {
+    if (env.sunHour != null) {
+      setMapEnvironment({
+        lighting: { mode: 'time-tracked', unix_seconds: unixForHourToday(env.sunHour) },
+        'terrain-shadows': SUN_MODE_SHADOW_STRENGTH,
+        'terrain-lit': true,
+      });
     } else {
-      setMapEnvironment({ lighting: { mode: 'default' } });
-      setMapEnvironment({ 'terrain-shadows': 0 });
+      setMapEnvironment({
+        lighting: { mode: 'default' },
+        'terrain-shadows': 0,
+        'terrain-lit': false,
+      });
     }
-    useSunStore.getState().setOn(next);
-  };
+  }, [env.sunHour]);
 
-  const setHour = (h: number) => {
-    useSunStore.getState().setHour(h);
-    applyHour(h);
+  return {
+    threeDLevel,
+    sunLevel,
+    env,
+    setThreeDLevel: (v) => useUiStore.getState().setThreeDLevel(v),
+    setSunLevel: (v) => useSunStore.getState().setLevel(v),
   };
-
-  return { on, hour, toggle, setHour };
 }

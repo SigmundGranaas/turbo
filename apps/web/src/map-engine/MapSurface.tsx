@@ -14,18 +14,20 @@ export interface CameraInit {
 
 interface Props {
   base?: BaseLayerId;
-  /** 3D mode — adds the DEM terrain to the scene (relief + sun-lit ground) and
-   *  enables orbit/tilt gestures. In 2D the map stays flat (no terrain shading,
-   *  exact overlay registration). */
-  threeD?: boolean;
+  /** Whether the DEM terrain is in the scene (the derived `demPresent`): relief +
+   *  sun-lit ground. True for 3D and for the 2D sun-lit top-down case; false for
+   *  a plain flat 2D map (no terrain shading, exact overlay registration). */
+  demPresent?: boolean;
+  /** Terrain vertical exaggeration (the derived value) applied to the DEM mesh. */
+  exaggeration?: number;
+  /** Whether pitch/orbit gestures are accepted (the derived `tiltEnabled` — true
+   *  only in 3D). When false the map is locked top-down; two-finger drag pans. */
+  tiltEnabled?: boolean;
   camera?: CameraInit;
   /** Called once the GPU map is live (for wiring overlays/controls later). */
   onReady?: (map: TurboMap) => void;
   /** Called with a human-readable reason if WebGPU/init fails. */
   onError?: (message: string) => void;
-  /** Fired when an orbit/tilt gesture starts while in 2D — the host flips to
-   *  3D (loads terrain) so the tilt has relief to orbit around. */
-  onEnter3d?: () => void;
   /** A click (mouse) / tap (touch) on the map that wasn't a drag/double/
    *  long-press. `pointerType` lets the host branch (mouse=add, touch=select).
    *  Coordinates are CSS px. */
@@ -53,19 +55,21 @@ function ensureWasm(): Promise<unknown> {
  *  analogue of Android's `TurbomapMapView` — a thin host around the shared
  *  engine. Everything map-visual lives in the engine; this component only feeds
  *  it input + tiles and pumps frames. */
-export function MapSurface({ base = 'norgeskart', threeD = false, camera, onReady, onError, onEnter3d, onTap, onLongPress, onOrbit }: Props) {
+export function MapSurface({ base = 'norgeskart', demPresent = false, exaggeration = 6, tiltEnabled = false, camera, onReady, onError, onTap, onLongPress, onOrbit }: Props) {
   const publish = useMapEnginePublisher();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mapRef = useRef<TurboMap | null>(null);
   const loaderRef = useRef<TileLoader | null>(null);
   const baseRef = useRef<BaseLayerId>(base);
   baseRef.current = base;
-  // Latest 3D state, read inside the init closure + gesture handlers (which are
-  // set up once and must see the current value, not the mount-time capture).
-  const threeDRef = useRef<boolean>(threeD);
-  threeDRef.current = threeD;
-  const onEnter3dRef = useRef<(() => void) | undefined>(onEnter3d);
-  onEnter3dRef.current = onEnter3d;
+  // Latest derived-env fields, read inside the init closure + gesture handlers
+  // (set up once, so they must see the current value, not the mount-time capture).
+  const demRef = useRef<boolean>(demPresent);
+  demRef.current = demPresent;
+  const exagRef = useRef<number>(exaggeration);
+  exagRef.current = exaggeration;
+  const tiltRef = useRef<boolean>(tiltEnabled);
+  tiltRef.current = tiltEnabled;
   const onTapRef = useRef<Props['onTap']>(onTap);
   onTapRef.current = onTap;
   const onLongPressRef = useRef<Props['onLongPress']>(onLongPress);
@@ -129,13 +133,13 @@ export function MapSurface({ base = 'norgeskart', threeD = false, camera, onRead
       }
 
       const b0 = baseRef.current;
-      map.apply_scene(JSON.stringify(buildBaseScene(b0, threeDRef.current)));
+      map.apply_scene(JSON.stringify(buildBaseScene(b0, demRef.current, exagRef.current)));
       // Environment changes (sun mode, haze, shadows) and content changes
       // (route lines, pins, the location fix — plan P6.3) re-apply the scene —
       // ONE content plane; the engine diffs so unchanged layers are no-ops.
       const reapply = () => {
         mapRef.current?.apply_scene(
-          JSON.stringify(buildBaseScene(baseRef.current, threeDRef.current)),
+          JSON.stringify(buildBaseScene(baseRef.current, demRef.current, exagRef.current)),
         );
       };
       onEnvironmentChange(reapply);
@@ -176,8 +180,7 @@ export function MapSurface({ base = 'norgeskart', threeD = false, camera, onRead
     // `map` binding live (null until boot finishes).
     const detachGestures = attachMapGestures(canvas, dpr, {
       getMap: () => map,
-      is3d: () => threeDRef.current,
-      onEnter3d: () => onEnter3dRef.current?.(),
+      tiltEnabled: () => tiltRef.current,
       onTap: (x, y, t) => onTapRef.current?.(x, y, t),
       onLongPress: (x, y) => onLongPressRef.current?.(x, y),
       onOrbit: (a) => onOrbitRef.current?.(a),
@@ -220,16 +223,16 @@ export function MapSurface({ base = 'norgeskart', threeD = false, camera, onRead
     // re-init, so the camera position is preserved.
   }, [camera, onReady, onError]);
 
-  // Re-apply the scene when the base layer OR 3D state changes: repoint the
-  // tile fetcher + rebuild the scene (terrain is added only in 3D). Camera is
-  // preserved. No-op until the map has booted.
+  // Re-apply the scene when the base layer OR the derived terrain state changes:
+  // repoint the tile fetcher + rebuild the scene (DEM added when demPresent, at
+  // the derived exaggeration). Camera is preserved. No-op until the map booted.
   useEffect(() => {
     const map = mapRef.current;
     const loader = loaderRef.current;
     if (!map || !loader) return;
     loader.setTemplates(templatesFor(base));
-    map.apply_scene(JSON.stringify(buildBaseScene(base, threeD)));
-  }, [base, threeD]);
+    map.apply_scene(JSON.stringify(buildBaseScene(base, demPresent, exaggeration)));
+  }, [base, demPresent, exaggeration]);
 
   const isWebGpu = error?.toLowerCase().includes('webgpu');
   return (

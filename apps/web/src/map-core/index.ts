@@ -16,6 +16,12 @@ export {
   type MapEnvironment,
 } from './environment';
 export {
+  deriveMapEnvironment,
+  DEFAULT_3D_DETENT,
+  MAX_3D_EXAGGERATION,
+  type DerivedEnv,
+} from './mapEnvironment';
+export {
   currentMapContent,
   onMapContentChange,
   setMapContent,

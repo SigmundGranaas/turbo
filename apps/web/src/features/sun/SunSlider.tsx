@@ -1,19 +1,31 @@
 import { Glass } from '../../ui/Glass';
 
-/** Time-of-day slider shown while Sun mode is on. Drives the scene
- *  environment's time-tracked lighting so the user can sweep the light from
- *  dawn to dusk instead of being stuck at the real-clock time (which can be
- *  dark). */
+/** Dawn/dusk arc the normalized sun level sweeps — mirrors the reducer's
+ *  `SUN_HOUR_DAWN..SUN_HOUR_DUSK` so the label the user reads matches the sun
+ *  position the scene is actually lit by. */
+const SUN_HOUR_DAWN = 4;
+const SUN_HOUR_DUSK = 22;
+
+/** Hours-past-midnight for a normalized sun level `[0,1]`. */
+export function sunLevelToHour(level: number): number {
+  return SUN_HOUR_DAWN + level * (SUN_HOUR_DUSK - SUN_HOUR_DAWN);
+}
+
+/** Bottom-centred time-of-day scrubber shown while the Sun slider is on. Drives
+ *  the normalized sun level (the layers-sheet slider drives the same state), so
+ *  the user can rake the light from dawn to dusk. Moving it moves the sun's
+ *  position/time — never the camera. */
 export function SunSlider({
   dark,
-  hour,
+  level,
   onChange,
 }: {
   dark: boolean;
-  /** Hours past local midnight, 0–24 (fractional). */
-  hour: number;
-  onChange: (hour: number) => void;
+  /** Normalized sun level, 0–1. */
+  level: number;
+  onChange: (level: number) => void;
 }) {
+  const hour = sunLevelToHour(level);
   const hh = Math.floor(hour) % 24;
   const mm = Math.round((hour - Math.floor(hour)) * 60);
   const label = `${String(hh).padStart(2, '0')}:${String(mm % 60).padStart(2, '0')}`;
@@ -31,9 +43,9 @@ export function SunSlider({
       <input
         type="range"
         min={0}
-        max={24}
-        step={0.25}
-        value={hour}
+        max={1}
+        step={0.01}
+        value={level}
         onChange={(e) => onChange(parseFloat(e.target.value))}
         aria-label="Time of day"
         style={{ flex: 1, accentColor: 'var(--primary)', cursor: 'pointer' }}

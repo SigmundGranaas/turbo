@@ -10,7 +10,7 @@ import { useToast } from '../store/toast';
 import { searchPlaces, searchAddresses, searchKommuner, type PlaceHit } from '../api/places';
 import { parseCoord } from '../geo';
 import { MapSurface } from '../map-engine';
-import { UserLocationLayer, RouteOverlay, MapPointMarkers, useMapPoints, usePanelHost } from '../map-core';
+import { UserLocationLayer, RouteOverlay, MapPointMarkers, useMapPoints, usePanelHost, DEFAULT_3D_DETENT } from '../map-core';
 import { SunSlider, useSun } from '../features/sun';
 import { LayerPicker } from './LayerPicker';
 import { MapContextMenu, type ContextMenuTarget } from './MapContextMenu';
@@ -43,8 +43,10 @@ interface Cam {
  *  overlay + side panels, and the routing tool. */
 export function MapScreen() {
   const base = useUiStore((s) => s.baseLayer);
-  const threeD = useUiStore((s) => s.threeD);
   const layers = useUiStore((s) => s.layers);
+  // The map's terrain + light "control center": the two layers-sheet sliders
+  // (3D terrain + Sun) reduced to a scene environment. `sun.env` carries no
+  // camera field — the hard decoupling rule (neither slider moves the camera).
   const sun = useSun();
   const following = useUiStore((s) => s.following);
   const activePanel = usePanelHost((s) => s.active);
@@ -221,14 +223,23 @@ export function MapScreen() {
     m.set_viewport_inset_right(!isMobile && panelShown ? 468 : 0);
   }, [panelShown, isMobile]);
 
-  // Terrain sun-lighting (Lambertian shading + cast shadows + haze) belongs to
-  // sun mode. Plain 3D draws the bare bright basemap over the relief — so a
-  // 2D→3D switch doesn't darken the scene, and the heavy per-fragment shading
-  // path is skipped (big perf win). No-op in 2D (no DEM). Re-applied when sun
-  // toggles or the engine boots.
+  // Leaving 3D (the 3D slider dragged back to 0) flattens the view to top-down —
+  // the ONLY camera move either slider triggers, and it's a flatten-on-exit, not
+  // an auto-tilt. Enabling 3D never tilts (the user tilts by gesture); enabling
+  // sun never tilts (2D sun is lit top-down). When tilt is re-locked we drop any
+  // leftover pitch so the map can't be stuck tilted with gestures locked.
+  const tiltEnabled = sun.env.tiltEnabled;
   useEffect(() => {
-    setMapEnvironment({ 'terrain-lit': sun.on });
-  }, [sun.on, ready]);
+    if (tiltEnabled) return;
+    const m = mapRef.current;
+    if (!m) return;
+    try {
+      const c = JSON.parse(m.camera_json()) as Cam;
+      if (c.pitch > 0) m.set_camera(c.lat, c.lng, c.zoom, 0, c.bearing);
+    } catch {
+      /* camera not ready */
+    }
+  }, [tiltEnabled, ready]);
 
   // Far-distance atmospheric haze (aerial perspective) — opt-in via Settings,
   // off by default. No-op in 2D (no DEM); re-applied when toggled or on boot.
@@ -288,9 +299,10 @@ export function MapScreen() {
     const saved = useUiStore.getState().camera;
     if (saved) {
       // Restore the full pose — `create` only used lat/lng/zoom. If it was a 3D
-      // view, flip threeD on so the terrain scene loads to match the pitch.
+      // view, raise the 3D slider so the terrain scene loads + tilt stays
+      // unlocked to match the restored pitch.
       m.set_camera(saved.lat, saved.lng, saved.zoom, saved.pitch, saved.bearing);
-      if (saved.pitch > 0 && !useUiStore.getState().threeD) useUiStore.getState().setThreeD(true);
+      if (saved.pitch > 0 && useUiStore.getState().threeDLevel === 0) useUiStore.getState().setThreeDLevel(DEFAULT_3D_DETENT);
     } else if ('geolocation' in navigator) {
       // First-ever load: ease to the user's location (stays at the default if
       // permission is denied / unavailable).
@@ -342,14 +354,6 @@ export function MapScreen() {
     const dpr = DPR();
     // Eased zoom about the viewport centre so the +/- buttons glide.
     m.zoom_around_animated(factor, (window.innerWidth * dpr) / 2, (window.innerHeight * dpr) / 2, 260);
-  };
-  const toggle3d = () => {
-    const m = mapRef.current;
-    const c = cam();
-    if (!m || !c) return;
-    const next = !threeD;
-    m.set_camera(c.lat, c.lng, c.zoom, next ? 60 : 0, c.bearing);
-    useUiStore.getState().setThreeD(next);
   };
   const recenter = () => {
     const m = mapRef.current;
@@ -556,10 +560,11 @@ export function MapScreen() {
     <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: 'var(--surface)' }}>
       <MapSurface
         base={base}
-        threeD={threeD}
+        demPresent={sun.env.demPresent}
+        exaggeration={sun.env.exaggeration}
+        tiltEnabled={sun.env.tiltEnabled}
         camera={initialCamera}
         onReady={onReady}
-        onEnter3d={() => useUiStore.getState().setThreeD(true)}
         onTap={onMapTap}
         onLongPress={onMapLongPress}
       />
@@ -677,17 +682,19 @@ export function MapScreen() {
                 useUiStore.getState().setBaseLayer(id);
                 useUiStore.getState().setLayers(false);
               }}
+              threeDLevel={sun.threeDLevel}
+              onThreeDLevel={sun.setThreeDLevel}
+              sunLevel={sun.sunLevel}
+              onSunLevel={sun.setSunLevel}
             />
           </div>
         )}
         <MapRail
           dark={dark}
           getBearing={() => cam()?.bearing ?? 0}
-          state={{ layers, is3d: threeD, sun: sun.on, following }}
+          state={{ layers, following }}
           on={{
             onLayers: () => useUiStore.getState().setLayers(!layers),
-            onToggle3d: toggle3d,
-            onSun: sun.toggle,
             onRecenter: recenter,
             onCompass: resetNorth,
             onZoomIn: () => zoom(1.4),
@@ -719,9 +726,11 @@ export function MapScreen() {
         </div>
       )}
 
-      {/* sun time-of-day slider — only while Sun mode is on; bottom-centred,
-          lifted clear of the mobile nav. Hidden under a mobile sheet. */}
-      {sun.on && !(isMobile && panelShown) && (
+      {/* sun time-of-day scrubber — only while the Sun slider is on; bottom-
+          centred, lifted clear of the mobile nav. Drives the same sun level the
+          layers-sheet slider does (moving it rakes the light, never the camera).
+          Hidden under a mobile sheet. */}
+      {sun.sunLevel > 0 && !(isMobile && panelShown) && (
         <div
           style={{
             position: 'absolute',
@@ -735,7 +744,7 @@ export function MapScreen() {
           }}
         >
           <div style={{ pointerEvents: 'auto' }}>
-            <SunSlider dark={dark} hour={sun.hour} onChange={sun.setHour} />
+            <SunSlider dark={dark} level={sun.sunLevel} onChange={sun.setSunLevel} />
           </div>
         </div>
       )}

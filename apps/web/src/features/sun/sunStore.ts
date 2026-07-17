@@ -1,25 +1,16 @@
 import { create } from 'zustand';
 
-const nowHour = (): number => {
-  const d = new Date();
-  return d.getHours() + d.getMinutes() / 60;
-};
-
-/** The sun tool's own state: on/off + the time-of-day (hours past local midnight)
- *  the slider sweeps. Owned by the slice (was scattered across `uiStore.sun` +
- *  a local `sunHour` in MapScreen). */
+/** The Sun slider's state: a normalized level `[0, 1]` (0 == off). The derived
+ *  environment (`deriveMapEnvironment`) turns this into a sun position/time and
+ *  relief lighting — the slider never touches the camera. Owned by this slice
+ *  (was `on` + a free-floating `hour` scattered across `uiStore.sun` +
+ *  MapScreen). */
 interface SunState {
-  on: boolean;
-  hour: number;
-  setOn: (v: boolean) => void;
-  setHour: (h: number) => void;
+  level: number;
+  setLevel: (v: number) => void;
 }
 
 export const useSunStore = create<SunState>((set) => ({
-  on: false,
-  hour: nowHour(),
-  setOn: (on) => set({ on }),
-  setHour: (hour) => set({ hour }),
+  level: 0,
+  setLevel: (level) => set({ level }),
 }));
-
-export { nowHour };

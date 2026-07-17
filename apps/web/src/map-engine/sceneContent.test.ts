@@ -4,7 +4,7 @@
  *  snake_case fields, `{r,g,b,a}` colors). Pins the JSON so a drive-by
  *  refactor can't silently de-declare map content. */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { setMapContent, setMapLine } from '../map-core';
+import { setMapContent, setMapLine, deriveMapEnvironment } from '../map-core';
 import { buildBaseScene, cssColorToScene, type Layer } from './scene';
 
 function reset() {
@@ -118,6 +118,35 @@ describe('scene-declared map content (P6.3)', () => {
     // Clearing the fix removes the dot from the next scene.
     setMapContent({ userFix: null });
     expect(layer(buildBaseScene('norgeskart'), 'content-user-location')).toBeUndefined();
+  });
+
+  // The 3D + Sun sliders reduce to a scene environment, and the built scene must
+  // honour it. These bind the pure reducer (map-core) to the scene it produces —
+  // the decoupling the user feels: sun lights relief without tilting the view.
+  it('enabling sun in 2D gives the scene a DEM but keeps tilt locked (top-down-lit)', () => {
+    const env = deriveMapEnvironment(0 /* flat 2D */, 0.5 /* sun on */);
+    const scene = buildBaseScene('norgeskart', env.demPresent, env.exaggeration);
+    // The sun has relief to light: the DEM source + a displacing hillshade appear.
+    expect(scene.sources.dem).toBeDefined();
+    const hillshade = scene.layers.find((l) => l.id === 'hillshade');
+    expect(hillshade).toMatchObject({ type: 'hillshade', height_only: true });
+    expect((hillshade as { exaggeration: number }).exaggeration).toBeGreaterThan(0);
+    // …but the camera stays top-down: the sun slider never unlocks tilt.
+    expect(env.tiltEnabled).toBe(false);
+  });
+
+  it('flat 2D (no 3D, no sun) omits the DEM entirely — a plain registered map', () => {
+    const env = deriveMapEnvironment(0, 0);
+    const scene = buildBaseScene('norgeskart', env.demPresent, env.exaggeration);
+    expect(scene.sources.dem).toBeUndefined();
+    expect(scene.layers.find((l) => l.id === 'hillshade')).toBeUndefined();
+  });
+
+  it('the 3D slider value flows through to the terrain exaggeration + unlocks tilt', () => {
+    const env = deriveMapEnvironment(8 /* max */, 0);
+    const scene = buildBaseScene('norgeskart', env.demPresent, env.exaggeration);
+    expect((scene.layers.find((l) => l.id === 'hillshade') as { exaggeration: number }).exaggeration).toBe(8);
+    expect(env.tiltEnabled).toBe(true);
   });
 
   it('resolves CSS colors defensively', () => {

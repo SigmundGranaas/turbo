@@ -1,20 +1,16 @@
 import { useEffect, useRef } from 'react';
 import { Glass, GlassIconBtn, Divider } from './Glass';
 
-/** Bottom-right floating control cluster over the map: layers, 2D/3D, sun,
- *  water, recenter, compass, and a zoom group — each translucent glass. Ported
- *  from the design's `MapRail`. Handlers are wired by the host screen. */
+/** Bottom-right floating control cluster over the map — reduced (Phase 1) to the
+ *  five essentials: Compass (reset-north), Layers, Location, and a zoom group.
+ *  The 3D + Sun controls moved into the layers sheet as sliders (the hard
+ *  decoupling: neither may move the camera). Handlers are wired by the host. */
 export interface MapRailState {
   layers?: boolean;
-  is3d?: boolean;
-  sun?: boolean;
   following?: boolean;
-  compass?: number;
 }
 export interface MapRailHandlers {
   onLayers?: () => void;
-  onToggle3d?: () => void;
-  onSun?: () => void;
   onRecenter?: () => void;
   onCompass?: () => void;
   onZoomIn?: () => void;
@@ -34,16 +30,15 @@ export function MapRail({
    *  frame so it points to true north as the map rotates. */
   getBearing?: () => number;
 }) {
-  const { layers, is3d = true, sun, following } = state;
+  const { layers, following } = state;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-end' }}>
       <Glass dark={dark} radius={22} style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <GlassIconBtn icon="layers" active={layers} title="Map layers" onClick={on.onLayers} />
-        <Divider inset />
-        <ThreeDToggle is3d={is3d} onClick={on.onToggle3d} />
-        <GlassIconBtn icon="wb_sunny" active={sun} fill={sun} title="Sun & shadows" onClick={on.onSun} />
+        <CompassBtn getBearing={getBearing} active={following} onClick={on.onCompass} />
       </Glass>
       <Glass dark={dark} radius={22} style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <GlassIconBtn icon="layers" active={layers} title="Map layers" onClick={on.onLayers} />
+        <Divider inset />
         <GlassIconBtn
           icon={following ? 'my_location' : 'near_me'}
           active={following}
@@ -51,7 +46,6 @@ export function MapRail({
           title="Recenter"
           onClick={on.onRecenter}
         />
-        <CompassBtn getBearing={getBearing} active={following} onClick={on.onCompass} />
       </Glass>
       <Glass dark={dark} radius={28} style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
         <GlassIconBtn icon="add" iconSize={22} title="Zoom in" onClick={on.onZoomIn} />
@@ -59,31 +53,6 @@ export function MapRail({
         <GlassIconBtn icon="remove" iconSize={22} title="Zoom out" onClick={on.onZoomOut} />
       </Glass>
     </div>
-  );
-}
-
-function ThreeDToggle({ is3d, onClick }: { is3d: boolean; onClick?: () => void }) {
-  return (
-    <button className="tm-icon-btn"
-      title="2D / 3D"
-      onClick={onClick}
-      style={{
-        width: 48,
-        height: 48,
-        borderRadius: 18,
-        cursor: 'pointer',
-        border: 'none',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: is3d ? 'var(--tertiary-container)' : 'transparent',
-        color: is3d ? 'var(--on-tertiary-container)' : 'var(--primary)',
-        font: '800 14px/1 var(--font-sans)',
-        letterSpacing: 0.3,
-      }}
-    >
-      {is3d ? '3D' : '2D'}
-    </button>
   );
 }
 

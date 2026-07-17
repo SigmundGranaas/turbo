@@ -21,7 +21,10 @@ interface UiState {
   theme: ThemeMode;
   units: Units;
   baseLayer: BaseLayerId;
-  threeD: boolean;
+  /** 3D-terrain slider level `[0, MAX_3D_EXAGGERATION]`; 0 = flat 2D (tilt
+   *  locked). Session-only (not persisted) — a reload restores 3D from the saved
+   *  camera pitch instead. Drives the derived scene environment. */
+  threeDLevel: number;
   layers: boolean;
   following: boolean;
   /** Far-distance atmospheric haze in 3D (persisted). Off by default. */
@@ -36,7 +39,7 @@ interface UiState {
   setTheme: (t: ThemeMode) => void;
   setUnits: (u: Units) => void;
   setBaseLayer: (b: BaseLayerId) => void;
-  setThreeD: (v: boolean) => void;
+  setThreeDLevel: (v: number) => void;
   setLayers: (v: boolean) => void;
   setFollowing: (v: boolean) => void;
   setDistanceHaze: (v: boolean) => void;
@@ -52,7 +55,7 @@ export const useUiStore = create<UiState>()(
       theme: 'system',
       units: 'metric',
       baseLayer: 'norgeskart',
-      threeD: false,
+      threeDLevel: 0,
       layers: false,
       following: false,
       distanceHaze: false,
@@ -60,7 +63,7 @@ export const useUiStore = create<UiState>()(
       setTheme: (theme) => set({ theme }),
       setUnits: (units) => set({ units }),
       setBaseLayer: (baseLayer) => set({ baseLayer }),
-      setThreeD: (threeD) => set({ threeD }),
+      setThreeDLevel: (threeDLevel) => set({ threeDLevel }),
       setLayers: (layers) => set({ layers }),
       setFollowing: (following) => set({ following }),
       setDistanceHaze: (distanceHaze) => set({ distanceHaze }),
