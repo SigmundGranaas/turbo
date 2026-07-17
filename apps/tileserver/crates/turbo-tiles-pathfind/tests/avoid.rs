@@ -76,6 +76,71 @@ fn flat_dem_around(ox: f64, oy: f64) -> (tempfile::NamedTempFile, Arc<turbo_tile
     (tmp, dem)
 }
 
+/// Single-tile DEM that is a UNIFORM planar ramp rising toward the south
+/// (decreasing world-y) at `tan(alpha)` m rise per m of travel — `z(x,y) =
+/// (uly - y) * tan(alpha)`, 10 m pixels. A steep face makes OFF-TRAIL travel
+/// Tobler-expensive, which is the *real-terrain* regime the flat-DEM fixtures
+/// can only fake by pinning a high `off_trail_base`. Copy of the switchback
+/// fixture in `pathfinder.rs`. See the sloped tests at the bottom of the file.
+fn write_ramp_dem(path: &std::path::Path, ulx: f64, uly: f64, cells: u32, alpha_deg: f64) {
+    use turbo_tiles_artifacts::HEADER_BYTES;
+    use turbo_tiles_elev::{
+        write_meta as write_dem_meta, write_tile_entry, DemMeta, TileEntry, COMPRESSION_ZSTD,
+        DEM_FORMAT_VERSION, DEM_META_BYTES, NODATA_SENTINEL, TILE_ENTRY_BYTES,
+    };
+    let pixel = 10.0_f64;
+    let tan = alpha_deg.to_radians().tan();
+    let meta = DemMeta {
+        tile_count: 1,
+        tile_cells: cells,
+        pixel_size_m: pixel as f32,
+        nodata: NODATA_SENTINEL,
+        compression: COMPRESSION_ZSTD,
+    };
+    let mut f = std::fs::File::create(path).unwrap();
+    write_art_header(
+        &mut f,
+        &Header {
+            kind: ArtifactKind::Dem,
+            format_version: DEM_FORMAT_VERSION,
+            build_timestamp_unix_sec: 0,
+        },
+    )
+    .unwrap();
+    write_dem_meta(&mut f, &meta).unwrap();
+    let mut data = vec![0f32; (cells * cells) as usize];
+    for r in 0..cells {
+        let z = (r as f64 * pixel * tan) as f32;
+        for c in 0..cells {
+            data[(r * cells + c) as usize] = z;
+        }
+    }
+    let compressed = zstd::encode_all(bytemuck::cast_slice::<f32, u8>(&data), 1).unwrap();
+    let dir_offset = (HEADER_BYTES + DEM_META_BYTES) as u64;
+    let payload_offset = dir_offset + TILE_ENTRY_BYTES as u64;
+    let entry = TileEntry {
+        ulx,
+        uly,
+        offset: payload_offset,
+        compressed_size: compressed.len() as u32,
+    };
+    write_tile_entry(&mut f, &entry).unwrap();
+    f.write_all(&compressed).unwrap();
+    f.sync_all().unwrap();
+}
+
+/// Ramp DEM (`alpha_deg` face) covering ~6 km around a test origin.
+fn ramp_dem_around(
+    ox: f64,
+    oy: f64,
+    alpha_deg: f64,
+) -> (tempfile::NamedTempFile, Arc<turbo_tiles_elev::Dem>) {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    write_ramp_dem(tmp.path(), ox - 2000.0, oy + 2000.0, 600, alpha_deg);
+    let dem = Arc::new(turbo_tiles_elev::Dem::open(tmp.path()).unwrap());
+    (tmp, dem)
+}
+
 /// A marked trail edge (`fkb_type = sti`, red-T marked) of the given
 /// straight-line length.
 fn trail_edge(from: u32, to: u32, len_m: f32) -> EdgeRecord {
@@ -171,8 +236,19 @@ struct Scene {
 
 impl Scene {
     /// Build a scene from local node positions `(dx, dy)` and directed
-    /// edges (node-index pairs, made bidirectional).
+    /// edges (node-index pairs, made bidirectional) over a FLAT DEM.
     fn new(local_nodes: &[(f64, f64)], edge_pairs: &[(u32, u32)]) -> Self {
+        Self::build(local_nodes, edge_pairs, None)
+    }
+
+    /// Same, but over a UNIFORM `alpha_deg` planar ramp (real-terrain regime):
+    /// off-trail travel is Tobler-expensive, so trail EDGES are the cheap line
+    /// WITHOUT the artificial `off_trail_base` pin the flat fixtures need.
+    fn new_sloped(local_nodes: &[(f64, f64)], edge_pairs: &[(u32, u32)], alpha_deg: f64) -> Self {
+        Self::build(local_nodes, edge_pairs, Some(alpha_deg))
+    }
+
+    fn build(local_nodes: &[(f64, f64)], edge_pairs: &[(u32, u32)], slope_deg: Option<f64>) -> Self {
         let anchor = turbo_tiles_elev::wgs84_to_utm33n(10.7522, 59.9139);
         let (ox, oy) = (anchor.x, anchor.y);
         let nodes: Vec<NodePos> = local_nodes
@@ -189,7 +265,10 @@ impl Scene {
         let graph_tmp = tempfile::NamedTempFile::new().unwrap();
         write_graph(graph_tmp.path(), &nodes, &edges);
         let g = Graph::open(graph_tmp.path()).unwrap();
-        let (dem_tmp, dem) = flat_dem_around(ox, oy);
+        let (dem_tmp, dem) = match slope_deg {
+            Some(a) => ramp_dem_around(ox, oy, a),
+            None => flat_dem_around(ox, oy),
+        };
         let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
         Self {
             ox,
@@ -491,5 +570,150 @@ fn graceful_loop_single_trail_out_and_back() {
         loop_path.length_m > 1800.0,
         "out-and-back should traverse the trail twice (len {:.0} m)",
         loop_path.length_m
+    );
+}
+
+// =====================================================================
+// Real-terrain regime (spec Phase 5 caveat)
+//
+// The flat-DEM tests above have to PIN `off_trail_base = 12.0` to make
+// the edge-based avoid bite: on flat ground the `trail_proximity` bonus
+// makes a mesh cell on a trail cheaper than the trail EDGE, so the
+// solver rides trails as off-trail mesh and the edge penalty (graph
+// edges only) never fires. The spec flags this: *does the avoid still
+// bite on REAL terrain at the DEFAULT off_trail_base (2.3)?* These tests
+// answer it — same scenarios on a uniform 35° face (steeper than the 27°
+// soft-cap, gentler than the cliff veto), with `Prefs::default()` (NO
+// off_trail_base pin). Slope makes off-trail Tobler-expensive, so trail
+// edges become the cheap line on their own — the regime the model
+// assumes — and the penalty bites without the crutch.
+// =====================================================================
+
+/// A real-terrain face used by every sloped test (steep enough that
+/// off-trail is expensive, below the 45° mesh refuse / 50° edge refuse).
+const REAL_FACE_DEG: f64 = 35.0;
+
+#[test]
+fn sloped_default_prefs_detours_onto_alternative_trail() {
+    // Trails run N→S along the fall line (climbing the ramp). Direct trail
+    // A→Mid→B at x=0; a divergent trail A→P→B bulges 400 m east. Avoiding
+    // the direct corridor at the DEFAULT off_trail_base must route via the
+    // real alternative trail (past P), NOT shadow-walk parallel off-trail
+    // up the steep face.
+    // Nodes: 0=A(0,0) 1=Mid(0,500) 2=B(0,1000) 3=P(400,500)
+    let scene = Scene::new_sloped(
+        &[(0.0, 0.0), (0.0, 500.0), (0.0, 1000.0), (400.0, 500.0)],
+        &[(0, 1), (1, 2), (0, 3), (3, 2)],
+        REAL_FACE_DEG,
+    );
+    let mut prefs = Prefs::default(); // <-- default off_trail_base (2.3), no pin
+    prefs.avoid = vec![scene.avoid_line(&[(0.0, 0.0), (0.0, 500.0), (0.0, 1000.0)])];
+
+    let path = scene
+        .pf
+        .solve(scene.ll(0.0, 0.0), scene.ll(0.0, 1000.0), prefs)
+        .expect("a detour route exists on the sloped face");
+    let geom = scene.local_geom(&path);
+
+    // Un-avoided sanity: the default route hugs the direct corridor.
+    let direct = scene
+        .pf
+        .solve(scene.ll(0.0, 0.0), scene.ll(0.0, 1000.0), Prefs::default())
+        .unwrap();
+    let direct_overlap =
+        overlap_fraction(&scene.local_geom(&direct), &[(0.0, 0.0), (0.0, 1000.0)], 30.0);
+    assert!(
+        direct_overlap > 0.8,
+        "sanity: un-avoided route hugs the direct corridor (overlap {direct_overlap:.2})"
+    );
+
+    let overlap = overlap_fraction(&geom, &[(0.0, 0.0), (0.0, 1000.0)], 30.0);
+    assert!(
+        overlap < 0.4,
+        "avoided route should leave the direct corridor at default off_trail_base \
+         (overlap {overlap:.2})"
+    );
+    // It escaped via the ALTERNATIVE TRAIL, not by shadow-walking the face:
+    // off-trail metreage stays small even without the off_trail_base pin.
+    assert!(
+        off_trail_m(&path) < 120.0,
+        "detour should ride the divergent trail, not the steep off-trail face \
+         (off_trail {:.0} m)",
+        off_trail_m(&path)
+    );
+    assert!(
+        min_dist_to_point(&geom, (400.0, 500.0)) < 80.0,
+        "route should pass the divergent apex P(400,500)"
+    );
+}
+
+#[test]
+fn sloped_default_prefs_no_shadow_walking() {
+    // The key real-terrain test: round-trip self-avoidance at the DEFAULT
+    // off_trail_base on a 35° face. Out on the direct trail, back on the
+    // divergent trail (via C) — NOT a parallel off-trail shadow-walk up the
+    // face. Nodes: 0=A(0,0) 1=Mid(0,500) 2=B(0,1000) 3=C(300,500)
+    let scene = Scene::new_sloped(
+        &[(0.0, 0.0), (0.0, 500.0), (0.0, 1000.0), (300.0, 500.0)],
+        &[(0, 1), (1, 2), (0, 3), (3, 2)],
+        REAL_FACE_DEG,
+    );
+    let mut prefs = Prefs::default(); // default off_trail_base — the real regime
+    prefs.round_trip = true;
+
+    let loop_path = scene
+        .pf
+        .solve_route(&[scene.ll(0.0, 0.0), scene.ll(0.0, 1000.0)], prefs)
+        .expect("round-trip loop should solve on the sloped face");
+    let geom = scene.local_geom(&loop_path);
+
+    assert!(
+        off_trail_m(&loop_path) < 120.0,
+        "round-trip-avoid must NOT shadow-walk the face at default off_trail_base \
+         (off_trail {:.0} m)",
+        off_trail_m(&loop_path)
+    );
+    assert!(
+        min_dist_to_point(&geom, (300.0, 500.0)) < 80.0,
+        "return leg should take the divergent trail via C(300,500)"
+    );
+    assert!(
+        loop_path.length_m > 1800.0,
+        "loop should traverse out + back (len {:.0} m)",
+        loop_path.length_m
+    );
+}
+
+/// Characterization (run with `-- --nocapture`): quantifies the caveat by
+/// printing off-trail metreage for the round-trip-avoid loop at the DEFAULT
+/// off_trail_base on FLAT vs a 35° face. Flat is where the edge penalty is
+/// blunted (more off-trail); the slope is what restores it. Not a brittle
+/// pass/fail on the flat number — it's the evidence behind the two asserts
+/// above — but it does assert the ordering (slope ≤ flat).
+#[test]
+fn sloped_vs_flat_off_trail_characterization() {
+    let nodes = [(0.0, 0.0), (0.0, 500.0), (0.0, 1000.0), (300.0, 500.0)];
+    let edges = [(0u32, 1u32), (1, 2), (0, 3), (3, 2)];
+
+    let run = |scene: &Scene| -> f64 {
+        let mut prefs = Prefs::default();
+        prefs.round_trip = true;
+        let loop_path = scene
+            .pf
+            .solve_route(&[scene.ll(0.0, 0.0), scene.ll(0.0, 1000.0)], prefs)
+            .expect("loop solves");
+        off_trail_m(&loop_path)
+    };
+
+    let flat = run(&Scene::new(&nodes, &edges));
+    let sloped = run(&Scene::new_sloped(&nodes, &edges, REAL_FACE_DEG));
+    eprintln!(
+        "[phase5-eval] round-trip-avoid off_trail at DEFAULT off_trail_base: \
+         flat={flat:.0}m  sloped(35°)={sloped:.0}m"
+    );
+    assert!(
+        sloped <= flat + 1.0,
+        "slope must not make shadow-walking WORSE than flat \
+         (flat {flat:.0} m, sloped {sloped:.0} m)"
     );
 }
