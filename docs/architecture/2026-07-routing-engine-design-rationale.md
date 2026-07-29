@@ -82,20 +82,42 @@ port-level FFI costs 5–25 ms/route in marshalling and destroys the memo
 locality that cut DEM work by 93%. If measurement contradicted that it
 would be extraordinary.
 
-### D4 — Composition is declarative; wiring is a registry
+### D4 — The engine is a library; composition is a layer above it
 
-**Theory:** the **Microkernel** pattern (POSA vol. 1) — minimal core plus
-plugins registered at boot; equivalently Martin's "plugin architecture."
-The `EngineBuilder` is a **Composition Root** (Seemann): one place that
-knows every concrete type, with no DI container.
+*The engine receives fully-constructed capabilities. It never opens a file,
+resolves a path, parses a config, or constructs an adapter.*
 
-**This is a real trade, not a free win.** Typed Rust builders would let the
-compiler prove a wiring is valid. Registries replace that with *boot-time
-validation*, which is strictly weaker. It is justified only because the
-configuration must cross an FFI string boundary and a pack manifest — if it
-didn't, typed builders would win.
+**Rev. 1 of the module design got this wrong** and it is worth recording
+the mistake because it has a precise name. Rev. 1 had
+`Engine::open(config, pack_dir)`, a `SourceRegistry` inside the engine, and
+an `EngineConfig` whose schema named storage formats. That is
+**Composition Root in the wrong place**: Seemann's rule is that the
+composition root belongs *in the application*, never in a library, because
+a library that wires itself is a framework — it calls you instead of you
+calling it (Hollywood Principle, inverted by accident rather than design).
 
-**Falsifiable by:** the inner-platform effect (§3.5). If `EngineConfig`
+The symptom was subtle because the *dependency* inversion was already
+correct: the engine depended on abstractions. But it also owned their
+**instantiation**, which re-coupled it to storage through the back door.
+Dependency inversion done halfway.
+
+**Corrected:** `Engine::new(terrain, cost, solvers, budget)`. All
+configuration, I/O, format knowledge, adapter construction, coordinate
+frames, and preset resolution move to `turbo-route-compose` at L5.
+
+**Theory, corrected:** still **Microkernel** (POSA vol. 1) and still a
+**Composition Root** (Seemann) — but the root is now in the composition
+layer where it belongs, and the engine is a plain library.
+
+**The registry trade, relocated.** Registries swap compile-time safety for
+runtime strings. That trade is *correct* at a text-config boundary — that
+is what a parser is — and *wrong* inside a domain library. Confining the
+stringly-typed surface to one crate gives the engine typed builders back
+(`CostModel::builder().add(PolygonIntegral::new(water, SecondsPerMetre(400.0)))`,
+where a transposed argument is a compile error) while preserving the FFI
+benefit: adding a source is still a config-string change with no ABI churn.
+
+**Falsifiable by:** the inner-platform effect (§3.5). If `ComposeConfig`
 acquires conditionals, we have built a bad programming language.
 
 ### D5 — Orchestration is separated from computation
@@ -162,7 +184,8 @@ not replacement.
 | Microkernel / plugin architecture | registries + profile | **Strong** |
 | Functional Core / Imperative Shell | L0–L2 pure, L3 I/O, L4 sequence | **Strong** |
 | Sans-IO | invariant #2 | **Strong**, and mechanically checkable |
-| Composition Root (Seemann) | `EngineBuilder` | **Strong** — no DI container |
+| Composition Root (Seemann) | `turbo-route-compose` at L5 | **Strong** — no DI container; and *outside* the library, per the rule |
+| Library-not-framework (Hollywood Principle) | `Engine::new` takes constructed values | **Strong** — the rev. 1 error, now corrected (D4) |
 | Anti-Corruption Layer (DDD) | `turbo-profile-no` | **Strong** |
 | Remote Facade + DTO (PoEAA) | FFI façade; `Route` vs `Candidate` | **Strong** — already practised at `route_plan.rs` |
 | Strategy | `Solver`, `RouteStrategy` | **Strong** — replaces an `if` |
@@ -255,13 +278,18 @@ Martin's I/A metrics: the engine is **concrete** (low abstractness) and
 change and hard to extend.
 
 This is structural and cannot be designed away: orchestration is inherently
-concrete and inherently central. Two mitigations:
+concrete and inherently central. Three mitigations:
 
 - Hosts depend on it *thinly* — six methods, all of which serialize.
+- **D4's correction shrinks it materially.** Moving assembly, config
+  resolution, I/O, coordinate frames and preset merging to L5 removes two
+  of the twelve `Pathfinder` responsibilities from the engine entirely and
+  halves a third. The engine is now request orchestration and nothing else.
 - `RouteStrategy` is the pressure valve. Orchestration accretes; if new
   behaviour lands as strategies rather than as `Engine` methods, the engine
-  stays small. **`Engine` is the module most likely to become the next god
-  object**, and the design should be re-audited against that specifically.
+  stays small. **`Engine` is still the module most likely to become the next
+  god object**, and the design should be re-audited against that
+  specifically.
 
 ### 3.5 Declarative config risks the inner-platform effect
 
@@ -330,6 +358,7 @@ assertion the existing geometry-hash harness can check directly.
 | 5 | One profile is enough structure for N regions | a second region needing core changes | the ACL leaked; find what national vocabulary reached L1–L4 |
 | 6 | Pack parity is bit-exact | device geometry hash ≠ server | a float-determinism issue, not an architecture issue — but it invalidates the offline story until fixed |
 | 7 | Seven layers do not become pass-through | a module that only forwards | collapse it; layers are dependency rules, not obligations |
+| 8 | The engine stays free of I/O and configuration | a signature in L0–L4 mentioning a `&Path`, a filename, or a format name | invariant #3 in the module design catches it mechanically; the fix is always "move it up to `compose`" |
 
 ---
 
@@ -345,6 +374,11 @@ assertion the existing geometry-hash harness can check directly.
   The layer boundaries are compile-time, not network. Applying distributed-
   systems reasoning here would be a category error — and D3 is precisely the
   argument against distributing across the hottest boundary.
+- **Not a framework.** The engine does not call you, own your startup, or
+  read your configuration. You construct capabilities and hand them over.
+  The conformance test for this is §3.4 of the module design: a game
+  engine drives the router from an in-memory heightmap with no file, no
+  config string, no pack, and no coordinate system.
 - **Not a plugin system with dynamic loading.** Registration is
   compile-time so monomorphization stays available.
 - **Not event-driven.** The observer emits; nothing subscribes to change

@@ -1,10 +1,20 @@
 # Routing Engine — Module Design
 
-**Status:** proposal
+**Status:** proposal (rev. 2)
 **Companion to:** `2026-07-routing-engine-modularization.md` (the *why* — the
-nine couplings and the sequencing). This document is the *what*: every
-module, its purpose, its dependencies, its boundary, and which of its APIs
-are external contracts versus internal detail.
+nine couplings and the sequencing) and
+`2026-07-routing-engine-design-rationale.md` (the *on what basis*).
+This document is the *what*: every module, its purpose, its dependencies,
+its boundary, and which of its APIs are external contracts versus internal
+detail.
+
+> **Rev. 2 corrects a real error in rev. 1.** Rev. 1 placed the composition
+> root *inside* the engine — `Engine::open(config, pack_dir)`, a
+> `SourceRegistry`, and an `EngineConfig` whose schema named file formats
+> (`kind = "dem-tiles"`, `file = "dem.10m"`). That made the engine
+> source-aware: it did I/O, it resolved configuration, and its own contract
+> knew about storage. §2 states the corrected principle; §7 is the new
+> composition layer that now owns all of it.
 
 ---
 
@@ -20,16 +30,17 @@ is to the request.
 
 | Kind | Meaning | Changes when |
 |---|---|---|
-| **Technical** | Computes or fetches. Numerics, geometry, storage, I/O. | The algorithm or storage format changes |
+| **Technical** | Computes. Numerics, geometry, algorithms. | The algorithm changes |
 | **Contract** | Traits and data types. No behaviour. | A capability is added |
 | **Orchestration** | Decides *what runs in what order*. Owns lifecycle, not computation. | Product behaviour changes |
+| **Infrastructure** | Fetches, decodes, constructs. All I/O lives here. | A storage format or deployment changes |
 | **Profile** | Data and configuration for one region/domain. | The country or dataset changes |
 | **Host** | Adapts the engine to a delivery mechanism. | A new client platform appears |
 
 The current architecture's central failure is that `Pathfinder` is
-simultaneously Technical, Contract, Orchestration and (via
+simultaneously Technical, Contract, Orchestration, Infrastructure and (via
 `routing_setup.rs`) Profile. Twelve distinct responsibilities in one type
-— enumerated in §5.1.
+— enumerated in §6.1.
 
 ---
 
@@ -41,30 +52,32 @@ simultaneously Technical, Contract, Orchestration and (via
 │     turbo-route-http · turbo-route-ffi · turbo-route-cli · route-lab   │
 │     ── EXTERNAL API SURFACE ──────────────────────────────────────────│
 ├───────────────────────────────────────────────────────────────────────┤
-│ L5  PROFILES                                                  Profile │
-│     turbo-profile-no  (everything Norwegian: names, classes, TOML)    │
+│ L5  COMPOSITION                            Infrastructure + Profile   │
+│     turbo-route-compose   config → open data → construct → Engine     │
+│     turbo-profile-no      everything Norwegian (names, classes, TOML) │
+│     turbo-geo-frame       geographic ⇄ planar                         │
+│     ══ THE I/O AND CONFIGURATION CEILING ═════════════════════════════│
 ├───────────────────────────────────────────────────────────────────────┤
-│ L4  ORCHESTRATION                                       Orchestration │
-│     turbo-route-engine                                                │
-│       ├ assembly   config + registries → Engine        (boot-time)    │
-│       └ planner    request → Route                     (per-request)  │
-│           intake · feasibility · repair · overlay · legs ·            │
-│           dispatch · stitch · strategies                              │
+│ L4  ENGINE                                              Orchestration │
+│     turbo-route-engine    PURE. No I/O, no config, no file formats.   │
+│       Engine::new(Terrain, CostModel, SolverSet, Budget) -> Engine     │
+│       planner: feasibility · repair · overlay · legs · dispatch ·      │
+│                stitch      │      strategies · inspect                 │
 ├───────────────────────────────────────────────────────────────────────┤
-│ L3  ADAPTERS                                                Technical │
-│     turbo-geodata-artifacts · -pack · -memory · turbo-proj            │
-│     (implement L1 ports over concrete storage)                        │
+│ L3  ADAPTERS                                          Infrastructure  │
+│     turbo-geodata-artifacts · -pack · -memory                         │
+│     (implement L1 shapes over concrete storage; constructed by L5)    │
 ├───────────────────────────────────────────────────────────────────────┤
-│ L2  SERVICES                                                Technical │
-│     turbo-route-cost      contributors, composition, registry         │
+│ L2  SERVICES                                              Technical   │
+│     turbo-route-cost      contributors, composition, typed builder    │
 │     turbo-route-solvers   Solver impls, CostField, corridor, extract  │
 │     turbo-route-observe   Observer impls, recording formats           │
 ├───────────────────────────────────────────────────────────────────────┤
-│ L1  CONTRACTS                                                Contract │
-│     turbo-route-core      ports · domain types · units · config spec  │
+│ L1  MODEL                                                  Contract   │
+│     turbo-route-model     the engine's own data shapes + domain types │
 │     ── EXTENSION API SURFACE ─────────────────────────────────────────│
 ├───────────────────────────────────────────────────────────────────────┤
-│ L0  KERNEL                                                  Technical │
+│ L0  KERNEL                                                Technical   │
 │     turbo-geom   pure planar geometry predicates                      │
 │     turbo-fmm    eikonal / elastica numerics, generic over Metric     │
 └───────────────────────────────────────────────────────────────────────┘
@@ -75,357 +88,392 @@ simultaneously Technical, Contract, Orchestration and (via
 1. **Downward only.** No module depends on a higher layer. L0 depends on
    nothing but `std`.
 2. **L0–L4 are region-agnostic.** A grep for `norway`, `n50`, `fkb`,
-   `25833`, `dnt` across L0–L4 must return zero. Today `turbo-tiles-pathfind`
-   alone has 44 such references.
-3. **Adapters depend on L1 only** — never on L2. An adapter that needs to
-   know about cost contributors is misfactored.
-4. **L2 services never touch I/O.** They reach data exclusively through L1
-   ports. This is what makes the CI corpus (`turbo-geodata-memory`) possible.
-5. **Only L4 orchestrates.** L2 solvers solve one leg on one corridor; they
-   never split waypoints, retry, cache, or decide strategy.
-6. **Only L6 is external.** Everything below is a workspace-internal Rust
+   `25833`, `dnt` across L0–L4 must return zero. Today
+   `turbo-tiles-pathfind` alone has 44 such references.
+3. **L0–L4 perform no I/O and read no configuration.** No `std::fs`, no
+   `memmap2`, no `zstd`, no `reqwest`, no `tokio`, no `std::env`, no
+   `serde` *deserialization of settings*. §2.
+4. **Adapters depend on L1 only** — never on L2 or L4. An adapter that
+   knows about cost contributors is misfactored.
+5. **Only L4 orchestrates.** L2 solvers solve one leg on one corridor;
+   they never split waypoints, retry, cache, or choose strategy.
+6. **Only L5 constructs.** Nothing below L5 calls an adapter constructor,
+   parses a config file, or resolves a path.
+7. **Only L6 is external.** Everything below is a workspace-internal Rust
    API, free to change under corpus gating.
 
 ---
 
-## 2. L0 — Kernel (Technical)
+## 2. The engine is a library, not a framework
+
+This is the principle rev. 1 violated, and it is worth stating precisely
+because several specific decisions follow from it mechanically.
+
+> **The engine receives capabilities. It never acquires them.**
+>
+> It declares the *shapes* of data it can reason about. It does not know
+> what a file is, what a format is, what a pack is, or where anything came
+> from. Fetching, decoding, converting, and wiring are infrastructure
+> concerns that live strictly above it.
+
+**What this rules out, and what replaces it:**
+
+| Rev. 1 (framework-shaped) | Rev. 2 (library-shaped) |
+|---|---|
+| `Engine::open(config_json, pack_dir)` | `Engine::new(terrain, cost, solvers, budget)` |
+| `SourceRegistry` inside the engine | the caller holds the handles it built |
+| `EngineConfig { SourceSpec { kind, file } }` | no config type in the engine at all |
+| `ContributorRegistry` (string → factory) | `CostModel::builder()` — typed, no strings |
+| `SolverRegistry` (string → factory) | `SolverSet` — a constructed list |
+| `RouteRequest { points: Vec<GeoPoint> }` | `RouteRequest { points: Vec<Point> }` (planar) |
+| `Projection` as an engine port | `turbo-geo-frame` at L5; the engine has no CRS |
+| `Profile { Foot, Bicycle, Ski }` | `ModeId(u8)` — the profile names the modes |
+
+**Why this matters beyond tidiness.** Three concrete consequences:
+
+1. **Portability.** Anything that can answer "what is the height here" can
+   drive the engine — a game engine's terrain chunk, a procedurally
+   generated heightmap, a unit test's `Vec<f32>`. §3.4 makes this a
+   conformance test, not an aspiration.
+2. **The stringly-typed layer is quarantined.** Registries trade
+   compile-time safety for runtime strings. That trade is *correct* at a
+   text-config boundary — that is what a parser is — and *wrong* inside a
+   domain library. Moving it to L5 gives the engine typed construction back
+   while preserving the FFI benefit (§8.1).
+3. **Testability.** `Engine::new` taking constructed values means every
+   engine test is a unit test. No fixture files, no temp dirs, no artifact
+   directory.
+
+**The one intentional exception:** hosts *may* combine composition and
+engine behind a single call — `RouteEngine::open(config, dir)` on the FFI
+is fine and desirable (§8.1). The rule constrains *internal* APIs; a host
+is allowed to be a convenience façade over two layers, because that is what
+a host is for.
+
+---
+
+## 3. L1 — Model (`turbo-route-model`)
+
+The engine's own data model: the shapes it reasons about and the domain
+types it produces. Traits and data only. **Zero dependencies outside
+`std` + `serde`(derive).** Renamed from rev. 1's `turbo-route-core` to say
+what it is — this is the model, not a utility crate.
+
+### 3.1 Shapes, not sources
+
+The rename from rev. 1 is not cosmetic. "Source" implies acquisition;
+"field" and "network" name a *queryable shape*. A game engine's heightmap
+**is** a heightfield; it is not a source of one.
+
+```rust
+/// A continuous scalar field over the plane. Elevation today; the trait
+/// says nothing about elevation, tiles, files, or resolution sources.
+pub trait Heightfield: Send + Sync {
+    fn height_at(&self, p: Point) -> Option<f32>;
+    fn extent(&self) -> Extent;
+    /// Intrinsic sample spacing (m). Corridor sizing uses it to avoid
+    /// asking finer questions than the data can answer.
+    fn resolution_m(&self) -> f32;
+    /// Bulk path. Default loops over `height_at`; implementations that can
+    /// serve a run from one decode override it.
+    fn heights_at(&self, pts: &[Point], out: &mut [Option<f32>]) { … }
+}
+
+/// A categorical (and optionally scalar) field: landcover, avalanche
+/// class, snow depth, a game's biome map.
+pub trait ClassField: Send + Sync {
+    fn label(&self) -> &str;              // display only, never dispatch
+    fn class_at(&self, p: Point) -> u8;
+    fn value_at(&self, p: Point) -> Option<f32> { None }
+    fn extent(&self) -> Extent;
+}
+
+/// An indexed set of planar geometry: lakes, marsh, streams, buildings,
+/// a game's no-build zones.
+pub trait GeometrySet: Send + Sync {
+    fn label(&self) -> &str;
+    fn kind(&self) -> GeomKind;           // Point | Polyline | Polygon
+    fn query(&self, area: Extent, f: &mut dyn FnMut(FeatureRef<'_>));
+}
+
+/// A traversable network of connected segments: trails, roads, a game's
+/// nav-mesh edges.
+pub trait TraversalNetwork: Send + Sync {
+    fn snap(&self, p: Point, radius_m: f32) -> Option<NodeId>;
+    fn node(&self, id: NodeId) -> Option<Point>;
+    fn edges_in(&self, area: Extent, cap: usize, f: &mut dyn FnMut(EdgeRef<'_>));
+    fn geometry(&self, id: EdgeId) -> &[Point];
+    fn physical(&self, id: EdgeId) -> EdgePhysical;   // length, gain, loss, max_grade
+    fn attrs(&self, id: EdgeId) -> AttrView<'_>;      // opaque semantic bag
+    fn mode_cost(&self, id: EdgeId, mode: ModeId) -> f32;
+}
+```
+
+**`EdgePhysical` vs `AttrView`.** Physical facts the engine can reason
+about generically are typed. Semantic classification —
+surface type, waymarking scheme, access restriction — is an **opaque
+attribute view** that only the contributors configured for a given profile
+interpret. This is the mechanism that keeps `fkb_type` and DNT marking out
+of the engine, and the codebase already has `AttrView` in
+`turbo-tiles-vector` for exactly this purpose.
+
+**`ModeId(u8)`** replaces `Profile { Foot, Bicycle, Ski }`. The engine
+needs an *index* into the network's precomputed cost table; it does not
+need to know that index 0 means walking. The profile crate names them.
+(Rev. 1 kept `Profile` in the domain; that is a leak of the hiking use case
+into a general engine, and it fails the game-engine test.)
+
+### 3.2 Geometry and extent
+
+`Point { x, y }` — **planar metres, always.** `Extent` — a planar
+bounding box. `Corridor` — an oriented rectangle plus a `GridShape`.
+
+There is **no `GeoPoint` and no `Projection` in the engine.** The engine
+works in one planar frame and never learns which one. Geographic
+conversion is L5 (§7.3). This is what makes the game-engine case need no
+projection at all rather than an identity stub.
+
+### 3.3 Domain types
+
+```rust
+pub struct RouteRequest {
+    pub points: Vec<Point>,        // planar; ≥ 2
+    pub mode: ModeId,
+    pub avoid: Vec<Vec<Point>>,    // planar polylines
+    pub strategy: StrategyId,
+    pub tuning: Tuning,            // resolved scalar knobs — NOT a config file
+}
+
+pub struct Route { geometry: Vec<Point>, legs, waypoint_legs, length_m,
+                   duration_s, ascent_m, surface_breakdown, refused_by }
+
+pub enum RouteError { OutsideExtent, EndpointBlocked, NoRoute,
+                      SegmentFailed { leg, source }, BudgetExceeded }
+```
+
+`Tuning` is the crucial distinction from rev. 1's `cost_config_override`:
+it is a **resolved struct of scalars**, produced by L5 from presets and
+overrides. The engine never merges TOML patches, never resolves a preset
+name, never reads a file. It receives numbers.
+
+### 3.4 The portability conformance test
+
+This belongs in the model crate's test suite, and it is the mechanical
+check that §2 is being honoured. If it ever needs a file, a config string,
+or a projection, the boundary has leaked.
+
+```rust
+// A "game engine" driving the router with nothing but memory.
+struct ChunkHeights<'a> { cells: &'a [f32], w: u32, h: u32, cell: f32 }
+
+impl Heightfield for ChunkHeights<'_> {
+    fn height_at(&self, p: Point) -> Option<f32> { /* index the array */ }
+    fn extent(&self) -> Extent { Extent::new(0.0, 0.0, self.w as f64 * self.cell, …) }
+    fn resolution_m(&self) -> f32 { self.cell }
+}
+
+let height: Arc<dyn Heightfield> = Arc::new(ChunkHeights { … });
+
+let engine = Engine::new(
+    Terrain { height: height.clone(), network: None, extent: height.extent() },
+    CostModel::builder()
+        .add(ToblerSlope::new(height.clone(), CliffDeg(60.0)))
+        .add(NaismithGain::new(height.clone(), GainWeight(7.92)))
+        .build(),
+    SolverSet::only(FmmGradeLimited::default()),
+    Budget::interactive(),
+)?;
+
+let route = engine.plan(&RouteRequest { points: vec![a, b], mode: ModeId(0), .. })?;
+```
+
+No files. No TOML. No pack. No profile. No CRS. No network. That is the
+target, and it is a compiling test, not a claim.
+
+---
+
+## 4. L0 — Kernel (Technical)
 
 Pure computation. No I/O, no domain vocabulary, no coordinate-system
 opinions. Testable with no fixtures.
 
-### `turbo-geom`
-*From `turbo-tiles-geom` (already 90% correct).*
+### `turbo-geom` *(from `turbo-tiles-geom`, already 90% correct)*
 
 | Module | Purpose |
 |---|---|
 | `predicates` | `segment_polygon_intersection_length`, `segment_linestring_crossings`, `point_in_polygon`, `segment_intersects_aabb` |
-| `types` | `PlanarPoint` (`Pod`, casts from mmap), `Aabb`, `Polyline` |
-| `resample` | Densify / decimate / arc-length parameterise a polyline |
+| `types` | `Point` (`Pod`, casts from mmap'd bytes), `Extent`, `Polyline` |
+| `resample` | densify / decimate / arc-length parameterise |
 
-**Boundary fix:** today its docs state "coordinates are always EPSG:25833".
-Delete that assertion. The kernel operates on *planar metres*; which planar
-frame is the `Projection` port's business (L1).
+**Boundary fix:** its docs currently assert "coordinates are always
+EPSG:25833". Delete that. The kernel operates on planar metres; which
+planar frame is L5's business.
 
-**API:** internal (workspace). Stable in practice — pure functions.
-
-### `turbo-fmm`
-*From `turbo-tiles-fmm`, which is already the best-factored crate in the
-stack: generic over `Metric`, zero dependency on the pathfinder, tested
-without artifacts.*
+### `turbo-fmm` *(from `turbo-tiles-fmm` — already the best-factored crate in the stack)*
 
 | Module | Purpose |
 |---|---|
-| `grid` | `GridShape`, `FmmGrid<T>` — row-major (nx, ny, nz) with world placement |
-| `heap` | Indexed priority queue for the narrow band |
-| `stencil`, `selling` | Stencil construction; Selling reduction for anisotropic metrics |
-| `metric` | `trait Metric`, `LocalCost`, `NormForm`, `UniformMetric` |
-| `solve` | `solve_2d_isotropic`, `solve_2d_with_metric<M: Metric>`, `StopCondition` |
-| `aniso` | Anisotropic 2D Finsler solve |
-| `elastica` | Lifted (x, y, θ) grade-limited solve; `trait CellOverlay` |
-| `extract` | Gradient-descent path extraction from an arrival field |
-| `smooth` | Cost-aware Chaikin smoothing |
+| `grid` | `GridShape`, `FmmGrid<T>` |
+| `heap`, `stencil`, `selling` | narrow-band queue; stencils; Selling reduction |
+| `metric` | `trait Metric`, `LocalCost`, `NormForm` |
+| `solve`, `aniso`, `elastica` | isotropic / anisotropic / lifted (x, y, θ) solvers; `trait CellOverlay` |
+| `extract`, `smooth` | gradient-descent extraction; cost-aware Chaikin |
 
-**Boundary fix — one real violation:** `tobler.rs` and `tobler_aniso.rs`
-encode *hiking physics* (Tobler's pace curve, Naismith weighting) inside a
-numeric kernel. Move them to `turbo-route-cost::terrain`; the kernel keeps
-`trait Metric` and `trait Elevation` as the plug points. After the move,
-`turbo-fmm` is a general eikonal library with no walking in it — reusable
-for avalanche runout and viewshed, which the crate docs already anticipate.
+**Boundary fix — one real violation:** `tobler.rs` / `tobler_aniso.rs`
+encode *hiking physics* inside a numeric kernel. Move to
+`turbo-route-cost::terrain`. After the move `turbo-fmm` is a general
+eikonal library with no walking in it — reusable for avalanche runout and
+viewshed, which its own docs already anticipate.
 
-**API:** extension API. `Metric`, `CellOverlay`, `Elevation` are how you add
-a new solver family.
+**API:** extension API. `Metric`, `CellOverlay`, `Elevation` are how a new
+solver family plugs in.
 
 ---
 
-## 3. L1 — Contracts (Contract)
-
-### `turbo-route-core`
-
-The whole system's vocabulary. Traits and data only — **no behaviour beyond
-trivial constructors**. Every other crate depends on this; nothing depends
-on anything else to use it.
-
-#### `core::units`
-`WalkSeconds`, `Metres`, `PaceSPerM`. Newtypes, not bare `f64`. The
-contributor model's entire correctness argument rests on "everything is
-walk-seconds"; make the compiler enforce it.
-
-#### `core::geo`
-`GeoPoint { lon, lat }`, `PlanarPoint { x, y }`, `Bbox`, `Corridor`
-(oriented rectangle + `GridShape`). The `GeoPoint`/`PlanarPoint` split is
-load-bearing: today both are `[f64; 2]` and the projection boundary is
-maintained by comment discipline.
-
-#### `core::domain`
-```rust
-pub enum Profile { Foot, Bicycle, Ski }   // MOVED from turbo-tiles-graph
-pub struct RouteRequest { points, profile, preset, avoid, strategy, ... }
-pub struct Route { geometry, legs, waypoint_legs, length_m, duration_s,
-                   ascent_m, surface_breakdown, refused_by }
-pub struct RouteLeg { kind, range, length_m, ... }
-pub enum RouteError { NoCoverage, EndpointRefused, NoRoute, SegmentFailed, ... }
-```
-
-`Profile` currently lives in `turbo-tiles-graph` — a domain enum inside a
-storage crate, which forces every cost contributor to depend on the graph
-artifact format. Moving it is small and unblocks rule 3.
-
-#### `core::ports::data`
-The four data capabilities. **These are the answer to "swap DEM sources"
-and "add marshes".**
-
-```rust
-pub trait ElevationSource: Send + Sync {
-    fn sample(&self, p: PlanarPoint) -> Option<f32>;
-    fn coverage(&self) -> Bbox;
-    fn resolution_m(&self) -> f32;
-    fn sample_many(&self, pts: &[PlanarPoint], out: &mut [Option<f32>]);  // default loops
-}
-
-pub trait FieldSource: Send + Sync {          // categorical/scalar raster
-    fn name(&self) -> &str;
-    fn class_at(&self, p: PlanarPoint) -> u8;
-    fn value_at(&self, p: PlanarPoint) -> Option<f32> { None }
-    fn coverage(&self) -> Bbox;
-}
-
-pub trait FeatureSource: Send + Sync {        // vector: lakes, marsh, streams
-    fn name(&self) -> &str;
-    fn geom_kind(&self) -> GeomKind;
-    fn query(&self, aabb: Bbox, f: &mut dyn FnMut(FeatureRef<'_>));
-}
-
-pub trait NetworkSource: Send + Sync {        // trails/roads
-    fn snap(&self, p: PlanarPoint, radius_m: f32) -> Option<NodeId>;
-    fn node(&self, id: NodeId) -> Option<PlanarPoint>;
-    fn edges_in(&self, aabb: Bbox, cap: usize, f: &mut dyn FnMut(EdgeRef<'_>));
-    fn edge_geometry(&self, id: EdgeId) -> &[PlanarPoint];
-    fn attrs(&self, id: EdgeId) -> EdgeAttrs;   // length, gain, surface, marking
-}
-```
-
-`EdgeAttrs` is the neutral replacement for `turbo_tiles_graph::EdgeRecord`
-with its `fkb_type` field — a Norwegian classification currently visible to
-every contributor. The profile maps national classes onto a neutral
-`Surface` enum at adapter level.
-
-#### `core::ports::projection`
-```rust
-pub trait Projection: Send + Sync {
-    fn to_planar(&self, p: GeoPoint) -> PlanarPoint;
-    fn to_geographic(&self, p: PlanarPoint) -> GeoPoint;
-    fn epsg(&self) -> u32;
-}
-```
-Lifts `wgs84_to_utm33n` out of `turbo-tiles-elev` (`dem.rs:412`), where an
-elevation primitive currently owns the system's coordinate reference.
-
-#### `core::ports::observe`
-```rust
-pub trait Observer: Send + Sync {
-    fn enabled(&self, kind: EventKind) -> bool;   // cheap gate, ~ns
-    fn emit(&self, ev: SolverEvent<'_>);
-    fn phase(&self, name: &'static str, at_us: u64);
-}
-```
-Solver-agnostic event vocabulary (§6). Replaces the thread-local
-`Recorder`/`Tracer` install pattern with an explicit field on
-`SolveContext` — the thread-local was chosen to avoid signature churn, but
-with `SolveContext` already threaded there is nothing to churn.
-
-#### `core::ports::budget`
-```rust
-pub struct Budget {
-    pub max_cells: u32,           // coarsens cell_m rather than OOMing
-    pub max_corridor_m: f64,
-    pub max_network_edges: usize,
-    pub deadline: Option<Duration>,
-}
-impl Budget { pub fn server() -> Self; pub fn handheld() -> Self; }
-```
-`max_cells` is the `RoutingBudget` knob specified but never implemented in
-the unification plan — "the one lever that makes any hardware safe". It
-belongs in the contract layer because both solvers and the corridor sizer
-must honour it.
-
-#### `core::spec`
-The declarative configuration schema — serde types, no logic.
-`EngineConfig`, `SourceSpec`, `CostSpec`, `ContributorSpec`, `SolverSpec`,
-`BudgetSpec`, `PresetSet`. **This is what crosses FFI as a string**, and it
-is why adding a data source needs no ABI change.
-
-**API classification:** `core::ports::*` + `core::domain` are the
-**extension API** (semver'd, documented, the thing a contributor author
-reads). `core::spec` and `core::domain::{RouteRequest, Route, RouteError}`
-are **external** — they are serialized into HTTP, FFI, and pack manifests.
-
----
-
-## 4. L2 — Services (Technical)
+## 5. L2 — Services (Technical)
 
 ### `turbo-route-cost`
 
-The cost model. Depends on `core` + `geom`. **Knows nothing about files,
-countries, or solvers.**
+Depends on `model` + `geom`. Knows nothing about files, countries, or
+solvers.
 
-| Module | Purpose | Kind |
-|---|---|---|
-| `contributor` | `trait CostContributor`, `EdgeContext`, `EdgeKind`, `compose_edge_walk_seconds` — **moved verbatim** from `pathfind::contributor` | Contract |
-| `probe` | `ElevProbe<E: ElevationSource>` — the shared per-edge sample memo, now generic instead of welded to `Dem` | Technical |
-| `model` | `CostModel` (static stack) + `RequestOverlay` (per-request) + `EffectiveCost` resolution | Technical |
-| `registry` | `ContributorRegistry`: `kind name → factory(params, &SourceRegistry) -> Arc<dyn CostContributor>` | Orchestration-adjacent |
-| `terrain` | Tobler slope, Naismith gain, contour crossing, DEM-coverage penalty, roughness, avalanche — generic over `ElevationSource` | Technical |
-| `raster` | `RasterClassContributor` — generic over `FieldSource` | Technical |
-| `vector` | `PolygonIntegral`, `PolygonRefusal`, `LineCrossing`, `PointProximity` — generic over `FeatureSource` | Technical |
-| `network` | Surface pace, marking bonus, preferred edge, graph slope, total gain, trail proximity — generic over `NetworkSource` | Technical |
+| Module | Purpose |
+|---|---|
+| `contributor` | `trait CostContributor`, `EdgeContext`, `EdgeKind`, `compose_edge_walk_seconds` — **moved verbatim** from `pathfind::contributor` |
+| `probe` | `ElevProbe<H: Heightfield>` — the shared per-edge sample memo, generic instead of welded to `Dem` |
+| `model` | `CostModel` (static stack) + `Overlay` (per-request) + `EffectiveCost` |
+| `builder` | **typed** `CostModel::builder()` — no strings, no factories |
+| `terrain` | Tobler slope, Naismith gain, contour crossing, coverage penalty, roughness, avalanche — generic over `Heightfield` |
+| `field` | `ClassCost` — generic over `ClassField` |
+| `geometry` | `PolygonIntegral`, `PolygonRefusal`, `LineCrossing`, `PointProximity` — generic over `GeometrySet` |
+| `network` | surface pace, preferred-edge, grade, total-gain, proximity — generic over `TraversalNetwork` + `AttrView` |
 
-#### The important new concept: static stack + request overlay
-
-Today the per-request cost inputs are threaded four different ways: the
-cost-config patch is resolved **separately inside each solver**
-(`try_build_off_trail_segment_fmm` and `solve_unified_path` each call
-`cost_config.with_patch`, and the module comments record that the FMM path
-once silently ignored overrides as a result); `off_trail_factor` is appended
-by `fmm_adapter::with_off_trail`; the avoid set is passed as a separate
-argument; `layer_weights` only ever reached the legacy composer.
-
-Make it one type, resolved once, in one place:
+#### Typed construction, not a registry
 
 ```rust
-pub struct RequestOverlay {
-    pub config_patch: CostConfigPatch,        // preset + explicit override, pre-merged
-    pub layer_weights: HashMap<String, f32>,
-    pub avoided_edges: HashSet<EdgeId>,       // from avoid projection
-    pub extra: Vec<Arc<dyn CostContributor>>, // e.g. off-trail roughness
-}
-
-impl CostModel {
-    pub fn resolve(&self, overlay: &RequestOverlay) -> EffectiveCost<'_>;
-}
+CostModel::builder()
+    .add(ToblerSlope::new(height.clone(), CliffDeg(60.0)))
+    .add(NaismithGain::new(height.clone(), GainWeight(7.92)))
+    .add(PolygonIntegral::new(water.clone(), SecondsPerMetre(400.0)))
+    .add(LineCrossing::new(streams.clone(), |w| 10.0 + 5.0 * w))
+    .add(ClassCost::new(forest.clone(), &[(FOREST, SecondsPerMetre(0.29))]))
+    .build()
 ```
 
-`EffectiveCost` is what a `SolveContext` carries. One resolution site, one
-thing to test, one thing the debug endpoint can print.
+Every parameter is a newtype; a transposed argument is a compile error.
+L5 does the `"polygon-integral"` → `PolygonIntegral::new` mapping, which
+is the only place a string can be wrong and the only place that needs a
+runtime error path.
 
-**API:** `CostContributor` + `ContributorRegistry` are **extension API** —
-this is the seam for "add lake/marsh/snow data". Everything else internal.
+#### Static stack + per-request overlay
+
+Today the per-request cost inputs are threaded four ways: the config patch
+resolves **separately inside each solver** (`try_build_off_trail_segment_fmm`
+and `solve_unified_path` each call `with_patch` — and the module comments
+record that the FMM path once silently ignored overrides as a result);
+`off_trail_factor` is appended by `with_off_trail`; the avoid set is a
+separate argument; `layer_weights` only ever reached the legacy composer.
+
+One type, resolved once, in the planner:
+
+```rust
+pub struct Overlay {
+    pub tuning: Tuning,                       // resolved scalars from L5
+    pub weights: Weights,                     // per-contributor scale
+    pub blocked_edges: HashSet<EdgeId>,       // from avoid projection
+    pub extra: Vec<Arc<dyn CostContributor>>, // e.g. off-trail roughness
+}
+impl CostModel { pub fn resolve(&self, o: &Overlay) -> EffectiveCost<'_>; }
+```
+
+**API:** `CostContributor` is **extension API** — the seam for adding lake,
+marsh, snow, or biome data.
 
 ### `turbo-route-solvers`
 
-Algorithms. Depends on `core`, `cost`, `geom`, `fmm`.
+Depends on `model`, `cost`, `geom`, `fmm`.
 
-| Module | Purpose | Kind |
-|---|---|---|
-| `solver` | `trait Solver`, `SolveLeg`, `SolveContext<'_>`, `Candidate` | Contract |
-| `corridor` | Endpoints + `Budget` → `GridShape`. **Single** implementation (today `corridor_shape` in `unified.rs` and the sizer in `fmm_adapter.rs` are separate) | Technical |
-| `field` | `CostField<E>` — per-corridor lazy memo of refusal / pace / elevation / **attribution** | Technical |
-| `unified` | `UnifiedAStar` — one A\* over mesh ∪ network in one walk-seconds field (from `unified.rs`) | Technical |
-| `fmm` | `FmmGradeLimited` (default off-trail), `FmmAnisotropic` — wrap `turbo-fmm` | Technical |
-| `network` | `NetworkDijkstra` — pure on-trail | Technical |
-| `extract` | Path extraction, smoothing, resampling, surface breakdown — shared post-processing | Technical |
+| Module | Purpose |
+|---|---|
+| `solver` | `trait Solver`, `SolveLeg`, `SolveContext<'_>`, `Candidate`, `SolverCaps` |
+| `corridor` | endpoints + `Budget` → `GridShape`. **One** implementation (today `corridor_shape` in `unified.rs` and the sizer in `fmm_adapter.rs` are separate) |
+| `field` | `CostField<H>` — per-corridor lazy memo of refusal / pace / height / **attribution** |
+| `unified` | `UnifiedAStar` — one A\* over mesh ∪ network in one walk-seconds field |
+| `fmm` | `FmmGradeLimited` (default off-trail), `FmmAnisotropic` |
+| `network` | `NetworkDijkstra` |
+| `extract` | extraction, smoothing, resampling, surface breakdown |
 
 ```rust
-pub trait Solver: Send + Sync {
-    fn name(&self) -> &'static str;
-    fn capabilities(&self) -> SolverCaps;   // needs_network? needs_elevation? anytime?
-    fn solve(&self, leg: &SolveLeg, ctx: &SolveContext<'_>) -> Result<Candidate, SolveError>;
-}
-
 pub struct SolveContext<'a> {
     pub cost: &'a EffectiveCost<'a>,
-    pub elevation: &'a dyn ElevationSource,
-    pub network: Option<&'a dyn NetworkSource>,
-    pub projection: &'a dyn Projection,
+    pub height: &'a dyn Heightfield,
+    pub network: Option<&'a dyn TraversalNetwork>,
     pub budget: &'a Budget,
     pub observer: &'a dyn Observer,
 }
 ```
 
-`SolverCaps` lets assembly reject an impossible configuration at boot
-("`unified` requires a network source; none configured") instead of
-returning `NoRoute` at request time — which is what happens today
-(`solve_unified_path` returns `Err(NoRoute)` when the graph or DEM is
-missing, indistinguishable from a genuine routing failure).
+`SolverCaps` lets `Engine::new` reject an impossible combination at
+construction ("`unified` requires a network; `Terrain.network` is `None`")
+instead of returning `NoRoute` at request time — which is what happens
+today, where a missing graph or DEM is indistinguishable from a genuine
+routing failure.
 
-**Performance rule.** The registry holds `Arc<dyn Solver>` and
-`Arc<dyn ElevationSource>`, but `CostField<E>` and the solver inner loops
-are **generic and monomorphized**. `dyn` is paid once per cell at most —
+**Performance rule.** `Arc<dyn Heightfield>` at the boundary;
+`CostField<H>` and solver inner loops are **generic and monomorphized**.
 `turbo-fmm` already demonstrates this with `solve_2d_with_metric<M: Metric>`.
-Target overhead versus today: <2% on the corpus DEM-work axis.
-
-**API:** `Solver` is **extension API** — the seam for "swap algorithms".
-`CostField`, `corridor`, `extract` are internal.
+Budget: <2% on the corpus DEM-work axis.
 
 ### `turbo-route-observe`
 
-`Observer` implementations and wire formats. Depends on `core` only.
-
-| Module | Purpose |
-|---|---|
-| `noop` | Zero-cost default (the `enabled()` gate compiles out the call sites) |
-| `memory` | Collect into a `Recording` — tests, A/B diffing |
-| `stream` | Bounded channel + decimation → SSE (the current `Recorder` behaviour, generalised) |
-| `ndjson` | Append to a file — **on-device capture and CI failure artifacts** |
-| `format` | `Recording` serde schema — versioned, **external** |
-
-The `ndjson` sink is what makes a phone-side solve debuggable in the same
-frontend as a server solve. It exists only because `Observer` is a port.
+`Observer` implementations. Depends on `model` only. `noop` (zero-cost
+default), `memory` (tests, A/B diff), `stream` (bounded decimation → SSE),
+`ndjson` (**device capture and CI failure artifacts**), `format` (the
+versioned `Recording` schema — external).
 
 ---
 
-## 5. L3 — Adapters (Technical)
+## 6. L4 — Engine (`turbo-route-engine`)
 
-Each implements L1 ports over one storage strategy. **Depend on `core`
-only.** Swapping an adapter changes where bytes come from and nothing else.
-
-| Crate | Implements | Backed by |
-|---|---|---|
-| `turbo-geodata-artifacts` | all four data ports | today's mmap'd `norway.{dem,mask,graph,vectors}` via `turbo-tiles-{elev,mask,graph,vector}` |
-| `turbo-geodata-pack` | all four data ports | a region pack directory (§8) |
-| `turbo-geodata-memory` | all four data ports | in-process arrays and vectors — **fixtures, CI corpus, property tests** |
-| `turbo-proj` | `Projection` | `Utm33n`, `WebMercator`, `LocalTangent` (fixtures) |
-
-### Composite adapters — composition inside a layer
-
-Adapters compose with each other because they implement the same port. This
-is where "swap DEM resolution" actually gets cheap:
-
-```rust
-// Picks the coarsest level that still resolves the corridor's cell size.
-PyramidElevation::new(vec![dem_10m, dem_40m])
-
-// Decorators, each `impl ElevationSource`
-CachedElevation::new(inner, 32 * MB)     // device-sized tile cache
-ClampedElevation::new(inner, bbox)       // pack-boundary halo enforcement
-FallbackElevation::new(primary, coarse)  // fill national DEM gaps
-```
-
-None of these require touching a cost contributor, a solver, or a format.
-`PyramidElevation` alone is the difference between a ~85 MB and a ~25 MB
-region pack.
-
-**API:** internal. An adapter's constructor signature is referenced only by
-its profile's registration function.
-
----
-
-## 6. L4 — Orchestration (`turbo-route-engine`)
-
-The layer the rest of this document exists to protect. It contains **no
-numerics and no I/O** — it decides what runs, in what order, with what
+Pure orchestration. **No numerics, no I/O, no configuration, no
+construction of adapters.** It decides what runs, in what order, with what
 inputs, and what happens when a step fails.
 
-### 5.1 What is being decomposed
+```rust
+pub struct Terrain {
+    pub height: Arc<dyn Heightfield>,
+    pub network: Option<Arc<dyn TraversalNetwork>>,
+    pub extent: Extent,
+}
+
+impl Engine {
+    /// Everything is already built. Validates *semantic* consistency:
+    /// solver caps vs available capabilities, non-empty extent, sane
+    /// budget. Never touches a filesystem.
+    pub fn new(terrain: Terrain, cost: CostModel,
+               solvers: SolverSet, budget: Budget) -> Result<Self, EngineError>;
+
+    pub fn plan(&self, req: &RouteRequest) -> Result<Route, RouteError>;
+    pub fn plan_observed(&self, req: &RouteRequest, o: &dyn Observer)
+                         -> Result<Route, RouteError>;
+    pub fn cost_breakdown(&self, e: &EdgeQuery) -> EdgeWalkCost;
+    pub fn inspect_corridor(&self, req: &RouteRequest, s: &InspectSpec) -> CorridorInspection;
+    pub fn extent(&self) -> Extent;
+    pub fn describe(&self) -> EngineDescription;   // what it HAS, not where it came from
+}
+```
+
+### 6.1 What is being decomposed
 
 `Pathfinder` (1986 LOC) currently holds twelve responsibilities:
 
 | # | Responsibility | Current site | Moves to |
 |---|---|---|---|
-| 1 | Assembly of layers/contributors | `with_defaults_and_config`, `push_with_native` | `engine::assembly` |
-| 2 | Projection at entry/exit | inline `wgs84_to_utm33n` calls | `planner::intake` |
+| 1 | Assembly of layers/contributors | `with_defaults_and_config`, `push_with_native` | **L5 `compose`** |
+| 2 | Projection at entry/exit | inline `wgs84_to_utm33n` | **L5 `frame`** |
 | 3 | Coverage precheck | `point_covered`, `has_graph_anchor` | `planner::feasibility` |
 | 4 | Endpoint refusal repair | `snap_endpoints_out_of_refusal` | `planner::repair` |
-| 5 | Per-request config resolution | duplicated in 2 solvers | `planner::overlay` |
+| 5 | Per-request config resolution | duplicated in 2 solvers | split: preset merge → **L5**; overlay build → `planner::overlay` |
 | 6 | Avoid projection | `avoid::project_avoided_edges` | `planner::overlay` |
 | 7 | Waypoint leg splitting | `solve_route_once` | `planner::legs` |
 | 8 | Leg caching | `leg_cache` + `leg_fingerprint` | `planner::legs` |
@@ -434,188 +482,184 @@ inputs, and what happens when a step fails.
 | 11 | Round-trip composition | `solve_round_trip` | `planner::strategies` |
 | 12 | Observability install | thread-local recorder/tracer | `SolveContext.observer` |
 
-### 6.2 `engine::assembly` — boot-time orchestration
+Note rows 1, 2 and half of 5 leave the engine entirely — that is the rev. 2
+correction expressed as a diff.
 
-```rust
-pub struct SourceRegistry {
-    elevation: HashMap<String, Arc<dyn ElevationSource>>,
-    fields:    HashMap<String, Arc<dyn FieldSource>>,
-    features:  HashMap<String, Arc<dyn FeatureSource>>,
-    networks:  HashMap<String, Arc<dyn NetworkSource>>,
-}
-
-pub struct EngineBuilder {
-    sources:      SourceRegistry,
-    contributors: ContributorRegistry,
-    solvers:      SolverRegistry,
-    strategies:   StrategyRegistry,
-}
-
-impl EngineBuilder {
-    pub fn with_profile(self, p: &dyn Profile) -> Self;   // profile registers factories
-    pub fn build(self, cfg: &EngineConfig) -> Result<Engine, ConfigError>;
-}
-```
-
-`build` **validates the whole configuration up front**:
-
-- every `ContributorSpec.kind` resolves to a registered factory
-- every port a contributor requires exists in the `SourceRegistry`
-- the selected `Solver`'s `capabilities()` are satisfied
-- all source coverages intersect; the engine's coverage is their intersection
-- the `Budget` is self-consistent
-
-A misconfiguration is a startup error naming the offending spec entry —
-never a runtime `NoRoute`. This is a concrete behavioural improvement over
-today, where a missing DEM surfaces as an opaque per-request failure.
-
-`Engine` is immutable and `Send + Sync` after build. Everything mutable
-(caches, observers) is per-request or interior-mutable and bounded.
-
-### 6.3 `engine::planner` — per-request orchestration
-
-A named pipeline. Each stage is a free function over explicit inputs, unit
-testable without artifacts.
+### 6.2 `planner` — per-request orchestration
 
 ```
-RouteRequest
+RouteRequest  (planar points, resolved Tuning)
      │
- ┌───▼────────┐  validate arity, project GeoPoint → PlanarPoint,
- │ intake     │  resolve preset name → patch
+ ┌───▼────────┐  arity; endpoints within Terrain.extent; network anchor
+ │ feasibility│  → RouteError::OutsideExtent (honest failure, early)
  └───┬────────┘
- ┌───▼────────┐  coverage ∩ endpoints; network anchor within radius?
- │ feasibility│  → RouteError::NoCoverage (honest failure, early)
+ ┌───▼────────┐  endpoint in a blocked cell → snap outward within
+ │ repair     │  tuning.repair_radius_m, else EndpointBlocked
  └───┬────────┘
- ┌───▼────────┐  endpoint in a refused cell → snap outward within
- │ repair     │  refusal_snap_m, else RouteError::EndpointRefused
+ ┌───▼────────┐  ONE construction: Tuning + weights + avoid→edge ids
+ │ overlay    │  + mode extras → Overlay → EffectiveCost
  └───┬────────┘
- ┌───▼────────┐  ONE resolution: preset ∘ override → patch,
- │ overlay    │  layer_weights, avoid polylines → edge ids,
- └───┬────────┘  profile extras → RequestOverlay → EffectiveCost
- ┌───▼────────┐  split at waypoints; per-leg cache probe
- │ legs       │  (fingerprint = overlay hash + leg endpoints)
+ ┌───▼────────┐  split at waypoints; cache probe keyed on the RESOLVED
+ │ legs       │  overlay hash + leg endpoints
  └───┬────────┘
- ┌───▼────────┐  select Solver (config default ∨ request hint ∨ caps),
- │ dispatch   │  size corridor under Budget, build SolveContext, solve
+ ┌───▼────────┐  select Solver by caps + request hint; size corridor
+ │ dispatch   │  under Budget; build SolveContext; solve
  └───┬────────┘
- ┌───▼────────┐  join legs, surface breakdown, waypoint legs,
- │ stitch     │  ascent/descent, refused_by union
+ ┌───▼────────┐  join legs, surface breakdown, ascent, refused_by union
+ │ stitch     │
  └───┬────────┘
-   Route
+   Route  (planar geometry)
 ```
 
-**Cache-key correctness note.** `leg_fingerprint` today hashes `Prefs`. In
-the target it must hash the resolved `RequestOverlay` — otherwise two
-requests that differ only in preset *name* but resolve to the same patch
-miss the cache, and (worse) two that differ in a field the fingerprint
-forgot would share a cached leg. Hashing the resolved overlay makes the key
-provably complete.
+**Parnas caveat (carried from the rationale doc).** This is a *flowchart*
+decomposition, which Parnas argues against. The defensible reading is that
+each stage hides a **policy** that changes independently. Rule that
+follows: **if a stage hides no policy, inline it.** A stage that is only a
+sequence position is not a module.
 
-### 6.4 `engine::strategies` — the composition seam
+**Cache-key correctness.** `leg_fingerprint` today hashes `Prefs`. It must
+hash the *resolved* `Overlay` — otherwise two requests differing only in
+preset name miss the cache, and (worse) two differing in a field the
+fingerprint forgot silently share a cached leg.
 
-Round-trip is not a solver and not a flag; it is *orchestration composed
-from the primitive plan operation plus an overlay mutation*. Today it is a
-private method. Make it the extension point:
+### 6.3 `strategies` — the composition seam
+
+Round-trip is not a solver and not a flag; it is orchestration composed
+from the primitive plan operation plus an overlay mutation.
 
 ```rust
 pub trait RouteStrategy: Send + Sync {
-    fn name(&self) -> &'static str;
+    fn id(&self) -> StrategyId;
     fn plan(&self, req: &RouteRequest, p: &Planner<'_>) -> Result<Route, RouteError>;
 }
 ```
 
-`Planner` exposes exactly one primitive — `plan_legs(points, overlay)` —
-and strategies compose it:
+`Planner` exposes exactly one primitive — `plan_legs(points, overlay)`:
 
 | Strategy | Composition |
 |---|---|
 | `PointToPoint` | `plan_legs(points, overlay)` |
-| `RoundTrip` | `plan_legs(out)` → push its geometry into `overlay.avoided_edges` → `plan_legs(back)` → stitch |
-| `LoopOfLength(d)` *(future)* | sample candidate far points at `d/2` → `plan_legs` each → score → best |
-| `MultiDay(huts)` *(future)* | anchor legs on network POIs, per-leg budget |
-| `Alternatives(k)` *(future)* | k plans with escalating avoid overlays → dedupe by geometry hash |
+| `RoundTrip` | `plan_legs(out)` → push geometry into `overlay.blocked_edges` → `plan_legs(back)` → stitch |
+| `LoopOfLength(d)` *(future)* | sample far points at `d/2` → `plan_legs` each → score |
+| `MultiDay(stops)` *(future)* | anchor legs on network nodes, per-leg budget |
+| `Alternatives(k)` *(future)* | k plans with escalating blocked sets → dedupe by geometry hash |
 
-Every one of those is orchestration over an unchanged solver and an
-unchanged cost model. That is the test of whether the boundary is in the
-right place — and today none of them can be written without editing
-`Pathfinder`.
+All four future strategies are orchestration over an **unchanged** solver
+and cost model. That is the test of whether the seam is placed correctly —
+and today none can be written without editing `Pathfinder`.
 
-### 6.5 `engine::inspect` — the debug service
+### 6.4 `inspect` — debug as engine methods
 
-The debug capabilities as *engine methods*, not HTTP handlers, so they exist
-on-device and in the CLI:
-
-```rust
-impl Engine {
-    pub fn plan(&self, req: &RouteRequest) -> Result<Route, RouteError>;
-    pub fn plan_observed(&self, req: &RouteRequest, o: &dyn Observer) -> Result<Route, RouteError>;
-    pub fn cost_breakdown(&self, edge: &EdgeQuery) -> EdgeWalkCost;
-    pub fn inspect_corridor(&self, req: &RouteRequest, spec: &InspectSpec) -> CorridorInspection;
-    pub fn coverage(&self) -> Bbox;
-    pub fn describe(&self) -> EngineDescription;   // resolved config, sources, contributors, solver
-}
-```
-
-`inspect_corridor` is the capability that does not exist today and is the
-cheapest large debugging win: `CostField::ensure()` already computes full
-per-cell contributor attribution and discards everything except the composed
-multiplier. Retaining it under an `InspectSpec` turns "why did it go
-*there*?" from an inference into a lookup.
-
-**API:** `RouteStrategy` is **extension API**. `Engine`'s method set is the
-**internal façade that L6 hosts wrap** — the external contract is the host's
-serialization of it, not the Rust signatures.
+Debug capabilities are engine methods, not HTTP handlers, so they exist
+on-device and in the CLI. `inspect_corridor` is the capability that does
+not exist today and is the cheapest large debugging win: `CostField::ensure()`
+already computes full per-cell contributor attribution and discards
+everything except the composed multiplier. Retaining it under an
+`InspectSpec` turns "why did it go *there*?" from an inference into a
+lookup.
 
 ---
 
-## 7. L5 — Profiles (`turbo-profile-no`)
+## 7. L5 — Composition (Infrastructure + Profile)
 
-Everything national, in one crate, mostly data:
+Everything rev. 1 wrongly put in the engine. **All I/O, all configuration,
+all format knowledge, all construction, and the only coordinate-reference
+system in the codebase.**
+
+### 7.1 `turbo-route-compose`
+
+```rust
+pub struct Composed {
+    pub engine: Engine,
+    pub frame: Frame,          // for hosts that speak lon/lat
+    pub presets: PresetSet,    // for hosts that resolve preset names
+    pub description: SourceProvenance,   // what was opened, from where
+}
+
+pub fn compose(cfg: &ComposeConfig, root: &Path, profile: &dyn Profile)
+    -> Result<Composed, ComposeError>;
+```
+
+What it owns:
+
+| Concern | Detail |
+|---|---|
+| **Config schema** | `ComposeConfig`, `SourceSpec { kind, path, params }`, `CostSpec`, `SolverSpec`, `BudgetSpec` — the serde types. **The engine has no config type.** |
+| **Source resolution** | `kind = "dem-tiles"` → `turbo_geodata_artifacts::DemHeightfield::open(path)`. One `match` on a string, one error path. |
+| **Composite adapters** | `Pyramid::new(vec![dem10, dem40])`, `Cached::new(inner, 32 MB)`, `Clamped::new(inner, extent)`, `Fallback::new(fine, coarse)` — all `impl Heightfield`, composed here |
+| **Cost translation** | `CostSpec` rows → typed `CostModel::builder()` calls |
+| **Preset resolution** | preset name + override → a resolved `Tuning` struct |
+| **Validation** | file exists, format version, `engine_min`, extents intersect |
+| **Provenance** | what was opened and from where, for `describe()` and support |
+
+**The whole stringly-typed surface of the system lives in this one crate.**
+That is not a compromise — mapping text to typed objects is what a parser
+is, and confining it to one layer is the point.
+
+### 7.2 `turbo-profile-no`
+
+Everything national, mostly data:
 
 | Item | Today | In the profile |
 |---|---|---|
 | Artifact filenames (`norway.dem`, …) | `routing_setup.rs` | `sources.toml` |
-| N50/FKB class → neutral `Surface` map | `EdgeRecord.fkb_type` read by contributors | adapter-level mapping table |
-| Cost constants: `WATER_CROSS_PENALTY_PER_M = 400.0`, wetland ×1.5, cultivated ×3.0, streams `10 + 5×width`, the landcover multiplier array | **inline in wiring code** | `cost-config.toml` rows |
-| Presets (`balanced`, `trail_purist`, …) | `tools/route-presets.toml` via `include_str!` reaching outside the crate | profile crate's own `presets.toml` |
-| Projection choice (UTM33N) | ambient in `turbo-tiles-elev` | `projection = "utm33n"` |
-| DNT marking semantics | `MarkingBonusContributor` | contributor params |
+| N50/FKB class → neutral attrs | `EdgeRecord.fkb_type` read by contributors | adapter-level mapping table |
+| `WATER_CROSS_PENALTY_PER_M = 400.0`, wetland ×1.5, cultivated ×3.0, streams `10 + 5×width`, the landcover multiplier array | **inline in wiring code** | `cost-config.toml` rows |
+| Presets | `tools/route-presets.toml` via `include_str!` reaching three dirs outside the crate | the profile's own `presets.toml` |
+| CRS choice (UTM33N) | ambient in `turbo-tiles-elev` | `frame = "utm33n"` |
+| `ModeId` names (foot/bicycle/ski) | `Profile` enum in `turbo-tiles-graph` | `modes.toml` |
 
 Fixing the `include_str!("../../../tools/cost-config.toml")` escape is a
-hard prerequisite for FFI: a crate that reads three directories outside
-itself cannot be vendored into a cdylib.
+hard prerequisite for FFI: a crate reading outside itself cannot be
+vendored into a cdylib.
 
-A profile's only code is a registration function:
+### 7.3 `turbo-geo-frame`
 
-```rust
-impl Profile for NorwayProfile {
-    fn register(&self, b: &mut EngineBuilder) { /* factories + class maps */ }
-    fn default_config(&self) -> EngineConfig { /* embedded TOML */ }
-}
-```
+`Frame { to_planar(GeoPoint) -> Point, to_geographic(Point) -> GeoPoint,
+epsg() -> u32 }` with `Utm33n`, `WebMercator`, `LocalTangent`.
+
+This lifts `wgs84_to_utm33n` out of `turbo-tiles-elev` (`dem.rs:412`),
+where an *elevation primitive currently owns the system's coordinate
+reference*. It lands at L5, not L1 — the engine never converts coordinates
+because it never sees a geographic one.
+
+### 7.4 L3 adapters, constructed here
+
+| Crate | Implements | Backed by |
+|---|---|---|
+| `turbo-geodata-artifacts` | all four shapes | today's mmap'd `norway.{dem,mask,graph,vectors}` |
+| `turbo-geodata-pack` | all four shapes | a region pack directory (§9) |
+| `turbo-geodata-memory` | all four shapes | in-process arrays — fixtures, CI corpus, property tests |
+
+Adapters depend on `turbo-route-model` only. They are *constructed* by
+`compose`, never by the engine.
 
 ---
 
 ## 8. L6 — Hosts: the external API surface
 
-Four hosts wrap the same `Engine`. **These are the only external contracts
-in the system**, and each is independently versioned.
+| Host | External contract | Consumers |
+|---|---|---|
+| `turbo-route-http` | REST + SSE — `/v1/route/plan`, `/plan/stream`, `/v1/debug/*` | web SPA, mobile today, admin, lab |
+| `turbo-route-ffi` | uniffi façade | Android (JNA), iOS (Swift) |
+| `turbo-route-cli` | `plan`, `pack`, `eval`, `bench`, `replay`, `describe` | CI, corpus, ops |
+| `apps/route-lab` | consumes HTTP + the `Recording` file format | humans |
 
-| Host | External contract | Consumers | Versioning |
-|---|---|---|---|
-| `turbo-route-http` | REST + SSE — `/v1/route/plan`, `/plan/stream`, `/v1/debug/*` | web SPA, Android/iOS today, admin, route-lab | URL path (`/v1`) |
-| `turbo-route-ffi` | uniffi façade — `open`/`plan`/`plan_observed`/`coverage`/`describe`/`close` | Android (JNA), iOS (Swift) | uniffi checksum + `engine_min` in pack |
-| `turbo-route-cli` | subcommands — `plan`, `pack`, `eval`, `bench`, `replay`, `describe` | CI, corpus, ops, pack building | semver |
-| `apps/route-lab` | *consumes* HTTP + the `Recording` file format | humans | n/a |
-
-### 8.1 The FFI façade — and why it is deliberately thin
+### 8.1 The FFI façade — combining the two layers deliberately
 
 ```rust
 #[uniffi::export]
 impl RouteEngine {
     #[uniffi::constructor]
-    pub fn open(config_json: String, pack_dir: String) -> Result<Arc<Self>, FfiError>;
-    pub fn plan(&self, request_json: String) -> Result<String, FfiError>;
+    pub fn open(config_json: String, data_dir: String) -> Result<Arc<Self>, FfiError> {
+        let cfg: ComposeConfig = serde_json::from_str(&config_json)?;
+        let c = turbo_route_compose::compose(&cfg, Path::new(&data_dir), &NorwayProfile)?;
+        Ok(Arc::new(Self { engine: c.engine, frame: c.frame, presets: c.presets }))
+    }
+
+    /// Accepts lon/lat and a preset NAME; projects and resolves here,
+    /// then calls the pure engine.
+    pub fn plan(&self, request_json: String) -> Result<String, FfiError> { … }
     pub fn plan_observed(&self, request_json: String,
                          cb: Box<dyn ProgressCallback>) -> Result<String, FfiError>;
     pub fn coverage(&self) -> String;
@@ -623,80 +667,79 @@ impl RouteEngine {
 }
 ```
 
-Three properties:
+The host is where composition and engine are joined, where geographic
+coordinates are converted, and where preset names are resolved. **All
+three are things the engine must not do, and all three are things a host
+exists to do.**
+
+Three properties that make this the right boundary:
 
 1. **Call frequency is O(routes), not O(cells).** A solve touches ~50 k
-   cells and, even after `ElevProbe` and `CostField` memoisation, ~50–250 k
-   elevation lookups. Putting the boundary at a *port* — letting Kotlin
-   supply the DEM — would cost 5–25 ms of pure marshalling per route and
-   destroy the memo locality that cut DEM work by 93%. **Ports must never
-   become FFI boundaries.**
+   cells and, after memoisation, ~50–250 k height lookups. Putting FFI at a
+   *shape* — letting Kotlin answer `height_at` — would cost 5–25 ms of
+   marshalling per route and destroy the memo locality that cut DEM work by
+   93%. **Shapes must never become FFI boundaries.**
 2. **Configuration crosses as a string.** Adding a marsh source, switching
-   to a 40 m DEM level, or selecting a different solver is an
-   `EngineConfig` edit — no ABI change, no binding regeneration, no app
-   release coupling.
+   to a 40 m level, or selecting a different solver is a `ComposeConfig`
+   edit — no ABI change, no binding regeneration, no app-release coupling.
 3. **`catch_unwind` at the boundary.** The server wraps solves in
-   `catch_unwind` precisely because the solver does panic in the field
-   (`crash_dump.rs` exists for this). Over uniffi an unwind aborts the
-   process, so the boundary converts panics into `FfiError` and records the
-   request for replay.
-
-The only per-frame callback is `ProgressCallback`, whose rate is already
-bounded by the observer's decimation.
+   `catch_unwind` because the solver does panic in the field (`crash_dump.rs`
+   exists for this). Over uniffi an unwind aborts the process.
 
 ### 8.2 Internal vs external — the complete classification
 
 | Tier | What | Stability | Examples |
 |---|---|---|---|
-| **External** | Crosses a process, language, or disk boundary | Versioned; breaking changes need migration | `RouteRequest`/`Route`/`RouteError` JSON · HTTP `/v1` · uniffi façade · `EngineConfig` schema · pack manifest format · `Recording` format |
-| **Extension** | Public Rust, for adding capability | Semver; documented; changes ripple to profiles | `ElevationSource`, `FieldSource`, `FeatureSource`, `NetworkSource`, `Projection`, `Observer` · `CostContributor` · `Solver` · `RouteStrategy` · the registries |
-| **Internal** | Workspace-only | Free to change under corpus gating | `CostField` · `corridor` sizing · `EdgeContext` internals · every solver's inner loop · every adapter's internals · `Candidate` · planner stage functions |
+| **External** | Crosses a process, language, or disk boundary | Versioned; breaking changes need migration | the HTTP `/v1` JSON contract · uniffi façade · `ComposeConfig` schema · pack manifest · `Recording` format |
+| **Extension** | Public Rust, for adding capability | Semver; documented | `Heightfield`, `ClassField`, `GeometrySet`, `TraversalNetwork` · `CostContributor` · `Solver` · `RouteStrategy` · `Observer` · `Profile` |
+| **Internal** | Workspace-only | Free to change under corpus gating | `CostField` · `corridor` · `EdgeContext` internals · solver inner loops · adapter internals · `Candidate` · planner stage functions |
 
-**The rule that keeps this honest:** the internal result type (`Candidate`,
-today's `Path` with its `debug`/`recording` payloads) is *never* what a host
-returns. Hosts return `Route`. `route_plan.rs` already documents exactly
-this discipline — "deliberately narrow and decoupled from the internal
-`Path` / debug surface" — and it is the one boundary in the current system
-that is already right. Generalise it.
+**The rule that keeps this honest:** the engine's `Route` is planar and
+internal; hosts serialize a geographic DTO. `route_plan.rs` already
+documents exactly this discipline — "deliberately narrow and decoupled from
+the internal `Path` / debug surface" — and it is the one boundary in the
+current system that is already right.
 
 ---
 
-## 9. Region packs — the storage contract
+## 9. Region packs — an L5 format, not an engine format
 
-The pack is an **external format** because it is written by one program and
-read by another, on a different device, at a different version. It is
-defined in terms of **ports**, not in terms of today's artifacts:
+The pack is written by `turbo-route-cli pack` and read by
+`turbo-geodata-pack`. **The engine never hears of it.**
 
 ```toml
 [pack]
 format_version = 1
 engine_min     = "0.4.0"
 profile        = "no"
-bbox           = [8.4, 60.1, 9.9, 61.0]
-epsg           = 25833
+extent         = [8.4, 60.1, 9.9, 61.0]
+frame          = "utm33n"
 
-[[source]] port="elevation" name="dem"    kind="dem-tiles" file="dem.10m" resolution_m=10
-[[source]] port="elevation" name="dem_c"  kind="dem-tiles" file="dem.40m" resolution_m=40
-[[source]] port="network"   name="trails" kind="csr-graph" file="network"
-[[source]] port="features"  name="water"  kind="vectors"   file="vectors"
-[[source]] port="features"  name="marsh"  kind="vectors"   file="vectors"
-[[source]] port="field"     name="forest" kind="mask"      file="forest.mask"
+[[source]] shape="height"   name="dem"    kind="dem-tiles" path="dem.10m" resolution_m=10
+[[source]] shape="height"   name="dem_c"  kind="dem-tiles" path="dem.40m" resolution_m=40
+[[source]] shape="network"  name="trails" kind="csr-graph" path="network"
+[[source]] shape="geometry" name="water"  kind="vectors"   path="vectors"
+[[source]] shape="geometry" name="marsh"  kind="vectors"   path="vectors"
+[[source]] shape="class"    name="forest" kind="mask"      path="forest.mask"
 
-[elevation]
-compose = { kind = "pyramid", levels = ["dem", "dem_c"] }
+[height] compose = { kind = "pyramid", levels = ["dem", "dem_c"] }
 
-[cost]   config = "cost-config.toml"
-[presets] file  = "presets.toml"
+[cost]    config = "cost-config.toml"
+[presets] path   = "presets.toml"
 ```
 
 Two deliberate properties:
 
-- **The pack carries its own cost config and presets.** Same pack version
-  server-side and device-side ⇒ identical geometry, which is a *testable
-  assertion*: run the corpus in-process against the pack, run it on-device
-  against the same pack, diff geometry hashes.
-- **`engine_min`** lets an old app refuse a pack it cannot solve correctly,
-  rather than producing a subtly different route.
+- **The pack carries its own cost config and presets**, so the same pack
+  version server-side and device-side yields identical geometry — a
+  *testable* assertion against the existing geometry-hash harness, not a
+  hope.
+- **`engine_min`** lets an old app refuse a pack it cannot solve correctly
+  rather than silently routing differently.
+
+Note the schema now says `shape=` rather than `port=`: it declares which
+engine shape the source will be presented as. That word choice is the
+boundary made visible in the file format.
 
 ---
 
@@ -705,96 +748,96 @@ Two deliberate properties:
 Replace the Theta\*-shaped vocabulary (`LineOfSightCast`, `took_los`,
 `NodePopped` — from a solver that has been replaced) with events every
 solver family can emit, including FMM, whose object of interest is a *field*
-that the current recorder structurally cannot express:
+the current recorder structurally cannot express:
 
 ```rust
 pub enum SolverEvent<'a> {
     GridSized      { shape: GridShape, budget_clamped: bool },
     CellSettled    { i: u32, j: u32, arrival_s: f32 },
     FrontierState  { cells: &'a [(u32, u32)] },
-    FieldSnapshot  { bbox: Bbox, cell_m: f64, values: &'a [f32] },
-    CellVetoed     { i: u32, j: u32, layer: &'static str },
+    FieldSnapshot  { extent: Extent, cell_m: f64, values: &'a [f32] },
+    CellBlocked    { i: u32, j: u32, by: &'static str },
     CellAttributed { i: u32, j: u32, parts: &'a [NamedContribution] },
     NetworkRelaxed { edge: EdgeId, new_g: f32 },
-    CandidateImproved { geometry: &'a [PlanarPoint], cost_s: f64 },
+    CandidateImproved { geometry: &'a [Point], cost_s: f64 },
     Phase          { name: &'static str, at_us: u64 },
 }
 ```
 
-`apps/route-lab` (extracted from the 2883-line `PlotRoute.tsx`, which is
-currently welded into the admin SPA's auth and routing) consumes either a
-live engine or a dropped `Recording` file, and adds the two views the
-current screen cannot have:
+Coordinates are planar — the host converts once at serialization, which is
+what the current recorder already does.
+
+`apps/route-lab` (extracted from the 2883-line `PlotRoute.tsx`, currently
+welded into the admin SPA's auth and routing) consumes a live engine or a
+dropped `Recording` file, and adds:
 
 - **Cost attribution heatmap** — colour the corridor by any single
-  contributor's walk-seconds; click a cell for its full breakdown. Backed by
-  `CellAttributed` / `inspect_corridor`.
-- **A/B diff** — two `EngineConfig`s or two solvers on one request;
-  geometry overlay plus per-contributor cost delta. This is what makes
-  "swap algorithms" and "retune the marsh penalty" operationally real.
+  contributor's walk-seconds; click a cell for its breakdown.
+- **A/B diff** — two compositions or two solvers on one request; geometry
+  overlay plus per-contributor cost delta.
 
-Because `Observer` is a port with an `ndjson` sink, a recording captured on
-a phone loads into the same tool. That is the only practical way to debug a
-device-only divergence.
+Because `Observer` is a shape with an `ndjson` sink, a recording captured
+on a phone loads into the same tool.
 
 ---
 
 ## 11. Composition worked through
 
-Six scenarios, all against the same `Engine` type. Note what changes in
-each — and what does not.
+Six scenarios. Note that **only L5 changes** in the first three.
 
-**A. Server, Norway, national.**
-`artifacts` adapter · full contributor stack · `UnifiedAStar` ·
-`Budget::server()` · `stream` observer behind `?record=1`.
+**A. Server, Norway, national.** `compose` opens the artifacts adapter ·
+full contributor stack · `UnifiedAStar` · `Budget::server()` · `stream`
+observer behind `?record=1`.
 
-**B. Handheld, region pack.**
-`pack` adapter · `PyramidElevation[10 m, 40 m]` · **identical `CostSpec`**
-(it comes from the pack) · same solver · `Budget::handheld()` (`max_cells`
-clamp, 32 MB tile cache) · `ndjson` observer on demand.
-*Changed: one adapter and one budget. Not changed: cost model, solvers,
-orchestration, the route contract.*
+**B. Handheld, region pack.** `compose` opens the pack adapter ·
+`Pyramid[10 m, 40 m]` · **identical `CostSpec`** (it comes from the pack) ·
+same solver · `Budget::handheld()` · `ndjson` observer on demand.
+*Changed: one `compose` branch and one budget. Unchanged: model, cost,
+solvers, engine, contracts.*
 
-**C. CI corpus.**
-`memory` adapter with a synthetic DEM · same stack · `memory` observer ·
-asserts geometry hashes. **Runs in CI with no artifacts and no server** —
-today's corpus POSTs to a live tileserver and is skip-on-unreachable, so a
-clean checkout silently executes zero scenarios.
+**C. CI corpus.** `compose` with the memory adapter and a synthetic
+heightfield. **Runs in CI with no artifacts and no server** — today's
+`tests/scenarios.rs` POSTs to a live tileserver and is skip-on-unreachable,
+so a clean checkout silently executes zero scenarios.
 
 **D. Add marsh data.**
 ```toml
-[[source]] port="features" name="marsh" kind="vectors" file="vectors"
-[[contributor]] kind="polygon-integral" source="marsh" s_per_m=1.9
+[[source]] shape="geometry" name="marsh" kind="vectors" path="vectors"
+[[cost]]   kind="polygon-integral" source="marsh" s_per_m=1.9
 ```
-**Zero Rust.** The `polygon-integral` contributor already exists and is
-generic over `FeatureSource`. Today this is: a new contributor, a paired
-legacy layer, a hardcoded block in `routing_setup.rs`, and a magic constant
-in wiring code.
+**Zero Rust.** `PolygonIntegral` already exists and is generic over
+`GeometrySet`; `compose` already knows the `"polygon-integral"` string.
 
-**E. New algorithm.**
-`impl Solver for ContractionHierarchy`, one registry line, select with
-`solver = "ch"`. Compare against the incumbent with route-lab's A/B view on
-the corpus. No changes to cost, data, orchestration, or any host.
+**E. New algorithm.** `impl Solver for ContractionHierarchy`, one line in
+`compose`'s solver match, select with `solver = "ch"`. No changes to model,
+cost, data, engine, or hosts.
 
-**F. Experiment in one process.**
-Two `Engine`s from two `EngineConfig`s over one shared `SourceRegistry` —
-the `Arc<dyn …Source>`s are shared, so a 20 m-vs-10 m DEM comparison costs
-one extra mmap, not two engines' worth of data.
+**F. Game engine / simulation.** No `compose` at all — construct `Terrain`
+from memory and call `Engine::new` directly (§3.4). This is the case that
+proves the boundary, and it is the one rev. 1 could not serve.
 
 ---
 
 ## 12. Boundary invariants (CI-checkable)
 
 1. `grep -riE 'norway|n50|fkb|dnt|25833'` over L0–L4 returns nothing.
-2. No crate in L0–L2 depends on `memmap2`, `zstd`, `reqwest`, `tokio`, or
-   `std::fs`.
-3. No `pub` item in L2–L4 names a concrete adapter type.
-4. `turbo-route-core` has zero dependencies outside `serde` + `std`.
-5. Adapters do not depend on `turbo-route-cost` or `-solvers`.
-6. Every `Solver` passes the same conformance suite (admissibility on a
+2. No crate in L0–L4 depends on `memmap2`, `zstd`, `reqwest`, `tokio`,
+   `std::fs`, or `std::env`.
+3. **No crate in L0–L4 has a type that deserializes settings, and no
+   function in L0–L4 takes a `&Path`, a filename, or a format name.**
+4. No `pub` item in L2–L4 names a concrete adapter type.
+5. Adapters depend on `turbo-route-model` only.
+6. `turbo-route-model` has zero dependencies outside `serde` + `std`.
+7. The portability conformance test (§3.4) compiles and passes with no
+   fixture files.
+8. Every `Solver` passes the same conformance suite (admissibility on a
    uniform field, determinism, budget compliance, observer contract).
-7. Corpus geometry hashes are unchanged across any refactor step, or the
+9. Corpus geometry hashes are unchanged across any refactor step, or the
    change is explained in the commit.
+
+Invariants 3 and 7 are the mechanical guards on §2. Invariant 3 is worth
+stating as bluntly as possible: **if a signature in L0–L4 mentions a path,
+the boundary has been breached.**
 
 ---
 
@@ -803,19 +846,19 @@ one extra mmap, not two engines' worth of data.
 | Today | Becomes | Note |
 |---|---|---|
 | `turbo-tiles-geom` | `turbo-geom` | drop the EPSG assertion |
-| `turbo-tiles-fmm` | `turbo-fmm` | move `tobler*` out to `cost::terrain` |
+| `turbo-tiles-fmm` | `turbo-fmm` | move `tobler*` to `cost::terrain` |
 | `pathfind::contributor` | `cost::contributor` | **moved verbatim** — the design is right |
-| `pathfind::native_contributors` | `cost::{terrain,raster,vector,network}` | generic over ports |
+| `pathfind::native_contributors` | `cost::{terrain,field,geometry,network}` | generic over shapes |
 | `pathfind::{layers,cost,vector_layers}` | **deleted** | legacy multiplicative generation |
 | `pathfind::cost_field` | `solvers::field` | + attribution retention |
 | `pathfind::unified` | `solvers::unified` | corridor sizing extracted |
-| `pathfind::fmm_adapter` | `solvers::fmm` | `DemElevation` → the port |
+| `pathfind::fmm_adapter` | `solvers::fmm` | `DemElevation` → `Heightfield` |
 | `pathfind::{solver_trace,tracer}` | `observe` | new event vocabulary |
-| `pathfind::config` | `core::spec` + profile TOML | fixes the `include_str!` escape |
+| `pathfind::config` | **`compose` + profile TOML** | fixes the `include_str!` escape |
 | `pathfind::avoid` | `engine::planner::overlay` | orchestration, not cost |
-| `pathfind::Pathfinder` | `engine::{assembly,planner,strategies}` | the twelve-way split (§5.1) |
-| `bin::routing_setup` | `turbo-profile-no` | out of the binary crate |
-| `turbo_tiles_graph::Profile` | `core::domain::Profile` | domain enum out of a storage crate |
-| `elev::wgs84_to_utm33n` | `turbo-proj::Utm33n` | CRS out of the elevation primitive |
-| `pathfind::Prefs` | `RouteRequest` + `EngineConfig` + `ObserveSpec` | four concerns, three types |
-| `pathfind::Path` | `Candidate` (internal) + `Route` (external) | never return the internal one |
+| `pathfind::Pathfinder` | `engine::{planner,strategies}` **+ `compose`** | the twelve-way split (§6.1) |
+| `bin::routing_setup` | `turbo-route-compose` + `turbo-profile-no` | out of the binary crate |
+| `turbo_tiles_graph::Profile` | `model::ModeId` + profile-supplied names | domain enum out of a storage crate, use case out of the engine |
+| `elev::wgs84_to_utm33n` | `turbo-geo-frame::Utm33n` (**L5**) | CRS out of the elevation primitive *and* out of the engine |
+| `pathfind::Prefs` | `RouteRequest` + `ComposeConfig` + `Tuning` + `ObserveSpec` | four concerns, four types, two layers |
+| `pathfind::Path` | `Candidate` (internal) + `Route` (planar) + host DTO (geographic) | never return the internal one |
