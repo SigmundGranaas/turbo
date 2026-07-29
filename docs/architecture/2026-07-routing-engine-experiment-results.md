@@ -539,6 +539,53 @@ Still, both should be re-run with `--mode=unified` before the deletion
 step lands. A result measured on a lane users do not hit is weaker evidence
 than it looks, and this experiment is a reminder of exactly that.
 
+### Rerun on `--mode=unified`: the two slope terms are NOT interchangeable
+
+| Run | lane | `corpus_hash` | mean solve | DEM lookups |
+|---|---|---|---|---|
+| baseline | off-trail (FMM) | `4558525db8df425c` | 749 ms | 1 921 389 |
+| baseline | **unified (production)** | `0575d4fd66c591a4` | **22.5 ms** (p50 3.2, max 109) | 249 976 |
+| **E7b probe** | unified | **did not complete** | **>25 min for 12 hikes** | — |
+
+Removing `tobler_pace(grad)` from `unified.rs:469` does not merely change
+the route — **it makes the search explode**. The baseline solves all twelve
+hikes in 0.27 s total; the probe had not finished a single pass after
+twenty-five minutes, a slowdown of >5000×. Killed and reverted.
+
+### This corrects A12
+
+The original finding said slope is "priced twice … by two different models,
+one of them outside the contributor composition entirely", implying one is
+redundant. That is wrong in an important way:
+
+- **`tobler_pace(grad)` is *directional*** — `grad` comes from the actual
+  elevation delta between the two cells being traversed.
+- **`ToblerSlopeContributor` is *isotropic per cell*** — `cost_field.rs:92`
+  evaluates it on a fixed **east–west** synthetic edge through the cell
+  centre, so it yields one number per cell regardless of travel direction.
+
+Delete the directional term and every exit from a cell costs the same. The
+A\* loses its terrain-following gradient entirely and floods the corridor —
+exactly the observed blowup.
+
+**Corrected statement of A12:** slope is double-counted in *magnitude* but
+priced only once *directionally*. The two terms are not duplicates and the
+solver's term is load-bearing.
+
+The underlying defect stands, and is now better characterised:
+
+1. The contributor's slope reading depends on an **arbitrary axis**
+   (east–west), so an east–west-trending slope and a north–south one of
+   identical steepness get different per-cell penalties.
+2. The magnitudes **do** compound, and they compound across the two
+   *different physical models* E7 identified (symmetric f32 × asymmetric
+   f64).
+
+But the fix is not "delete the solver's term". The untested direction —
+and the experiment that would actually test redundancy — is removing the
+**contributor's** slope term while keeping the solver's directional one.
+That is E7c, and it is the one worth running.
+
 ### The general lesson
 
 This is the same failure shape as the rev. 1 composition-root error and
