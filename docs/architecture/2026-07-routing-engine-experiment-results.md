@@ -396,6 +396,158 @@ step is done.** That is the acceptance criterion, and it is executable.
 
 ---
 
+## E3 — Is the legacy `CostLayer` stack geometry-neutral? **DONE. Its cost channel is provably dead.**
+
+**Method.** Three runs of `eval-terrain` over the 12 `nordland` corpus hikes
+against the Sjunkhatten artifacts, comparing `corpus_hash` (a digest over
+every route's geometry).
+
+| Run | Change | `corpus_hash` | `dem_lookups` |
+|---|---|---|---|
+| baseline | none | `4558525db8df425c` | 1 921 389 |
+| **E3 probe** | legacy `SlopeLayer` multiplier → `m * 37.0 + 11.0` | **`4558525db8df425c`** | **1 921 389** |
+| **positive control** | native `ToblerSlopeContributor` pace × 1.01 | `750c927e4a16fe09` | 1 924 803 |
+
+### The control is what makes this meaningful
+
+A null result is worthless unless the instrument can detect a real change.
+**A 1% perturbation of the native contributor moves the hash and the DEM
+lookup count.** A **37×** perturbation of the legacy layer moves neither —
+not one route, not one DEM sample.
+
+So the legacy cost channel is not merely unused in practice; it is not
+evaluated at all on the solve path.
+
+### But "legacy is inspect-only" is wrong, and that matters for the plan
+
+Static analysis of every `self.layers` read in `pathfinder.rs` shows the
+legacy stack is still load-bearing for **three behaviours**, none of which
+is diagnostic:
+
+| Site | Use | Kind |
+|---|---|---|
+| `:852` `point_covered` | feasibility pre-check | **behavioural** |
+| `:911` `point_is_refused` | endpoint repair / snap-out | **behavioural** |
+| `:930` `endpoint_refused` | endpoint refusal error | **behavioural** |
+| `:1007`, `:1022` | breakdown + inspect | diagnostic |
+
+The audit (and the modularization doc) described the legacy stack as
+serving "the inspect endpoint and a build-time refusal sampler". That
+understates it: **coverage and endpoint refusal both run off legacy
+layers**, and E6 already showed `point_covered`'s semantics are wrong.
+
+### What it changes
+
+Bet #2 splits cleanly in two:
+
+- **Cost half: zero risk.** Deleting the multiplicative machinery
+  (`compose_cell`, `compose_edge`, `CostLayer::cell_cost`'s multiplier,
+  `LegacyLayerAdapter`) cannot move geometry. Measured, not argued.
+- **Feasibility half: a real port.** `point_covered`, `point_is_refused`
+  and `endpoint_refused` must be reimplemented against contributors —
+  and reimplemented *correctly*, since E6 showed the current `.any(covers)`
+  semantics is a defect being carried forward.
+
+The 1.5-week estimate for the deletion step stands, but it is now
+"1 week of safe deletion plus a small, behaviour-changing port that needs
+its own corpus gate", rather than one uniform mechanical change. That
+reframing is exactly what an hour of measurement was supposed to buy.
+
+**Scope caveat:** 12 hikes over one 100 km cell, not the 60-hike national
+corpus. Sufficient to establish sensitivity (the control fires) and to
+falsify the cost-channel hypothesis, but a full-corpus confirmation should
+run before the deletion lands.
+
+---
+
+## Sjunkhatten test dataset — built, and it corrects the pack-size estimate
+
+A real, reproducible regional dataset, entirely from Kartverket. This is the
+first concrete instance of the "region pack" the offline plan depends on.
+
+### Recipe
+
+```sh
+docker run -d --name turbo-tiles-db-test -e POSTGRES_PASSWORD=testpass \
+  -p 55433:5432 pgrouting/pgrouting:16-3.5-3.7
+psql … -c "CREATE EXTENSION postgis; postgis_raster; pgrouting; pg_trgm"
+tileserver migrate
+
+# N50 Nordland — via the repo's own Geonorge client
+tileserver ingest --job=provision-n50 --area=18          # 883 960 rows
+
+# DTM10 UTM33, map cell 7405 (the 100 km cell over Sjunkhatten).
+# Dataset UUID dddbb667-1303-4ac5-8640-7ec04c0e3918, areas "7405-1".."7405-4",
+# format TIFF, projection 25833. POST /api/order, then GET each downloadUrl
+# WITH REDIRECTS FOLLOWED (curl -L; without it you get 0-byte files).
+apt-get install -y postgis                                # raster2pgsql
+tileserver ingest --job=dtm-bulk-load --file=<zip> --source=dtm10   # x4
+
+psql -c "SELECT pgr_createTopology('paths.edge',0.0001,'geom','id',
+                                   'source_node','target_node')"
+tileserver build-artifacts --kind={dem,graph,mask} --out=…
+```
+
+### What it produced
+
+| | |
+|---|---|
+| Edges | 78 537 — **12 188 sti, 9 695 traktorvei, 56 654 vei** |
+| Topology | 70 322 vertices, all edges noded |
+| DEM | 8584 × 10120 cells @ 10 m, 1360 tiles, 0 absent |
+| Mask | 13411 × 20707 cells, 73.3 M water, 1.3 M glacier |
+| Graph artifact | 157 074 directed edges |
+
+### Artifact sizes — the correction
+
+For one 100 × 100 km cell (10 000 km²):
+
+| Artifact | Size | Per km² |
+|---|---|---|
+| `norway.dem` | 112.9 MB | 11.3 KB |
+| `norway.mask` | 66.2 MB | 6.6 KB |
+| `norway.graph_geom` | 21.4 MB | 2.1 KB |
+| `norway.graph` | 8.0 MB | 0.8 KB |
+| **total** | **208 MB** | **20.8 KB** |
+
+The on-device analysis estimated **~34 KB/km² for the DEM alone**,
+extrapolated from "11 GiB over ~324 000 km²", and ~380 MB for a 100 × 100 km
+region. The measured total is **208 MB — 1.8× smaller** than estimated.
+
+But the *composition* is wrong in both directions, which matters more than
+the total:
+
+- **DEM is 3× cheaper than estimated** (11.3 vs 34 KB/km²).
+- **Mask is far more expensive than assumed.** The earlier analysis lumped
+  "everything else" at ~10 MB for 2500 km² (≈4 KB/km²); the mask alone is
+  6.6 KB/km², and at 66 MB it is 32% of the pack.
+
+**Caveat, and it is a large one:** Sjunkhatten is coastal. This cell is
+substantially fjord and open sea, where DEM nodata compresses almost to
+nothing while the water mask is dense. An inland cell would invert the
+ratio. Treat these as one sample, not a calibration — the honest conclusion
+is that **per-km² pack cost varies enough with terrain type that the sizing
+table in the on-device analysis should be replaced by measurements over
+three or four contrasting cells** before anyone commits to a download-size
+promise.
+
+### Two incidental defects found while building
+
+1. **`dtm-bulk-load` shells out to `raster2pgsql` with no preflight check.**
+   Missing binary surfaces as `exit status: 127` inside a Rust backtrace.
+   A one-line `which` check with a clear message would save the next person
+   the same detour.
+2. **The graph health check flags a real data problem the build does not
+   fail on:** `fkb_type=1 subgraph: 3753 components, largest 1.1%`. Running
+   `pgr_createTopology` without `pgr_nodeNetwork` first leaves trails
+   crossing without being noded. The warning is emitted and ignored. For
+   this experiment it is acceptable (the mesh path is what E3/E5/E7b
+   exercise), but it means **trail-following quality on this dataset is not
+   representative**, and any conclusion about trail routing from it would be
+   invalid.
+
+---
+
 ## Environment notes
 
 - `rustc 1.94.1`, x86_64-unknown-linux-gnu, single target installed.
