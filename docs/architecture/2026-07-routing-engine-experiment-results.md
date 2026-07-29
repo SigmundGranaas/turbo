@@ -200,6 +200,63 @@ before shipping on-device, and pin it as a build invariant.
 
 ---
 
+## E9 — Would config-as-string have absorbed past changes? **DONE. 3 of 31 touched the contract, all additive.**
+
+**Method.** Unshallowed the clone (60 → 820 commits) and took every commit
+since 2026-01-01 touching `turbo-tiles-pathfind`, `turbo-tiles-fmm`,
+`routing_setup.rs`, or `cost-config.toml`. 31 commits. Each classified by
+what it would have been under the proposed design.
+
+| Class | Count | Would it change the FFI contract? |
+|---|---|---|
+| Internal / orchestration (perf, refactor, caching, repair) | 12 | no |
+| Hygiene, tests, tooling | 7 | no |
+| Contributor or solver addition | 4 | no |
+| Config / compose only | 3 | no |
+| **Request-contract change** | **3** | **additive only** |
+| Mixed config + solver | 2 | no |
+
+### The three that touched the contract
+
+| Commit | Added |
+|---|---|
+| `4768f5de` multi-waypoint routing | `points`, `from`, `to` (all `Option`) |
+| `cf6f6e0b` trip presets | `preset: Option<String>` |
+| `a324e84f` avoid-marked + round-trip | `avoid`, `avoid_radius_m`, `round_trip` |
+
+**Every one is a new optional field.** Zero breaking changes in 31 commits
+and roughly seven months of routing development.
+
+### What it changes
+
+Bet #3 holds, and the measurement sharpens *why* the design passes
+`request_json: String` rather than a typed uniffi record:
+
+- Under a **typed** FFI record, those 3 commits each force binding
+  regeneration and a coordinated app release — ~10% of routing commits.
+- Under **JSON-in-string**, they need **zero** binding changes, because
+  additive optional fields are backward-compatible on both sides.
+
+So the string boundary is not laziness; it converts 3 forced app releases
+into 0. That is the concrete payoff, and it is now a number rather than an
+argument.
+
+### Bonus evidence from the same history
+
+`c5bd3e7c` — *"per-request cost overrides now reach the unified solver"* —
+is a shipped bug of exactly the class the single `overlay` stage prevents:
+the cost patch was resolved separately inside each solver, so overrides
+silently applied on one path and not the other. The module design's
+"resolve once, in one place" is not a hypothetical improvement; it fixes a
+defect this codebase has already paid for.
+
+Two further commits (`df063bb6` unified router, `36313e67` FMM) added whole
+solvers, and four (`7a44a724`, `842ed234`, and two mixed) added or retuned
+contributors — none of which would touch the contract under the `Solver` /
+`CostContributor` registries.
+
+---
+
 ## Environment notes
 
 - `rustc 1.94.1`, x86_64-unknown-linux-gnu, single target installed.
