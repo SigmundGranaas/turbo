@@ -460,6 +460,45 @@ run before the deletion lands.
 
 ---
 
+## E5 — Does contributor order change geometry? **DONE. No.**
+
+**Method.** `natives.reverse()` immediately before `Pathfinder` construction
+in `with_defaults_and_config` — same contributor set, same vetoes, only the
+order of the additive summation, the `pace_factor` product, and the
+veto short-circuit changes. Same 12-hike eval.
+
+| Run | `corpus_hash` |
+|---|---|
+| baseline | `4558525db8df425c` |
+| **E5 — stack reversed** | **`4558525db8df425c`** |
+
+Identical. And E3's control proves the instrument detects a 1% cost change,
+so this is a real null, not an insensitive measurement.
+
+### What it changes
+
+**A8 is downgraded.** Floating-point addition is not associative, so
+reordering *can* in principle move a route; on this corpus it does not.
+The contributions evidently differ enough in magnitude that reordering
+never crosses a comparison boundary in the priority queue.
+
+Practical consequences:
+
+- **The pack format does not need to pin contributor order** for
+  determinism. One less thing in the contract.
+- **Order still matters for diagnostics**: `compose_edge_walk_seconds`
+  returns on the *first* veto, so the reported `vetoed_by` label depends on
+  stack order even though the refusal outcome does not. Worth keeping
+  stable for reproducible debugging, but it is a UX property, not a
+  numerical one.
+- The `CostSpec` in a pack can therefore be an unordered set of rows.
+
+**Same scope caveat as E3:** 12 hikes, one cell. A null here does not prove
+order-independence globally — it shows the effect is not large enough to
+bite on a realistic sample, which is what the question was actually asking.
+
+---
+
 ## Sjunkhatten test dataset — built, and it corrects the pack-size estimate
 
 A real, reproducible regional dataset, entirely from Kartverket. This is the
