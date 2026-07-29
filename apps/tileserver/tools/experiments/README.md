@@ -12,6 +12,7 @@ workspace and without artifacts.
 |---|---|---|
 | `e7_tobler` | Do the six duplicated Tobler implementations agree? | no |
 | `e0_determinism` | Is the routing float path bit-reproducible across ISAs? | no |
+| `e11_conformance` | Does the proposed port API compile and hold up, driven from memory? | no |
 
 ## Running
 

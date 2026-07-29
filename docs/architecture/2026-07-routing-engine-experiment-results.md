@@ -312,6 +312,90 @@ starts mattering.
 
 ---
 
+## E4 — How expensive is contributor construction? **DONE. Rebuild-per-request is dead.**
+
+**Method.** `crates/turbo-tiles-pathfind/tests/contributor_construction_cost.rs`
+— synthetic grid graphs at four scales with `fkb_type` cycling over
+sti/vei/skiloype so all three R-trees populate. Times
+`TrailProximityContributor::new` in isolation and the whole
+`Pathfinder::with_defaults` stack. No artifacts needed.
+
+```
+   side     nodes      edges   TrailProx::new  with_defaults (full)
+     20       400       1520          0.53 ms            1.15 ms
+     60      3600      14160          8.75 ms           15.44 ms
+    120     14400      57120         30.73 ms           53.86 ms
+    200     40000     159200         88.42 ms          149.30 ms
+
+per-edge construction cost: 0.555 us/edge
+  extrapolated to 1 000 000 edges:   555 ms
+  extrapolated to 5 000 000 edges:  2777 ms
+```
+
+Scaling is linear in edges. `TrailProximityContributor` is ~60% of total
+construction cost.
+
+### What it changes
+
+Against a **250 ms mean solve**, rebuilding the cost model per request on a
+national graph costs **555 ms to 2.8 s** — two to eleven times the entire
+solve. That conclusively refutes the "just rebuild the `CostModel` per
+request" alternative and makes the **`Arc<Index>` + `Params` split
+mandatory**, exactly as A2 proposed.
+
+E11 measures the other side of the split: `rebind` costs **0.098 µs per
+contributor** — an Arc clone plus a scalar write. The ratio between rebuild
+and rebind at national scale is ~5.6 million to one. This is not a close
+call, and the split point is now chosen on evidence rather than instinct.
+
+---
+
+## E11 — Portability conformance **DONE. The proposed API compiles and holds up.**
+
+**Method.** `tools/experiments/e11_conformance` — a standalone crate that
+declares the proposed L1 shapes (`Heightfield`, `CostContributor`,
+`Requirement`, `ModeId`), a typed `CostModel::builder()`, and an `Engine`
+whose constructor takes values, then drives it from a procedurally
+generated in-memory heightfield.
+
+```
+extent      2048 x 2048 m
+across ridge    3080.7 s over 451 pts
+along valley    1210.6 s over 401 pts
+rebind           0.098 us/contributor
+fingerprint   c6be72420266ac44
+
+PASS — no file, no config string, no pack, no profile, no CRS.
+```
+
+The route across the ridge costs 2.5× the route along the valley, an
+out-of-extent query returns `OutsideExtent` rather than a straight line
+(the E6 guarantee), and the whole thing is driven from a `Vec<f32>`.
+
+### Why this is worth having as a compiling artifact
+
+**This is the check that would have caught the rev. 1 error.** Writing
+`Engine::open(config, pack_dir)` in this file immediately raises "what path
+does a game engine pass?" — which is the entire finding. A design claim
+written in prose survives being wrong; one written as a compiling program
+does not.
+
+It also validated three audit fixes as *ergonomic*, not just correct:
+`Requirement::Required` on `ToblerSlope`, `rebind` as an Arc clone, and
+`fingerprint` for the leg-cache key all read naturally in the builder.
+
+### The gap it gates
+
+Against today's tree the block is impossible to write: `Dem` exposes only
+`open(&Path)` / `open_with_cache(&Path, usize)` with no in-memory
+constructor; `Pathfinder::with_defaults` takes `Option<Arc<Dem>>`, the
+concrete artifact type; and `wgs84_to_utm33n` lives inside
+`turbo-tiles-elev`. **When the local trait definitions in this file can be
+replaced by imports from the real engine and it still compiles, the ports
+step is done.** That is the acceptance criterion, and it is executable.
+
+---
+
 ## Environment notes
 
 - `rustc 1.94.1`, x86_64-unknown-linux-gnu, single target installed.
