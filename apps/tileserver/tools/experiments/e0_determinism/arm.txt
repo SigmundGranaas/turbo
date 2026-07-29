@@ -1,0 +1,33 @@
+# E0 determinism digest
+arch          aarch64
+pointer_width 64
+samples       1000000
+
+tobler_f32_std   55e20560a7b091ff
+tobler_f32_libm  c435dfb109dceabf
+tobler_f64_std   e9c69b8d5604b962
+tobler_f64_libm  28e193e34c82c96d
+
+exp_f32_std      b1f29b9a4ea10d49
+exp_f32_libm     455c3a1a9695f1e7
+exp_f64_std      edab75b76e9cd465
+exp_f64_libm     d8fc61ee68ee8013
+
+tan_f64_std      367ac920d4352e62
+tan_f64_libm     5b7d4cce2a3b97e3
+atan_f32_std     01515167c31be0c2
+atan_f32_libm    d43d5142df1762df
+powf_f64_std     815e353f3480c94f
+powf_f64_libm    eafd176839c3ae0c
+
+sqrt_f64_ctrl    1844ddcf9218d7cc
+fma_probe        4880ed9586438d25
+dot_norm         49f42f747a847ed1
+
+# spot values (bits)
+  tobler_f64_std(0.05)  = 8.51423500685940637e-1  3feb3edc7f4fbe0b
+  tobler_f64_libm(0.05) = 8.51423500685940637e-1  3feb3edc7f4fbe0b
+  tobler_f64_std(0.3)  = 2.04245880049848072e0  400056f4a3bc8c02
+  tobler_f64_libm(0.3) = 2.04245880049848072e0  400056f4a3bc8c02
+  tobler_f64_std(1)  = 2.36687207399055204e1  4037ab31484c0d17
+  tobler_f64_libm(1) = 2.36687207399055204e1  4037ab31484c0d17
