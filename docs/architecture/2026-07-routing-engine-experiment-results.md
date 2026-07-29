@@ -499,6 +499,57 @@ bite on a realistic sample, which is what the question was actually asking.
 
 ---
 
+## E7b — Does removing the slope double-count move geometry? **First attempt INVALID. Rerun in progress.**
+
+### The error, recorded because it is instructive
+
+The probe replaced `unified.rs:469`'s `step_m * tobler_pace(grad) * mul *
+steep + gain` with `step_m * base_pace_s_per_m * mul * steep + gain` and
+the corpus hash came back **unchanged** — which would have been a
+remarkable result: deleting the solver's entire slope term, no effect.
+
+It is not remarkable, it is meaningless. `eval-terrain` defaults to
+`--mode=off-trail`, which sets `force_off_trail: true`, and
+`Pathfinder::solve_inner` dispatches that to `solve_off_trail` → the **FMM**
+solver. `unified.rs` never executes in that mode. **The patch was in code
+the harness does not run.**
+
+The build even said so — `warning: function tobler_pace is never used` —
+and that warning was read as confirmation the patch had landed, rather than
+as the hint that the function had no live callers in the exercised path.
+
+Rerunning with `--mode=unified`, which the flag's own help text describes as
+"the unified A* users hit".
+
+### The caveat this puts on E3 and E5
+
+Both were measured in the **default off-trail FMM lane**, not the unified
+lane that serves production traffic. Their conclusions still hold, for
+reasons that are structural rather than lucky:
+
+- **E3**: the legacy `CostLayer` cost channel is unread by *either* lane —
+  the three live `self.layers` sites are all `Pathfinder`-level
+  (coverage, endpoint refusal), which run before lane dispatch and are
+  therefore common to both.
+- **E5**: contributors reach both lanes through the shared
+  `LazyCostField`, so a reordering null in one lane is evidence for the
+  other, though not proof.
+
+Still, both should be re-run with `--mode=unified` before the deletion
+step lands. A result measured on a lane users do not hit is weaker evidence
+than it looks, and this experiment is a reminder of exactly that.
+
+### The general lesson
+
+This is the same failure shape as the rev. 1 composition-root error and
+finding A4: **a change applied to one path while the conclusion was drawn
+about the system.** The guard is cheap and was skipped — confirm the probe
+executes before trusting the measurement, e.g. by asserting the patched
+branch is reached, or by checking a *positive control on the same lane*
+(which is precisely what made E3 trustworthy and what E7b lacked).
+
+---
+
 ## Sjunkhatten test dataset — built, and it corrects the pack-size estimate
 
 A real, reproducible regional dataset, entirely from Kartverket. This is the
