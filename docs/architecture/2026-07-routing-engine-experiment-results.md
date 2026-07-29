@@ -257,6 +257,61 @@ contributors — none of which would touch the contract under the `Solver` /
 
 ---
 
+## E6 — What does `point_covered` actually claim? **DONE. Confirmed: advisory layers grant coverage.**
+
+**Method.** A real test, `crates/turbo-tiles-pathfind/tests/coverage_semantics.rs`,
+built on the existing synthetic-artifact scaffolding — no Kartverket data
+needed. A 2.56 km DEM tile and a 20 km landcover mask sharing a corner, with
+a probe point 15 km east: far outside the DEM, still inside the mask.
+
+```
+running 3 tests
+test dem_alone_reports_coverage_only_inside_the_dem ... ok
+test required_vs_advisory_is_not_expressible_today ... ok
+test advisory_landcover_layer_grants_coverage_with_no_elevation_data ... ok
+```
+
+### Result
+
+With only a DEM loaded, the probe point is correctly **not** covered. Add a
+`LandcoverLayer` over the forest mask — registered exactly as
+`routing_setup.rs` does it — and `point_covered()` returns **true**, while
+`dem.sample()` at the same point returns `None`.
+
+So the pre-check that exists to stop the solver "building a uniform-cost
+mesh and returning a straight line — semantically a lie" (its own comment)
+can be satisfied by a layer that knows only whether there is forest there.
+
+### Why: the layers disagree about what `covers` means
+
+| Layer | `covers` | Intent |
+|---|---|---|
+| `SlopeLayer`, `AvalancheTerrainLayer` | `dem.sample().is_ok()` | authoritative |
+| `MaskRefusalLayer` | `mask.refused().is_ok()` | authoritative |
+| `LandcoverLayer` | `mask.refused().is_ok()` | **advisory** |
+| `TrailProximityLayer` | `any_near(x, y)` | **deliberately narrowed** |
+
+`TrailProximityLayer` already carries the comment: *"Proximity is a bias,
+not a coverage claim. It returning true would short-circuit the no-terrain-
+data precheck."* **The Required/Advisory distinction is already understood
+in this codebase** — it is just enforced by hand, one layer at a time, in
+prose. `LandcoverLayer` never got the same treatment.
+
+### What it changes
+
+A3 is confirmed and its fix is now specified by a failing-if-regressed
+test. `Requirement::{Required, Advisory}` on the layer/contributor trait,
+with coverage as the **intersection of Required layers**, is not new design
+— it is generalising a rule two layers already follow informally.
+
+Severity in practice is bounded: this only bites where a landcover or
+vector mask extends past the DEM. Norway's masks are built from the same
+national footprint, so the overlap is small today — but region packs will
+routinely have mismatched per-layer extents, which is exactly when it
+starts mattering.
+
+---
+
 ## Environment notes
 
 - `rustc 1.94.1`, x86_64-unknown-linux-gnu, single target installed.
