@@ -271,7 +271,22 @@ impl CostContributor for ToblerSlopeContributor {
         // still count as covered. OutOfCoverage is the "no idea" signal.
         self.dem.covers(Point { x, y })
     }
+    /// Slope cost — **graph edges only** (Phase E, from E7c).
+    ///
+    /// On mesh edges this used to add a second slope charge on top of
+    /// the solver's own. E7b and E7c pinned the two apart: the solver's
+    /// term is *directional* and structural (removing it exploded the
+    /// search by >5000x), while this one is *isotropic*, computed along
+    /// an arbitrary east-west probe that has nothing to do with the
+    /// direction of travel. Two terms charged for slope; only one
+    /// carried the direction the A\* needs.
+    ///
+    /// Graph edges keep it, because there this contributor *is* the
+    /// slope model — the solver has no term of its own for them.
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
+        if matches!(ctx.kind, EdgeKind::Mesh) {
+            return 0.0;
+        }
         let Some(zs) = self.sample_elevations(ctx) else {
             return 0.0;
         };
