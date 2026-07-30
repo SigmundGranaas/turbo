@@ -4,6 +4,7 @@ members = [
     "crates/turbo-route-model",
     "crates/turbo-geo-frame",
     "crates/turbo-profile-no",
+    "crates/turbo-route-ffi",
     "crates/turbo-geodata-artifacts",
     "crates/turbo-tiles-core",
     "crates/turbo-tiles-db",
@@ -37,6 +38,7 @@ publish = false
 turbo-route-model = { path = "crates/turbo-route-model" }
 turbo-geo-frame = { path = "crates/turbo-geo-frame" }
 turbo-profile-no = { path = "crates/turbo-profile-no" }
+turbo-route-ffi = { path = "crates/turbo-route-ffi" }
 turbo-geodata-artifacts = { path = "crates/turbo-geodata-artifacts" }
 turbo-tiles-core = { path = "crates/turbo-tiles-core" }
 turbo-tiles-db = { path = "crates/turbo-tiles-db" }

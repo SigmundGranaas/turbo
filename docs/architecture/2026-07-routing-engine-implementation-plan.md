@@ -222,13 +222,24 @@ hides the shape, and both directions of that failure need catching.
 ### Phase F — Packs and device (3 weeks)
 
 | F0 | **DONE** — by canonical tie-break in `find_tile` (nearest tile centre) rather than de-overlapping at build time, which fixes existing artifacts instead of requiring every one to be rebuilt. **Pack parity verified.** | 2 d |
-| F1 | `turbo-geodata-pack` + `turbo-route pack --bbox` (DEM tile filter, mask re-crop, vector AABB filter, graph CSR renumber, **1–2 km halo per E10**). | 8 d |
-| F2 | `PyramidElevation` multi-resolution; re-measure pack sizes. | 2 d |
-| F3 | `turbo-route-ffi` (uniffi over `Engine` + `compose`), `catch_unwind`, cargo-ndk — cloning the proven `turbomap-ffi` / `core/turbomap-android` pattern. | 5 d |
+| F1 | **DONE as `tileserver slice-pack`** — DEM tile filter, mask re-crop, graph CSR renumber, halo. **No `turbo-geodata-pack` crate was built, and none is needed**: a pack is a directory of the same artifact formats the server reads, so `turbo-geodata-artifacts` already reads it. The design assumed packs would need their own format; they don't, and a second adapter would have been pure duplication. Vector AABB filtering is unimplemented — the Sjunkhatten set has no `norway.vectors` to slice. | 8 d |
+| F2 | **NOT DONE.** `PyramidElevation` is a size optimisation, and the measurement that motivated it no longer holds: a real pack is **4.6 MB** for 14 × 15 km, of which the DEM is 4.3 MB. Multi-resolution would shave a few MB off something already small enough to commit to git. Deferred as unmotivated rather than skipped. | 2 d |
+| F3 | **DONE.** `turbo-route-ffi` — uniffi over a coarse `RouteEngine` façade, `catch_unwind` on every export, Kotlin + Swift bindings verified to generate. `tests/host_roundtrip.rs` drives it as a foreign host against the real committed pack. | 5 d |
 
-**Gate F3:** run `e1_crossisa` **on a real device** against bionic. E1
-settled glibc-vs-glibc under QEMU; bionic on silicon is the one determinism
-question still open.
+**Gate F3:** run `e1_crossisa` **on a real device** against bionic —
+**still open**, and it is the last unverified determinism question. E1
+settled glibc-vs-glibc under QEMU. `boundary_check.sh` now forbids the
+build flags that would forfeit cross-ISA bit-identity, but that guards
+the property rather than proving it on bionic.
+
+**What F3 surfaced.** Writing the host tests found a defect nothing else
+would have: a route from Oslo to a Sjunkhatten pack — 850 km, one
+endpoint outside coverage — **solved, in 83 seconds**. The engine's
+`max_off_trail_km` bounds only the cross-country mesh; a request that can
+reach the trail network was bounded by nothing. On a server that is a
+slow request; on a phone it is an ANR. `RouteOptions::max_span_km` is the
+`Budget` the design called for, checked before any solving, and the test
+asserts it fires in under a second.
 
 ### Phase G — Observability and lab (2 weeks, parallel from Phase D)
 
