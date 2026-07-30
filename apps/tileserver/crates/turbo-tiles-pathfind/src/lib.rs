@@ -32,6 +32,7 @@ pub mod fmm_adapter;
 pub mod native_contributors;
 pub mod pathfinder;
 pub mod solver_trace;
+pub mod solvers;
 pub mod tracer;
 pub mod unified;
 
@@ -46,6 +47,7 @@ pub use contributor::{
 // The engine's ports and vocabulary live in `turbo-route-model` (L1),
 // which has zero dependencies — see that crate's docs for why. Re-exported
 // here so callers of the engine need not name two crates to use one API.
+pub use solvers::{FmmGradeLimited, SolveContext, SolveRequest, Solver, SolverSet, UnifiedAStar};
 pub use turbo_route_model::{Extent, Heightfield, ModeId, Point, Requirement, SlopeAspect};
 pub use core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
 pub use native_contributors::{

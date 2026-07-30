@@ -570,6 +570,10 @@ pub struct Pathfinder {
     /// the raster mask to the vector water layer at request time.
     pub dem: Option<Arc<dyn Heightfield>>,
     pub mask: Option<Arc<Mask>>,
+    /// The registered route-finding algorithms, in priority order (D1).
+    /// Which one runs is a property of this set and each solver's own
+    /// `accepts`, not a branch in the engine.
+    pub solvers: crate::solvers::SolverSet,
     /// Per-leg solve cache. Multi-waypoint editing re-sends the whole
     /// point list every keystroke/drag; this lets unchanged legs return
     /// instantly so only the edited leg(s) actually solve. Keyed by
@@ -592,6 +596,7 @@ impl Pathfinder {
                 .expect("embedded cost-config defaults must parse"),
             dem: None,
             mask: None,
+            solvers: crate::solvers::SolverSet::production(),
             leg_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
@@ -710,6 +715,7 @@ impl Pathfinder {
             cost_config,
             dem: dem_for_breakdown,
             mask: mask_for_breakdown,
+            solvers: crate::solvers::SolverSet::production(),
             leg_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
@@ -984,6 +990,9 @@ impl Pathfinder {
                 // the cost stack — a rebound stack prices the same leg
                 // differently, so carrying entries over would serve
                 // answers computed under the old tuning. Start empty.
+                // Solvers are stateless; the rebound engine keeps the
+                // same registered set.
+                solvers: crate::solvers::SolverSet::production(),
                 leg_cache: Default::default(),
             },
             unclaimed,
@@ -1325,439 +1334,47 @@ impl Pathfinder {
             return Err(PathfindError::EndpointRefused { which, layer });
         }
 
-        // Two INDEPENDENT routers, dispatched by intent:
+        // Dispatch through the solver set (D1). Which algorithm runs is
+        // now a property of the registered set and each solver's own
+        // `accepts`, not an `if` in the engine — so adding, reordering
+        // or swapping one is a composition decision.
         //
-        //  - `force_off_trail` → the off-trail FMM solver (pure
-        //    cross-country; switchbacks on steep ground). Used by the
-        //    mimicry harness and the "force off-trail" toggle.
-        //
-        //  - otherwise → the UNIFIED single-solve router (the default):
-        //    ONE A* over the off-trail mesh + the trail network in one
-        //    walk-seconds field, so it follows trails only while they're
-        //    worth it and cuts across otherwise. This replaced the old
-        //    on-graph / hybrid / off-trail candidate race, whose
-        //    incomparable strategies and forced single-trail "bridge"
-        //    produced the detours.
-        //
-        // The two share NOTHING but the cost model (`CostContributor`s)
-        // and the raw data (graph + DEM) — see `unified` / `fmm_adapter`.
+        // The solvers share NOTHING but what `SolveContext` exposes:
+        // the cost stack and the raw fields. See `solvers`.
         let _ = dist;
-        if prefs.force_off_trail {
-            crate::solver_trace::begin_phase("solve_off_trail");
-            return crate::tracer::phase("solve_off_trail", || {
-                self.solve_off_trail(from_xy, to_xy, &prefs)
-            });
-        }
-        crate::solver_trace::begin_phase("solve_unified");
-        crate::tracer::phase("solve_unified", || {
-            self.solve_unified_path(from_xy, to_xy, &prefs)
-        })
-    }
-
-    /// FMM dispatch for off-trail. Sizes a corridor, bakes the
-    /// cost field (Tobler + per-cell vetoes from the contributor
-    /// stack), runs the eikonal solve, extracts and smooths the
-    /// path. Returns the same `OffTrailSegment` shape as the
-    /// Theta\* path so the caller doesn't care which solver
-    /// produced the route. Errors when DEM isn't loaded, when the
-    /// corridor is degenerate, or when the goal is unreachable.
-    fn try_build_off_trail_segment_fmm(
-        &self,
-        from: Point,
-        to: Point,
-        prefs: &Prefs,
-    ) -> Result<OffTrailSegment, PathfindError> {
-        let dem = self.dem.as_ref().ok_or_else(|| {
-            PathfindError::Internal("FMM mode requires DEM artifact loaded".into())
+        let effective_cfg;
+        let cost_config = match prefs.cost_config_override.as_ref() {
+            Some(patch) => {
+                effective_cfg = self.cost_config.with_patch(patch);
+                &effective_cfg
+            }
+            None => &self.cost_config,
+        };
+        let ctx = crate::solvers::SolveContext {
+            terrain: self.dem.as_ref(),
+            network: self.graph.as_ref(),
+            contributors: &self.native_contributors,
+            cost_config,
+        };
+        let req = crate::solvers::SolveRequest {
+            from: from_xy,
+            to: to_xy,
+            prefs: &prefs,
+        };
+        let solver = self.solvers.select(&ctx, &req).ok_or_else(|| {
+            // No solver can honestly answer — e.g. `force_off_trail`
+            // with no terrain loaded. Saying so beats returning a
+            // straight line through ground nobody measured.
+            PathfindError::Internal(format!(
+                "no solver accepts this request (registered: {:?})",
+                self.solvers.names()
+            ))
         })?;
-        // Resolve the effective cost config: boot config + per-request
-        // `cost_config_override` patch. Without this the off-trail FMM
-        // path silently ignored per-request overrides (they only reached
-        // the Theta\* escape valve), so SPA calibration and knob sweeps
-        // had no effect on the production geodesic.
-        let effective_cfg = match prefs.cost_config_override.as_ref() {
-            Some(patch) => self.cost_config.with_patch(patch),
-            None => self.cost_config.clone(),
-        };
-        let off_trail_base = prefs
-            .off_trail_base
-            .unwrap_or_else(|| effective_cfg.off_trail_base.for_profile(prefs.profile));
-        // Naismith vertical-gain weight folded directionally into the
-        // FMM along-fall-line pace (effective flat-metres per gain-metre,
-        // matching on-graph pricing). DEFAULT 0 (amplifier = 1.0): the
-        // terrain corpus showed the full k=8 foot term marginally
-        // REGRESSED every axis (composite 91.7→91.0) — once the edge-
-        // racetrack solver bug was fixed, Tobler alone already prices
-        // slope well. Gated on the runtime `total_gain.amplifier` knob so
-        // it's a one-request experiment (override) rather than a recompile;
-        // `gain_factor_k = k·(amplifier − 1)`.
-        let gain_k = if (effective_cfg.total_gain.amplifier - 1.0).abs() < 1e-6 {
-            0.0
-        } else {
-            let k = match prefs.profile {
-                turbo_tiles_graph::Profile::Foot => 8.0_f32,
-                turbo_tiles_graph::Profile::Bicycle => 20.0,
-                turbo_tiles_graph::Profile::Ski => 6.0,
-            };
-            k * (effective_cfg.total_gain.amplifier - 1.0)
-        };
-        // Adaptive cell size: 10 m preserves switchback fidelity on short
-        // routes; 20 m quarters the cell count (and the lifted state space)
-        // on long routes where the path is mostly long traverses, not tight
-        // switchbacks. The breakpoint is the straight-line distance.
-        let dist_m = ((to.x - from.x).powi(2) + (to.y - from.y).powi(2)).sqrt();
-        let cell_m = if dist_m <= 3000.0 { 10.0 } else { 20.0 };
-        let inputs = crate::fmm_adapter::FmmSolveInputs {
-            from,
-            to,
-            cell_m,
-            base_pace_s_per_m: effective_cfg.base.pace_s_per_m as f32,
-            // FMM metric refuses only true cliffs; 45–60° is continuous
-            // high-cost Tobler (see slope_cell.cliff_refuse_deg) so the
-            // corridor stays connected instead of being walled off.
-            refuse_above_deg: effective_cfg.slope_cell.cliff_refuse_deg,
-            off_trail_factor: off_trail_base as f32,
-            use_anisotropic: true,
-            gain_factor_k: gain_k,
-            // Grade-limited (x,y,heading) solver: switchbacks up steep
-            // ground. Opt-in via cost-config `[grade_limited]`.
-            use_grade_limited: effective_cfg.grade_limited.enabled,
-            max_grade_deg: effective_cfg.grade_limited.max_grade_deg,
-            turn_penalty_s: effective_cfg.grade_limited.turn_penalty_s,
-        };
-        let contributors = self.native_contributors.clone();
-        let out =
-            crate::fmm_adapter::solve_fmm_path(inputs, dem.clone(), &contributors, prefs.profile)
-                .map_err(|e| {
-                use crate::fmm_adapter::FmmAdapterError;
-                match e {
-                    // Goal genuinely unreachable through the terrain (corridor
-                    // severed by water/glacier/cliff, or no DEM coverage). This
-                    // is an honest "no route", NOT an internal error — and there
-                    // is no Theta* fallback to paper over it with a garbage line.
-                    FmmAdapterError::GoalUnreachable
-                    | FmmAdapterError::StartOutsideGrid
-                    | FmmAdapterError::GoalOutsideGrid => PathfindError::NoRoute,
-                    other => PathfindError::Internal(format!("off-trail solver: {other}")),
-                }
-            })?;
-        tracing::debug!(
-            cells_accepted = out.cells_accepted,
-            vetoed_cells = out.vetoed_cells,
-            solve_ms = out.solve_ms,
-            "FMM off-trail solve ok"
-        );
-        // Convert smoothed PathPoints into Pathfinder's Point2.
-        let geometry: Vec<Point2> = out
-            .polyline
-            .iter()
-            .map(|p| Point2 { x: p.x, y: p.y })
-            .collect();
-        let length_m = geometry
-            .windows(2)
-            .map(|w| ((w[1].x - w[0].x).powi(2) + (w[1].y - w[0].y).powi(2)).sqrt())
-            .sum();
-        Ok(OffTrailSegment {
-            geometry,
-            length_m,
-            cost: out.cost_seconds,
-            refused_by: out.refused_by,
-        })
+        solver.solve(&ctx, &req)
     }
 
-    /// Build a [`Path`] from the unified single-solve router. Trail runs
-    /// are `Graph` legs (blue), off-trail runs `OffTrailPrefix` (vermillion).
-    fn solve_unified_path(
-        &self,
-        from_xy: Point,
-        to_xy: Point,
-        prefs: &Prefs,
-    ) -> Result<Path, PathfindError> {
-        let Some(graph) = self.graph.as_ref() else {
-            return Err(PathfindError::NoRoute);
-        };
-        let Some(dem) = self.dem.as_ref() else {
-            return Err(PathfindError::NoRoute);
-        };
-        let effective_cfg = match prefs.cost_config_override.as_ref() {
-            Some(patch) => self.cost_config.with_patch(patch),
-            None => self.cost_config.clone(),
-        };
-        let off_trail_factor = prefs
-            .off_trail_base
-            .unwrap_or_else(|| effective_cfg.off_trail_base.for_profile(prefs.profile))
-            as f32;
-        let base_pace = crate::contributor::BASE_PACE_S_PER_M as f32;
-        // Per-surface pace (road avoidance) is applied live here using the
-        // EFFECTIVE config (boot + per-request/preset patch), so it isn't
-        // baked at boot and presets can tune it. Graph edges only; mesh
-        // edges return 1.0.
-        let mut contributors = self.contributors_for_breakdown();
-        // Rebuild the cheap, purely config-driven graph contributors from the
-        // EFFECTIVE (boot + per-request/preset) config, so overrides for
-        // slope_graph / total_gain actually bite on the unified solve (they
-        // were previously baked at boot and silently ignored here). Build
-        // fresh by name — no downcast needed. (TrailProximity holds an RTree
-        // and isn't rebuilt per request; off_trail_base/surface_pace cover the
-        // trail-vs-everything preference.)
-        for c in contributors.iter_mut() {
-            match c.name() {
-                "graph_slope" => {
-                    *c = std::sync::Arc::new(crate::native_contributors::GraphSlopeContributor {
-                        quadratic_scale_deg: effective_cfg.slope_graph.quadratic_scale_deg,
-                        refuse_above_deg: effective_cfg.slope_graph.refuse_above_deg,
-                    })
-                }
-                "total_gain" => {
-                    *c = std::sync::Arc::new(crate::native_contributors::TotalGainContributor {
-                        gain_amplifier: effective_cfg.total_gain.amplifier,
-                    })
-                }
-                _ => {}
-            }
-        }
-        contributors.push(std::sync::Arc::new(
-            crate::native_contributors::SurfacePaceContributor::from_config(
-                &effective_cfg.surface_pace,
-            ),
-        ));
-        // Off-trail mesh steepness + climb-aversion knobs (previously hard-
-        // coded in the mesh). `max_grade_deg` sets where the soft steep
-        // penalty starts; `gain_k` (k·(amplifier−1)) adds Naismith climb cost
-        // per gain-metre so "less height difference" shapes off-trail too.
-        let mesh_max_grade_deg = effective_cfg.grade_limited.max_grade_deg;
-        let mesh_gain_k = if (effective_cfg.total_gain.amplifier - 1.0).abs() < 1e-6 {
-            0.0
-        } else {
-            let k = match prefs.profile {
-                turbo_tiles_graph::Profile::Foot => 8.0_f32,
-                turbo_tiles_graph::Profile::Bicycle => 20.0,
-                turbo_tiles_graph::Profile::Ski => 6.0,
-            };
-            k * (effective_cfg.total_gain.amplifier - 1.0)
-        };
-        // Adaptive mesh cell: fine (10 m) for short routes where off-trail
-        // detail matters, much coarser for long routes where the path is
-        // mostly on trails and off-trail is a minor connector. The per-cell
-        // overlay evaluation (DEM + contributor stack) times the number of
-        // visited cells dominates long-route solve time, so the cell area
-        // must grow with distance to keep it bounded — a ~26 km leg at 30 m
-        // was ~130 s; at ~70 m it's a handful of seconds.
-        let dist_m = ((to_xy.x - from_xy.x).powi(2) + (to_xy.y - from_xy.y).powi(2)).sqrt();
-        let cell_m = (dist_m / 180.0).clamp(10.0, 70.0);
 
-        // Project the avoided polylines (if any) onto the trail edges they
-        // run along. The penalty lands on the GRAPH (Dijkstra) leg only —
-        // the off-trail mesh keeps its ordinary high cost, so the router
-        // can't shadow-walk parallel off-trail to escape the corridor.
-        let avoid_edges = if prefs.avoid.is_empty() {
-            std::collections::HashSet::new()
-        } else {
-            let radius = prefs
-                .avoid_radius_m
-                .unwrap_or(effective_cfg.avoid.radius_m)
-                .max(0.0);
-            let polylines_planar: Vec<Vec<(f64, f64)>> = prefs
-                .avoid
-                .iter()
-                .map(|pl| {
-                    pl.iter()
-                        .map(|c| {
-                            let u = *c;
-                            (u.x, u.y)
-                        })
-                        .collect()
-                })
-                .collect();
-            crate::avoid::project_avoided_edges(graph, &polylines_planar, radius)
-        };
-        let avoid_multiplier = effective_cfg.avoid.edge_multiplier as f32;
 
-        let route = crate::unified::solve_unified(
-            graph,
-            dem,
-            &contributors,
-            prefs.profile,
-            from_xy,
-            to_xy,
-            cell_m,
-            base_pace,
-            off_trail_factor,
-            mesh_max_grade_deg,
-            mesh_gain_k,
-            &avoid_edges,
-            avoid_multiplier,
-        )
-        .ok_or(PathfindError::NoRoute)?;
-
-        let geometry: Vec<Point> = route
-            .geometry_planar
-            .iter()
-            .map(|&(x, y)| Point { x, y })
-            .collect();
-        // Build legs from contiguous on-trail / off-trail runs.
-        let seg_len = |k: usize| -> f64 {
-            let a = route.geometry_planar[k];
-            let b = route.geometry_planar[k + 1];
-            ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt()
-        };
-        // Cumulative distance along the route, planar metres.
-        let mut distances_m: Vec<f64> = Vec::with_capacity(route.geometry_planar.len());
-        let mut acc = 0.0f64;
-        distances_m.push(0.0);
-        for k in 0..route.geometry_planar.len().saturating_sub(1) {
-            acc += seg_len(k);
-            distances_m.push(acc);
-        }
-        let length_m = acc;
-        let mut legs: Vec<PathLeg> = Vec::new();
-        let mut on_m = 0.0f64;
-        let mut off_m = 0.0f64;
-        if !route.seg_on_trail.is_empty() {
-            let mut run_start = 0usize;
-            let mut run_kind = route.seg_on_trail[0];
-            let mut run_len = 0.0f64;
-            let push = |kind: bool,
-                        start: usize,
-                        end: usize,
-                        len: f64,
-                        legs: &mut Vec<PathLeg>,
-                        on_m: &mut f64,
-                        off_m: &mut f64| {
-                legs.push(PathLeg {
-                    kind: if kind {
-                        LegKind::Graph
-                    } else {
-                        LegKind::OffTrailPrefix
-                    },
-                    start_idx: start as u32,
-                    end_idx: end as u32,
-                    length_m: len,
-                });
-                if kind {
-                    *on_m += len
-                } else {
-                    *off_m += len
-                }
-            };
-            for k in 0..route.seg_on_trail.len() {
-                if route.seg_on_trail[k] != run_kind {
-                    push(
-                        run_kind, run_start, k, run_len, &mut legs, &mut on_m, &mut off_m,
-                    );
-                    run_start = k;
-                    run_kind = route.seg_on_trail[k];
-                    run_len = 0.0;
-                }
-                run_len += seg_len(k);
-            }
-            push(
-                run_kind,
-                run_start,
-                route.seg_on_trail.len(),
-                run_len,
-                &mut legs,
-                &mut on_m,
-                &mut off_m,
-            );
-        }
-        // Per-surface breakdown from the route's per-segment fkb codes, so
-        // the response distinguishes trail (sti) from road (vei) from
-        // off-trail — the distinction the unified solver previously hid by
-        // bucketing every graph edge as "sti".
-        let mut fkb_breakdown: std::collections::BTreeMap<String, f64> =
-            std::collections::BTreeMap::new();
-        for k in 0..route.seg_fkb.len() {
-            let name = match route.seg_fkb[k] {
-                1 => "sti",
-                2 => "vei",
-                3 => "skiloype",
-                255 => "off_trail",
-                _ => "unknown",
-            };
-            *fkb_breakdown.entry(name.to_string()).or_insert(0.0) += seg_len(k);
-        }
-        fkb_breakdown.retain(|_, v| *v > 0.0);
-        let _ = off_m;
-        let on_trail_pct = if length_m > 0.0 {
-            (on_m / length_m * 100.0) as f32
-        } else {
-            0.0
-        };
-
-        Ok(Path {
-            strategy: PathStrategy::Hybrid,
-            legs,
-            geometry,
-            distances_m,
-            length_m,
-            cost: route.cost_s,
-            on_trail_pct,
-            fkb_breakdown,
-            refused_by: Vec::new(),
-            debug: None,
-            recording: None,
-            waypoint_legs: Vec::new(),
-        })
-    }
-
-    fn solve_off_trail(
-        &self,
-        from_xy: Point,
-        to_xy: Point,
-        prefs: &Prefs,
-    ) -> Result<Path, PathfindError> {
-        let segment = self.build_off_trail_segment(from_xy, to_xy, prefs)?;
-        let geometry: Vec<Point> = segment
-            .geometry
-            .iter()
-            .map(|p| Point { x: p.x, y: p.y })
-            .collect();
-        let (distances_m, length_m) = cumulative_distances_planar(&segment.geometry);
-        let leg_len = length_m;
-        let mut fkb_breakdown: std::collections::BTreeMap<String, f64> =
-            std::collections::BTreeMap::new();
-        if length_m > 0.0 {
-            fkb_breakdown.insert("off_trail".to_string(), length_m);
-        }
-        Ok(Path {
-            strategy: PathStrategy::OffTrail,
-            legs: vec![PathLeg {
-                kind: LegKind::OffTrailPrefix,
-                start_idx: 0,
-                end_idx: geometry.len().saturating_sub(1) as u32,
-                length_m: leg_len,
-            }],
-            geometry,
-            distances_m,
-            length_m,
-            // Cost-weighted, comparable to graph router output.
-            cost: segment.cost,
-            on_trail_pct: 0.0,
-            fkb_breakdown,
-            refused_by: segment.refused_by,
-            debug: None,
-            recording: None,
-            waypoint_legs: Vec::new(),
-        })
-    }
-
-    /// Build one off-trail mesh between two points (start and goal
-    /// planar metres), run Theta\*, return the resulting polyline
-    /// plus cost + observed-refusal layer names.
-    fn build_off_trail_segment(
-        &self,
-        from: Point,
-        to: Point,
-        prefs: &Prefs,
-    ) -> Result<OffTrailSegment, PathfindError> {
-        // Off-trail routing is FMM-only. The legacy Theta* mesh fallback was
-        // removed: it produced blocky line-of-sight routes and, worse, masked
-        // a genuinely unreachable goal (corridor severed by water/cliff/no
-        // coverage) with a plausible-looking straight line. On failure the
-        // FMM path now returns an honest error (NoRoute) instead of garbage.
-        self.try_build_off_trail_segment_fmm(from, to, prefs)
-    }
 
     /// Walk a regular grid over `bbox` and ask every layer for a
     /// cell cost. Cells with multiplier=INF or any refusal land in
@@ -1938,15 +1555,15 @@ pub struct Inspect {
     pub nearest_graph_node_to: Option<Point>,
 }
 
-struct OffTrailSegment {
-    geometry: Vec<Point2>,
+pub(crate) struct OffTrailSegment {
+    pub(crate) geometry: Vec<Point2>,
     /// Geometric length of the segment. Kept for parity with the merged
     /// `Path` legs; not currently read on its own.
     #[allow(dead_code)]
-    length_m: f64,
+    pub(crate) length_m: f64,
     /// Cost-weighted A* score, same units as graph router output.
-    cost: f64,
-    refused_by: Vec<String>,
+    pub(crate) cost: f64,
+    pub(crate) refused_by: Vec<String>,
 }
 
 /// Interpolate intermediate vertices along a polyline so each
@@ -1960,7 +1577,7 @@ struct OffTrailSegment {
 /// visibly straight line in MapLibre. Densifying just for the
 /// returned polyline gives the curator a visualisation that matches
 /// the mesh resolution without changing routing cost or length.
-fn cumulative_distances_planar(pts: &[Point2]) -> (Vec<f64>, f64) {
+pub(crate) fn cumulative_distances_planar(pts: &[Point2]) -> (Vec<f64>, f64) {
     let mut distances = Vec::with_capacity(pts.len());
     let mut total = 0.0;
     if !pts.is_empty() {
