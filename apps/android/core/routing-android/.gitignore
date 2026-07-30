@@ -1,0 +1,5 @@
+# Generated at build time by the FFI tasks (see build.gradle.kts):
+#   generateRouteFfiBindings → uniffi Kotlin bindings
+#   buildRouteFfiAndroid     → cargo-ndk per-ABI .so
+/src/main/kotlin/uniffi/
+/src/main/jniLibs/
