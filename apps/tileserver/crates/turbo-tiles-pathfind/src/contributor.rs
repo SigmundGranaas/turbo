@@ -82,7 +82,7 @@ pub enum EdgeKind<'a> {
 /// to every consumer. Values are identical to direct sampling; only
 /// the redundancy is removed.
 pub struct EdgeElevProbe<'a> {
-    dem: &'a turbo_tiles_elev::Dem,
+    dem: &'a dyn crate::ports::Heightfield,
     fx: f64,
     fy: f64,
     tx: f64,
@@ -100,7 +100,7 @@ pub struct EdgeElevProbe<'a> {
 }
 
 impl<'a> EdgeElevProbe<'a> {
-    pub fn new(dem: &'a turbo_tiles_elev::Dem, fx: f64, fy: f64, tx: f64, ty: f64) -> Self {
+    pub fn new(dem: &'a dyn crate::ports::Heightfield, fx: f64, fy: f64, tx: f64, ty: f64) -> Self {
         Self {
             dem,
             fx,
@@ -122,7 +122,7 @@ impl<'a> EdgeElevProbe<'a> {
             x: self.fx + dx * t,
             y: self.fy + dy * t,
         };
-        let z = self.dem.sample(p).ok().flatten();
+        let z = self.dem.height_at(p);
         self.points.borrow_mut().push((bits, z));
         z
     }

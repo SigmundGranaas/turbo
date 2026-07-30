@@ -28,7 +28,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use thiserror::Error;
-use turbo_tiles_elev::{wgs84_to_utm33n, Dem, PointXY};
+use turbo_tiles_elev::{wgs84_to_utm33n, PointXY};
 use turbo_tiles_graph::{Graph, Profile};
 use turbo_tiles_mask::Mask;
 
@@ -36,6 +36,7 @@ use crate::core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
 use crate::contributor::{
     EdgeContext, EdgeElevProbe, EdgeKind, Requirement, BASE_PACE_S_PER_M,
 };
+use crate::ports::Heightfield;
 
 #[derive(Debug, Error)]
 pub enum PathfindError {
@@ -66,8 +67,6 @@ pub enum PathfindError {
     },
     #[error("graph: {0}")]
     Graph(#[from] turbo_tiles_graph::GraphError),
-    #[error("dem: {0}")]
-    Dem(#[from] turbo_tiles_elev::DemError),
     /// Catch-all for solver-internal errors that aren't a clean
     /// "no route" but a misconfiguration or missing artifact. The
     /// FMM adapter uses this when the DEM is missing or the
@@ -611,7 +610,7 @@ pub struct Pathfinder {
     /// Primitive handles kept around for the breakdown / inspect
     /// paths and for boot wiring that needs to defer water from
     /// the raster mask to the vector water layer at request time.
-    pub dem: Option<Arc<Dem>>,
+    pub dem: Option<Arc<dyn Heightfield>>,
     pub mask: Option<Arc<Mask>>,
     /// Per-leg solve cache. Multi-waypoint editing re-sends the whole
     /// point list every keystroke/drag; this lets unchanged legs return
@@ -645,7 +644,7 @@ impl Pathfinder {
     ///   trail_proximity (if graph present), preferred_edge, marking.
     /// Equivalent to writing the boot wiring by hand.
     pub fn with_defaults(
-        dem: Option<Arc<Dem>>,
+        dem: Option<Arc<dyn Heightfield>>,
         mask: Option<Arc<Mask>>,
         graph: Option<Arc<Graph>>,
     ) -> Self {
@@ -666,7 +665,7 @@ impl Pathfinder {
     /// produced the multi-knob calibration drift documented in
     /// this codebase's session notes.
     pub fn with_defaults_and_config(
-        dem: Option<Arc<Dem>>,
+        dem: Option<Arc<dyn Heightfield>>,
         mask: Option<Arc<Mask>>,
         graph: Option<Arc<Graph>>,
         cost_config: crate::config::CostConfig,
@@ -865,7 +864,7 @@ impl Pathfinder {
         let probe = self
             .dem
             .as_ref()
-            .map(|d| EdgeElevProbe::new(d, x - 0.5 * cell_m, y, x + 0.5 * cell_m, y));
+            .map(|d| EdgeElevProbe::new(&**d, x - 0.5 * cell_m, y, x + 0.5 * cell_m, y));
         let ctx = EdgeContext {
             fx: x - 0.5 * cell_m,
             fy: y,
@@ -978,7 +977,7 @@ impl Pathfinder {
         let probe = self
             .dem
             .as_ref()
-            .map(|d| EdgeElevProbe::new(d, p.x - 0.5 * cell_m, p.y, p.x + 0.5 * cell_m, p.y));
+            .map(|d| EdgeElevProbe::new(&**d, p.x - 0.5 * cell_m, p.y, p.x + 0.5 * cell_m, p.y));
         let ctx = EdgeContext {
             fx: p.x - 0.5 * cell_m,
             fy: p.y,
@@ -1787,7 +1786,7 @@ impl Pathfinder {
         let probe = self
             .dem
             .as_ref()
-            .map(|d| EdgeElevProbe::new(d, x - 0.5 * cell_m, y, x + 0.5 * cell_m, y));
+            .map(|d| EdgeElevProbe::new(&**d, x - 0.5 * cell_m, y, x + 0.5 * cell_m, y));
         let ctx = EdgeContext {
             fx: x - 0.5 * cell_m,
             fy: y,

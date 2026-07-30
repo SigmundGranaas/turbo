@@ -4,7 +4,7 @@
 //! generic `turbo-tiles-fmm` solver. Phase 3 surface:
 //!
 //!   - `DemElevation` — implements `fmm::Elevation` against a
-//!     project `Arc<Dem>`, translating grid `(i, j)` cell indices
+//!     project `Arc<dyn Heightfield>`, translating grid `(i, j)` cell indices
 //!     into UTM33N `PointXY` for the DEM sampler.
 //!   - `solve_fmm_corridor` — given `(from, to)` in UTM33N + a
 //!     contributor list, sizes a corridor bbox around the from-to
@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use turbo_tiles_elev::{Dem, PointXY};
+use turbo_tiles_elev::PointXY;
 use turbo_tiles_fmm::{
     bake_aniso_corridor, bake_metric_2d, chaikin_smooth_cost_aware, extract_path_discrete,
     solve_2d_anisotropic, solve_2d_isotropic, CellForm, Elevation, FmmGrid, GridShape, PathPoint,
@@ -23,13 +23,14 @@ use turbo_tiles_fmm::{
 };
 
 use crate::contributor::{CostContributor, EdgeContext, EdgeKind};
+use crate::ports::Heightfield;
 
-/// Implements `fmm::Elevation` against the project's `Arc<Dem>`.
+/// Implements `fmm::Elevation` against the project's `Arc<dyn Heightfield>`.
 /// Each cell sample goes through `Dem::sample(PointXY)`, which the
 /// DEM crate's tile cache hot-paths efficiently. The adapter holds
 /// the `Arc` so it can outlive the corridor solve.
 pub struct DemElevation {
-    pub dem: Arc<Dem>,
+    pub dem: Arc<dyn Heightfield>,
     /// Per-cell elevation memo (m), sized `nx*ny` lazily on first use.
     /// `+∞` = not yet sampled, `NaN` = sampled-but-nodata, else the
     /// value. The grade-limited lifted solver queries each cell's
@@ -42,7 +43,7 @@ pub struct DemElevation {
 }
 
 impl DemElevation {
-    pub fn new(dem: Arc<Dem>) -> Self {
+    pub fn new(dem: Arc<dyn Heightfield>) -> Self {
         Self {
             dem,
             memo: std::sync::Mutex::new(Vec::new()),
@@ -65,7 +66,7 @@ impl Elevation for DemElevation {
             }
         }
         let (x, y) = shape.cell_centre(i, j);
-        let v = self.dem.sample(PointXY { x, y }).ok().flatten();
+        let v = self.dem.height_at(PointXY { x, y });
         self.memo.lock().unwrap()[idx] = v.unwrap_or(f32::NAN);
         v
     }
@@ -506,7 +507,7 @@ fn bake_vetoes_aniso(
 /// following geodesics instead of "shortest distance over peaks".
 fn solve_fmm_corridor_aniso(
     inputs: &FmmSolveInputs,
-    dem: Arc<Dem>,
+    dem: Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
 ) -> Result<FmmSolveOutput, FmmAdapterError> {
@@ -584,7 +585,7 @@ fn solve_fmm_corridor_aniso(
 /// Phase-3 entry point. Path extraction comes in phase 4.
 pub fn solve_fmm_corridor(
     inputs: FmmSolveInputs,
-    dem: Arc<Dem>,
+    dem: Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
 ) -> Result<FmmSolveOutput, FmmAdapterError> {
@@ -693,7 +694,7 @@ pub struct FmmPathOutput {
 
 pub fn solve_fmm_path(
     inputs: FmmSolveInputs,
-    dem: Arc<Dem>,
+    dem: Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
 ) -> Result<FmmPathOutput, FmmAdapterError> {
@@ -752,7 +753,7 @@ pub fn solve_fmm_path(
 /// lattice; backtracks the parent tree; Chaikin-smooths.
 fn solve_grade_limited_path(
     inputs: FmmSolveInputs,
-    dem: Arc<Dem>,
+    dem: Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
 ) -> Result<FmmPathOutput, FmmAdapterError> {

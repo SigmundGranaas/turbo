@@ -19,7 +19,7 @@ use std::sync::Arc;
 use turbo_tiles_elev::Dem;
 use turbo_tiles_graph::Graph;
 use turbo_tiles_mask::Mask;
-use turbo_tiles_pathfind::{CostConfig, Pathfinder};
+use turbo_tiles_pathfind::{CostConfig, Heightfield, Pathfinder};
 use turbo_tiles_search::Index;
 
 /// Primitive handles loaded once from an artifacts directory. Missing
@@ -173,8 +173,12 @@ pub fn build_pathfinder(
     art: &RoutingArtifacts,
     cost_config: CostConfig,
 ) -> (Pathfinder, HashMap<&'static str, Arc<Mask>>) {
+    // The engine reasons about a `Heightfield`; `Dem` is the concrete
+    // mmap'd Norwegian artifact. Erasing the type is this composition
+    // root's job — the engine must never name the artifact.
+    let dem: Option<Arc<dyn Heightfield>> = art.dem.clone().map(|d| d as Arc<dyn Heightfield>);
     let mut pf = Pathfinder::with_defaults_and_config(
-        art.dem.clone(),
+        dem,
         art.mask.clone(),
         art.graph.clone(),
         cost_config,

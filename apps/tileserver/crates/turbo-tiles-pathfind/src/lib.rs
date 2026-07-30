@@ -31,6 +31,7 @@ pub(crate) mod cost_field;
 pub mod fmm_adapter;
 pub mod native_contributors;
 pub mod pathfinder;
+pub mod ports;
 pub mod solver_trace;
 pub mod tracer;
 pub mod unified;
@@ -53,6 +54,7 @@ pub use native_contributors::{
     ToblerSlopeContributor, TotalGainContributor, TrailProximityContributor,
     DISPLACED_LEGACY_LAYERS,
 };
+pub use ports::Heightfield;
 pub use pathfinder::{
     utm33n_to_wgs84, CostMode, Inspect, InspectCell, InspectLayer, InspectPoint, LegKind, Path,
     PathLeg, PathStrategy, PathfindError, Pathfinder, Prefs, WaypointLeg,

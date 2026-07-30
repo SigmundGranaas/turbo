@@ -26,12 +26,13 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 
-use turbo_tiles_elev::{Dem, PointXY};
+use turbo_tiles_elev::PointXY;
 use turbo_tiles_fmm::GridShape;
 use turbo_tiles_graph::{Graph, Profile};
 
 use crate::contributor::{compose_edge_walk_seconds, CostContributor, EdgeContext, EdgeKind};
 use crate::native_contributors::OffTrailRoughnessContributor;
+use crate::ports::Heightfield;
 
 // Steep-terrain shaping for off-trail mesh edges (own copy — see module
 // docs on independence; these are physical constants, not shared code).
@@ -200,7 +201,7 @@ impl Ord for HeapItem {
 /// goal is unreachable (caller maps that to an honest no-route error).
 pub(crate) fn solve_unified(
     graph: &Graph,
-    dem: &Arc<Dem>,
+    dem: &Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
     profile: Profile,
     from: PointXY,

@@ -713,7 +713,6 @@ pub(crate) fn map_pathfind_err(state: &ApiState, e: PathfindError) -> ApiError {
             }),
         },
         Graph(g) => ApiError::Internal(g.to_string()),
-        Dem(d) => ApiError::Internal(d.to_string()),
         Internal(msg) => ApiError::Internal(msg),
         SegmentFailed {
             leg_index,

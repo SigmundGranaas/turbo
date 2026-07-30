@@ -32,7 +32,7 @@
 use std::sync::Arc;
 
 use rstar::{PointDistance, RTree, RTreeObject, AABB};
-use turbo_tiles_elev::{Dem, PointXY};
+use turbo_tiles_elev::PointXY;
 use turbo_tiles_graph::{Graph, Profile};
 use turbo_tiles_mask::{Mask, RefusalKind};
 use turbo_tiles_vector::{AttrView, GeomKind, VectorCollection};
@@ -40,6 +40,7 @@ use turbo_tiles_vector::{AttrView, GeomKind, VectorCollection};
 use crate::contributor::{Requirement, 
     ContributorKind, CostContributor, EdgeContext, EdgeKind, BASE_PACE_S_PER_M,
 };
+use crate::ports::Heightfield;
 
 /// Slope cost via Tobler's hiking function, integrated along the
 /// edge with multi-point sampling so long Theta* line-of-sight
@@ -74,7 +75,7 @@ use crate::contributor::{Requirement,
 /// Returns 0 contribution for entirely out-of-DEM edges (nothing to
 /// physically opine about).
 pub struct ToblerSlopeContributor {
-    pub dem: Arc<Dem>,
+    pub dem: Arc<dyn Heightfield>,
     pub refuse_above_deg: f32,
     /// Target metres per sample. Smaller → finer integration but
     /// more DEM lookups per edge. 12 m matches the underlying DEM
@@ -84,7 +85,7 @@ pub struct ToblerSlopeContributor {
 }
 
 impl ToblerSlopeContributor {
-    pub fn new(dem: Arc<Dem>, refuse_above_deg: f32) -> Self {
+    pub fn new(dem: Arc<dyn Heightfield>, refuse_above_deg: f32) -> Self {
         Self {
             dem,
             refuse_above_deg,
@@ -115,7 +116,7 @@ impl ToblerSlopeContributor {
                     let t = i as f64 / n as f64;
                     let x = ctx.fx + dx * t;
                     let y = ctx.fy + dy * t;
-                    v.push(self.dem.sample(PointXY { x, y }).ok().flatten());
+                    v.push(self.dem.height_at(PointXY { x, y }));
                 }
                 v
             }
@@ -166,7 +167,7 @@ impl ToblerSlopeContributor {
             let x = ctx.fx + dx * t;
             let y = ctx.fy + dy * t;
             total += 1;
-            if self.dem.sample(PointXY { x, y }).ok().flatten().is_none() {
+            if self.dem.height_at(PointXY { x, y }).is_none() {
                 missing += 1;
             }
         }
@@ -219,7 +220,7 @@ impl CostContributor for ToblerSlopeContributor {
     fn covers(&self, x: f64, y: f64) -> bool {
         // `Dem::sample` is Ok iff inside the DEM extent; nodata sub-cells
         // still count as covered. OutOfCoverage is the "no idea" signal.
-        self.dem.sample(PointXY { x, y }).is_ok()
+        self.dem.covers(PointXY { x, y })
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
         let Some(zs) = self.sample_elevations(ctx) else {
@@ -541,13 +542,13 @@ impl CostContributor for MaskRefusalContributor {
 /// Mesh-edge only; graph edges already follow their baked
 /// polyline so the contour-following property is implicit.
 pub struct ContourCrossingContributor {
-    pub dem: Arc<Dem>,
+    pub dem: Arc<dyn Heightfield>,
     pub k: f64,
     pub sample_step_m: f64,
 }
 
 impl ContourCrossingContributor {
-    pub fn new(dem: Arc<Dem>) -> Self {
+    pub fn new(dem: Arc<dyn Heightfield>) -> Self {
         Self {
             dem,
             k: 0.4,
@@ -571,7 +572,7 @@ impl CostContributor for ContourCrossingContributor {
     fn covers(&self, x: f64, y: f64) -> bool {
         // `Dem::sample` is Ok iff inside the DEM extent; nodata sub-cells
         // still count as covered. OutOfCoverage is the "no idea" signal.
-        self.dem.sample(PointXY { x, y }).is_ok()
+        self.dem.covers(PointXY { x, y })
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
         if !matches!(ctx.kind, EdgeKind::Mesh) {
@@ -593,7 +594,7 @@ impl CostContributor for ContourCrossingContributor {
                     let t = i as f64 / n as f64;
                     let x = ctx.fx + dx * t;
                     let y = ctx.fy + dy * t;
-                    v.push(self.dem.sample(PointXY { x, y }).ok().flatten());
+                    v.push(self.dem.height_at(PointXY { x, y }));
                 }
                 direct_zs = v;
                 &direct_zs
@@ -641,13 +642,13 @@ impl CostContributor for ContourCrossingContributor {
 /// graph edges have baked attributes from the build phase so DEM
 /// coverage isn't load-bearing for them.
 pub struct DemCoveragePenaltyContributor {
-    pub dem: Arc<Dem>,
+    pub dem: Arc<dyn Heightfield>,
     pub delta_s_per_m_missing: f64,
     pub sample_step_m: f64,
 }
 
 impl DemCoveragePenaltyContributor {
-    pub fn new(dem: Arc<Dem>) -> Self {
+    pub fn new(dem: Arc<dyn Heightfield>) -> Self {
         Self {
             dem,
             delta_s_per_m_missing: 2.0,
@@ -671,7 +672,7 @@ impl CostContributor for DemCoveragePenaltyContributor {
     fn covers(&self, x: f64, y: f64) -> bool {
         // `Dem::sample` is Ok iff inside the DEM extent; nodata sub-cells
         // still count as covered. OutOfCoverage is the "no idea" signal.
-        self.dem.sample(PointXY { x, y }).is_ok()
+        self.dem.covers(PointXY { x, y })
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
         if !matches!(ctx.kind, EdgeKind::Mesh) {
@@ -727,12 +728,12 @@ impl CostContributor for DemCoveragePenaltyContributor {
 /// `profile_cost` so this contributor returns 0 for `EdgeKind::Graph`
 /// to avoid double-counting.
 pub struct NaismithGainContributor {
-    pub dem: Arc<Dem>,
+    pub dem: Arc<dyn Heightfield>,
     pub sample_step_m: f64,
 }
 
 impl NaismithGainContributor {
-    pub fn new(dem: Arc<Dem>) -> Self {
+    pub fn new(dem: Arc<dyn Heightfield>) -> Self {
         Self {
             dem,
             sample_step_m: 6.0,
@@ -771,7 +772,7 @@ impl NaismithGainContributor {
             let t = i as f64 / n as f64;
             let x = ctx.fx + dx * t;
             let y = ctx.fy + dy * t;
-            self.dem.sample(PointXY { x, y }).ok().flatten()
+            self.dem.height_at(PointXY { x, y })
         }))
     }
 
@@ -799,7 +800,7 @@ impl CostContributor for NaismithGainContributor {
     fn covers(&self, x: f64, y: f64) -> bool {
         // `Dem::sample` is Ok iff inside the DEM extent; nodata sub-cells
         // still count as covered. OutOfCoverage is the "no idea" signal.
-        self.dem.sample(PointXY { x, y }).is_ok()
+        self.dem.covers(PointXY { x, y })
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
         if !matches!(ctx.kind, EdgeKind::Mesh) {
@@ -822,13 +823,13 @@ impl CostContributor for NaismithGainContributor {
 /// minus the flat-pace baseline. Clamped so a one-pixel DEM cliff
 /// can't dominate route cost.
 pub struct DirectionalSlopeContributor {
-    pub dem: Arc<Dem>,
+    pub dem: Arc<dyn Heightfield>,
     pub min_relevant_slope_deg: f32,
     pub max_delta_s_per_m: f64,
 }
 
 impl DirectionalSlopeContributor {
-    pub fn new(dem: Arc<Dem>) -> Self {
+    pub fn new(dem: Arc<dyn Heightfield>) -> Self {
         Self {
             dem,
             min_relevant_slope_deg: 3.0,
@@ -852,9 +853,9 @@ impl CostContributor for DirectionalSlopeContributor {
         }
         let mid_x = 0.5 * (ctx.fx + ctx.tx);
         let mid_y = 0.5 * (ctx.fy + ctx.ty);
-        let sa = match self.dem.slope_aspect(PointXY { x: mid_x, y: mid_y }) {
-            Ok(Some(s)) => s,
-            _ => return 0.0,
+        let sa = match self.dem.slope_aspect_at(PointXY { x: mid_x, y: mid_y }) {
+            Some(s) => s,
+            None => return 0.0,
         };
         if sa.slope_deg < self.min_relevant_slope_deg {
             return 0.0;
@@ -889,7 +890,7 @@ impl CostContributor for DirectionalSlopeContributor {
 /// curators willing to traverse 30–45° terrain disable the
 /// contributor via `layer_weights["avalanche_terrain"] = 0`.
 pub struct AvalancheTerrainContributor {
-    pub dem: Arc<Dem>,
+    pub dem: Arc<dyn Heightfield>,
     pub slope_min_deg: f32,
     pub slope_max_deg: f32,
     pub treeline_m: f32,
@@ -901,7 +902,7 @@ pub struct AvalancheTerrainContributor {
 }
 
 impl AvalancheTerrainContributor {
-    pub fn new(dem: Arc<Dem>) -> Self {
+    pub fn new(dem: Arc<dyn Heightfield>) -> Self {
         Self {
             dem,
             slope_min_deg: 30.0,
@@ -915,9 +916,9 @@ impl AvalancheTerrainContributor {
         if !matches!(profile, Profile::Ski) {
             return 0.0;
         }
-        let sa = match self.dem.slope_aspect(PointXY { x, y }) {
-            Ok(Some(s)) => s,
-            _ => return 0.0,
+        let sa = match self.dem.slope_aspect_at(PointXY { x, y }) {
+            Some(s) => s,
+            None => return 0.0,
         };
         if sa.slope_deg < self.slope_min_deg || sa.slope_deg > self.slope_max_deg {
             return 0.0;
@@ -928,9 +929,9 @@ impl AvalancheTerrainContributor {
         let half = (self.slope_max_deg - self.slope_min_deg) * 0.5;
         let band_dist = (sa.slope_deg - centre).abs() / half;
         let slope_factor = (1.0 - band_dist).max(0.0) as f64;
-        let elev = match self.dem.sample(PointXY { x, y }) {
-            Ok(Some(e)) => e,
-            _ => return 0.0,
+        let elev = match self.dem.height_at(PointXY { x, y }) {
+            Some(e) => e,
+            None => return 0.0,
         };
         let elev_factor = (((elev - (self.treeline_m - 200.0)) / 200.0).clamp(0.0, 1.0)) as f64;
         lee_factor * slope_factor * elev_factor
@@ -952,7 +953,7 @@ impl CostContributor for AvalancheTerrainContributor {
     fn covers(&self, x: f64, y: f64) -> bool {
         // `Dem::sample` is Ok iff inside the DEM extent; nodata sub-cells
         // still count as covered. OutOfCoverage is the "no idea" signal.
-        self.dem.sample(PointXY { x, y }).is_ok()
+        self.dem.covers(PointXY { x, y })
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
         let mid_x = 0.5 * (ctx.fx + ctx.tx);
