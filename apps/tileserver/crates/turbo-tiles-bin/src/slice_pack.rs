@@ -706,7 +706,12 @@ fn write_manifest(
             halo_m,
         },
     };
-    let body = toml::to_string_pretty(&manifest)?;
+    // `to_string`, not `to_string_pretty`: pretty splits arrays across lines,
+    // and `extent` is read back by a four-line parser on the Android side that
+    // deliberately does not take a TOML dependency to read one array out of a
+    // file this repo also writes. A single-line array keeps that honest — and
+    // reads better in the manifest besides.
+    let body = toml::to_string(&manifest)?;
     let header = match region {
         Region::Corpus(p) => format!("# Cut from corpus {}\n", p.display()),
         Region::Bbox(b) => format!("# Cut from bbox {b:?}\n"),

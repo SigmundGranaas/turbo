@@ -69,8 +69,10 @@ pub struct RouteOptions {
     pub mode: TravelMode,
     /// Named trip preset ("balanced", "avoid_roads", …). Unknown names
     /// are an error naming the valid ones, not a silent fallback.
+    #[uniffi(default = Some("balanced"))]
     pub preset: Option<String>,
     /// Skip the trail network entirely and route cross-country.
+    #[uniffi(default = false)]
     pub force_off_trail: bool,
     /// Close the route back to its origin, taking a different line home.
     ///
@@ -83,6 +85,7 @@ pub struct RouteOptions {
     /// (`RouteViewModel.roundTrip`). Without it here, the on-device path
     /// would answer a round-trip request with a one-way route: the worst
     /// kind of gap, because it looks like it worked.
+    #[uniffi(default = false)]
     pub round_trip: bool,
     /// Polylines to route around, WGS84. The penalty lands on the trail
     /// edges the geometry runs along, so the router detours onto a
@@ -91,9 +94,11 @@ pub struct RouteOptions {
     /// Soft, not a veto: an avoided path with no alternative is still
     /// used, expensively. "Avoid" is a preference, and a router that
     /// turns it into a refusal strands the user.
+    #[uniffi(default = [])]
     pub avoid: Vec<Vec<GeoPoint>>,
     /// How far (m) from an avoided polyline a trail edge is still
     /// considered part of it. `None` uses the profile's calibrated value.
+    #[uniffi(default = None)]
     pub avoid_radius_m: Option<f64>,
     /// Refuse a request whose endpoints span more than this, straight
     /// line, in kilometres.
@@ -115,6 +120,7 @@ pub struct RouteOptions {
     ///
     /// The default is generous for the use case (a long day's walk is
     /// under 50 km) and cheap to raise deliberately.
+    #[uniffi(default = 100.0)]
     pub max_span_km: f64,
     /// Span budget for the **cross-country lane only**, in kilometres.
     ///
@@ -135,6 +141,7 @@ pub struct RouteOptions {
     /// bounds its work. The cross-country lane is not. A phone core is
     /// slower than that desktop, so the right default here is well below
     /// the whole-request budget.
+    #[uniffi(default = 10.0)]
     pub max_off_trail_km: f64,
 }
 

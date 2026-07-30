@@ -3,19 +3,12 @@
 The on-device routing engine, as Kotlin and Swift see it.
 
 ```kotlin
-val engine = RouteEngine("/data/data/.../packs/sjunkhatten")
+val engine = RouteEngine.open("/data/data/.../packs/sjunkhatten")
 if (!engine.hasCoverage(here)) { promptDownload(); return }
 
-val route = engine.plan(listOf(here, there), RouteOptions(
-    mode = TravelMode.FOOT,
-    preset = "balanced",
-    forceOffTrail = false,
-    roundTrip = false,
-    avoid = emptyList(),
-    avoidRadiusM = null,
-    maxSpanKm = 100.0,
-    maxOffTrailKm = 10.0,
-))
+// Every field but `mode` defaults from Rust, so a retune of the budgets
+// or the preset reaches the app without a Kotlin edit.
+val route = engine.plan(listOf(here, there), RouteOptions(mode = TravelMode.FOOT))
 map.draw(route.geometry)          // WGS84, ready to plot
 label.text = "${route.lengthM / 1000} km, ${route.ascentM} m up"
 ```
@@ -185,6 +178,18 @@ is unverified — run the host tests on a device before relying on
 server/device agreement. Note that the requirement is *equivalence*, not
 bit-identity, so a divergence here is a quality question rather than a
 correctness one.
+
+## The generated Kotlin
+
+`RouteEngine.open(dir)` is a **companion function**, not a constructor — uniffi
+maps a named Rust constructor that way, and `RouteEngine(x)` resolves to the
+internal pointer constructor instead. Errors arrive as a sealed
+`RouteException` with one subclass per variant. `RouteOptions` carries the Rust
+defaults as Kotlin default arguments, so only `mode` is required.
+
+Generate bindings from the **debug** cdylib. `[profile.release]` sets
+`strip = "symbols"`, and library-mode uniffi-bindgen reads exactly those
+symbols — against a release build it silently produces nothing.
 
 ## Tests
 
