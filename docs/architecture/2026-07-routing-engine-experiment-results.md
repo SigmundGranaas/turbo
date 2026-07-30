@@ -1129,6 +1129,78 @@ ci    off-trail d27e60b7d508a594  lookups=2275940   ok=25/25
 
 ---
 
+---
+
+## Phase E-2 — Unify the pace curve. **NOT a calibration item. Blocked on a solver change.**
+
+The plan listed "D3: unify pace curve" as Phase E calibration, on the
+strength of E7: the mesh model is symmetric (a descent costs exactly
+what the equal ascent costs) while the contributor's is real Tobler,
+whose minimum sits at a 2.9 degree *descent* — a constant 41.9%
+disagreement across all downhill.
+
+Attempting it establishes that it cannot be done as a calibration
+change, and the reason is structural rather than incidental.
+
+### Why
+
+`ToblerAnisotropic::metric_at` returns a **`SymMat2`** — a symmetric
+quadratic form. The metric is **Riemannian**, so `G(v) == G(-v)`
+identically, for every direction, at every cell. Uphill and downhill
+along one axis are the same number because a symmetric matrix has no
+way to hold two.
+
+The pace function reinforces it: `tobler_pace` is handed `grad_mag =
+sqrt(dz_dx^2 + dz_dy^2)`, a magnitude. The sign is discarded one line
+before the call, so making `tobler_pace` signed would change nothing at
+all — the information is already gone.
+
+Asymmetric descent requires a **Finsler** metric (an asymmetric norm).
+`tobler.rs`'s own header names that as future work. It is a solver
+change with its own correctness burden — new discretisation, new
+convergence argument — not a knob.
+
+### What the state actually is after E-1
+
+Worth stating plainly, because "two different Tobler models" now
+describes something coherent rather than a drift:
+
+| edge kind | model | why |
+|---|---|---|
+| mesh (off-trail) | symmetric | the metric is Riemannian and cannot be otherwise |
+| graph (on-trail) | asymmetric, real Tobler | the direction of travel is known exactly |
+
+E-1 removed the contributor's mesh-edge term, so the two models now
+apply to **disjoint** edge kinds and no longer double-count. The
+residual inconsistency is that an off-trail descent prices 41.9% higher
+than the same descent on a trail, over and above the legitimate
+off-trail penalty. That is an artefact of solver structure, and it is
+the honest cost of a Riemannian metric.
+
+### Pinned, not just asserted
+
+`the_metric_cannot_distinguish_uphill_from_downhill` in
+`tobler_aniso.rs` builds a real 30 degree ramp, takes the tensor through
+`metric_at`, and checks that `v` and `-v` price identically for four
+directions — plus a sanity assertion that the metric IS strongly
+anisotropic, so the equality is not passing because everything is equal.
+If someone later makes the tensor asymmetric, it fails and points at the
+plan item that unblocks.
+
+Writing it surfaced a second thing worth recording: `metric_at` returns
+the **dual** metric `G*`, whose eigenvalues are reciprocal paces squared
+— speeds, not costs. The first version of the sanity check asserted
+along-fall-line > along-contour and failed, because a large value there
+means *fast*. The doc comment says so; the test was written from the
+name, not the documentation.
+
+### Status
+
+Deferred, with the reason recorded. The plan's Phase E list should read
+one item, not two.
+
+---
+
 ## Environment notes
 
 - `rustc 1.94.1`, x86_64-unknown-linux-gnu, single target installed.
