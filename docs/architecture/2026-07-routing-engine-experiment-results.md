@@ -685,6 +685,107 @@ promise.
 
 ---
 
+## E2 — What does the elevation port cost? **DONE. Below measurement resolution.**
+
+### Phase 0 first: the corpus cannot resolve 2%
+
+Five identical runs per lane on unmodified code:
+
+| lane | mean | sd | range | geometry hash | dem lookups |
+|---|---|---|---|---|---|
+| off-trail | 588.17 ms | 43.0 (**7.31%**) | 111.6 (**18.97%**) | 1 unique | 1 unique |
+| unified | 18.05 ms | 1.10 (**6.08%**) | 2.89 (**15.99%**) | 1 unique | 1 unique |
+
+**A 2% effect is invisible in 16–19% spread.** The harness is an excellent
+*determinism* instrument — geometry hash and DEM lookup count are perfectly
+stable across all ten runs — and a poor *timing* one, on this shared,
+virtualised host with only 12 hikes and a 3.6 s max dominating the mean.
+
+**This retroactively invalidates the single-run timings quoted earlier in
+this document.** The off-trail "baseline" recorded as 749.3 / 749.7 ms was
+measured while builds ran concurrently; the clean N=5 range is 544.8–656.4 ms.
+Every wall-clock number from a single run in this file should be read as
+±20%. The *hashes* and *lookup counts* are unaffected — those were stable —
+so E3, E5 and E7b's conclusions stand.
+
+### Phase 1: measure dispatch directly, then multiply
+
+`tools/experiments/e2_dispatch` opens the **real** Sjunkhatten DEM and walks
+2 M corridor-ordered points (matching the row-major access `CostField` and
+`DemElevation` produce — a random scatter would exaggerate tile-cache cost
+and mask dispatch), min-of-7 reps, cache pre-warmed.
+
+```
+sample():
+  A concrete                    134.826 ns/call
+  B dyn                         134.313 ns/call
+  C generic (monomorphised)     134.094 ns/call
+
+slope_aspect():
+  A concrete                    224.837 ns/call
+  B dyn                         225.161 ns/call
+
+per-call deltas
+  sample  B-A = -0.514 ns  (-0.38%)
+  sample  C-A = -0.732 ns  (-0.54%)
+  slope   B-A = +0.324 ns  (+0.14%)
+```
+
+**The deltas are inconsistent in sign** — `dyn` measures marginally *faster*
+for `sample` and marginally *slower* for `slope_aspect`. That is the
+signature of an effect below the bench's own resolution (≈±0.5 ns at this
+sample count), not of a real difference. The honest statement is
+**|delta| < 1 ns, i.e. under 0.75% of one call.**
+
+### Derived solve-level penalty
+
+| lane | lookups | total solve | dyn penalty | % of solve |
+|---|---|---|---|---|
+| off-trail | 1 921 389 | 7 058 ms | −0.99 ms | **−0.014%** |
+| unified | 249 976 | 217 ms | −0.13 ms | **−0.059%** |
+
+**Indistinguishable from zero, against a 2% budget.**
+
+### Why the prediction was conservative
+
+The plan predicted 0.04–0.2%, assuming ~2 ns dispatch. Measured: nothing
+detectable — because **`Dem::sample` costs 135 ns**, dominated by the rstar
+tile lookup and cache access. A vtable indirect call is ~1% of that.
+`slope_aspect` at 225 ns is even more dispatch-insensitive.
+
+The premise "ports are cheap" is not merely satisfied, it was never close to
+being at risk: the per-call work is ~70–100× the dispatch cost.
+
+### What it changes — the design simplifies
+
+This is the **row-1 outcome** from the E2 plan: both arms pass, so
+
+> **the "generics in the hot loop, `dyn` at the edges" rule is optional.**
+
+`Arc<dyn Heightfield>` can be used throughout. The rationale's §4.1 —
+"the design's largest technical bet", with the monomorphization discipline
+as its mitigation — resolves to *no bet at all* for the elevation port. One
+rule fewer to enforce forever, and `CostField` need not be generic.
+
+Bet #1 in the rationale is **confirmed**, and its fallback (enum dispatch,
+monomorphising over a concrete `Sources` parameter) is not needed.
+
+### The caveat that remains
+
+This measures dispatch **in isolation**. It cannot see two second-order
+effects:
+
+1. **Lost inlining cascading** into the callers' surrounding arithmetic.
+2. **Icache pressure** from monomorphised code bloat — which would favour
+   `dyn`, not penalise it.
+
+The margin absorbs them: at <0.02% of a solve, even a 10× underestimate
+lands at 0.2%, still an order of magnitude under budget. If the real swap
+is ever suspected of costing more, the instrument is `perf stat` instruction
+counts — **not** corpus wall clock, which phase 0 proved cannot see it.
+
+---
+
 ## Environment notes
 
 - `rustc 1.94.1`, x86_64-unknown-linux-gnu, single target installed.
