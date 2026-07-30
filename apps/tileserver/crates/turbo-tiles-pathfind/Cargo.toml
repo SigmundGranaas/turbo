@@ -31,7 +31,6 @@ tracing.workspace = true
 # Tests are a composition root: they name the profile explicitly.
 turbo-profile-no.workspace = true
 turbo-geo-frame.workspace = true
-turbo-route-model.workspace = true
 # Adapting the real artifact to the port, so the engine's own tests
 # drive it exactly as production does. A *dev*-dependency only: the
 # engine must never depend on an adapter at build time.

@@ -21,7 +21,7 @@
 
 use std::sync::Arc;
 
-use turbo_route_model::{Extent, Heightfield, Point, SlopeAspect};
+use turbo_route_model::{Heightfield, Point, SlopeAspect};
 use turbo_tiles_elev::{Dem, PointXY};
 
 /// The `norway.dem` artifact as a [`Heightfield`].
@@ -33,13 +33,11 @@ use turbo_tiles_elev::{Dem, PointXY};
 /// duplicate the cache along with it.
 pub struct DemHeightfield {
     dem: Arc<Dem>,
-    resolution_m: f32,
 }
 
 impl DemHeightfield {
     pub fn new(dem: Arc<Dem>) -> Self {
-        let resolution_m = dem.coverage().resolution_m;
-        Self { dem, resolution_m }
+        Self { dem }
     }
 
     /// The wrapped artifact, for callers that legitimately need the
@@ -101,23 +99,6 @@ impl Heightfield for DemHeightfield {
                 slope_deg: sa.slope_deg,
                 aspect_deg: sa.aspect_deg,
             })
-    }
-
-    /// The union bbox of the present tiles.
-    ///
-    /// Note this is a *bounding* extent, not the coverage set: the
-    /// artifact stores sparse per-tile origins, so a point inside the
-    /// bbox may still be outside coverage. [`Heightfield::covers`] is
-    /// the authoritative answer; `extent` is for sizing work.
-    #[inline]
-    fn extent(&self) -> Extent {
-        let c = self.dem.coverage();
-        Extent::new(c.min_x, c.min_y, c.max_x, c.max_y)
-    }
-
-    #[inline]
-    fn resolution_m(&self) -> f32 {
-        self.resolution_m
     }
 }
 

@@ -40,49 +40,7 @@ use turbo_tiles_vector::{AttrView, GeomKind, VectorCollection};
 use crate::contributor::{
     ContributorKind, CostContributor, EdgeContext, EdgeKind, Requirement, BASE_PACE_S_PER_M,
 };
-use turbo_route_model::{Heightfield, ParamSet};
-
-/// Implement [`CostContributor::rebind`] and
-/// [`CostContributor::fingerprint`] for a contributor whose tunable
-/// state is entirely scalar.
-///
-/// `rebind` goes through `Clone`, and that is the point rather than a
-/// convenience: every expensive member of these structs is an `Arc`, so
-/// cloning *shares* the index by construction. An implementation cannot
-/// accidentally rebuild an R-tree or reopen a DEM here — the type
-/// system has already decided. E4 measured why that matters: rebuilding
-/// costs 555 ms–2.8 s against a 250 ms solve; rebinding costs 0.098 µs.
-///
-/// The same field list drives the fingerprint, so a parameter can never
-/// be tunable without also being part of the cache key — the failure
-/// mode where two differently-tuned stacks collide on one key is
-/// unreachable rather than merely avoided.
-macro_rules! impl_scalar_rebind {
-    ($ty:ty, $( $key:literal => $field:ident : $cast:ty ),+ $(,)? ) => {
-        impl $ty {
-            fn rebind_scalars(&self, params: &ParamSet) -> Option<Arc<dyn CostContributor>> {
-                use crate::contributor::CostContributor as _;
-                if !params.touches(self.name()) {
-                    return None;
-                }
-                let mut next = self.clone();
-                $(
-                    if let Some(v) = params.get(self.name(), $key) {
-                        next.$field = v as $cast;
-                    }
-                )+
-                Some(Arc::new(next))
-            }
-
-            fn fingerprint_scalars(&self) -> u64 {
-                use crate::contributor::CostContributor as _;
-                let h = turbo_route_model::fnv_name(self.name());
-                $( let h = turbo_route_model::fnv_f64(h, self.$field as f64); )+
-                h
-            }
-        }
-    };
-}
+use turbo_route_model::Heightfield;
 
 /// Slope cost via Tobler's hiking function, integrated along the
 /// edge with multi-point sampling so long Theta* line-of-sight
@@ -249,12 +207,6 @@ impl ToblerSlopeContributor {
 }
 
 impl CostContributor for ToblerSlopeContributor {
-    fn rebind(&self, params: &ParamSet) -> Option<Arc<dyn CostContributor>> {
-        self.rebind_scalars(params)
-    }
-    fn fingerprint(&self) -> u64 {
-        self.fingerprint_scalars()
-    }
     fn name(&self) -> &'static str {
         "slope"
     }
@@ -533,12 +485,6 @@ impl MaskRefusalContributor {
 }
 
 impl CostContributor for MaskRefusalContributor {
-    fn rebind(&self, params: &ParamSet) -> Option<Arc<dyn CostContributor>> {
-        self.rebind_scalars(params)
-    }
-    fn fingerprint(&self) -> u64 {
-        self.fingerprint_scalars()
-    }
     fn name(&self) -> &'static str {
         "mask_refusal"
     }
@@ -630,12 +576,6 @@ impl ContourCrossingContributor {
 }
 
 impl CostContributor for ContourCrossingContributor {
-    fn rebind(&self, params: &ParamSet) -> Option<Arc<dyn CostContributor>> {
-        self.rebind_scalars(params)
-    }
-    fn fingerprint(&self) -> u64 {
-        self.fingerprint_scalars()
-    }
     fn name(&self) -> &'static str {
         "contour_crossing"
     }
@@ -737,12 +677,6 @@ impl DemCoveragePenaltyContributor {
 }
 
 impl CostContributor for DemCoveragePenaltyContributor {
-    fn rebind(&self, params: &ParamSet) -> Option<Arc<dyn CostContributor>> {
-        self.rebind_scalars(params)
-    }
-    fn fingerprint(&self) -> u64 {
-        self.fingerprint_scalars()
-    }
     fn name(&self) -> &'static str {
         "dem_coverage"
     }
@@ -872,12 +806,6 @@ impl NaismithGainContributor {
 }
 
 impl CostContributor for NaismithGainContributor {
-    fn rebind(&self, params: &ParamSet) -> Option<Arc<dyn CostContributor>> {
-        self.rebind_scalars(params)
-    }
-    fn fingerprint(&self) -> u64 {
-        self.fingerprint_scalars()
-    }
     fn name(&self) -> &'static str {
         "naismith_gain"
     }
@@ -934,12 +862,6 @@ impl DirectionalSlopeContributor {
 }
 
 impl CostContributor for DirectionalSlopeContributor {
-    fn rebind(&self, params: &ParamSet) -> Option<Arc<dyn CostContributor>> {
-        self.rebind_scalars(params)
-    }
-    fn fingerprint(&self) -> u64 {
-        self.fingerprint_scalars()
-    }
     fn name(&self) -> &'static str {
         "slope_direction"
     }
@@ -1039,12 +961,6 @@ impl AvalancheTerrainContributor {
 }
 
 impl CostContributor for AvalancheTerrainContributor {
-    fn rebind(&self, params: &ParamSet) -> Option<Arc<dyn CostContributor>> {
-        self.rebind_scalars(params)
-    }
-    fn fingerprint(&self) -> u64 {
-        self.fingerprint_scalars()
-    }
     fn name(&self) -> &'static str {
         "avalanche_terrain"
     }
@@ -1100,12 +1016,6 @@ impl LandcoverContributor {
 }
 
 impl CostContributor for LandcoverContributor {
-    fn rebind(&self, params: &ParamSet) -> Option<Arc<dyn CostContributor>> {
-        self.rebind_scalars(params)
-    }
-    fn fingerprint(&self) -> u64 {
-        self.fingerprint_scalars()
-    }
     fn name(&self) -> &'static str {
         self.name
     }
@@ -1202,12 +1112,6 @@ impl OffTrailRoughnessContributor {
 }
 
 impl CostContributor for OffTrailRoughnessContributor {
-    fn rebind(&self, params: &ParamSet) -> Option<Arc<dyn CostContributor>> {
-        self.rebind_scalars(params)
-    }
-    fn fingerprint(&self) -> u64 {
-        self.fingerprint_scalars()
-    }
     fn name(&self) -> &'static str {
         "off_trail_roughness"
     }
@@ -1250,12 +1154,6 @@ impl Default for GraphSlopeContributor {
 }
 
 impl CostContributor for GraphSlopeContributor {
-    fn rebind(&self, params: &ParamSet) -> Option<Arc<dyn CostContributor>> {
-        self.rebind_scalars(params)
-    }
-    fn fingerprint(&self) -> u64 {
-        self.fingerprint_scalars()
-    }
     fn name(&self) -> &'static str {
         "graph_slope"
     }
@@ -1303,12 +1201,6 @@ impl Default for TotalGainContributor {
 }
 
 impl CostContributor for TotalGainContributor {
-    fn rebind(&self, params: &ParamSet) -> Option<Arc<dyn CostContributor>> {
-        self.rebind_scalars(params)
-    }
-    fn fingerprint(&self) -> u64 {
-        self.fingerprint_scalars()
-    }
     fn name(&self) -> &'static str {
         "total_gain"
     }
@@ -1348,62 +1240,11 @@ impl CostContributor for TotalGainContributor {
 /// magnitude as the legacy multiplicative form: `bonus_at_zero =
 /// 0.95` corresponds to `-0.05 × BASE_PACE_S_PER_M × length` at
 /// distance zero.
-/// The expensive half of trail proximity: three bulk-loaded R-trees
-/// over millions of decimated polyline segments.
-///
-/// Split out and held behind an `Arc` because of E4. Building these is
-/// **~60% of the entire cost-model construction cost** — 555 ms on a
-/// 1 M-edge graph, 2.8 s at 5 M, against a 250 ms mean solve. Nothing
-/// about per-request tuning changes a single segment, so the index is
-/// shared and only the scalars beside it are replaced. See
-/// [`CostContributor::rebind`].
-pub struct TrailProximityIndex {
+/// Bonus for routing near an existing trail of the profile's own kind.
+pub struct TrailProximityContributor {
     sti: RTree<TrailSegment>,
     vei: RTree<TrailSegment>,
     skiloype: RTree<TrailSegment>,
-}
-
-impl TrailProximityIndex {
-    pub fn build(graph: &Graph) -> Self {
-        // sti (foot): polyline-following segments at ~50 m — endpoint
-        // chords misplace twisty mountain paths by hundreds of metres
-        // and attract routes to phantom lines (measured: corpus Fréchet
-        // 67 -> 76 from this change alone). vei/skiloype (bicycle/ski
-        // profiles): endpoint chords as before — engineered, near-
-        // straight networks where the chord error is small, and their
-        // polyline trees would cost ~1 GB of boot RSS for no benefit.
-        let to_tree = |raw: Vec<((f32, f32), (f32, f32))>| -> RTree<TrailSegment> {
-            RTree::bulk_load(
-                raw.into_iter()
-                    .map(|(a, b)| TrailSegment {
-                        a: [a.0, a.1],
-                        b: [b.0, b.1],
-                    })
-                    .collect(),
-            )
-        };
-        Self {
-            sti: to_tree(graph.collect_polyline_segments_with_fkb_types(&[1], 100.0)),
-            vei: to_tree(graph.collect_segments_with_fkb_types(&[2])),
-            skiloype: to_tree(graph.collect_segments_with_fkb_types(&[3])),
-        }
-    }
-
-    fn for_profile(&self, profile: Profile) -> &RTree<TrailSegment> {
-        match profile {
-            Profile::Foot => &self.sti,
-            Profile::Bicycle => &self.vei,
-            Profile::Ski => &self.skiloype,
-        }
-    }
-}
-
-/// Bonus for routing near an existing trail of the profile's own kind.
-///
-/// The `Arc<Index>` + scalars shape mandated by E4: `rebind` swaps the
-/// two `f64`s and clones one pointer.
-pub struct TrailProximityContributor {
-    index: Arc<TrailProximityIndex>,
     pub influence_radius_m: f64,
     pub bonus_at_zero: f32,
 }
@@ -1456,38 +1297,43 @@ impl PointDistance for TrailSegment {
 }
 
 impl TrailProximityContributor {
-    /// Build the index and bind parameters in one step. Prefer
-    /// [`Self::with_index`] when an index already exists — that is the
-    /// whole point of the split.
     pub fn new(graph: &Graph, influence_radius_m: f64, bonus_at_zero: f32) -> Self {
-        Self::with_index(
-            Arc::new(TrailProximityIndex::build(graph)),
-            influence_radius_m,
-            bonus_at_zero,
-        )
-    }
-
-    /// Bind parameters to an existing shared index. Cheap: one `Arc`
-    /// clone by the caller and two scalar moves.
-    pub fn with_index(
-        index: Arc<TrailProximityIndex>,
-        influence_radius_m: f64,
-        bonus_at_zero: f32,
-    ) -> Self {
+        // sti (foot): polyline-following segments at ~50 m — endpoint
+        // chords misplace twisty mountain paths by hundreds of metres
+        // and attract routes to phantom lines (measured: corpus Fréchet
+        // 67 -> 76 from this change alone). vei/skiloype (bicycle/ski
+        // profiles): endpoint chords as before — engineered, near-
+        // straight networks where the chord error is small, and their
+        // polyline trees would cost ~1 GB of boot RSS for no benefit.
+        let to_tree = |raw: Vec<((f32, f32), (f32, f32))>| -> RTree<TrailSegment> {
+            RTree::bulk_load(
+                raw.into_iter()
+                    .map(|(a, b)| TrailSegment {
+                        a: [a.0, a.1],
+                        b: [b.0, b.1],
+                    })
+                    .collect(),
+            )
+        };
         Self {
-            index,
+            sti: to_tree(graph.collect_polyline_segments_with_fkb_types(&[1], 100.0)),
+            vei: to_tree(graph.collect_segments_with_fkb_types(&[2])),
+            skiloype: to_tree(graph.collect_segments_with_fkb_types(&[3])),
             influence_radius_m,
             bonus_at_zero,
         }
     }
 
-    /// The shared index, for constructing a differently-tuned sibling.
-    pub fn index(&self) -> &Arc<TrailProximityIndex> {
-        &self.index
+    fn rtree_for(&self, profile: Profile) -> &RTree<TrailSegment> {
+        match profile {
+            Profile::Foot => &self.sti,
+            Profile::Bicycle => &self.vei,
+            Profile::Ski => &self.skiloype,
+        }
     }
 
     fn delta_at(&self, x: f64, y: f64, profile: Profile) -> f64 {
-        let rt = self.index.for_profile(profile);
+        let rt = self.rtree_for(profile);
         // Bounded query: only the distance WITHIN the influence radius
         // matters, so a radius-limited scan beats a global nearest-
         // neighbor proof (which must visit far more of the tree).
@@ -1521,27 +1367,6 @@ impl CostContributor for TrailProximityContributor {
     fn kind(&self) -> ContributorKind {
         ContributorKind::Proximity
     }
-    fn rebind(&self, params: &ParamSet) -> Option<Arc<dyn CostContributor>> {
-        if !params.touches(self.name()) {
-            return None;
-        }
-        // `Arc::clone`, not `TrailProximityIndex::build`. This is the
-        // line E4 was run to justify.
-        Some(Arc::new(Self::with_index(
-            Arc::clone(&self.index),
-            params
-                .get(self.name(), "influence_radius_m")
-                .unwrap_or(self.influence_radius_m),
-            params
-                .get_f32(self.name(), "bonus_at_zero")
-                .unwrap_or(self.bonus_at_zero),
-        )))
-    }
-    fn fingerprint(&self) -> u64 {
-        let h = turbo_route_model::fnv_name(self.name());
-        let h = turbo_route_model::fnv_f64(h, self.influence_radius_m);
-        turbo_route_model::fnv_f64(h, self.bonus_at_zero as f64)
-    }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
         match ctx.kind {
             EdgeKind::Mesh => {
@@ -1553,20 +1378,6 @@ impl CostContributor for TrailProximityContributor {
         }
     }
 }
-
-// The scalar-tunable contributors. Each shares its index (an `Arc`)
-// with the rebound copy; see `impl_scalar_rebind`.
-impl_scalar_rebind!(ToblerSlopeContributor, "refuse_above_deg" => refuse_above_deg: f32, "sample_step_m" => sample_step_m: f64);
-impl_scalar_rebind!(ContourCrossingContributor, "k" => k: f64, "sample_step_m" => sample_step_m: f64);
-impl_scalar_rebind!(DemCoveragePenaltyContributor, "delta_s_per_m_missing" => delta_s_per_m_missing: f64, "sample_step_m" => sample_step_m: f64);
-impl_scalar_rebind!(NaismithGainContributor, "sample_step_m" => sample_step_m: f64);
-impl_scalar_rebind!(DirectionalSlopeContributor, "min_relevant_slope_deg" => min_relevant_slope_deg: f32, "max_delta_s_per_m" => max_delta_s_per_m: f64);
-impl_scalar_rebind!(AvalancheTerrainContributor, "slope_min_deg" => slope_min_deg: f32, "slope_max_deg" => slope_max_deg: f32, "treeline_m" => treeline_m: f32, "peak_delta_s_per_m" => peak_delta_s_per_m: f64);
-impl_scalar_rebind!(LandcoverContributor, "delta_s_per_m" => delta_s_per_m: f64);
-impl_scalar_rebind!(MaskRefusalContributor, "water_cost_s_per_m" => water_cost_s_per_m: f64, "water_shore_band_m" => water_shore_band_m: f64);
-impl_scalar_rebind!(OffTrailRoughnessContributor, "factor" => factor: f64);
-impl_scalar_rebind!(GraphSlopeContributor, "quadratic_scale_deg" => quadratic_scale_deg: f32, "refuse_above_deg" => refuse_above_deg: f32);
-impl_scalar_rebind!(TotalGainContributor, "gain_amplifier" => gain_amplifier: f32);
 
 /// Generic vector polygon-integral contributor. The closure returns
 /// the "extra effective metres" the polygon's interior adds across

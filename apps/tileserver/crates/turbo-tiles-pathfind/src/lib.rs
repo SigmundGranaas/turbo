@@ -64,4 +64,4 @@ pub use pathfinder::{
 pub use solver_trace::{PhaseFrame, Recorder, SolverEvent, SolverRecording};
 pub use solvers::{FmmGradeLimited, SolveContext, SolveRequest, Solver, SolverSet, UnifiedAStar};
 pub use tracer::{LayerStats, MeshStats, PhaseTime, TraceSnapshot, Tracer};
-pub use turbo_route_model::{Extent, Heightfield, ModeId, Point, Requirement, SlopeAspect};
+pub use turbo_route_model::{Heightfield, ModeId, Point, Requirement, SlopeAspect};

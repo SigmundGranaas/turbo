@@ -147,7 +147,7 @@ Effort assumes one engineer. "Gate" is what must hold before the next step.
 | A1 | **DONE — differently than planned.** Publishing 208 MB was not needed: `tileserver slice-pack` cuts a **4.6 MB** self-contained pack (2.1% of the original) covering 25 hikes, committed at `tools/ci-pack`. The gate runs in **8.6 s** on any checkout, no data provisioning, and is a CI step. | 3 d |
 | A2 | **DONE.** D5 (preflight), D6 (health errors now fail the build), D7 (config moved to `turbo-profile-no`). | 1 d |
 | A3 | **Half done, half declined.** The build invariant is in `boundary_check.sh`. The `libm` swap is declined — see the D4 outcome above. | 1 d |
-| A4 | **Re-measure pack sizing** across 3–4 contrasting cells (coastal, inland alpine, forested lowland) and replace the withdrawn table. | 2 d |
+| A4 | **NOT DONE.** One real measurement replaced the estimate: 14 x 15 km slices to 4.6 MB, of which the DEM is 4.3 MB. Three more cells would refine a number nothing currently depends on. | 2 d |
 
 **Gate:** CI runs the corpus on every PR. **Met** — `tileserver_build.yml`
 runs `boundary_check.sh` then `routing_gate.sh ci`.
@@ -178,7 +178,7 @@ off-trail (all 11 moved routes improved)** and **14.4 -> 14.4 m unified**
 
 | C1 | `turbo-route-model`: `Heightfield`, `ClassField`, `GeometrySet`, `TraversalNetwork`, `Requirement`, `ModeId`, domain types. **No generics needed** (E2). | 3 d |
 | C2 | `turbo-geodata-artifacts` implements them over today's primitives. Swap the 12 `Dem` holders to `Arc<dyn Heightfield>`. | 3 d |
-| C3 | `CostContributor` gains `rebind(&ParamSet)` and `fingerprint()`; split each contributor into `Arc<Index>` + `Params` (E4 — mandatory). | 3 d |
+| C3 | **BUILT, THEN REMOVED.** `rebind`/`fingerprint`/`ParamSet` and the `Arc<Index>` split shipped and were deleted in review: **nothing called them**. E4 measured the cost of the *alternative* (555 ms–2.8 s to rebuild per request), which justifies the design *if* per-request tuning exists — and it does not. ~250 lines of speculative generality. The measurement stands and is recorded; rebuild the seam when a caller appears. | 3 d |
 | C4 | Move `wgs84_to_utm33n` out of `turbo-tiles-elev` into `turbo-geo-frame` at L5. Engine becomes planar-only. | 1 d |
 
 **Gate:** hashes unchanged, both lanes. Plus `e11_conformance` compiles

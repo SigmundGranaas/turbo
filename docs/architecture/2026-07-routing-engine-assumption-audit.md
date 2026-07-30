@@ -1,5 +1,15 @@
 # Routing Engine — Assumption Audit and Validation Plan
 
+> **Outcome note (added after implementation).** This document records
+> what was *proposed* and what the experiments *measured*; both stand.
+> One proposal did not survive contact: `rebind` / `ParamSet` was built
+> and then removed, because nothing called it. E4's measurement — that
+> rebuilding costs 555 ms–2.8 s per request — is real and correct, and it
+> justifies the design *if* per-request tuning exists. It does not. The
+> seam is cheap to rebuild when a caller appears; carrying ~250 lines of
+> unused API until then was not.
+
+
 **Status:** working document
 **Companion to:** the modularization analysis, the module design (rev. 2),
 and the design rationale.

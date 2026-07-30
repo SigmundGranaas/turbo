@@ -17,11 +17,17 @@ avoided. Coverage of terrain variety is preserved by the cluster
 happening to span all three length buckets (short / mid / long), which
 the script reports so a future re-cut can check the same thing.
 
+    python3 tools/sample_sjunkhatten_corpus.py   # needs the database
     python3 tools/make_ci_corpus.py
     cargo run --release -p turbo-tiles-bin --bin tileserver -- slice-pack \\
         --src ~/.data/artifacts --dst tools/ci-pack \\
         --corpus tools/sjunkhatten-ci-corpus.toml
     ./tools/routing_gate.sh ci --update
+
+The 90-hike source corpus is NOT committed — it is derived data, 9 300
+lines of TOML regenerable in one command from the database that built
+the artifacts. The 25-hike output IS committed, because it is what CI
+runs and CI has no database. Re-cutting therefore needs the DB.
 
 Re-cutting invalidates the CI baseline. That is expected and fine — but
 it must be a deliberate act, not a side effect, so the script never
@@ -44,6 +50,13 @@ STEP_LON, STEP_LAT = 0.02, 0.01
 
 
 def main() -> int:
+    if not SRC.exists():
+        print(
+            f"{SRC.name} is not committed (derived data). Regenerate it first:\n"
+            "    python3 tools/sample_sjunkhatten_corpus.py",
+            file=sys.stderr,
+        )
+        return 1
     hikes = tomllib.loads(SRC.read_text())["hike"]
     lons = [c for h in hikes for c in (h["from"][0], h["to"][0])]
     lats = [c for h in hikes for c in (h["from"][1], h["to"][1])]

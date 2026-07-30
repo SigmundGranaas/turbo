@@ -1,5 +1,13 @@
 # Routing Engine — Experiment Results
 
+> **The harnesses are gone; the results are the point.** Five of the six
+> experiment crates under `tools/experiments/` were deleted once they had
+> answered their question — keeping a scaffold after the building is up.
+> `e1_crossisa` survives because bionic-on-silicon is still unverified.
+> What each deleted harness settled is tabulated in
+> `apps/tileserver/tools/experiments/README.md`, and in full below.
+
+
 Running log for the validation plan in
 `2026-07-routing-engine-assumption-audit.md`. Each entry records what was
 run, the raw result, and what it changes.

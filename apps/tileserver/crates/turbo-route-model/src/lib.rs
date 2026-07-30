@@ -62,43 +62,6 @@ impl Point {
     }
 }
 
-/// A planar axis-aligned bounding box, in the same metric frame as
-/// [`Point`].
-#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
-pub struct Extent {
-    pub min_x: f64,
-    pub min_y: f64,
-    pub max_x: f64,
-    pub max_y: f64,
-}
-
-impl Extent {
-    #[inline]
-    pub const fn new(min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> Self {
-        Self {
-            min_x,
-            min_y,
-            max_x,
-            max_y,
-        }
-    }
-
-    #[inline]
-    pub fn contains(&self, p: Point) -> bool {
-        p.x >= self.min_x && p.x <= self.max_x && p.y >= self.min_y && p.y <= self.max_y
-    }
-
-    #[inline]
-    pub fn width_m(&self) -> f64 {
-        self.max_x - self.min_x
-    }
-
-    #[inline]
-    pub fn height_m(&self) -> f64 {
-        self.max_y - self.min_y
-    }
-}
-
 /// Local terrain orientation: slope from horizontal, aspect clockwise
 /// from north.
 ///
@@ -148,17 +111,6 @@ pub trait Heightfield: Send + Sync {
 
     /// Local slope and aspect, or `None` where undefined.
     fn slope_aspect_at(&self, p: Point) -> Option<SlopeAspect>;
-
-    /// The field's bounding extent.
-    fn extent(&self) -> Extent;
-
-    /// Intrinsic sample spacing in metres.
-    ///
-    /// Corridor sizing uses this to avoid asking finer questions than
-    /// the data can answer: a 10 m field cannot honestly resolve a 2 m
-    /// grid, and pretending otherwise costs work without adding
-    /// information.
-    fn resolution_m(&self) -> f32;
 }
 
 /// Whether a cost contributor is load-bearing for routing feasibility.
@@ -187,124 +139,6 @@ pub enum Requirement {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ModeId(pub u8);
 
-/// Resolved scalar tuning, keyed by contributor name then parameter.
-///
-/// This is the mechanism that makes per-request tuning affordable, and
-/// the reason it exists is measured rather than assumed. Experiment E4
-/// timed rebuilding the cost model: **555 ms on a 1 M-edge graph, 2.8 s
-/// at 5 M** — two to eleven times an entire 250 ms solve, because the
-/// trail-proximity R-trees are rebuilt from scratch. Rebinding the same
-/// stack against new scalars costs **0.098 µs per contributor**: an
-/// `Arc` clone and a few scalar writes. The ratio at national scale is
-/// roughly 5.6 million to one, so "just rebuild it per request" is not
-/// a viable alternative and the split is mandatory.
-///
-/// Hence the shape of every contributor: an `Arc<Index>` holding the
-/// expensive spatial structure, plus plain scalars that
-/// [`rebind`](ParamSet) replaces.
-///
-/// # What this is not
-///
-/// It is **not** a config file, a preset name, or a patch to merge. The
-/// engine receives resolved numbers. Parsing TOML, resolving preset
-/// inheritance and applying overrides all happen at the composition
-/// layer, which hands down a finished `ParamSet`. If this type ever
-/// grows a `from_toml`, the boundary has leaked.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct ParamSet {
-    entries: std::collections::BTreeMap<String, std::collections::BTreeMap<String, f64>>,
-}
-
-impl ParamSet {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set `contributor.key = value`, replacing any previous binding.
-    pub fn set(&mut self, contributor: &str, key: &str, value: f64) -> &mut Self {
-        self.entries
-            .entry(contributor.to_string())
-            .or_default()
-            .insert(key.to_string(), value);
-        self
-    }
-
-    /// The bound value, or `None` — meaning "keep whatever the
-    /// contributor was constructed with". Absence is never zero.
-    pub fn get(&self, contributor: &str, key: &str) -> Option<f64> {
-        self.entries.get(contributor)?.get(key).copied()
-    }
-
-    /// `get` as an `f32`, for the many parameters stored that way.
-    pub fn get_f32(&self, contributor: &str, key: &str) -> Option<f32> {
-        self.get(contributor, key).map(|v| v as f32)
-    }
-
-    /// Are there any bindings for this contributor? A contributor with
-    /// none can skip rebinding entirely and hand back a shared `Arc`.
-    pub fn touches(&self, contributor: &str) -> bool {
-        self.entries.get(contributor).is_some_and(|m| !m.is_empty())
-    }
-
-    /// The contributor names this set binds anything for, in stable
-    /// order. Used to detect keys no contributor claimed.
-    pub fn contributors(&self) -> impl Iterator<Item = &str> {
-        self.entries
-            .iter()
-            .filter(|(_, m)| !m.is_empty())
-            .map(|(c, _)| c.as_str())
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.values().all(|m| m.is_empty())
-    }
-
-    /// Stable content hash. `BTreeMap` iteration order is what makes it
-    /// stable — a `HashMap` here would produce a different fingerprint
-    /// per process for identical tuning, silently defeating any cache
-    /// keyed on it.
-    ///
-    /// FNV-1a, hand-rolled rather than pulled in, because this crate's
-    /// zero-dependency rule is load-bearing (see the module docs) and
-    /// `DefaultHasher` is explicitly not stable across releases.
-    pub fn fingerprint(&self) -> u64 {
-        let mut h = FNV_OFFSET;
-        for (c, params) in &self.entries {
-            h = fnv_bytes(h, c.as_bytes());
-            for (k, v) in params {
-                h = fnv_bytes(h, k.as_bytes());
-                h = fnv_bytes(h, &v.to_bits().to_le_bytes());
-            }
-        }
-        h
-    }
-}
-
-const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
-
-/// FNV-1a over a byte run, seeded with `h` so hashes chain.
-pub fn fnv_bytes(mut h: u64, bytes: &[u8]) -> u64 {
-    for &b in bytes {
-        h ^= b as u64;
-        h = h.wrapping_mul(FNV_PRIME);
-    }
-    h
-}
-
-/// Fold an `f64` into a running FNV-1a hash. Used by contributor
-/// `fingerprint` implementations so their scalar parameters take part.
-#[inline]
-pub fn fnv_f64(h: u64, v: f64) -> u64 {
-    fnv_bytes(h, &v.to_bits().to_le_bytes())
-}
-
-/// Seed a fingerprint from a contributor's stable name.
-#[inline]
-pub fn fnv_name(name: &str) -> u64 {
-    fnv_bytes(FNV_OFFSET, name.as_bytes())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -332,17 +166,6 @@ mod tests {
         fn slope_aspect_at(&self, _p: Point) -> Option<SlopeAspect> {
             Some(SlopeAspect::default())
         }
-        fn extent(&self) -> Extent {
-            Extent::new(
-                0.0,
-                0.0,
-                self.w as f64 * self.cell_m as f64,
-                self.h as f64 * self.cell_m as f64,
-            )
-        }
-        fn resolution_m(&self) -> f32 {
-            self.cell_m
-        }
     }
 
     impl ChunkHeights {
@@ -369,8 +192,6 @@ mod tests {
         assert!(f.covers(Point::new(79.0, 79.0)));
         assert!(!f.covers(Point::new(81.0, 5.0)));
         assert_eq!(f.height_at(Point::new(81.0, 5.0)), None);
-        assert_eq!(f.resolution_m(), 10.0);
-        assert_eq!(f.extent(), Extent::new(0.0, 0.0, 80.0, 80.0));
     }
 
     /// `covers` is authority, `height_at` is value: a hole *inside* the
@@ -387,12 +208,6 @@ mod tests {
             }
             fn slope_aspect_at(&self, _p: Point) -> Option<SlopeAspect> {
                 None
-            }
-            fn extent(&self) -> Extent {
-                Extent::new(0.0, 0.0, 10.0, 10.0)
-            }
-            fn resolution_m(&self) -> f32 {
-                1.0
             }
         }
         let hole = Point::new(5.0, 0.0);

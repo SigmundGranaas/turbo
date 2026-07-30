@@ -14,8 +14,9 @@
 #
 #   ci    (default)  25 hikes against tools/ci-pack — 4.6 MB, committed,
 #                    so this runs anywhere the repo is checked out.
-#   full             90 hikes against the full 209 MB Sjunkhatten
-#                    artifacts, which have to be provisioned by hand.
+#   full             90 hikes across the whole Sjunkhatten region. Needs
+#                    the 209 MB artifacts AND a regenerated corpus (see
+#                    below) — neither is committed, both are derived.
 #
 # Each profile keeps its own baseline. Since D8 was fixed the sliced
 # pack reports exactly the same terrain as its source, and the CI pack
@@ -58,6 +59,10 @@ case "$PROFILE" in
     BASELINE="tools/sjunkhatten-ci-baseline.json"
     ;;
   full)
+    # The 90-hike corpus is DERIVED DATA and is not committed — 9 300
+    # lines of TOML polylines regenerable from the database in one
+    # command. Anyone who has the 209 MB artifacts this profile needs
+    # also has the database that built them.
     ART="${TILESERVER_ARTIFACT_DIR:-/home/user/turbo/.data/artifacts}"
     CORPUS="tools/sjunkhatten-corpus.toml"
     BASELINE="tools/sjunkhatten-baseline.json"
@@ -73,7 +78,21 @@ OUT="${TMPDIR:-/tmp}/routing-gate-$PROFILE"
   [[ "$PROFILE" == full ]] && echo "  (the full profile needs the 209 MB Sjunkhatten set; try: $0 ci)"
   exit 2
 }
-[[ -f "$CORPUS" ]] || { echo "no corpus at $CORPUS"; exit 2; }
+[[ -f "$CORPUS" ]] || {
+  echo "no corpus at $CORPUS"
+  [[ "$PROFILE" == full ]] && cat <<'HINT'
+  The 90-hike corpus is derived data and is not committed. Regenerate it
+  against the database that built your artifacts:
+
+      python3 tools/sample_sjunkhatten_corpus.py
+      ./tools/routing_gate.sh full --update    # mint its baseline
+
+  Use it for calibration work, where 90 hikes across 86 x 101 km say
+  more than 25 in one 14 km window. For structural work the `ci`
+  profile is enough, and it needs nothing.
+HINT
+  exit 2
+}
 
 echo "profile: $PROFILE   artifacts: $ART   corpus: $CORPUS"
 rm -rf "$OUT"; mkdir -p "$OUT"

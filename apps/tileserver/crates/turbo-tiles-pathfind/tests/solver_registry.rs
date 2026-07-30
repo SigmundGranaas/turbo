@@ -157,12 +157,6 @@ impl turbo_tiles_pathfind::Heightfield for FlatPlane {
         self.covers(p)
             .then_some(turbo_tiles_pathfind::SlopeAspect::default())
     }
-    fn extent(&self) -> turbo_tiles_pathfind::Extent {
-        turbo_tiles_pathfind::Extent::new(-10_000.0, -10_000.0, 10_000.0, 10_000.0)
-    }
-    fn resolution_m(&self) -> f32 {
-        10.0
-    }
 }
 
 /// The engine actually dispatches through the set — not through a
