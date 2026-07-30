@@ -881,6 +881,50 @@ Three consequences:
 
 ---
 
+## E3 + E5 re-confirmed on the unified lane
+
+The outstanding caveat on both nulls was that they were measured only in the
+default off-trail FMM lane. Re-run with **both** probes applied
+simultaneously (legacy `SlopeLayer` multiplier ×37 + 11, **and** the native
+contributor stack reversed):
+
+| lane | corpus hash | DEM lookups | vs baseline |
+|---|---|---|---|
+| unified | `0575d4fd66c591a4` | 249 976 | **identical** |
+| off-trail | `4558525db8df425c` | 1 921 389 | **identical** |
+
+Both probes applied together move nothing, on either lane. An exact mutual
+cancellation of a 37× cost perturbation against a stack reordering is not
+credible, so this confirms each independently.
+
+**E3 and E5 now hold on the lane production traffic actually uses.** The
+caveat recorded against them is discharged.
+
+---
+
+## Summary — all twelve experiments
+
+| | Question | Verdict |
+|---|---|---|
+| **E0** | Do transcendentals agree across ISAs? | Only `f32::atan` differs, ≤1 ULP |
+| **E1** | Does the whole solver agree across ISAs? | **Bit-identical, both lanes** |
+| **E2** | What does the elevation port cost? | **Below measurement resolution** |
+| **E3** | Is the legacy cost channel dead? | **Yes** — but legacy is not inspect-only |
+| **E4** | Is per-request rebuild viable? | **No** — 555 ms–2.8 s national |
+| **E5** | Does contributor order matter? | **No**, both lanes |
+| **E6** | What does `point_covered` claim? | Advisory layers grant coverage — **defect** |
+| **E7** | Do the Tobler copies agree? | **Two different physical models**, 41.9% apart |
+| **E7b** | Is the solver's slope term redundant? | **No — structural.** Removing it explodes the search |
+| **E7c** | Is the contributor's slope term redundant? | **Additive, removable**, −12–24% DEM work |
+| **E9** | Would config-as-string absorb change? | 3/31 commits, all additive |
+| **E11** | Does the port API hold up? | Compiles and runs from memory |
+
+Phase-0 caveat that applies throughout: **wall-clock numbers from single
+runs are ±20%** on this host. Geometry hashes and DEM lookup counts are
+exactly stable and carry every conclusion above.
+
+---
+
 ## Environment notes
 
 - `rustc 1.94.1`, x86_64-unknown-linux-gnu, single target installed.
