@@ -150,10 +150,10 @@ enum Command {
     /// set, so the routing gate can run in CI instead of only where
     /// someone has provisioned 209 MB of data by hand.
     ///
-    /// The result has its OWN baseline: a sliced pack does not
-    /// reproduce the full pack's geometry hashes (defect D8 — DEM tile
-    /// overlap makes `sample` position-dependent on which tiles are
-    /// present). See `slice_pack` for why that is still a useful gate.
+    /// The result keeps its OWN baseline. DEM parity is now exact (D8
+    /// fixed), but slicing still drops trail edges at the boundary, so
+    /// parity is a property of a generous halo rather than a guarantee
+    /// of the format. See `slice_pack`.
     SlicePack {
         /// Source artifacts directory (norway.*).
         #[arg(long, env = "TILESERVER_ARTIFACT_DIR")]

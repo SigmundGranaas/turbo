@@ -425,6 +425,7 @@ pub async fn build(pool: &DbPool, out_dir: &Path) -> Result<GraphBuildReport, Bu
     for e in &health.errors {
         tracing::error!(code = %e.code, "{}", e.message);
     }
+    crate::health::gate(&health)?;
     let written_at = chrono::Utc::now().timestamp();
     // Persist the health report alongside the artifact so
     // `verify-artifacts` and CI checks can diff against a baseline

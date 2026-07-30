@@ -127,6 +127,31 @@ pub async fn load_geotiff(
     // rejects every subsequent tile that covers a different region.
     // Constraints can be re-applied at the end of the bulk load via
     // SELECT AddRasterConstraints('paths', 'dem', 'rast').
+    // Preflight the external binaries (D5). Without this, a machine
+    // without PostGIS's client tools installed fails as
+    // `raster2pgsql|psql exited with exit status: 127` — a shell errno
+    // buried in a job error, several layers from the actual problem,
+    // which is "install the postgis package". Cost is two `which`
+    // calls per bulk load; the alternative cost was measured in
+    // afternoons.
+    for bin in ["raster2pgsql", "psql"] {
+        let found = Command::new("which")
+            .arg(bin)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !found {
+            return Err(JobError::Fetch(format!(
+                "`{bin}` not found on PATH. DTM raster loading shells out to \
+                 PostGIS's client tools; install them (Debian/Ubuntu: \
+                 `apt-get install postgis postgresql-client`) and retry."
+            )));
+        }
+    }
+
     let cmd = format!(
         "set -o pipefail; raster2pgsql -s 25833 -t 256x256 -I -a {file:?} paths.dem | psql -v ON_ERROR_STOP=1 -q -d {db:?}",
         file = file_str,

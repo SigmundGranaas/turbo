@@ -304,6 +304,7 @@ pub async fn build(pool: &DbPool, out_dir: &Path) -> Result<DemBuildReport, Buil
     for e in &health.errors {
         tracing::error!(code = %e.code, "{}", e.message);
     }
+    crate::health::gate(&health)?;
     let health_path = out_dir.join("norway.dem.health.json");
     let body = serde_json::to_vec_pretty(&serde_json::json!({
         "written_at_unix_sec": chrono::Utc::now().timestamp(),

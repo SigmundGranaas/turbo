@@ -47,6 +47,16 @@ use std::path::Path;
 
 use turbo_tiles_artifacts::{read_header, write_header, ArtifactKind, Header, HEADER_BYTES};
 
+/// A TOML number as `f64`.
+///
+/// `as_float()` alone returns `None` for an integer-valued coordinate —
+/// a corpus vertex written `67` rather than `67.0` — which surfaced as
+/// the useless error "lat". Coordinates are numbers; how they were
+/// spelled is not the reader's problem.
+fn num(v: &toml::Value) -> Option<f64> {
+    v.as_float().or_else(|| v.as_integer().map(|i| i as f64))
+}
+
 /// A planar bounding box, the unit this whole tool works in.
 #[derive(Debug, Clone, Copy)]
 pub struct Bbox {
@@ -149,7 +159,10 @@ fn corpus_bbox(path: &Path) -> Result<Bbox, Box<dyn std::error::Error>> {
             .ok_or("hike without a polyline")?;
         for c in poly {
             let c = c.as_array().ok_or("polyline vertex is not a pair")?;
-            let (lon, lat) = (c[0].as_float().ok_or("lon")?, c[1].as_float().ok_or("lat")?);
+            let (lon, lat) = (
+                num(&c[0]).ok_or("polyline vertex has a non-numeric lon")?,
+                num(&c[1]).ok_or("polyline vertex has a non-numeric lat")?,
+            );
             let p = turbo_geo_frame::wgs84_to_utm33n(lon, lat);
             min_x = min_x.min(p.x);
             min_y = min_y.min(p.y);
@@ -498,8 +511,8 @@ fn verify(src: &Path, dst: &Path, corpus: &Path) -> Result<(), Box<dyn std::erro
         for c in h.get("polyline").and_then(|p| p.as_array()).unwrap() {
             let c = c.as_array().unwrap();
             pts.push(turbo_geo_frame::wgs84_to_utm33n(
-                c[0].as_float().unwrap(),
-                c[1].as_float().unwrap(),
+                num(&c[0]).unwrap(),
+                num(&c[1]).unwrap(),
             ));
         }
     }
@@ -546,14 +559,15 @@ fn verify(src: &Path, dst: &Path, corpus: &Path) -> Result<(), Box<dyn std::erro
         .into());
     }
     if dem_diff > 0 {
-        // Defect D8: overlapping DEM tiles make `sample` depend on which
-        // tiles are present, so dropping one of an overlapping pair can
-        // legitimately change a value. Reported, never silent — but not
-        // fatal, because it is the known reason a sliced pack needs its
-        // own baseline.
+        // Since D8 was fixed this should be unreachable: `find_tile`
+        // applies a canonical rule, so a slice reports the same terrain
+        // as its source. Kept as a loud diagnostic rather than deleted —
+        // if it ever fires, the tie-break has regressed and the pack is
+        // not trustworthy.
         println!(
-            "  note: {dem_diff} DEM values differ. This is defect D8 (overlapping \
-             tiles), and it is why the sliced pack carries its own baseline."
+            "  WARNING: {dem_diff} DEM values differ. D8 was fixed; this should \
+             not happen. Check `Dem::find_tile`'s tie-break before trusting \
+             this pack."
         );
     }
     Ok(())

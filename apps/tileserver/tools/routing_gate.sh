@@ -17,11 +17,13 @@
 #   full             90 hikes against the full 209 MB Sjunkhatten
 #                    artifacts, which have to be provisioned by hand.
 #
-# The two baselines are NOT comparable, and nothing here invites you to
-# compare them. `ci-pack` is a slice: edges crossing its boundary are
-# dropped (changing trail-proximity bonuses) and defect D8 means
-# dropping a DEM tile can change `sample` where tiles overlap. Each
-# profile is a self-consistent regression gate against its own history.
+# Each profile keeps its own baseline. Since D8 was fixed the sliced
+# pack reports exactly the same terrain as its source, and the CI pack
+# currently reproduces the full artifacts' hashes on both lanes — but
+# that is a property of a generous halo (slicing still drops trail edges
+# at the boundary), not a guarantee. Treat each profile as a
+# self-consistent gate against its own history and do not assume the
+# numbers stay equal.
 #
 # Run `full` before landing anything that moves geometry on purpose
 # (Phase E calibration); `ci` is enough for structural work, which is

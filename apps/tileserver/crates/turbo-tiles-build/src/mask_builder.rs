@@ -293,6 +293,7 @@ pub async fn build_from_polygons(
         polygon_count, present_cells, file_size_bytes, "polygon-mask built"
     );
     let health = audit_and_persist(&out_path);
+    crate::health::gate(&health)?;
     Ok(MaskBuildReport {
         out_path,
         cells_x,
@@ -427,6 +428,7 @@ pub async fn build_landcover(
         polygon_count, present_cells, file_size_bytes, "landcover mask built"
     );
     let health = audit_and_persist(&out_path);
+    crate::health::gate(&health)?;
     Ok(MaskBuildReport {
         out_path,
         cells_x,
@@ -579,6 +581,7 @@ pub async fn build(pool: &DbPool, out_dir: &Path) -> Result<MaskBuildReport, Bui
     let file_size_bytes = std::fs::metadata(&out_path)?.len();
 
     let health = audit_and_persist(&out_path);
+    crate::health::gate(&health)?;
     Ok(MaskBuildReport {
         out_path,
         cells_x,

@@ -38,6 +38,12 @@ pub enum BuildError {
     Artifact(#[from] turbo_tiles_artifacts::ArtifactError),
     #[error("build: {0}")]
     Logic(String),
+    /// The artifact was written but its health report carries errors, so
+    /// it is not fit to ship (D6). Distinct from `Logic` because the
+    /// file exists and is well-formed — what failed is fitness, not
+    /// construction, and the caller may legitimately want to inspect it.
+    #[error("artifact health check failed: {codes}. The artifact was written but is not fit to ship. Fix the ingest pipeline, or set TURBO_ALLOW_UNHEALTHY_ARTIFACTS=1 to override deliberately.")]
+    Unhealthy { codes: String },
 }
 
 pub struct Builder {

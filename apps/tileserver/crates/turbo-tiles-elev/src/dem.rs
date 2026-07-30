@@ -349,14 +349,53 @@ impl Dem {
         self.cache.stats()
     }
 
+    /// The tile that answers for this point.
+    ///
+    /// # D8: this used to be `.next()`
+    ///
+    /// Tiles can overlap — the Sjunkhatten artifact has 76 overlapping
+    /// pairs — and taking the first hit from an r-tree iterator meant
+    /// the answering tile depended on traversal order. `sample` was
+    /// therefore **not a pure function of position**: slicing an
+    /// artifact could change elevations, and the national artifact was
+    /// build-order dependent. That is what blocked region packs, and it
+    /// is why a sliced CI pack still needs its own baseline.
+    ///
+    /// The rule is now **nearest tile centre**, with lowest index as the
+    /// final tie-break. Two properties matter:
+    ///
+    ///   - It depends only on the point and the *set* of tiles, not on
+    ///     the order they were inserted or visited. Rebuild the
+    ///     artifact, reorder the directory, slice it — as long as a
+    ///     tile is present, the same tile answers.
+    ///   - It is the geometrically better choice anyway. The point is
+    ///     most interior to the tile whose centre is closest, so the
+    ///     bilinear stencil is least likely to fall off an edge and
+    ///     take the per-coordinate fallback.
+    ///
+    /// Cost is one comparison per candidate. In the overwhelmingly
+    /// common case of a single hit that is a single comparison against
+    /// `None`, against a `sample` that E2 measured at 135 ns dominated
+    /// by this very lookup.
     fn find_tile(&self, x: f64, y: f64) -> Option<&IndexedTile> {
-        // rstar locate_in_envelope_intersecting: with point envelope,
-        // returns tiles whose bbox covers the point. Most often
-        // exactly one; we take the first (last-write-wins on overlap).
         let aabb = AABB::from_corners([x - 0.001, y - 0.001], [x + 0.001, y + 0.001]);
-        self.tile_index
-            .locate_in_envelope_intersecting(&aabb)
-            .next()
+        let mut best: Option<(&IndexedTile, f64)> = None;
+        for t in self.tile_index.locate_in_envelope_intersecting(&aabb) {
+            let half = t.tile_size_m * 0.5;
+            let (cx, cy) = (t.ulx + half, t.uly - half);
+            let d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+            let better = match best {
+                None => true,
+                // Strict `<` then an index tie-break, so exactly
+                // equidistant tiles still resolve deterministically
+                // rather than by whichever arrived first.
+                Some((bt, bd)) => d2 < bd || (d2 == bd && t.idx < bt.idx),
+            };
+            if better {
+                best = Some((t, d2));
+            }
+        }
+        best.map(|(t, _)| t)
     }
 
     fn cell_value_at(&self, x: f64, y: f64) -> Result<Option<f32>, DemError> {
