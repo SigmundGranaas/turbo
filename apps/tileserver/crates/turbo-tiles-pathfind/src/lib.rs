@@ -44,7 +44,7 @@ pub use config::{
 };
 pub use contributor::{
     compose_edge_walk_seconds, ContributorKind, CostContributor, EdgeContext, EdgeElevProbe,
-    EdgeKind, EdgeWalkCost, NamedContribution, BASE_PACE_S_PER_M,
+    EdgeKind, EdgeWalkCost, NamedContribution, Requirement, BASE_PACE_S_PER_M,
 };
 pub use core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
 pub use cost::{CellCost, CostLayer};

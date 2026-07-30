@@ -1,4 +1,12 @@
-//! E6 — what does `Pathfinder::point_covered` actually claim?
+//! Coverage semantics: `Pathfinder::point_covered` (D1, was E6).
+//!
+//! **These tests were inverted in B2.** They originally *documented the
+//! defect*: coverage was `layers.iter().any(|l| l.covers(x, y))`, so an
+//! advisory landcover mask extending past the DEM granted routing coverage
+//! at points with no elevation data. They now assert the fix — coverage is
+//! the **intersection of `Requirement::Required` contributors**.
+//!
+//! Original finding, kept for context:
 //!
 //! From the assumption audit (finding A3). `point_covered` is
 //!
@@ -150,12 +158,12 @@ fn dem_alone_reports_coverage_only_inside_the_dem() {
     );
 }
 
-/// The finding. An **advisory** landcover layer answers `covers` over its own
-/// extent, and `point_covered`'s `.any()` promotes that to "we have terrain
-/// data here" — even though no DEM reaches the point and every slope-driven
-/// contributor will silently contribute nothing.
+/// The fix (B2). An **advisory** landcover layer no longer widens coverage:
+/// `point_covered` is the intersection of `Required` contributors, so a point
+/// outside the DEM is honestly uncovered however many advisory layers can
+/// answer questions there.
 #[test]
-fn advisory_landcover_layer_grants_coverage_with_no_elevation_data() {
+fn advisory_landcover_layer_does_not_grant_coverage_without_elevation() {
     let f = fixture();
     let (x, y) = f.outside_dem_inside_mask;
 
@@ -165,13 +173,22 @@ fn advisory_landcover_layer_grants_coverage_with_no_elevation_data() {
         "precondition: the point is outside the DEM"
     );
 
-    // Register the landcover mask exactly as `routing_setup.rs` does.
+    // Register the landcover mask exactly as `routing_setup.rs` does — the
+    // NATIVE contributor, since that is what coverage now consults. Pushing
+    // only the legacy layer would make this test pass vacuously.
     let mut pf = Pathfinder::with_defaults(Some(f.dem.clone()), None, None);
-    pf.push_layer(Arc::new(turbo_tiles_pathfind::LandcoverLayer {
-        mask: f.forest.clone(),
-        layer_name: "forest",
-        multiplier: 1.4,
-    }));
+    pf.push_with_native(
+        Arc::new(turbo_tiles_pathfind::LandcoverLayer {
+            mask: f.forest.clone(),
+            layer_name: "forest",
+            multiplier: 1.4,
+        }),
+        Arc::new(turbo_tiles_pathfind::LandcoverContributor::new(
+            f.forest.clone(),
+            "forest",
+            0.29,
+        )),
+    );
 
     // Ground truth: there is genuinely no elevation here.
     assert!(
@@ -184,33 +201,50 @@ fn advisory_landcover_layer_grants_coverage_with_no_elevation_data() {
     );
 
     assert!(
-        pf.point_covered(x, y),
-        "E6: an advisory landcover layer alone makes point_covered() true, \
-         with zero elevation data at the point. Coverage is `any(covers)`, \
-         but the layers do not agree on what `covers` means."
+        !pf.point_covered(x, y),
+        "D1/B2: an advisory landcover layer must NOT grant routing coverage \
+         at a point with no elevation data. Coverage is the intersection of \
+         Required contributors, not the union of everything that answers."
     );
 }
 
-/// Documents the shape the audit proposes: coverage should be the
-/// intersection of layers that are *required* to route, not the union of
-/// everything that can answer a question. `TrailProximityLayer` already
-/// hand-rolls this by narrowing its own `covers`; nothing generalises it.
+/// Required/Advisory is now a first-class property of the contributor
+/// trait, so the distinction the audit asked for is expressible and
+/// enforced rather than hand-rolled per layer.
 #[test]
-fn required_vs_advisory_is_not_expressible_today() {
+fn required_vs_advisory_is_expressible() {
     let f = fixture();
     let mut pf = Pathfinder::with_defaults(Some(f.dem.clone()), None, None);
-    pf.push_layer(Arc::new(turbo_tiles_pathfind::LandcoverLayer {
-        mask: f.forest.clone(),
-        layer_name: "forest",
-        multiplier: 1.4,
-    }));
-
-    // There is no API to ask "which layers are load-bearing for routing?" —
-    // `layer_names()` is the whole introspection surface, and it is flat.
-    let names = pf.layer_names();
-    assert!(names.contains(&"forest"), "layer list is flat: {names:?}");
-    assert!(
-        names.contains(&"slope"),
-        "no way to distinguish required `slope` from advisory `forest`: {names:?}"
+    pf.push_with_native(
+        Arc::new(turbo_tiles_pathfind::LandcoverLayer {
+            mask: f.forest.clone(),
+            layer_name: "forest",
+            multiplier: 1.4,
+        }),
+        Arc::new(turbo_tiles_pathfind::LandcoverContributor::new(
+            f.forest.clone(),
+            "forest",
+            0.29,
+        )),
     );
+
+    use turbo_tiles_pathfind::Requirement;
+    let req: Vec<(&str, Requirement)> = pf
+        .contributors_for_breakdown()
+        .iter()
+        .map(|c| (c.name(), c.requirement()))
+        .collect();
+
+    // Slope is load-bearing; landcover is advice.
+    assert!(
+        req.iter().any(|(n, r)| *n == "slope" && *r == Requirement::Required),
+        "slope must be Required: {req:?}"
+    );
+    assert!(
+        req.iter()
+            .all(|(n, r)| *n != "forest" || *r == Requirement::Advisory),
+        "landcover must be Advisory: {req:?}"
+    );
+    // And coverage inside the DEM still works.
+    assert!(pf.point_covered(f.inside_dem.0, f.inside_dem.1));
 }

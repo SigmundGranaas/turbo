@@ -204,12 +204,50 @@ pub enum ContributorKind {
 /// Positive contributions make the edge harder (slope, brush,
 /// wetland); negative contributions make it preferred (DNT
 /// marking, cairns, viewpoints).
+/// Whether a contributor's data is *load-bearing* for routing.
+///
+/// The distinction exists because `Pathfinder::point_covered` used to be
+/// `layers.iter().any(|l| l.covers(x, y))` — the **union** of anything that
+/// could answer a question. E6 showed that lets an advisory landcover mask
+/// grant routing coverage at points with no elevation data at all, which
+/// defeats the pre-check whose whole job is to stop the solver returning
+/// "a uniform-cost mesh and a straight line — semantically a lie".
+///
+/// `TrailProximityLayer` already hand-rolled this rule, narrowing its own
+/// `covers` with a comment explaining that returning `true` would
+/// short-circuit exactly that pre-check. This generalises it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Requirement {
+    /// Routing is not meaningful without this contributor's data at a
+    /// point. Coverage is the **intersection** of these.
+    Required,
+    /// Absence means "no contribution here", not "no data". Never widens
+    /// coverage.
+    Advisory,
+}
+
 pub trait CostContributor: Send + Sync {
     /// Stable lower-case identifier. Same convention as
     /// `CostLayer::name`.
     fn name(&self) -> &'static str;
 
     fn kind(&self) -> ContributorKind;
+
+    /// Is this contributor's data load-bearing? Default `Advisory`, so a
+    /// new contributor can never accidentally widen routing coverage.
+    ///
+    /// Contributors sharing one data source (all the DEM-backed slope
+    /// family, say) have identical extents, so marking each of them
+    /// `Required` is correct and idempotent rather than redundant.
+    fn requirement(&self) -> Requirement {
+        Requirement::Advisory
+    }
+
+    /// Does this contributor have authoritative data at this point?
+    /// Only consulted for `Required` contributors.
+    fn covers(&self, _x: f64, _y: f64) -> bool {
+        true
+    }
 
     /// Walk-seconds added (positive) or subtracted (negative) by
     /// this contributor for the given edge.

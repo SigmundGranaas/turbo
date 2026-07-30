@@ -37,7 +37,7 @@ use turbo_tiles_graph::{Graph, Profile};
 use turbo_tiles_mask::{Mask, RefusalKind};
 use turbo_tiles_vector::{AttrView, GeomKind, VectorCollection};
 
-use crate::contributor::{
+use crate::contributor::{Requirement, 
     ContributorKind, CostContributor, EdgeContext, EdgeKind, BASE_PACE_S_PER_M,
 };
 
@@ -210,6 +210,16 @@ impl CostContributor for ToblerSlopeContributor {
     }
     fn kind(&self) -> ContributorKind {
         ContributorKind::Slope
+    }
+    /// Slope is load-bearing: without elevation the solver cannot price
+    /// terrain, so a point with no DEM is not routable (E6 / D1).
+    fn requirement(&self) -> Requirement {
+        Requirement::Required
+    }
+    fn covers(&self, x: f64, y: f64) -> bool {
+        // `Dem::sample` is Ok iff inside the DEM extent; nodata sub-cells
+        // still count as covered. OutOfCoverage is the "no idea" signal.
+        self.dem.sample(PointXY { x, y }).is_ok()
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
         let Some(zs) = self.sample_elevations(ctx) else {
@@ -463,6 +473,14 @@ impl CostContributor for MaskRefusalContributor {
     fn kind(&self) -> ContributorKind {
         ContributorKind::Hazard
     }
+    /// Water/glacier refusal is authoritative: routing without it would
+    /// send people across lakes.
+    fn requirement(&self) -> Requirement {
+        Requirement::Required
+    }
+    fn covers(&self, x: f64, y: f64) -> bool {
+        self.mask.refused(x, y).is_ok()
+    }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
         if self.defer_water_to_vector {
             return 0.0;
@@ -544,6 +562,16 @@ impl CostContributor for ContourCrossingContributor {
     }
     fn kind(&self) -> ContributorKind {
         ContributorKind::Slope
+    }
+    /// Slope is load-bearing: without elevation the solver cannot price
+    /// terrain, so a point with no DEM is not routable (E6 / D1).
+    fn requirement(&self) -> Requirement {
+        Requirement::Required
+    }
+    fn covers(&self, x: f64, y: f64) -> bool {
+        // `Dem::sample` is Ok iff inside the DEM extent; nodata sub-cells
+        // still count as covered. OutOfCoverage is the "no idea" signal.
+        self.dem.sample(PointXY { x, y }).is_ok()
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
         if !matches!(ctx.kind, EdgeKind::Mesh) {
@@ -634,6 +662,16 @@ impl CostContributor for DemCoveragePenaltyContributor {
     }
     fn kind(&self) -> ContributorKind {
         ContributorKind::Hazard
+    }
+    /// Slope is load-bearing: without elevation the solver cannot price
+    /// terrain, so a point with no DEM is not routable (E6 / D1).
+    fn requirement(&self) -> Requirement {
+        Requirement::Required
+    }
+    fn covers(&self, x: f64, y: f64) -> bool {
+        // `Dem::sample` is Ok iff inside the DEM extent; nodata sub-cells
+        // still count as covered. OutOfCoverage is the "no idea" signal.
+        self.dem.sample(PointXY { x, y }).is_ok()
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
         if !matches!(ctx.kind, EdgeKind::Mesh) {
@@ -752,6 +790,16 @@ impl CostContributor for NaismithGainContributor {
     }
     fn kind(&self) -> ContributorKind {
         ContributorKind::Slope
+    }
+    /// Slope is load-bearing: without elevation the solver cannot price
+    /// terrain, so a point with no DEM is not routable (E6 / D1).
+    fn requirement(&self) -> Requirement {
+        Requirement::Required
+    }
+    fn covers(&self, x: f64, y: f64) -> bool {
+        // `Dem::sample` is Ok iff inside the DEM extent; nodata sub-cells
+        // still count as covered. OutOfCoverage is the "no idea" signal.
+        self.dem.sample(PointXY { x, y }).is_ok()
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
         if !matches!(ctx.kind, EdgeKind::Mesh) {
@@ -895,6 +943,16 @@ impl CostContributor for AvalancheTerrainContributor {
     }
     fn kind(&self) -> ContributorKind {
         ContributorKind::Hazard
+    }
+    /// Slope is load-bearing: without elevation the solver cannot price
+    /// terrain, so a point with no DEM is not routable (E6 / D1).
+    fn requirement(&self) -> Requirement {
+        Requirement::Required
+    }
+    fn covers(&self, x: f64, y: f64) -> bool {
+        // `Dem::sample` is Ok iff inside the DEM extent; nodata sub-cells
+        // still count as covered. OutOfCoverage is the "no idea" signal.
+        self.dem.sample(PointXY { x, y }).is_ok()
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
         let mid_x = 0.5 * (ctx.fx + ctx.tx);

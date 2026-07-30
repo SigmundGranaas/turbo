@@ -33,7 +33,9 @@ use turbo_tiles_graph::{Graph, Profile};
 use turbo_tiles_mask::Mask;
 
 use crate::core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
-use crate::contributor::{EdgeContext, EdgeElevProbe, EdgeKind, BASE_PACE_S_PER_M};
+use crate::contributor::{
+    EdgeContext, EdgeElevProbe, EdgeKind, Requirement, BASE_PACE_S_PER_M,
+};
 use crate::cost::CostLayer;
 use crate::layers::{
     AvalancheTerrainLayer, DirectionalSlopeLayer, GraphSlopeLayer, MarkingLayer, MaskRefusalLayer,
@@ -850,7 +852,20 @@ impl Pathfinder {
     /// data at this EPSG:25833 point. Used by the no-coverage
     /// pre-check in `solve()`.
     pub fn point_covered(&self, x: f64, y: f64) -> bool {
-        self.layers.iter().any(|l| l.covers(x, y))
+        // INTERSECTION of Required contributors, not the union of anything
+        // that can answer (D1 / E6). No Required contributor at all means
+        // no terrain data, hence no coverage -- the honest answer when a
+        // Pathfinder is built with neither DEM nor mask.
+        let mut saw_required = false;
+        for c in &self.native_contributors {
+            if c.requirement() == Requirement::Required {
+                saw_required = true;
+                if !c.covers(x, y) {
+                    return false;
+                }
+            }
+        }
+        saw_required
     }
 
     fn has_graph_anchor(&self, x: f64, y: f64, radius_m: f32) -> bool {
@@ -908,6 +923,38 @@ impl Pathfinder {
         p
     }
 
+    /// Ready for B2b, unused until the refusal port lands.
+    ///
+    /// First contributor to veto a degenerate point-sized mesh edge at
+    /// (x, y), if any. The shared basis for both refusal checks; uses the
+    /// same synthetic east-west cell edge the solver's `CostField` builds,
+    /// so a point is refused here exactly when the solver would refuse the
+    /// cell containing it.
+    #[allow(dead_code)]
+    fn contributor_veto_at(&self, x: f64, y: f64, profile: Profile) -> Option<&'static str> {
+        let cell_m = default_mesh_cell_m();
+        let probe = self
+            .dem
+            .as_ref()
+            .map(|d| EdgeElevProbe::new(d, x - 0.5 * cell_m, y, x + 0.5 * cell_m, y));
+        let ctx = EdgeContext {
+            fx: x - 0.5 * cell_m,
+            fy: y,
+            tx: x + 0.5 * cell_m,
+            ty: y,
+            length_m: cell_m,
+            profile,
+            kind: EdgeKind::Mesh,
+            elev_probe: probe.as_ref(),
+        };
+        self.native_contributors.iter().find_map(|c| c.veto(&ctx))
+    }
+
+    /// Still on the legacy point query. Porting this to `contributor_veto_at`
+    /// is B2b: measured on the 90-hike corpus it moves 11-12 routes, because
+    /// a point query (`dem.slope_aspect(x, y)`) and an edge veto (elevations
+    /// sampled along a 25 m cell edge) are not the same question. That is a
+    /// behavioural change and gets its own review, separate from D1.
     fn point_is_refused(&self, x: f64, y: f64, prefs: &Prefs) -> bool {
         for layer in &self.layers {
             if layer.cell_cost(x, y, prefs.profile).refused.is_some() {
@@ -928,11 +975,10 @@ impl Pathfinder {
         to_xy: PointXY,
         prefs: &Prefs,
     ) -> Option<(&'static str, String)> {
-        let layers = self.layers.as_slice();
+        // Legacy point query; see `point_is_refused` — ported in B2b.
         let check = |x: f64, y: f64| -> Option<String> {
-            for layer in layers {
-                let c = layer.cell_cost(x, y, prefs.profile);
-                if c.refused.is_some() {
+            for layer in &self.layers {
+                if layer.cell_cost(x, y, prefs.profile).refused.is_some() {
                     return Some(layer.name().to_string());
                 }
             }
