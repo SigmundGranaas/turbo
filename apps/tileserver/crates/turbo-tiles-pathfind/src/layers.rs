@@ -705,7 +705,6 @@ impl CostLayer for TrailProximityLayer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cost::compose_edge;
 
     fn mk_edge(source: u8, marking: u8) -> EdgeRecord {
         EdgeRecord {
@@ -826,15 +825,9 @@ mod tests {
         assert!((m - 0.2).abs() < 1e-2, "got {m}");
     }
 
-    #[test]
-    fn layered_compose_combines_marking_and_source() {
-        // Combined: red_t (0.85) × dnt (0.5) = 0.425
-        let layers: Vec<Arc<dyn CostLayer>> = vec![
-            Arc::new(MarkingLayer::default()),
-            Arc::new(PreferredEdgeLayer::default()),
-        ];
-        let edge = mk_edge(3, 1);
-        let total = compose_edge(&layers, &|_| 1.0, &edge, Profile::Foot);
-        assert!((total - 0.425).abs() < 0.01, "got {total}");
-    }
+    // `layered_compose_combines_marking_and_source` was deleted in B1
+    // along with `compose_edge`. It asserted the multiplicative product of
+    // two legacy layers -- the exact composition E3 proved the solver never
+    // evaluates. The layers' individual `edge_multiplier` behaviour is
+    // still covered by the tests above.
 }

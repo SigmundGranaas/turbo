@@ -323,101 +323,35 @@ pub fn compose_edge_walk_seconds(
     }
 }
 
-/// Adapter: present any [`crate::cost::CostLayer`] (the legacy
-/// multiplicative trait) as a [`CostContributor`] by converting
-/// its multiplier output into walk-seconds-equivalent against
-/// the edge length.
-///
-/// The conversion: a legacy multiplier `M` on a length `L`
-/// represents a cost of `baked × M` in opaque units. In walk-
-/// seconds the equivalent contribution is `(M - 1) × L × BASE_PACE
-/// _S_PER_M` — the "extra time" the multiplier represents over
-/// the flat-trail baseline. `M = 1.0` → zero contribution. `M =
-/// 1.5` → +50% of base traversal time. `M = INFINITY` → veto.
-///
-/// This is an APPROXIMATION (the legacy multipliers don't really
-/// represent walk-time deltas — they're gut-feel scales). It's
-/// good enough to keep existing layers running while the cost
-/// model migrates contributor-by-contributor.
-pub struct LegacyLayerAdapter {
-    inner: Arc<dyn crate::cost::CostLayer>,
-}
-
-impl LegacyLayerAdapter {
-    pub fn new(inner: Arc<dyn crate::cost::CostLayer>) -> Self {
-        Self { inner }
-    }
-}
-
-impl CostContributor for LegacyLayerAdapter {
-    fn name(&self) -> &'static str {
-        self.inner.name()
-    }
-    fn kind(&self) -> ContributorKind {
-        ContributorKind::Legacy
-    }
-    fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
-        let mult = match &ctx.kind {
-            EdgeKind::Graph(er) => self.inner.edge_multiplier(er, ctx.profile),
-            EdgeKind::Mesh => {
-                self.inner
-                    .edge_cost_modifier(ctx.fx, ctx.fy, ctx.tx, ctx.ty, ctx.profile)
-            }
-        };
-        if !mult.is_finite() {
-            // The composer reads `veto()` first; if we get here it
-            // means the legacy layer is INFINITY for this edge but
-            // didn't surface it via veto. Return INFINITY so the
-            // composer's contract violation branch flags this in
-            // the breakdown.
-            return f64::INFINITY;
-        }
-        ((mult as f64) - 1.0) * ctx.length_m * BASE_PACE_S_PER_M
-    }
-    fn veto(&self, ctx: &EdgeContext<'_>) -> Option<&'static str> {
-        let mult = match &ctx.kind {
-            EdgeKind::Graph(er) => self.inner.edge_multiplier(er, ctx.profile),
-            EdgeKind::Mesh => {
-                self.inner
-                    .edge_cost_modifier(ctx.fx, ctx.fy, ctx.tx, ctx.ty, ctx.profile)
-            }
-        };
-        if !mult.is_finite() {
-            // Use the layer's name as the veto label; the legacy
-            // trait doesn't carry a refusal reason string.
-            Some(static_name_or_default(self.inner.name()))
-        } else {
-            None
-        }
-    }
-}
-
-/// Trait-object `name()` returns `&'static str` already, but the
-/// adapter wants a stable identifier even if the inner trait's
-/// implementation got dynamic. Keep this trivial today; revisit
-/// when refusal labels grow richer.
-fn static_name_or_default(name: &'static str) -> &'static str {
-    name
-}
+// `LegacyLayerAdapter` was deleted in B1 along with the multiplicative
+// cost channel it bridged. Every production layer has a native
+// contributor (`DISPLACED_LEGACY_LAYERS`), so the adapter's only caller
+// -- the breakdown fallback for `Pathfinder::new` consumers with no
+// natives registered -- was unreachable in practice.
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cost::{CellCost, CostLayer};
 
-    struct LegacyFlat(f32);
-    impl CostLayer for LegacyFlat {
+    /// A contributor that adds a fixed number of walk-seconds per metre,
+    /// or vetoes. Replaces the `LegacyLayerAdapter` that these tests used
+    /// as a double before B1 deleted it.
+    struct Flat {
+        s_per_m: f64,
+        veto: bool,
+    }
+    impl CostContributor for Flat {
         fn name(&self) -> &'static str {
             "flat_test"
         }
-        fn cell_cost(&self, _x: f64, _y: f64, _p: Profile) -> CellCost {
-            CellCost::multiplier(1.0)
+        fn kind(&self) -> ContributorKind {
+            ContributorKind::Legacy
         }
-        fn edge_cost_modifier(&self, _fx: f64, _fy: f64, _tx: f64, _ty: f64, _p: Profile) -> f32 {
-            self.0
+        fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
+            self.s_per_m * ctx.length_m
         }
-        fn edge_multiplier(&self, _e: &EdgeRecord, _p: Profile) -> f32 {
-            self.0
+        fn veto(&self, _ctx: &EdgeContext<'_>) -> Option<&'static str> {
+            self.veto.then_some("flat_test")
         }
     }
 
@@ -442,37 +376,14 @@ mod tests {
     }
 
     #[test]
-    fn legacy_adapter_multiplier_one_is_zero_contribution() {
-        let adapter = LegacyLayerAdapter::new(Arc::new(LegacyFlat(1.0)));
-        let c = ctx(100.0);
-        assert!((adapter.contribute(&c)).abs() < 1e-6);
-    }
-
-    #[test]
-    fn legacy_adapter_multiplier_two_doubles_base() {
-        // Multiplier 2.0 on 100 m → (2-1) × 100 × 0.714 ≈ +71.4 s
-        // (an extra trail's worth of time on top of base).
-        let adapter = LegacyLayerAdapter::new(Arc::new(LegacyFlat(2.0)));
-        let c = ctx(100.0);
-        assert!((adapter.contribute(&c) - 71.428).abs() < 0.01);
-    }
-
-    #[test]
-    fn legacy_adapter_infinity_is_veto() {
-        let adapter = LegacyLayerAdapter::new(Arc::new(LegacyFlat(f32::INFINITY)));
-        let c = ctx(100.0);
-        assert_eq!(adapter.veto(&c), Some("flat_test"));
-    }
-
-    #[test]
     fn compose_sums_contributions() {
         let layers: Vec<Arc<dyn CostContributor>> = vec![
-            Arc::new(LegacyLayerAdapter::new(Arc::new(LegacyFlat(2.0)))),
-            Arc::new(LegacyLayerAdapter::new(Arc::new(LegacyFlat(1.5)))),
+            Arc::new(Flat { s_per_m: BASE_PACE_S_PER_M, veto: false }),
+            Arc::new(Flat { s_per_m: 0.5 * BASE_PACE_S_PER_M, veto: false }),
         ];
         let c = ctx(100.0);
         let cost = compose_edge_walk_seconds(&layers, &c);
-        // base = 71.4; first +71.4; second +35.7 → total 178.5.
+        // base = 71.4; first +71.4; second +35.7 -> total 178.5.
         assert!((cost.base_walk_seconds - 71.428).abs() < 0.01);
         assert!((cost.total_walk_seconds - 178.571).abs() < 0.01);
         assert_eq!(cost.contributions.len(), 2);
@@ -482,9 +393,9 @@ mod tests {
     #[test]
     fn compose_veto_short_circuits() {
         let layers: Vec<Arc<dyn CostContributor>> = vec![
-            Arc::new(LegacyLayerAdapter::new(Arc::new(LegacyFlat(2.0)))),
-            Arc::new(LegacyLayerAdapter::new(Arc::new(LegacyFlat(f32::INFINITY)))),
-            Arc::new(LegacyLayerAdapter::new(Arc::new(LegacyFlat(1.5)))),
+            Arc::new(Flat { s_per_m: BASE_PACE_S_PER_M, veto: false }),
+            Arc::new(Flat { s_per_m: 0.0, veto: true }),
+            Arc::new(Flat { s_per_m: 0.5 * BASE_PACE_S_PER_M, veto: false }),
         ];
         let c = ctx(100.0);
         let cost = compose_edge_walk_seconds(&layers, &c);

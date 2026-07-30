@@ -33,7 +33,8 @@ use turbo_tiles_graph::{Graph, Profile};
 use turbo_tiles_mask::Mask;
 
 use crate::core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
-use crate::cost::{compose_cell, CostLayer};
+use crate::contributor::{EdgeContext, EdgeElevProbe, EdgeKind, BASE_PACE_S_PER_M};
+use crate::cost::CostLayer;
 use crate::layers::{
     AvalancheTerrainLayer, DirectionalSlopeLayer, GraphSlopeLayer, MarkingLayer, MaskRefusalLayer,
     PreferredEdgeLayer, SlopeLayer, TotalGainLayer, TrailProximityLayer,
@@ -1001,16 +1002,7 @@ impl Pathfinder {
     /// [`crate::contributor::LegacyLayerAdapter`] as a last resort
     /// so the breakdown still has data to show.
     pub fn contributors_for_breakdown(&self) -> Vec<Arc<dyn crate::contributor::CostContributor>> {
-        if !self.native_contributors.is_empty() {
-            return self.native_contributors.clone();
-        }
-        self.layers
-            .iter()
-            .map(|l| {
-                Arc::new(crate::contributor::LegacyLayerAdapter::new(l.clone()))
-                    as Arc<dyn crate::contributor::CostContributor>
-            })
-            .collect()
+        self.native_contributors.clone()
     }
 
     /// Per-point debug: for one (lon, lat), ask every layer what it
@@ -1785,6 +1777,61 @@ impl Pathfinder {
     /// `refused`; everyone else lands in `samples`. The mesh
     /// builder picks nearest-sample-per-cell, so emitting one
     /// sample per cell at the cell centre is the cleanest path.
+    /// Per-cell cost as the SOLVER sees it, for the inspect surface.
+    ///
+    /// This mirrors `cost_field::LazyCostField::ensure` exactly: the same
+    /// east-west synthetic cell edge, the same shared `EdgeElevProbe`, the
+    /// same veto-then-compose order, the same `(base + Σ contribute) /
+    /// base × Π pace_factor` multiplier, the same clamp.
+    ///
+    /// Before B1 this surface was computed from the legacy multiplicative
+    /// `compose_cell`, which E3 proved the solver never reads — so the
+    /// debug view was visualising a cost model that had no effect on
+    /// routing. It now shows the model that actually decides.
+    fn inspect_cell(&self, x: f64, y: f64, cell_m: f64, profile: Profile) -> InspectedCell {
+        let probe = self
+            .dem
+            .as_ref()
+            .map(|d| EdgeElevProbe::new(d, x - 0.5 * cell_m, y, x + 0.5 * cell_m, y));
+        let ctx = EdgeContext {
+            fx: x - 0.5 * cell_m,
+            fy: y,
+            tx: x + 0.5 * cell_m,
+            ty: y,
+            length_m: cell_m,
+            profile,
+            kind: EdgeKind::Mesh,
+            elev_probe: probe.as_ref(),
+        };
+        for c in &self.native_contributors {
+            if let Some(label) = c.veto(&ctx) {
+                return InspectedCell {
+                    refused: Some(label.to_string()),
+                    multiplier: 1.0,
+                };
+            }
+        }
+        let base = BASE_PACE_S_PER_M;
+        let mut extra_s = 0.0f64;
+        let mut factor = 1.0f64;
+        for c in &self.native_contributors {
+            let dv = c.contribute(&ctx);
+            if dv.is_finite() {
+                extra_s += dv;
+            }
+            let f = c.pace_factor(&ctx);
+            if f.is_finite() && f > 0.0 {
+                factor *= f;
+            }
+        }
+        let extra_pace = extra_s / cell_m;
+        let mul = ((base + extra_pace) / base) * factor;
+        InspectedCell {
+            refused: None,
+            multiplier: mul.clamp(0.1, 20.0),
+        }
+    }
+
     fn mesh_inputs_for_bbox(
         &self,
         bbox: MeshBbox,
@@ -1792,7 +1839,12 @@ impl Pathfinder {
         profile: Profile,
         weights: &HashMap<String, f32>,
     ) -> (Vec<CostSample>, Vec<RefusedPolygon>, Vec<String>) {
-        let weight_fn = |name: &str| -> f32 { weights.get(name).copied().unwrap_or(1.0) };
+        // `weights` is retained on `Prefs` for API compatibility but no
+        // longer participates: the legacy multiplicative composer it fed
+        // has been deleted (B1). Per-layer weighting has no equivalent in
+        // the additive contributor model — a contributor contributes
+        // walk-seconds, not a scalable deviation from 1.0.
+        let _ = weights;
         let (nx, ny) = bbox.grid_dims(cell_m);
         let mut samples = Vec::with_capacity((nx * ny) as usize);
         let mut refused = Vec::new();
@@ -1808,9 +1860,9 @@ impl Pathfinder {
             for c in 0..nx {
                 let x = bbox.min_x + (c as f64 + 0.5) * cx_w;
                 let y = bbox.min_y + (r as f64 + 0.5) * cy_w;
-                let composed = compose_cell(&self.layers, &weight_fn, x, y, profile);
+                let composed = self.inspect_cell(x, y, cell_m, profile);
                 if let Some(reason) = composed.refused {
-                    refused_layers.insert(reason.to_string());
+                    refused_layers.insert(reason.clone());
                     refused.push(RefusedPolygon {
                         ring: vec![
                             Point2 {
@@ -1838,7 +1890,7 @@ impl Pathfinder {
                 } else {
                     samples.push(CostSample {
                         at: Point2 { x, y },
-                        cost_mul: composed.multiplier as f64,
+                        cost_mul: composed.multiplier,
                     });
                 }
             }
@@ -1847,6 +1899,13 @@ impl Pathfinder {
         refused_by.sort();
         (samples, refused, refused_by)
     }
+}
+
+/// Composed per-cell cost for the inspect surface, from the contributor
+/// stack (B1 — replaces the legacy multiplicative `CellCost`).
+struct InspectedCell {
+    refused: Option<String>,
+    multiplier: f64,
 }
 
 /// Per-layer contribution at a single (lon, lat) point.

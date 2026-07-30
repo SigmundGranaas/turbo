@@ -43,7 +43,6 @@
 //!   final edge cost   = baked_cost(edge) × total_edge_mult
 //!   forbidden if      = any factor is infinite or NaN
 
-use std::sync::Arc;
 
 use turbo_tiles_graph::{EdgeRecord, Profile};
 
@@ -138,114 +137,14 @@ pub trait CostLayer: Send + Sync {
 /// Helper: compose a stack of layers into a single per-cell answer.
 /// Respects per-layer weights when supplied — `weight = 0.0` is
 /// "disabled", `1.0` is "as-is", values in between scale the
-/// layer's *deviation from 1.0* (so a 2× cost at 0.5 weight becomes
-/// 1.5×). Refusal is binary; weight doesn't apply.
-pub fn compose_cell(
-    layers: &[Arc<dyn CostLayer>],
-    weights: &dyn Fn(&str) -> f32,
-    x: f64,
-    y: f64,
-    profile: Profile,
-) -> CellCost {
-    let mut mult = 1.0f32;
-    for layer in layers {
-        let w = weights(layer.name());
-        if w <= 0.0 {
-            continue;
-        }
-        let c = crate::tracer::layer_call(
-            layer.name(),
-            || layer.cell_cost(x, y, profile),
-            |c| ((c.multiplier as f64 - 1.0).max(0.0), c.refused.is_some()),
-        );
-        if c.refused.is_some() {
-            return c;
-        }
-        // Apply weight to the deviation from neutral (1.0). At w=1
-        // we get the layer's multiplier as-is; at w=0 we'd get 1.0
-        // (but the early continue above already handled that).
-        let scaled = 1.0 + (c.multiplier - 1.0) * w;
-        mult *= scaled;
-    }
-    CellCost::multiplier(mult)
-}
+// `compose_cell` / `compose_edge` (the legacy multiplicative composers)
+// were deleted in B1. E3 proved the multiplier channel never reached the
+// solver: perturbing a legacy layer's multiplier by 37x moved neither the
+// corpus geometry hash nor the DEM lookup count, while a 1% change to a
+// native contributor moved both. Their only live consumer was the inspect
+// endpoint, now served by `Pathfinder::inspect_cell` off the contributor
+// stack.
 
-/// Compose direction-aware edge modifiers across the layer stack
-/// for an off-trail mesh edge. Layers without a directional opinion
-/// return 1.0 by default. Weights apply the same way as for
-/// `compose_cell` (scaling deviation from 1.0).
-pub fn compose_mesh_edge(
-    layers: &[Arc<dyn CostLayer>],
-    weights: &dyn Fn(&str) -> f32,
-    fx: f64,
-    fy: f64,
-    tx: f64,
-    ty: f64,
-    profile: Profile,
-) -> f32 {
-    // Edge length used to convert per-layer multiplier into
-    // "extra effective metres" for the trace — same unit the
-    // graph router speaks in, so the trace numbers are
-    // comparable across the layer stack.
-    let edge_len = ((tx - fx).powi(2) + (ty - fy).powi(2)).sqrt();
-    let mut total = 1.0f32;
-    for layer in layers {
-        let w = weights(layer.name());
-        if w <= 0.0 {
-            continue;
-        }
-        let m = crate::tracer::layer_call(
-            layer.name(),
-            || layer.edge_cost_modifier(fx, fy, tx, ty, profile),
-            |&m| {
-                if !m.is_finite() {
-                    (0.0, true)
-                } else {
-                    (((m as f64 - 1.0).max(0.0)) * edge_len, false)
-                }
-            },
-        );
-        if !m.is_finite() {
-            return f32::INFINITY;
-        }
-        let scaled = 1.0 + (m - 1.0) * w;
-        total *= scaled;
-    }
-    total
-}
-
-pub fn compose_edge(
-    layers: &[Arc<dyn CostLayer>],
-    weights: &dyn Fn(&str) -> f32,
-    edge: &EdgeRecord,
-    profile: Profile,
-) -> f32 {
-    let len = edge.length_m as f64;
-    let mut total = 1.0f32;
-    for layer in layers {
-        let w = weights(layer.name());
-        if w <= 0.0 {
-            continue;
-        }
-        let m = crate::tracer::layer_call(
-            layer.name(),
-            || layer.edge_multiplier(edge, profile),
-            |&m| {
-                if !m.is_finite() {
-                    (0.0, true)
-                } else {
-                    (((m as f64 - 1.0).max(0.0)) * len, false)
-                }
-            },
-        );
-        if !m.is_finite() {
-            return f32::INFINITY;
-        }
-        let scaled = 1.0 + (m - 1.0) * w;
-        total *= scaled;
-    }
-    total
-}
 
 #[cfg(test)]
 mod tests {
@@ -275,39 +174,7 @@ mod tests {
         1.0
     }
 
-    #[test]
-    fn compose_multiplies() {
-        let layers: Vec<Arc<dyn CostLayer>> =
-            vec![Arc::new(Fixed("a", 2.0)), Arc::new(Fixed("b", 1.5))];
-        let c = compose_cell(&layers, &unit_weight, 0.0, 0.0, Profile::Foot);
-        // 2.0 × 1.5 = 3.0
-        assert!((c.multiplier - 3.0).abs() < 1e-3);
-        assert!(c.refused.is_none());
-    }
 
-    #[test]
-    fn refusal_wins_over_multiplier() {
-        let layers: Vec<Arc<dyn CostLayer>> =
-            vec![Arc::new(Fixed("a", 5.0)), Arc::new(Refuser("water"))];
-        let c = compose_cell(&layers, &unit_weight, 0.0, 0.0, Profile::Foot);
-        assert_eq!(c.refused, Some("test"));
-    }
 
-    #[test]
-    fn weight_scales_deviation() {
-        // Layer says 2.0× cost. At weight 0.5, effective should be 1.5×
-        // (halfway between neutral and the full effect).
-        let layers: Vec<Arc<dyn CostLayer>> = vec![Arc::new(Fixed("a", 2.0))];
-        let half = |_n: &str| 0.5f32;
-        let c = compose_cell(&layers, &half, 0.0, 0.0, Profile::Foot);
-        assert!((c.multiplier - 1.5).abs() < 1e-3);
-    }
 
-    #[test]
-    fn weight_zero_disables_layer() {
-        let layers: Vec<Arc<dyn CostLayer>> = vec![Arc::new(Fixed("a", 10.0))];
-        let zero = |_n: &str| 0.0f32;
-        let c = compose_cell(&layers, &zero, 0.0, 0.0, Profile::Foot);
-        assert!((c.multiplier - 1.0).abs() < 1e-6);
-    }
 }

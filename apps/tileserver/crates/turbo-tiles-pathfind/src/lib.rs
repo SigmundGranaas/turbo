@@ -44,10 +44,10 @@ pub use config::{
 };
 pub use contributor::{
     compose_edge_walk_seconds, ContributorKind, CostContributor, EdgeContext, EdgeElevProbe,
-    EdgeKind, EdgeWalkCost, LegacyLayerAdapter, NamedContribution, BASE_PACE_S_PER_M,
+    EdgeKind, EdgeWalkCost, NamedContribution, BASE_PACE_S_PER_M,
 };
 pub use core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
-pub use cost::{compose_cell, compose_edge, CellCost, CostLayer};
+pub use cost::{CellCost, CostLayer};
 pub use layers::{
     AvalancheTerrainLayer, DirectionalSlopeLayer, GraphSlopeLayer, LandcoverLayer, MarkingLayer,
     MaskRefusalLayer, PreferredEdgeLayer, SlopeLayer, TotalGainLayer, TrailProximityLayer,
