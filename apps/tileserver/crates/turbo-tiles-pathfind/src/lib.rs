@@ -47,8 +47,6 @@ pub use contributor::{
 // The engine's ports and vocabulary live in `turbo-route-model` (L1),
 // which has zero dependencies — see that crate's docs for why. Re-exported
 // here so callers of the engine need not name two crates to use one API.
-pub use solvers::{FmmGradeLimited, SolveContext, SolveRequest, Solver, SolverSet, UnifiedAStar};
-pub use turbo_route_model::{Extent, Heightfield, ModeId, Point, Requirement, SlopeAspect};
 pub use core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
 pub use native_contributors::{
     has_native_replacement, AvalancheTerrainContributor, ContourCrossingContributor,
@@ -60,8 +58,10 @@ pub use native_contributors::{
     DISPLACED_LEGACY_LAYERS,
 };
 pub use pathfinder::{
-    CostMode, Inspect, InspectCell, InspectLayer, InspectPoint, LegKind, Path,
-    PathLeg, PathStrategy, PathfindError, Pathfinder, Prefs, WaypointLeg,
+    CostMode, Inspect, InspectCell, InspectLayer, InspectPoint, LegKind, Path, PathLeg,
+    PathStrategy, PathfindError, Pathfinder, Prefs, WaypointLeg,
 };
 pub use solver_trace::{PhaseFrame, Recorder, SolverEvent, SolverRecording};
+pub use solvers::{FmmGradeLimited, SolveContext, SolveRequest, Solver, SolverSet, UnifiedAStar};
 pub use tracer::{LayerStats, MeshStats, PhaseTime, TraceSnapshot, Tracer};
+pub use turbo_route_model::{Extent, Heightfield, ModeId, Point, Requirement, SlopeAspect};

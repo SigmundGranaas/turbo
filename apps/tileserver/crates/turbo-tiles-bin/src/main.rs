@@ -6,6 +6,7 @@ use tracing_subscriber::EnvFilter;
 
 mod eval_terrain;
 mod routing_setup;
+mod slice_pack;
 
 // Heap profiler (opt-in via `--features dhat-heap`). The global
 // allocator shim records every allocation; the `Profiler` guard created
@@ -145,6 +146,31 @@ enum Command {
         #[arg(long)]
         override_json: Option<String>,
     },
+    /// Cut a small, self-contained routing pack out of a large artifact
+    /// set, so the routing gate can run in CI instead of only where
+    /// someone has provisioned 209 MB of data by hand.
+    ///
+    /// The result has its OWN baseline: a sliced pack does not
+    /// reproduce the full pack's geometry hashes (defect D8 — DEM tile
+    /// overlap makes `sample` position-dependent on which tiles are
+    /// present). See `slice_pack` for why that is still a useful gate.
+    SlicePack {
+        /// Source artifacts directory (norway.*).
+        #[arg(long, env = "TILESERVER_ARTIFACT_DIR")]
+        src: std::path::PathBuf,
+        /// Destination directory for the sliced pack.
+        #[arg(long)]
+        dst: std::path::PathBuf,
+        /// Corpus whose hikes the pack must cover.
+        #[arg(long)]
+        corpus: std::path::PathBuf,
+        /// Terrain kept beyond the corpus bbox. E10 measured 500 m as
+        /// sufficient; 1000 m is the default because the cost of the
+        /// extra ring is small and the cost of finding out it was too
+        /// tight is a mysteriously-moving baseline.
+        #[arg(long, default_value_t = 1000.0)]
+        halo_m: f64,
+    },
 }
 
 /// One entry in the shared ingestion catalog (`infra/k8s/base/ingest/catalog.toml`),
@@ -240,6 +266,13 @@ async fn main() -> Result<()> {
             mode,
             override_json,
         ),
+        Command::SlicePack {
+            src,
+            dst,
+            corpus,
+            halo_m,
+        } => slice_pack::run(&src, &dst, &corpus, halo_m)
+            .map_err(|e| anyhow::anyhow!("slice-pack failed: {e}")),
     }
 }
 

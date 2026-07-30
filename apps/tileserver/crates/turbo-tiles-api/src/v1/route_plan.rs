@@ -19,15 +19,15 @@ use axum::response::IntoResponse;
 use axum::Json;
 use futures::stream::StreamExt;
 use serde::{Deserialize, Serialize};
-use turbo_tiles_elev::{PointXY};
-use turbo_tiles_graph::Profile;
 use turbo_geo_frame::utm33n_to_wgs84;
+use turbo_tiles_elev::PointXY;
+use turbo_tiles_graph::Profile;
 use turbo_tiles_pathfind::{Path, Prefs, Recorder, SolverEvent};
 
 use super::pathfind::{apply_preset, map_pathfind_err};
 use crate::error::ApiError;
-use crate::v1::frame;
 use crate::state::ApiState;
+use crate::v1::frame;
 
 /// `POST /v1/route/plan` request.
 #[derive(Debug, Deserialize)]
@@ -318,10 +318,7 @@ fn ascent_along(state: &ApiState, geom: &[turbo_tiles_pathfind::Point]) -> f64 {
     let mut gain = 0.0_f64;
     for c in geom {
         // Already planar — the engine's own frame (C4), no projection.
-        let z = dem
-            .sample(PointXY { x: c.x, y: c.y })
-            .ok()
-            .flatten();
+        let z = dem.sample(PointXY { x: c.x, y: c.y }).ok().flatten();
         if let (Some(a), Some(b)) = (prev, z) {
             if b > a {
                 gain += (b - a) as f64;

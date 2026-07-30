@@ -249,7 +249,11 @@ impl Scene {
         Self::build(local_nodes, edge_pairs, Some(alpha_deg))
     }
 
-    fn build(local_nodes: &[(f64, f64)], edge_pairs: &[(u32, u32)], slope_deg: Option<f64>) -> Self {
+    fn build(
+        local_nodes: &[(f64, f64)],
+        edge_pairs: &[(u32, u32)],
+        slope_deg: Option<f64>,
+    ) -> Self {
         let anchor = turbo_geo_frame::wgs84_to_utm33n(10.7522, 59.9139);
         let (ox, oy) = (anchor.x, anchor.y);
         let nodes: Vec<NodePos> = local_nodes
@@ -270,7 +274,11 @@ impl Scene {
             Some(a) => ramp_dem_around(ox, oy, a),
             None => flat_dem_around(ox, oy),
         };
-        let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
+        let pf = Pathfinder::with_defaults(
+            Some(turbo_geodata_artifacts::heightfield(dem.clone())),
+            None,
+            Some(Arc::new(g)),
+        );
         Self {
             ox,
             oy,
@@ -625,8 +633,11 @@ fn sloped_default_prefs_detours_onto_alternative_trail() {
         .pf
         .solve(scene.ll(0.0, 0.0), scene.ll(0.0, 1000.0), Prefs::default())
         .unwrap();
-    let direct_overlap =
-        overlap_fraction(&scene.local_geom(&direct), &[(0.0, 0.0), (0.0, 1000.0)], 30.0);
+    let direct_overlap = overlap_fraction(
+        &scene.local_geom(&direct),
+        &[(0.0, 0.0), (0.0, 1000.0)],
+        30.0,
+    );
     assert!(
         direct_overlap > 0.8,
         "sanity: un-avoided route hugs the direct corridor (overlap {direct_overlap:.2})"

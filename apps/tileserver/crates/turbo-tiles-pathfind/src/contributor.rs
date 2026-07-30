@@ -101,7 +101,13 @@ pub struct EdgeElevProbe<'a> {
 }
 
 impl<'a> EdgeElevProbe<'a> {
-    pub fn new(dem: &'a dyn turbo_route_model::Heightfield, fx: f64, fy: f64, tx: f64, ty: f64) -> Self {
+    pub fn new(
+        dem: &'a dyn turbo_route_model::Heightfield,
+        fx: f64,
+        fy: f64,
+        tx: f64,
+        ty: f64,
+    ) -> Self {
         Self {
             dem,
             fx,
@@ -433,8 +439,14 @@ mod tests {
     #[test]
     fn compose_sums_contributions() {
         let layers: Vec<Arc<dyn CostContributor>> = vec![
-            Arc::new(Flat { s_per_m: BASE_PACE_S_PER_M, veto: false }),
-            Arc::new(Flat { s_per_m: 0.5 * BASE_PACE_S_PER_M, veto: false }),
+            Arc::new(Flat {
+                s_per_m: BASE_PACE_S_PER_M,
+                veto: false,
+            }),
+            Arc::new(Flat {
+                s_per_m: 0.5 * BASE_PACE_S_PER_M,
+                veto: false,
+            }),
         ];
         let c = ctx(100.0);
         let cost = compose_edge_walk_seconds(&layers, &c);
@@ -448,9 +460,18 @@ mod tests {
     #[test]
     fn compose_veto_short_circuits() {
         let layers: Vec<Arc<dyn CostContributor>> = vec![
-            Arc::new(Flat { s_per_m: BASE_PACE_S_PER_M, veto: false }),
-            Arc::new(Flat { s_per_m: 0.0, veto: true }),
-            Arc::new(Flat { s_per_m: 0.5 * BASE_PACE_S_PER_M, veto: false }),
+            Arc::new(Flat {
+                s_per_m: BASE_PACE_S_PER_M,
+                veto: false,
+            }),
+            Arc::new(Flat {
+                s_per_m: 0.0,
+                veto: true,
+            }),
+            Arc::new(Flat {
+                s_per_m: 0.5 * BASE_PACE_S_PER_M,
+                veto: false,
+            }),
         ];
         let c = ctx(100.0);
         let cost = compose_edge_walk_seconds(&layers, &c);

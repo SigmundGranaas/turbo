@@ -46,15 +46,20 @@ fn selection_follows_the_preference_not_a_hardcoded_branch() {
         to: q,
         prefs: &prefs,
     };
-    assert_eq!(set.select(&ctx, &req).map(|s| s.name()), Some("unified_astar"));
+    assert_eq!(
+        set.select(&ctx, &req).map(|s| s.name()),
+        Some("unified_astar")
+    );
 
     // `force_off_trail` with no terrain → NOTHING accepts. This is the
     // case the trait's `accepts` exists for: the FMM solver declines up
     // front instead of failing halfway through, and the engine reports
     // "no solver" rather than a straight line across ground nobody
     // measured.
-    let mut prefs = Prefs::default();
-    prefs.force_off_trail = true;
+    let prefs = Prefs {
+        force_off_trail: true,
+        ..Default::default()
+    };
     let req = SolveRequest {
         from: p,
         to: q,
@@ -78,7 +83,11 @@ impl Solver for AlwaysStraightLine {
     fn accepts(&self, _ctx: &SolveContext<'_>, _req: &SolveRequest<'_>) -> bool {
         true
     }
-    fn solve(&self, _ctx: &SolveContext<'_>, req: &SolveRequest<'_>) -> Result<Path, PathfindError> {
+    fn solve(
+        &self,
+        _ctx: &SolveContext<'_>,
+        req: &SolveRequest<'_>,
+    ) -> Result<Path, PathfindError> {
         let dx = req.to.x - req.from.x;
         let dy = req.to.y - req.from.y;
         let len = (dx * dx + dy * dy).sqrt();

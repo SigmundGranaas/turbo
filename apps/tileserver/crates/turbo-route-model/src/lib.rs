@@ -187,7 +187,6 @@ pub enum Requirement {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ModeId(pub u8);
 
-
 /// Resolved scalar tuning, keyed by contributor name then parameter.
 ///
 /// This is the mechanism that makes per-request tuning affordable, and

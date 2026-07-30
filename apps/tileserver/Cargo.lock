@@ -3637,6 +3637,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "bytemuck",
+ "byteorder",
  "clap",
  "dhat",
  "libc",
@@ -3653,6 +3655,7 @@ dependencies = [
  "turbo-geodata-artifacts",
  "turbo-tiles-admin",
  "turbo-tiles-api",
+ "turbo-tiles-artifacts",
  "turbo-tiles-auth",
  "turbo-tiles-build",
  "turbo-tiles-core",

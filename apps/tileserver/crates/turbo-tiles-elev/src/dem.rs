@@ -408,9 +408,3 @@ impl Dem {
 
 #[allow(dead_code)]
 pub use crate::format::DemMeta as DemMetaPub;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-}

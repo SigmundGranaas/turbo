@@ -15,8 +15,8 @@ use turbo_tiles_pathfind::{Inspect, InspectPoint, Path, PathfindError, Prefs};
 
 use crate::crash_dump::{run_or_dump, CaughtPanic};
 use crate::error::ApiError;
-use crate::v1::frame;
 use crate::state::ApiState;
+use crate::v1::frame;
 
 #[derive(Debug, Deserialize)]
 pub struct PathfindReq {
@@ -110,7 +110,6 @@ impl PathfindReq {
         }
     }
 }
-
 
 /// Wire shape of a solved route.
 ///

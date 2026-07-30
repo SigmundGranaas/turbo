@@ -74,11 +74,7 @@ pub trait Solver: Send + Sync {
     /// at fault.
     fn accepts(&self, ctx: &SolveContext<'_>, req: &SolveRequest<'_>) -> bool;
 
-    fn solve(
-        &self,
-        ctx: &SolveContext<'_>,
-        req: &SolveRequest<'_>,
-    ) -> Result<Path, PathfindError>;
+    fn solve(&self, ctx: &SolveContext<'_>, req: &SolveRequest<'_>) -> Result<Path, PathfindError>;
 }
 
 /// The unified single-solve router: ONE A\* over the off-trail mesh and
@@ -185,9 +181,10 @@ fn build_off_trail_segment_fmm(
     to: Point,
     prefs: &Prefs,
 ) -> Result<OffTrailSegment, PathfindError> {
-    let dem = ctx.terrain.as_ref().ok_or_else(|| {
-        PathfindError::Internal("FMM mode requires DEM artifact loaded".into())
-    })?;
+    let dem = ctx
+        .terrain
+        .as_ref()
+        .ok_or_else(|| PathfindError::Internal("FMM mode requires DEM artifact loaded".into()))?;
     // `ctx.cost_config` is ALREADY resolved — boot config merged with
     // any per-request patch, once, by the caller. Resolving it again
     // here (as this code did when it was a `Pathfinder` method) would
@@ -242,20 +239,20 @@ fn build_off_trail_segment_fmm(
     };
     let contributors = ctx.contributors;
     let out =
-        crate::fmm_adapter::solve_fmm_path(inputs, Arc::clone(dem), &contributors, prefs.profile)
+        crate::fmm_adapter::solve_fmm_path(inputs, Arc::clone(dem), contributors, prefs.profile)
             .map_err(|e| {
-            use crate::fmm_adapter::FmmAdapterError;
-            match e {
-                // Goal genuinely unreachable through the terrain (corridor
-                // severed by water/glacier/cliff, or no DEM coverage). This
-                // is an honest "no route", NOT an internal error — and there
-                // is no Theta* fallback to paper over it with a garbage line.
-                FmmAdapterError::GoalUnreachable
-                | FmmAdapterError::StartOutsideGrid
-                | FmmAdapterError::GoalOutsideGrid => PathfindError::NoRoute,
-                other => PathfindError::Internal(format!("off-trail solver: {other}")),
-            }
-        })?;
+                use crate::fmm_adapter::FmmAdapterError;
+                match e {
+                    // Goal genuinely unreachable through the terrain (corridor
+                    // severed by water/glacier/cliff, or no DEM coverage). This
+                    // is an honest "no route", NOT an internal error — and there
+                    // is no Theta* fallback to paper over it with a garbage line.
+                    FmmAdapterError::GoalUnreachable
+                    | FmmAdapterError::StartOutsideGrid
+                    | FmmAdapterError::GoalOutsideGrid => PathfindError::NoRoute,
+                    other => PathfindError::Internal(format!("off-trail solver: {other}")),
+                }
+            })?;
     tracing::debug!(
         cells_accepted = out.cells_accepted,
         vetoed_cells = out.vetoed_cells,
@@ -281,7 +278,6 @@ fn build_off_trail_segment_fmm(
 }
 
 /// Build a [`Path`] from the unified single-solve router. Trail runs
-
 /// are `Graph` legs (blue), off-trail runs `OffTrailPrefix` (vermillion).
 fn solve_unified(
     ctx: &SolveContext<'_>,

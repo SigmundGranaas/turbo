@@ -33,10 +33,8 @@ use turbo_route_model::Point;
 use turbo_tiles_graph::{Graph, Profile};
 use turbo_tiles_mask::Mask;
 
+use crate::contributor::{EdgeContext, EdgeElevProbe, EdgeKind, Requirement, BASE_PACE_S_PER_M};
 use crate::core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
-use crate::contributor::{
-    EdgeContext, EdgeElevProbe, EdgeKind, Requirement, BASE_PACE_S_PER_M,
-};
 use turbo_route_model::{Heightfield, ParamSet};
 
 #[derive(Debug, Error)]
@@ -1036,7 +1034,11 @@ impl Pathfinder {
             // Per-contributor multiplier: its own walk-seconds delta expressed
             // against the flat-trail baseline, so the shape of the number the
             // SPA renders is unchanged.
-            let dv = if veto.is_some() { 0.0 } else { c.contribute(&ctx) };
+            let dv = if veto.is_some() {
+                0.0
+            } else {
+                c.contribute(&ctx)
+            };
             let mult = if veto.is_some() {
                 f32::INFINITY
             } else {
@@ -1291,13 +1293,18 @@ impl Pathfinder {
             }
             if let Some(r) = recorder.as_ref() {
                 // Planar, as recorded. The API layer projects (C4).
-                    p.recording = Some(r.snapshot());
+                p.recording = Some(r.snapshot());
             }
             p
         })
     }
 
-    fn solve_inner(&self, from_xy: Point, to_xy: Point, prefs: Prefs) -> Result<Path, PathfindError> {
+    fn solve_inner(
+        &self,
+        from_xy: Point,
+        to_xy: Point,
+        prefs: Prefs,
+    ) -> Result<Path, PathfindError> {
         let dx = to_xy.x - from_xy.x;
         let dy = to_xy.y - from_xy.y;
         let dist = (dx * dx + dy * dy).sqrt();
@@ -1372,9 +1379,6 @@ impl Pathfinder {
         })?;
         solver.solve(&ctx, &req)
     }
-
-
-
 
     /// Walk a regular grid over `bbox` and ask every layer for a
     /// cell cost. Cells with multiplier=INF or any refusal land in
@@ -1590,11 +1594,4 @@ pub(crate) fn cumulative_distances_planar(pts: &[Point2]) -> (Vec<f64>, f64) {
         }
     }
     (distances, total)
-}
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
 }

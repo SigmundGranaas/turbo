@@ -107,7 +107,7 @@ fn write_mask(path: &std::path::Path, min_x: f64, min_y: f64, extent_m: f64, cla
     write_mask_meta(&mut f, &meta).unwrap();
     // 2 bits per cell, 4 cells per byte.
     let packed = (class & 0b11) * 0b0101_0101;
-    let bytes = vec![packed; ((cells as usize * cells as usize) + 3) / 4];
+    let bytes = vec![packed; (cells as usize * cells as usize).div_ceil(4)];
     f.write_all(&bytes).unwrap();
     f.sync_all().unwrap();
 }
@@ -146,7 +146,11 @@ fn fixture() -> Fixture {
 #[test]
 fn dem_alone_reports_coverage_only_inside_the_dem() {
     let f = fixture();
-    let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(f.dem.clone())), None, None);
+    let pf = Pathfinder::with_defaults(
+        Some(turbo_geodata_artifacts::heightfield(f.dem.clone())),
+        None,
+        None,
+    );
 
     assert!(
         pf.point_covered(f.inside_dem.0, f.inside_dem.1),
@@ -167,14 +171,22 @@ fn advisory_landcover_layer_does_not_grant_coverage_without_elevation() {
     let f = fixture();
     let (x, y) = f.outside_dem_inside_mask;
 
-    let dem_only = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(f.dem.clone())), None, None);
+    let dem_only = Pathfinder::with_defaults(
+        Some(turbo_geodata_artifacts::heightfield(f.dem.clone())),
+        None,
+        None,
+    );
     assert!(
         !dem_only.point_covered(x, y),
         "precondition: the point is outside the DEM"
     );
 
     // Register the landcover mask exactly as `routing_setup.rs` does.
-    let mut pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(f.dem.clone())), None, None);
+    let mut pf = Pathfinder::with_defaults(
+        Some(turbo_geodata_artifacts::heightfield(f.dem.clone())),
+        None,
+        None,
+    );
     pf.push_native(Arc::new(turbo_tiles_pathfind::LandcoverContributor::new(
         f.forest.clone(),
         "forest",
@@ -205,7 +217,11 @@ fn advisory_landcover_layer_does_not_grant_coverage_without_elevation() {
 #[test]
 fn required_vs_advisory_is_expressible() {
     let f = fixture();
-    let mut pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(f.dem.clone())), None, None);
+    let mut pf = Pathfinder::with_defaults(
+        Some(turbo_geodata_artifacts::heightfield(f.dem.clone())),
+        None,
+        None,
+    );
     pf.push_native(Arc::new(turbo_tiles_pathfind::LandcoverContributor::new(
         f.forest.clone(),
         "forest",
@@ -221,7 +237,8 @@ fn required_vs_advisory_is_expressible() {
 
     // Slope is load-bearing; landcover is advice.
     assert!(
-        req.iter().any(|(n, r)| *n == "slope" && *r == Requirement::Required),
+        req.iter()
+            .any(|(n, r)| *n == "slope" && *r == Requirement::Required),
         "slope must be Required: {req:?}"
     );
     assert!(
@@ -249,7 +266,11 @@ fn required_vs_advisory_is_expressible() {
 #[test]
 fn endpoint_refusal_agrees_with_solver_on_a_flat_dem() {
     let f = fixture();
-    let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(f.dem.clone())), None, None);
+    let pf = Pathfinder::with_defaults(
+        Some(turbo_geodata_artifacts::heightfield(f.dem.clone())),
+        None,
+        None,
+    );
 
     // A flat DEM has no cliffs, so nothing inside coverage may be refused.
     // `solve` on two in-coverage points must therefore not fail with
@@ -260,15 +281,16 @@ fn endpoint_refusal_agrees_with_solver_on_a_flat_dem() {
     let a = turbo_tiles_pathfind::Point::new(x, y);
     let b = turbo_tiles_pathfind::Point::new(x + 600.0, y + 600.0);
 
-    let mut prefs = turbo_tiles_pathfind::Prefs::default();
-    prefs.force_off_trail = true;
-    prefs.snap_radius_m = 0.0;
-    prefs.bridge_radius_m = 0.0;
+    let prefs = turbo_tiles_pathfind::Prefs {
+        force_off_trail: true,
+        snap_radius_m: 0.0,
+        bridge_radius_m: 0.0,
+        ..Default::default()
+    };
 
-    match pf.solve(a, b, prefs) {
-        Err(turbo_tiles_pathfind::PathfindError::EndpointRefused { which, layer }) => {
-            panic!("flat terrain inside the DEM must not refuse an endpoint: {which} / {layer}")
-        }
-        _ => {}
+    if let Err(turbo_tiles_pathfind::PathfindError::EndpointRefused { which, layer }) =
+        pf.solve(a, b, prefs)
+    {
+        panic!("flat terrain inside the DEM must not refuse an endpoint: {which} / {layer}")
     }
 }

@@ -14,14 +14,14 @@
 use std::io::Cursor;
 use std::time::Instant;
 
+use crate::v1::frame::artifact_xy as wgs84_to_utm33n_xy;
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::Response;
 use image::{ImageEncoder, RgbaImage};
 use serde::Deserialize;
-use crate::v1::frame::artifact_xy as wgs84_to_utm33n_xy;
-use turbo_tiles_elev::{PointXY};
+use turbo_tiles_elev::PointXY;
 
 use crate::error::ApiError;
 use crate::state::ApiState;

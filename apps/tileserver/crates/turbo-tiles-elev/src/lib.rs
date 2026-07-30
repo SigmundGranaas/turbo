@@ -10,9 +10,7 @@ pub mod dem;
 pub mod format;
 
 pub use cache::{thread_lookups, CacheStats, TileCache, TileId};
-pub use dem::{
-    Dem, DemCoverage, DemError, PointXY, SlopeAspect, DEFAULT_CACHE_BYTES,
-};
+pub use dem::{Dem, DemCoverage, DemError, PointXY, SlopeAspect, DEFAULT_CACHE_BYTES};
 pub use format::{
     write_meta, write_tile_entry, DemMeta, TileEntry, COMPRESSION_ZSTD, DEFAULT_TILE_CELLS,
     DEM_FORMAT_VERSION, DEM_META_BYTES, NODATA_SENTINEL, TILE_ENTRY_BYTES,

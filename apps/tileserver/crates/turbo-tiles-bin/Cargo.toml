@@ -10,6 +10,9 @@ name = "tileserver"
 path = "src/main.rs"
 
 [dependencies]
+bytemuck.workspace = true
+byteorder.workspace = true
+turbo-tiles-artifacts.workspace = true
 turbo-geo-frame.workspace = true
 turbo-geodata-artifacts.workspace = true
 turbo-tiles-core.workspace = true

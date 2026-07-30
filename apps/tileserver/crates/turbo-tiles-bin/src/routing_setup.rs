@@ -177,13 +177,10 @@ pub fn build_pathfinder(
     // mmap'd Norwegian artifact. Adapting one to the other is the L3
     // adapter's job and wiring them together is this composition root's
     // — the engine names neither.
-    let dem: Option<Arc<dyn Heightfield>> = art.dem.clone().map(turbo_geodata_artifacts::heightfield);
-    let mut pf = Pathfinder::with_defaults_and_config(
-        dem,
-        art.mask.clone(),
-        art.graph.clone(),
-        cost_config,
-    );
+    let dem: Option<Arc<dyn Heightfield>> =
+        art.dem.clone().map(turbo_geodata_artifacts::heightfield);
+    let mut pf =
+        Pathfinder::with_defaults_and_config(dem, art.mask.clone(), art.graph.clone(), cost_config);
 
     let mut landcover: HashMap<&'static str, Arc<Mask>> = HashMap::new();
     let mut taken_layer_names: HashSet<&'static str> = HashSet::new();

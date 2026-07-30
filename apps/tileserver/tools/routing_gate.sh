@@ -1,37 +1,79 @@
 #!/usr/bin/env bash
 # The routing refactor gate.
 #
-# Runs the Sjunkhatten corpus on BOTH solver lanes and compares geometry
-# hashes + DEM lookup counts against the committed baseline. This is the
-# acceptance check for every structural step in the routing engine plan
+# Runs a corpus on BOTH solver lanes and compares geometry hashes + DEM
+# lookup counts against a committed baseline. This is the acceptance
+# check for every structural step in the routing engine plan
 # (docs/architecture/2026-07-routing-engine-implementation-plan.md §2).
 #
 # Why hashes and not timing: run-to-run wall clock varies 16-19% on a
-# shared host, while the geometry hash and lookup count are exactly stable.
-# Never gate a refactor on timing; measure timing separately.
+# shared host, while the geometry hash and lookup count are exactly
+# stable. Never gate a refactor on timing; measure timing separately.
 #
-#   ./tools/routing_gate.sh                 # check against the baseline
-#   ./tools/routing_gate.sh --update        # accept current as the baseline
+# ── Two profiles ──────────────────────────────────────────────────────
+#
+#   ci    (default)  25 hikes against tools/ci-pack — 4.6 MB, committed,
+#                    so this runs anywhere the repo is checked out.
+#   full             90 hikes against the full 209 MB Sjunkhatten
+#                    artifacts, which have to be provisioned by hand.
+#
+# The two baselines are NOT comparable, and nothing here invites you to
+# compare them. `ci-pack` is a slice: edges crossing its boundary are
+# dropped (changing trail-proximity bonuses) and defect D8 means
+# dropping a DEM tile can change `sample` where tiles overlap. Each
+# profile is a self-consistent regression gate against its own history.
+#
+# Run `full` before landing anything that moves geometry on purpose
+# (Phase E calibration); `ci` is enough for structural work, which is
+# what it is checked in for.
+#
+#   ./tools/routing_gate.sh                  # ci profile, check
+#   ./tools/routing_gate.sh --update         # ci profile, rebaseline
+#   ./tools/routing_gate.sh full             # full profile, check
+#   ./tools/routing_gate.sh full --update    # full profile, rebaseline
 #
 # Env:
-#   TILESERVER_ARTIFACT_DIR   artifacts dir (default ~/.data/artifacts)
+#   TILESERVER_ARTIFACT_DIR   overrides the artifacts dir (full profile)
 #
 # Exit: 0 pass, 1 regress, 2 harness error.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-ART="${TILESERVER_ARTIFACT_DIR:-/home/user/turbo/.data/artifacts}"
-CORPUS="tools/sjunkhatten-corpus.toml"
-BASELINE="tools/sjunkhatten-baseline.json"
-BIN="target/release/tileserver"
-OUT="${TMPDIR:-/tmp}/routing-gate"
+PROFILE=ci
 UPDATE=0
-[[ "${1:-}" == "--update" ]] && UPDATE=1
+for arg in "$@"; do
+  case "$arg" in
+    ci|full) PROFILE="$arg" ;;
+    --update) UPDATE=1 ;;
+    *) echo "usage: $0 [ci|full] [--update]"; exit 2 ;;
+  esac
+done
 
-[[ -x "$BIN" ]] || { echo "no $BIN — cargo build --release --bin tileserver"; exit 2; }
-[[ -d "$ART" ]] || { echo "no artifacts at $ART"; exit 2; }
+case "$PROFILE" in
+  ci)
+    ART="tools/ci-pack"
+    CORPUS="tools/sjunkhatten-ci-corpus.toml"
+    BASELINE="tools/sjunkhatten-ci-baseline.json"
+    ;;
+  full)
+    ART="${TILESERVER_ARTIFACT_DIR:-/home/user/turbo/.data/artifacts}"
+    CORPUS="tools/sjunkhatten-corpus.toml"
+    BASELINE="tools/sjunkhatten-baseline.json"
+    ;;
+esac
+
+BIN="target/release/tileserver"
+OUT="${TMPDIR:-/tmp}/routing-gate-$PROFILE"
+
+[[ -x "$BIN" ]] || { echo "no $BIN — cargo build --release -p turbo-tiles-bin --bin tileserver"; exit 2; }
+[[ -d "$ART" ]] || {
+  echo "no artifacts at $ART"
+  [[ "$PROFILE" == full ]] && echo "  (the full profile needs the 209 MB Sjunkhatten set; try: $0 ci)"
+  exit 2
+}
 [[ -f "$CORPUS" ]] || { echo "no corpus at $CORPUS"; exit 2; }
 
+echo "profile: $PROFILE   artifacts: $ART   corpus: $CORPUS"
 rm -rf "$OUT"; mkdir -p "$OUT"
 declare -A GOT
 for lane in off-trail unified; do
