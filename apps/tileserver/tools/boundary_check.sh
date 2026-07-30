@@ -114,6 +114,39 @@ else
 fi
 
 # ---------------------------------------------------------------------
+# 3d. The engine bakes in no configuration and reads no files.
+#
+# D3. `turbo-tiles-pathfind` used to `include_str!` both
+# `tools/cost-config.toml` and `tools/route-presets.toml`, and
+# `Pathfinder::new` fell back to them whenever a caller supplied no
+# config. So the engine shipped one country's calibration, CHOSE it
+# silently, and probed `$TURBO_COST_CONFIG` and the CWD looking for a
+# newer copy. A caller who forgot a config got Norwegian hiking
+# constants and no diagnostic, which is indistinguishable from working.
+#
+# The engine owns the schema of its tuning; deciding which numbers to
+# use and where to find them belongs to turbo-profile-no at L5.
+# ---------------------------------------------------------------------
+baked=$(grep -rn 'include_str!\|include_bytes!' crates/turbo-tiles-pathfind/src/ || true)
+if [[ -n "$baked" ]]; then
+  bad "the engine bakes in a data file (design §7.2, D3)" \
+      "$(echo "$baked" | head -3)" \
+      "Config and profile data belong in turbo-profile-no, at L5."
+else
+  ok "engine bakes in no data files"
+fi
+
+io=$(grep -rn 'std::fs::\|std::env::var\|File::open\|PathBuf\|Path::new' \
+       crates/turbo-tiles-pathfind/src/ || true)
+if [[ -n "$io" ]]; then
+  bad "the engine touches the filesystem or environment (design §2, D3)" \
+      "$(echo "$io" | head -3)" \
+      "An engine that resolves paths is an engine you cannot embed."
+else
+  ok "engine performs no file or environment access"
+fi
+
+# ---------------------------------------------------------------------
 # 4. The adapter does not depend on the engine.
 #
 # Dependencies point inward: adapter -> model, never adapter -> engine.

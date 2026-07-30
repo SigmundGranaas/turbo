@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+turbo-profile-no.workspace = true
 turbo-geodata-artifacts.workspace = true
 turbo-geo-frame.workspace = true
 turbo-tiles-core.workspace = true

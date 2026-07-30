@@ -47,7 +47,8 @@ pub struct ApiState {
     /// for marsh, ridges, etc.) get plugged in at construction.
     pub pathfinder: Option<Arc<turbo_tiles_pathfind::Pathfinder>>,
     /// Named trip presets (Balanced, Avoid roads, …) resolved at boot
-    /// from `tools/route-presets.toml`. A request's `preset` field maps
+    /// by `turbo-profile-no`, the composition-layer crate that owns the
+    /// Norwegian profile (D3). A request's `preset` field maps
     /// to one of these; the SPA lists them in its "Trip style" dropdown.
     pub presets: Arc<turbo_tiles_pathfind::PresetSet>,
     /// Multi-layer N50 basemap definition, resolved at boot from
@@ -115,7 +116,7 @@ impl ApiState {
             search: None,
             landcover: std::collections::HashMap::new(),
             pathfinder: None,
-            presets: Arc::new(turbo_tiles_pathfind::PresetSet::load_or_default()),
+            presets: Arc::new(turbo_profile_no::presets_or_default()),
             basemap: Arc::new(turbo_tiles_mvt::BasemapConfig::load_or_default()),
             raster_style: Arc::new(
                 turbo_tiles_raster::RasterStyle::load_or_default()

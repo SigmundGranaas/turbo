@@ -210,7 +210,7 @@ fn pathfinder_refuses_when_no_coverage_anywhere() {
     // data here". The pathfinder MUST refuse rather than build a
     // uniform-cost mesh and return a straight line. This is the
     // regression test for the Halsvatnet-straight-line bug.
-    let pf = Pathfinder::with_defaults(None, None, None);
+    let pf = Pathfinder::with_defaults(None, None, None, cfg());
     let from = Point::new(0.0, 0.0);
     let to = Point::new(500.0, 500.0);
     let prefs = Prefs::default();
@@ -250,6 +250,7 @@ fn pathfinder_picks_cheapest_strategy() {
         Some(turbo_geodata_artifacts::heightfield(dem.clone())),
         None,
         Some(Arc::new(g)),
+        cfg(),
     );
     // Snap radius is 200 m by default — pick lon/lat that's about
     // 50 m east + 50 m south of the anchor node.
@@ -303,6 +304,7 @@ fn pathfinder_hybrid_when_one_end_off_graph() {
         Some(turbo_geodata_artifacts::heightfield(dem.clone())),
         None,
         Some(Arc::new(g)),
+        cfg(),
     );
     let from = Point::new(anchor.x + 600.0, anchor.y); // ~600 m east
     let to = Point::new(anchor.x, anchor.y); // sits on node 3
@@ -338,6 +340,7 @@ fn multi_waypoint_stitches_into_one_continuous_path() {
         Some(turbo_geodata_artifacts::heightfield(dem.clone())),
         None,
         Some(Arc::new(g)),
+        cfg(),
     );
 
     let p0 = Point::new(anchor.x, anchor.y + 800.0);
@@ -394,6 +397,7 @@ fn multi_waypoint_attributes_failing_leg() {
         Some(turbo_geodata_artifacts::heightfield(dem.clone())),
         None,
         Some(Arc::new(g)),
+        cfg(),
     );
 
     let p0 = Point::new(anchor.x, anchor.y + 800.0);
@@ -424,6 +428,7 @@ fn two_point_route_emits_single_waypoint_leg() {
         Some(turbo_geodata_artifacts::heightfield(dem.clone())),
         None,
         Some(Arc::new(g)),
+        cfg(),
     );
     let from = Point::new(anchor.x, anchor.y + 600.0);
     let to = Point::new(anchor.x + 600.0, anchor.y);
@@ -450,6 +455,7 @@ fn pathfinder_layer_weights_disable_preferred_edge_layer() {
         Some(turbo_geodata_artifacts::heightfield(dem.clone())),
         None,
         Some(Arc::new(g)),
+        cfg(),
     );
     let from = turbo_geo_frame::wgs84_to_utm33n(10.7522, 59.9139);
     let to = Point::new(anchor.x + 100.0, anchor.y - 100.0);
@@ -484,6 +490,7 @@ fn cost_based_selection_beats_long_graph_detour() {
         Some(turbo_geodata_artifacts::heightfield(dem.clone())),
         None,
         Some(Arc::new(g)),
+        cfg(),
     );
     // Place the clicks 200 m apart so we clear the DegenerateInputs
     // threshold (default mesh_cell_m = 100 m); still tiny vs the
@@ -528,6 +535,7 @@ fn switchback_gap_uniform_steep_face() {
         Some(turbo_geodata_artifacts::heightfield(dem.clone())),
         None,
         Some(Arc::new(g)),
+        cfg(),
     );
 
     // Uphill = south (decreasing y, where z grows). 600 m climb.
@@ -606,7 +614,7 @@ fn switchback_gap_uniform_steep_face() {
 
 #[test]
 fn pathfinder_lists_layer_names() {
-    let pf = Pathfinder::with_defaults(None, None, None);
+    let pf = Pathfinder::with_defaults(None, None, None, cfg());
     let names = pf.layer_names();
     // No DEM/Mask loaded → only the edge layers remain.
     assert!(names.contains(&"preferred_edge"));
@@ -768,4 +776,11 @@ fn write_square_graph_at(path: &std::path::Path, ox: f32, oy: f32) {
         }
     }
     f.sync_all().unwrap();
+}
+
+/// The calibrated Norwegian config. Tests are a composition root, so
+/// they name the profile explicitly — the engine no longer supplies one
+/// (D3).
+fn cfg() -> turbo_tiles_pathfind::CostConfig {
+    turbo_profile_no::cost_config().expect("the calibrated config must parse")
 }

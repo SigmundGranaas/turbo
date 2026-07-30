@@ -160,7 +160,7 @@ fn measure_contributor_construction_scaling() {
 
         // The whole stack, as `routing_setup::build_pathfinder` does it.
         let t = Instant::now();
-        let pf = Pathfinder::with_defaults(None, None, Some(graph.clone()));
+        let pf = Pathfinder::with_defaults(None, None, Some(graph.clone()), cfg());
         let full_ms = t.elapsed().as_secs_f64() * 1e3;
         std::hint::black_box(&pf);
 
@@ -219,7 +219,7 @@ fn rebind_shares_indices_instead_of_rebuilding_them() {
     let graph = Arc::new(Graph::open(&path).unwrap());
 
     let t = Instant::now();
-    let pf = Pathfinder::with_defaults(None, None, Some(graph.clone()));
+    let pf = Pathfinder::with_defaults(None, None, Some(graph.clone()), cfg());
     let build_us = t.elapsed().as_secs_f64() * 1e6;
 
     let mut params = ParamSet::new();
@@ -284,10 +284,17 @@ fn unclaimed_parameter_keys_are_reported() {
     let path = dir.path().join("unclaimed.graph");
     write_grid_graph(&path, 20, 50.0);
     let graph = Arc::new(Graph::open(&path).unwrap());
-    let pf = Pathfinder::with_defaults(None, None, Some(graph));
+    let pf = Pathfinder::with_defaults(None, None, Some(graph), cfg());
 
     let mut params = ParamSet::new();
     params.set("trial_proximity", "influence_radius_m", 42.0); // typo
     let (_, unclaimed) = pf.rebind(&params);
     assert_eq!(unclaimed, vec!["trial_proximity".to_string()]);
+}
+
+/// The calibrated Norwegian config. Tests are a composition root, so
+/// they name the profile explicitly — the engine no longer supplies one
+/// (D3).
+fn cfg() -> turbo_tiles_pathfind::CostConfig {
+    turbo_profile_no::cost_config().expect("the calibrated config must parse")
 }

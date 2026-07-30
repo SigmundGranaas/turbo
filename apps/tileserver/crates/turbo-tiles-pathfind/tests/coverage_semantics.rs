@@ -150,6 +150,7 @@ fn dem_alone_reports_coverage_only_inside_the_dem() {
         Some(turbo_geodata_artifacts::heightfield(f.dem.clone())),
         None,
         None,
+        cfg(),
     );
 
     assert!(
@@ -175,6 +176,7 @@ fn advisory_landcover_layer_does_not_grant_coverage_without_elevation() {
         Some(turbo_geodata_artifacts::heightfield(f.dem.clone())),
         None,
         None,
+        cfg(),
     );
     assert!(
         !dem_only.point_covered(x, y),
@@ -186,6 +188,7 @@ fn advisory_landcover_layer_does_not_grant_coverage_without_elevation() {
         Some(turbo_geodata_artifacts::heightfield(f.dem.clone())),
         None,
         None,
+        cfg(),
     );
     pf.push_native(Arc::new(turbo_tiles_pathfind::LandcoverContributor::new(
         f.forest.clone(),
@@ -221,6 +224,7 @@ fn required_vs_advisory_is_expressible() {
         Some(turbo_geodata_artifacts::heightfield(f.dem.clone())),
         None,
         None,
+        cfg(),
     );
     pf.push_native(Arc::new(turbo_tiles_pathfind::LandcoverContributor::new(
         f.forest.clone(),
@@ -270,6 +274,7 @@ fn endpoint_refusal_agrees_with_solver_on_a_flat_dem() {
         Some(turbo_geodata_artifacts::heightfield(f.dem.clone())),
         None,
         None,
+        cfg(),
     );
 
     // A flat DEM has no cliffs, so nothing inside coverage may be refused.
@@ -293,4 +298,11 @@ fn endpoint_refusal_agrees_with_solver_on_a_flat_dem() {
     {
         panic!("flat terrain inside the DEM must not refuse an endpoint: {which} / {layer}")
     }
+}
+
+/// The calibrated Norwegian config. Tests are a composition root, so
+/// they name the profile explicitly — the engine no longer supplies one
+/// (D3).
+fn cfg() -> turbo_tiles_pathfind::CostConfig {
+    turbo_profile_no::cost_config().expect("the calibrated config must parse")
 }

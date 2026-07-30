@@ -31,7 +31,7 @@ fn ctx_without_terrain<'a>(
 
 #[test]
 fn selection_follows_the_preference_not_a_hardcoded_branch() {
-    let cfg = turbo_tiles_pathfind::CostConfig::from_embedded().unwrap();
+    let cfg = cfg();
     let contributors: Vec<Arc<dyn turbo_tiles_pathfind::CostContributor>> = Vec::new();
     let set = SolverSet::production();
 
@@ -110,7 +110,7 @@ impl Solver for AlwaysStraightLine {
 
 #[test]
 fn a_third_party_solver_can_be_registered_and_selected() {
-    let cfg = turbo_tiles_pathfind::CostConfig::from_embedded().unwrap();
+    let cfg = cfg();
     let contributors: Vec<Arc<dyn turbo_tiles_pathfind::CostContributor>> = Vec::new();
     let ctx = ctx_without_terrain(&contributors, &cfg);
 
@@ -170,7 +170,7 @@ impl turbo_tiles_pathfind::Heightfield for FlatPlane {
 #[test]
 fn the_engine_dispatches_through_the_registered_set() {
     let field: Arc<dyn turbo_tiles_pathfind::Heightfield> = Arc::new(FlatPlane);
-    let mut pf = Pathfinder::with_defaults(Some(field), None, None);
+    let mut pf = Pathfinder::with_defaults(Some(field), None, None, cfg());
     pf.solvers = SolverSet::new(vec![Arc::new(AlwaysStraightLine)]);
 
     let from = turbo_tiles_pathfind::Point::new(0.0, 0.0);
@@ -184,4 +184,11 @@ fn the_engine_dispatches_through_the_registered_set() {
         "got {} m — the engine did not route through the registered set",
         path.length_m
     );
+}
+
+/// The calibrated Norwegian config. Tests are a composition root, so
+/// they name the profile explicitly — the engine no longer supplies one
+/// (D3).
+fn cfg() -> turbo_tiles_pathfind::CostConfig {
+    turbo_profile_no::cost_config().expect("the calibrated config must parse")
 }

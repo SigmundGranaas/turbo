@@ -586,12 +586,18 @@ type LegKey = (u64, u64, u64, u64, u64);
 const LEG_CACHE_CAP: usize = 256;
 
 impl Pathfinder {
-    pub fn new(graph: Option<Arc<Graph>>) -> Self {
+    /// A bare engine with no cost stack.
+    ///
+    /// Takes the config **by value**. It used to fall back to a copy of
+    /// the Norwegian constants baked into this crate, which meant a
+    /// caller who forgot to supply one got a country's calibration and
+    /// no diagnostic — indistinguishable from working. Loading is a
+    /// composition concern; see `turbo-profile-no`.
+    pub fn new(graph: Option<Arc<Graph>>, cost_config: crate::config::CostConfig) -> Self {
         Self {
             graph,
             native_contributors: Vec::new(),
-            cost_config: crate::config::CostConfig::from_embedded()
-                .expect("embedded cost-config defaults must parse"),
+            cost_config,
             dem: None,
             mask: None,
             solvers: crate::solvers::SolverSet::production(),
@@ -599,33 +605,15 @@ impl Pathfinder {
         }
     }
 
-    /// Convenience constructor that assembles the default layer
-    /// stack from whichever primitive artifacts are loaded:
-    ///   slope (if DEM present), mask_refusal (if mask present),
-    ///   trail_proximity (if graph present), preferred_edge, marking.
-    /// Equivalent to writing the boot wiring by hand.
-    pub fn with_defaults(
-        dem: Option<Arc<dyn Heightfield>>,
-        mask: Option<Arc<Mask>>,
-        graph: Option<Arc<Graph>>,
-    ) -> Self {
-        Self::with_defaults_and_config(
-            dem,
-            mask,
-            graph,
-            crate::config::CostConfig::from_embedded()
-                .expect("embedded cost-config defaults must parse"),
-        )
-    }
-
-    /// Same as [`with_defaults`] but takes an explicit
+    /// Same as [`Self::new`] but also assembles the default cost stack
+    /// from whichever fields are present, using an explicit
     /// [`CostConfig`]. Boot wiring in `tileserver-bin` calls this
     /// directly with the config resolved from disk / env / embedded
     /// defaults so each layer reads its physical knobs from one
     /// place instead of the scattered hardcoded values that
     /// produced the multi-knob calibration drift documented in
     /// this codebase's session notes.
-    pub fn with_defaults_and_config(
+    pub fn with_defaults(
         dem: Option<Arc<dyn Heightfield>>,
         mask: Option<Arc<Mask>>,
         graph: Option<Arc<Graph>>,

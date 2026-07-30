@@ -864,8 +864,9 @@ fn solve_grade_limited_path(
     };
     let start_cell = snap_cell(start_cell);
     let goal_cell = snap_cell(goal_cell);
-    if std::env::var("FMM_DEBUG").is_ok() {
-        eprintln!(
+    // See the note in `unified.rs`: the engine emits, the host routes.
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        tracing::debug!(
             "FMM_DEBUG GL: shape {}x{} cell={} start={:?} goal={:?} start_refused={} goal_refused={}",
             shape2d.nx,
             shape2d.ny,
@@ -879,8 +880,9 @@ fn solve_grade_limited_path(
     let t0 = std::time::Instant::now();
     let result = solve_lifted_grade_limited(shape3d, &cost, start_cell, goal_cell, Some(&mut emit));
     let solve_ms = t0.elapsed().as_millis() as u32;
-    if std::env::var("FMM_DEBUG").is_ok() {
-        eprintln!(
+    // See the note in `unified.rs`: the engine emits, the host routes.
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        tracing::debug!(
             "FMM_DEBUG GL: cells_accepted={} goal_reached={} refused_labels={:?}",
             result.cells_accepted,
             result.goal_state.is_some(),

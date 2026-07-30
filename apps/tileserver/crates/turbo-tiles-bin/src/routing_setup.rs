@@ -179,8 +179,7 @@ pub fn build_pathfinder(
     // — the engine names neither.
     let dem: Option<Arc<dyn Heightfield>> =
         art.dem.clone().map(turbo_geodata_artifacts::heightfield);
-    let mut pf =
-        Pathfinder::with_defaults_and_config(dem, art.mask.clone(), art.graph.clone(), cost_config);
+    let mut pf = Pathfinder::with_defaults(dem, art.mask.clone(), art.graph.clone(), cost_config);
 
     let mut landcover: HashMap<&'static str, Arc<Mask>> = HashMap::new();
     let mut taken_layer_names: HashSet<&'static str> = HashSet::new();
@@ -360,12 +359,14 @@ pub fn build_pathfinder(
     (pf, landcover)
 }
 
-/// Load the boot cost configuration with the same precedence `serve`
-/// uses: explicit env var → `cost-config.toml` relative to CWD →
-/// embedded defaults compiled into the binary.
+/// Load the boot cost configuration: explicit env var →
+/// `tools/cost-config.toml` relative to CWD → the calibrated Norwegian
+/// constants baked into `turbo-profile-no`.
+///
+/// The resolution itself moved to that crate in D3. The engine defines
+/// the schema of its tuning; deciding *which* numbers to use, and
+/// where to look for them, is a composition concern — and an engine
+/// that probes the filesystem is an engine you cannot embed.
 pub fn load_cost_config() -> CostConfig {
-    CostConfig::load_or_default(None).unwrap_or_else(|e| {
-        tracing::warn!(error = %e, "failed to load cost-config; falling back to embedded defaults");
-        CostConfig::from_embedded().expect("embedded cost-config defaults must parse")
-    })
+    turbo_profile_no::cost_config_or_default()
 }

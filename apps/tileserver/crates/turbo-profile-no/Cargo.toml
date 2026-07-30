@@ -1,0 +1,25 @@
+[package]
+name = "turbo-profile-no"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# L5 — the Norwegian hiking profile: calibrated cost constants and the
+# curated trip presets, as data.
+#
+# This crate exists so the ENGINE does not contain them. Before D2/D3,
+# `turbo-tiles-pathfind` baked `tools/cost-config.toml` and
+# `tools/route-presets.toml` into itself with `include_str!` and fell
+# back to them whenever a caller did not supply a config — which meant
+# the engine shipped a country's calibration, chose it silently, and
+# read the filesystem to look for a newer copy. All three are
+# composition concerns.
+#
+# The numbers here are the result of corpus calibration against walked
+# Norwegian trails. Another region, another sport, or a game would ship
+# a sibling crate; nothing in the engine has to change for that.
+
+[dependencies]
+turbo-tiles-pathfind.workspace = true
+toml = "0.8"

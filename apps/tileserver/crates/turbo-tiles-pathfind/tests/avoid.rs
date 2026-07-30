@@ -278,6 +278,7 @@ impl Scene {
             Some(turbo_geodata_artifacts::heightfield(dem.clone())),
             None,
             Some(Arc::new(g)),
+            cfg(),
         );
         Self {
             ox,
@@ -732,4 +733,11 @@ fn sloped_vs_flat_off_trail_characterization() {
         "slope must not make shadow-walking WORSE than flat \
          (flat {flat:.0} m, sloped {sloped:.0} m)"
     );
+}
+
+/// The calibrated Norwegian config. Tests are a composition root, so
+/// they name the profile explicitly — the engine no longer supplies one
+/// (D3).
+fn cfg() -> turbo_tiles_pathfind::CostConfig {
+    turbo_profile_no::cost_config().expect("the calibrated config must parse")
 }

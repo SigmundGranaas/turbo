@@ -390,11 +390,17 @@ pub(crate) fn solve_unified(
     }
 
     let n_total = nm + nt;
-    if std::env::var("UNIFIED_DEBUG").is_ok() {
+    // Was `if env::var("UNIFIED_DEBUG")`. The engine does not read the
+    // environment (D3) — it emits, and the host decides where the
+    // output goes and at what level. `RUST_LOG=turbo_tiles_pathfind=debug`
+    // still works, configured by the host's subscriber, and an embedded
+    // or FFI caller now gets the same diagnostics instead of a channel
+    // that only opens for a process launched from a shell.
+    if tracing::enabled!(tracing::Level::DEBUG) {
         let adj: usize = trail_adj.iter().map(|v| v.len()).sum();
         let start_has = cell_trails.get(&start).map(|v| v.len()).unwrap_or(0);
         let goal_has = cell_trails.get(&goal).map(|v| v.len()).unwrap_or(0);
-        eprintln!(
+        tracing::debug!(
             "UNIFIED: corr {nx}x{ny} cell_m={:.0}; eids={} trail_nodes={nt} adj_edges={adj} \
              cells_with_trail={} start_cell_trails={start_has} goal_cell_trails={goal_has}",
             corr.cell_m,

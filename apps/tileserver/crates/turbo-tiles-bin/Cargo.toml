@@ -10,6 +10,7 @@ name = "tileserver"
 path = "src/main.rs"
 
 [dependencies]
+turbo-profile-no.workspace = true
 bytemuck.workspace = true
 byteorder.workspace = true
 turbo-tiles-artifacts.workspace = true

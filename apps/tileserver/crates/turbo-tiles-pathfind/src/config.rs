@@ -11,14 +11,8 @@
 //! the calibrated behaviour.
 
 use std::collections::BTreeMap;
-use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-
-/// Embedded defaults — same file the curator edits on disk.
-/// `include_str!` bakes its contents into the binary so the system
-/// boots even without a writable config dir.
-pub const EMBEDDED_DEFAULTS: &str = include_str!("../../../tools/cost-config.toml");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CostConfig {
@@ -288,33 +282,16 @@ pub struct CostConfigPatch {
 }
 
 impl CostConfig {
-    /// Resolve the cost config from (in order):
-    ///   1. `path` if `Some`
-    ///   2. `TURBO_COST_CONFIG` env var
-    ///   3. `tools/cost-config.toml` relative to CWD
-    ///   4. Embedded defaults baked into the binary.
-    pub fn load_or_default(path: Option<&Path>) -> Result<Self, ConfigError> {
-        if let Some(p) = path {
-            return Self::from_path(p);
-        }
-        if let Ok(env_path) = std::env::var("TURBO_COST_CONFIG") {
-            return Self::from_path(env_path.as_ref());
-        }
-        let cwd_path = Path::new("tools/cost-config.toml");
-        if cwd_path.exists() {
-            return Self::from_path(cwd_path);
-        }
-        Self::from_embedded()
-    }
-
-    pub fn from_path(p: &Path) -> Result<Self, ConfigError> {
-        let text = std::fs::read_to_string(p)
-            .map_err(|e| ConfigError::Io(format!("{}: {e}", p.display())))?;
-        toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))
-    }
-
-    pub fn from_embedded() -> Result<Self, ConfigError> {
-        toml::from_str(EMBEDDED_DEFAULTS).map_err(|e| ConfigError::Parse(e.to_string()))
+    /// Parse a config from TOML text.
+    ///
+    /// Text, not a path. The engine defines the *schema* of its tuning
+    /// but must never resolve where a value comes from — reading
+    /// `$TURBO_COST_CONFIG`, probing the CWD and falling back to a
+    /// baked-in copy are all composition concerns, and they now live in
+    /// `turbo-profile-no` (D3). An engine that resolves paths is an
+    /// engine you cannot embed.
+    pub fn from_toml(text: &str) -> Result<Self, ConfigError> {
+        toml::from_str(text).map_err(|e| ConfigError::Parse(e.to_string()))
     }
 
     /// Apply a sparse patch and return a new config. Used by the
@@ -429,26 +406,18 @@ pub struct Preset {
     pub patch: CostConfigPatch,
 }
 
-/// The set of trip presets, resolved at boot.
-#[derive(Debug, Clone, Deserialize)]
+/// The set of trip presets.
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct PresetSet {
     #[serde(default, rename = "preset")]
     pub presets: Vec<Preset>,
 }
 
-const EMBEDDED_PRESETS: &str = include_str!("../../../tools/route-presets.toml");
-
 impl PresetSet {
-    /// Resolve from `tools/route-presets.toml` (CWD) or the embedded
-    /// defaults baked into the binary.
-    pub fn load_or_default() -> Self {
-        let cwd = Path::new("tools/route-presets.toml");
-        let text = std::fs::read_to_string(cwd)
-            .ok()
-            .unwrap_or_else(|| EMBEDDED_PRESETS.to_string());
-        toml::from_str(&text).unwrap_or_else(|_| PresetSet {
-            presets: Vec::new(),
-        })
+    /// Parse a preset set from TOML text. Where the text came from is
+    /// the composition layer's business — see `turbo-profile-no`.
+    pub fn from_toml(text: &str) -> Result<Self, ConfigError> {
+        toml::from_str(text).map_err(|e| ConfigError::Parse(e.to_string()))
     }
 
     pub fn get(&self, name: &str) -> Option<&Preset> {
@@ -468,21 +437,15 @@ pub enum ConfigError {
 mod tests {
     use super::*;
 
+    /// What the engine still owns is the *schema* and the patch
+    /// algebra. The tests that asserted specific calibrated values
+    /// (`pace_s_per_m == 0.714`, `off_trail_base.foot == 2.3`, …) moved
+    /// to `turbo-profile-no` in D3 along with the numbers themselves —
+    /// they were testing a country's calibration through the engine,
+    /// which is precisely the coupling that step removed.
     #[test]
-    fn embedded_defaults_parse() {
-        let cfg = CostConfig::from_embedded().unwrap();
-        assert!((cfg.base.pace_s_per_m - 0.7142857).abs() < 1e-4);
-        assert!((cfg.off_trail_base.foot - 2.3).abs() < 1e-6);
-        assert_eq!(cfg.trail_proximity.influence_radius_m, 30.0);
-        assert!((cfg.trail_proximity.bonus_at_zero - 0.15).abs() < 1e-6);
-        assert_eq!(cfg.slope_cell.refuse_above_deg, 45.0);
-        assert_eq!(cfg.slope_graph.refuse_above_deg, 50.0);
-        assert!(cfg.surface_multiplier.foot.by_kind.contains_key("sti"));
-    }
-
-    #[test]
-    fn patch_overrides_individual_fields() {
-        let base = CostConfig::from_embedded().unwrap();
+    fn patch_overrides_only_the_fields_it_names() {
+        let base = CostConfig::from_toml(MINIMAL).unwrap();
         let patch = CostConfigPatch {
             off_trail_base_foot: Some(2.2),
             trail_proximity_bonus_at_zero: Some(0.5),
@@ -491,7 +454,6 @@ mod tests {
         let c = base.with_patch(&patch);
         assert!((c.off_trail_base.foot - 2.2).abs() < 1e-6);
         assert!((c.trail_proximity.bonus_at_zero - 0.5).abs() < 1e-6);
-        // Unspecified knobs unchanged.
         assert_eq!(c.off_trail_base.bicycle, base.off_trail_base.bicycle);
         assert_eq!(
             c.slope_cell.refuse_above_deg,
@@ -500,16 +462,33 @@ mod tests {
     }
 
     #[test]
-    fn missing_file_falls_back_to_embedded() {
-        let cfg = CostConfig::load_or_default(Some(Path::new("/nonexistent.toml")));
-        assert!(cfg.is_err()); // explicit path that doesn't exist IS an error
+    fn malformed_toml_is_an_error_not_a_silent_default() {
+        assert!(CostConfig::from_toml("base = { pace_s_per_m = ").is_err());
     }
 
-    #[test]
-    fn no_path_no_env_no_cwd_uses_embedded() {
-        // We can't safely scrub env vars in parallel tests; just
-        // confirm `from_embedded` works directly.
-        let cfg = CostConfig::from_embedded().unwrap();
-        assert!(cfg.off_trail_base.foot > 1.0);
-    }
+    /// A schema-complete config with round, obviously-synthetic numbers.
+    /// Deliberately NOT the calibrated values: a fixture that happens to
+    /// match production invites tests that pass for the wrong reason.
+    const MINIMAL: &str = r#"
+[base]
+pace_s_per_m = 1.0
+[off_trail_base]
+foot = 2.0
+bicycle = 3.0
+ski = 4.0
+[trail_proximity]
+influence_radius_m = 10.0
+bonus_at_zero = 0.5
+[slope_cell]
+quadratic_scale_deg = 10.0
+refuse_above_deg = 40.0
+[slope_graph]
+quadratic_scale_deg = 10.0
+refuse_above_deg = 50.0
+[total_gain]
+amplifier = 1.0
+[surface_multiplier.foot]
+[surface_multiplier.bicycle]
+[surface_multiplier.ski]
+"#;
 }
