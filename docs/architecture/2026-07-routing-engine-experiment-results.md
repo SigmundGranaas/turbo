@@ -786,6 +786,101 @@ counts — **not** corpus wall clock, which phase 0 proved cannot see it.
 
 ---
 
+## E1 — Is the whole solver bit-reproducible across ISAs? **DONE. Yes. Every hash identical.**
+
+**Method.** `tools/experiments/e1_crossisa` — a standalone harness that opens
+the real Sjunkhatten artifacts, builds a `Pathfinder` with the default layer
+stack, and solves six corpus routes on **both lanes**, hashing each route's
+geometry. Cross-compiled to `aarch64-unknown-linux-gnu` and run under
+`qemu-aarch64-static`.
+
+Deliberately standalone rather than cross-compiling `tileserver`: the server
+binary drags in sqlx, rustls and axum, whose C dependencies are a yak-shave
+unrelated to the question. The solver crates are pure Rust apart from zstd.
+
+### Result
+
+```
+$ diff <(e1_x86) <(e1_aarch64)
+IDENTICAL — every route, both lanes, including the error case
+```
+
+| lane | corpus hash (x86_64) | corpus hash (aarch64) |
+|---|---|---|
+| off-trail | `a5b78091e510c5ee` | `a5b78091e510c5ee` |
+| unified | `a0d848ef98fa8bd6` | `a0d848ef98fa8bd6` |
+
+Every per-route hash, every point count, every length to the digit — and
+the one route that fails (`EndpointRefused` on `mask_refusal`) fails
+identically on both.
+
+### Why this is much stronger than E0
+
+E0 was a *necessary* condition: of every transcendental on the routing path,
+only `f32::atan` differed between the two libms. That left the *sufficient*
+question open — a single flipped comparison anywhere in a priority queue can
+fork a route, and a solve makes millions of them.
+
+E1 closes it end to end. Millions of float operations, thousands of queue
+comparisons and tie-breaks, two independent solver families, and the output
+is bit-identical. **The `f32::atan` divergence E0 found does not bite in
+practice**, consistent with its own finding of zero cliff-refusal flips in
+4 M samples.
+
+**Bit-exact cross-ISA parity is achieved, not merely achievable.** Bet #6
+and finding A1 resolve in the design's favour.
+
+### Caveats that survive
+
+1. **glibc vs glibc, under QEMU.** Android links **bionic**. This settles
+   the *ISA* question, not the *platform* one. The `libm` swap for `atan`
+   remains cheap insurance and should still be taken.
+2. QEMU is IEEE-accurate for these operations, but it is emulation, not
+   silicon.
+3. Six routes over one region.
+
+The residual risk is now narrow and specific: bionic's libm on real
+hardware. That is a device test, not an architecture question.
+
+---
+
+## E7c — Is the contributor's slope term the redundant one? **DONE. It changes routes but is not structural.**
+
+A12's untested direction. E7b removed the solver's *directional* Tobler and
+the search exploded. E7c keeps that and zeroes `ToblerSlopeContributor` on
+**mesh edges only** (graph edges keep it — there the contributor *is* the
+slope model, with no solver-side term).
+
+| lane | corpus hash | vs baseline | DEM lookups | vs baseline | solved |
+|---|---|---|---|---|---|
+| off-trail | `2cdb4466bf632d6b` | **changed** | 1 692 436 | **−11.9%** | 12/12 |
+| unified | `4417da3360f1ce8b` | **changed** | 189 715 | **−24.1%** | 12/12 |
+
+### What it establishes
+
+Together, E7b and E7c pin down A12 exactly:
+
+| Term | Remove it → | Verdict |
+|---|---|---|
+| solver's `tobler_pace(grad)` — **directional** | search explodes (>5000× slowdown) | **structural** |
+| contributor's `ToblerSlopeContributor` — **isotropic, east–west probe** | routes change, solver fine, 12–24% less DEM work | **additive, not structural** |
+
+So the double-count is **real and removable**: both terms charge for slope,
+but only one carries the direction the A\* needs. The contributor's term is
+a genuine *extra* slope charge computed on an arbitrary axis.
+
+Three consequences:
+
+1. **The fix is known and small** — the E7c patch itself: return 0 from
+   `ToblerSlopeContributor::contribute` for `EdgeKind::Mesh`.
+2. **It is a calibration change**, not cleanup. Routes move, so it needs a
+   baseline update and a full-corpus gate.
+3. **It is also a performance win**: 12–24% fewer DEM samples, because the
+   contributor samples N+1 points per edge. That is the single largest
+   measured DEM-work reduction available.
+
+---
+
 ## Environment notes
 
 - `rustc 1.94.1`, x86_64-unknown-linux-gnu, single target installed.
