@@ -1,0 +1,62 @@
+# Preference scenarios — routes where a preference has room to express.
+#
+# The Sjunkhatten corpus answers "does the router find the path people
+# walked". It cannot answer "does the router change its mind when asked
+# to", and that is not a gap in its sampling — it is structural. Its
+# hikes were sampled FROM trail polylines that the router has in its
+# graph, so it follows them, and all 25 sit within 10 m of the walked
+# line. Off-trail cost is irrelevant to a route already on the best
+# trail. Measured: quadrupling off-trail cost moves the corpus mean
+# length by 2%; the `direct` preset moves it by 0.07%.
+#
+# These pairs were not chosen by hand. A grid of 100 candidate pairs
+# across the CI pack was solved twice — once at `off_trail_base_foot
+# = 1.3`, once at 6.0 — and ranked by how much the route length moved
+# between the two. The survivors below spread 50–155%, because at each
+# of them a direct off-trail line and a long trail detour are genuinely
+# competing options. That competition is the thing a preference knob
+# acts on; without it, a knob can be perfectly wired and still change
+# nothing.
+#
+# Planar metres (EPSG:25833), matching the engine's frame — these are
+# fixtures for engine tests, not an API surface, so there is no reason
+# to round-trip them through WGS84.
+#
+# Used by `crates/turbo-tiles-pathfind/tests/knob_liveness.rs`.
+
+[[scenario]]
+name = "valley_diagonal"
+# The most discriminating pair found: 4.1 km apart, and the two extremes
+# disagree by 155% (4438 m all-off-trail vs 11329 m mostly on trail).
+from = [501424.0, 7438594.5]
+to = [504185.5, 7435620.2]
+
+[[scenario]]
+name = "north_south_ridge"
+# 3.0 km apart, 120% spread. A north-south line where the trail network
+# runs the wrong way.
+from = [501424.0, 7441568.8]
+to = [501424.0, 7444543.0]
+
+[[scenario]]
+name = "east_west_traverse"
+# 2.8 km, 110% spread. Different axis from the above, so a knob that
+# happens to be direction-sensitive cannot pass on one alone.
+from = [504185.5, 7444543.0]
+to = [506947.0, 7444543.0]
+
+[[scenario]]
+name = "southern_crossing"
+# 4.1 km, 105% spread, and the widest swing in off-trail content
+# (4605 m -> 788 m). The clearest "cut across or go round" decision.
+from = [504185.5, 7432646.0]
+to = [506947.0, 7435620.2]
+
+[[scenario]]
+name = "short_hop"
+# 2.8 km, 64% spread — the least sensitive of the set, kept on purpose.
+# A knob that only moves the extreme cases is worth distinguishing from
+# one that moves everything, and a set of uniformly easy fixtures cannot
+# tell you which you have.
+from = [506947.0, 7432646.0]
+to = [509708.5, 7432646.0]
