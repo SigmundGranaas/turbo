@@ -173,22 +173,13 @@ fn advisory_landcover_layer_does_not_grant_coverage_without_elevation() {
         "precondition: the point is outside the DEM"
     );
 
-    // Register the landcover mask exactly as `routing_setup.rs` does — the
-    // NATIVE contributor, since that is what coverage now consults. Pushing
-    // only the legacy layer would make this test pass vacuously.
+    // Register the landcover mask exactly as `routing_setup.rs` does.
     let mut pf = Pathfinder::with_defaults(Some(f.dem.clone()), None, None);
-    pf.push_with_native(
-        Arc::new(turbo_tiles_pathfind::LandcoverLayer {
-            mask: f.forest.clone(),
-            layer_name: "forest",
-            multiplier: 1.4,
-        }),
-        Arc::new(turbo_tiles_pathfind::LandcoverContributor::new(
-            f.forest.clone(),
-            "forest",
-            0.29,
-        )),
-    );
+    pf.push_native(Arc::new(turbo_tiles_pathfind::LandcoverContributor::new(
+        f.forest.clone(),
+        "forest",
+        0.29,
+    )));
 
     // Ground truth: there is genuinely no elevation here.
     assert!(
@@ -215,18 +206,11 @@ fn advisory_landcover_layer_does_not_grant_coverage_without_elevation() {
 fn required_vs_advisory_is_expressible() {
     let f = fixture();
     let mut pf = Pathfinder::with_defaults(Some(f.dem.clone()), None, None);
-    pf.push_with_native(
-        Arc::new(turbo_tiles_pathfind::LandcoverLayer {
-            mask: f.forest.clone(),
-            layer_name: "forest",
-            multiplier: 1.4,
-        }),
-        Arc::new(turbo_tiles_pathfind::LandcoverContributor::new(
-            f.forest.clone(),
-            "forest",
-            0.29,
-        )),
-    );
+    pf.push_native(Arc::new(turbo_tiles_pathfind::LandcoverContributor::new(
+        f.forest.clone(),
+        "forest",
+        0.29,
+    )));
 
     use turbo_tiles_pathfind::Requirement;
     let req: Vec<(&str, Requirement)> = pf

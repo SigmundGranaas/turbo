@@ -1,7 +1,7 @@
 //! Off-trail pathfinding.
 //!
 //! - `Pathfinder` composes the routing graph with a stack of
-//!   [`cost::CostLayer`]s that score traversal of every mesh cell
+//!   [`contributor::CostContributor`]s that price traversal of every mesh cell
 //!   and every graph edge. Adding a new data source — marsh layer,
 //!   ridge bonus, preferred-track set — means implementing the
 //!   trait and registering an instance at boot.
@@ -27,16 +27,13 @@ pub(crate) mod avoid;
 pub mod config;
 pub mod contributor;
 pub mod core;
-pub mod cost;
 pub(crate) mod cost_field;
 pub mod fmm_adapter;
-pub mod layers;
 pub mod native_contributors;
 pub mod pathfinder;
 pub mod solver_trace;
 pub mod tracer;
 pub mod unified;
-pub mod vector_layers;
 
 pub use config::{
     BaseConfig, ConfigError, CostConfig, CostConfigPatch, OffTrailConfig, Preset, PresetSet,
@@ -47,11 +44,6 @@ pub use contributor::{
     EdgeKind, EdgeWalkCost, NamedContribution, Requirement, BASE_PACE_S_PER_M,
 };
 pub use core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
-pub use cost::{CellCost, CostLayer};
-pub use layers::{
-    AvalancheTerrainLayer, DirectionalSlopeLayer, GraphSlopeLayer, LandcoverLayer, MarkingLayer,
-    MaskRefusalLayer, PreferredEdgeLayer, SlopeLayer, TotalGainLayer, TrailProximityLayer,
-};
 pub use native_contributors::{
     has_native_replacement, AvalancheTerrainContributor, ContourCrossingContributor,
     DemCoveragePenaltyContributor, DirectionalSlopeContributor, GraphSlopeContributor,
@@ -67,7 +59,3 @@ pub use pathfinder::{
 };
 pub use solver_trace::{PhaseFrame, Recorder, SolverEvent, SolverRecording};
 pub use tracer::{LayerStats, MeshStats, PhaseTime, TraceSnapshot, Tracer};
-pub use vector_layers::{
-    collection_polyline_length_in, LineCrossingLayer, PointProximityLayer, PolygonIntegralLayer,
-    PolygonRefusalLayer,
-};

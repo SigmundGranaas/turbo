@@ -36,11 +36,6 @@ use crate::core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
 use crate::contributor::{
     EdgeContext, EdgeElevProbe, EdgeKind, Requirement, BASE_PACE_S_PER_M,
 };
-use crate::cost::CostLayer;
-use crate::layers::{
-    AvalancheTerrainLayer, DirectionalSlopeLayer, GraphSlopeLayer, MarkingLayer, MaskRefusalLayer,
-    PreferredEdgeLayer, SlopeLayer, TotalGainLayer, TrailProximityLayer,
-};
 
 #[derive(Debug, Error)]
 pub enum PathfindError {
@@ -598,7 +593,6 @@ pub struct Pathfinder {
     /// (per-layer point breakdown), and the `Multiplicative` cost
     /// mode escape valve. The production solver path runs on
     /// [`Self::native_contributors`] instead.
-    pub layers: Vec<Arc<dyn CostLayer>>,
     /// Native cost contributors in walk-seconds (Stage 2 unified
     /// unit). Populated alongside `layers` at boot — every legacy
     /// layer pushed via [`Self::push_with_native`] also registers
@@ -633,10 +627,9 @@ type LegKey = (u64, u64, u64, u64, u64);
 const LEG_CACHE_CAP: usize = 256;
 
 impl Pathfinder {
-    pub fn new(graph: Option<Arc<Graph>>, layers: Vec<Arc<dyn CostLayer>>) -> Self {
+    pub fn new(graph: Option<Arc<Graph>>) -> Self {
         Self {
             graph,
-            layers,
             native_contributors: Vec::new(),
             cost_config: crate::config::CostConfig::from_embedded()
                 .expect("embedded cost-config defaults must parse"),
@@ -686,16 +679,10 @@ impl Pathfinder {
         };
         let dem_for_breakdown = dem.clone();
         let mask_for_breakdown = mask.clone();
-        let mut layers: Vec<Arc<dyn CostLayer>> = Vec::new();
         let mut natives: Vec<Arc<dyn crate::contributor::CostContributor>> = Vec::new();
         if let Some(d) = dem.as_ref() {
             // Three DEM-driven layers; SlopeLayer reads its scale
             // + refusal threshold from cost_config.slope_cell.
-            layers.push(Arc::new(SlopeLayer::with_knobs(
-                d.clone(),
-                cost_config.slope_cell.quadratic_scale_deg,
-                cost_config.slope_cell.refuse_above_deg,
-            )));
             // Mesh slope hard-veto fires only at the true-cliff
             // threshold; 45–60° is continuous high cost (Tobler), not a
             // wall, so corridors aren't severed by the 10 m DEM's steep
@@ -736,50 +723,32 @@ impl Pathfinder {
             // double-count slope cost. Keep the legacy layer in
             // `layers` for the inspect endpoint (per-layer debug
             // view) but drop it from the native cost stack.
-            layers.push(Arc::new(DirectionalSlopeLayer::new(d.clone())));
-            layers.push(Arc::new(AvalancheTerrainLayer::new(d.clone())));
             natives.push(Arc::new(AvalancheTerrainContributor::new(d.clone())));
         }
         if let Some(m) = mask.as_ref() {
-            layers.push(Arc::new(MaskRefusalLayer::new(m.clone())));
             natives.push(Arc::new(MaskRefusalContributor::new(m.clone()).with_water(
                 cost_config.water.cost_s_per_m,
                 cost_config.water.shore_band_m,
             )));
         }
         if let Some(g) = graph.as_ref() {
-            layers.push(Arc::new(TrailProximityLayer::new(
-                g.as_ref(),
-                cost_config.trail_proximity.influence_radius_m as f64,
-                cost_config.trail_proximity.bonus_at_zero,
-            )));
             natives.push(Arc::new(TrailProximityContributor::new(
                 g.as_ref(),
                 cost_config.trail_proximity.influence_radius_m as f64,
                 cost_config.trail_proximity.bonus_at_zero,
             )));
         }
-        layers.push(Arc::new(PreferredEdgeLayer::default()));
         natives.push(Arc::new(PreferredEdgeContributor::default()));
-        layers.push(Arc::new(MarkingLayer::default()));
         natives.push(Arc::new(MarkingBonusContributor::default()));
-        layers.push(Arc::new(GraphSlopeLayer {
-            quadratic_scale_deg: cost_config.slope_graph.quadratic_scale_deg,
-            refuse_above_deg: cost_config.slope_graph.refuse_above_deg,
-        }));
         natives.push(Arc::new(GraphSlopeContributor {
             quadratic_scale_deg: cost_config.slope_graph.quadratic_scale_deg,
             refuse_above_deg: cost_config.slope_graph.refuse_above_deg,
-        }));
-        layers.push(Arc::new(TotalGainLayer {
-            gain_amplifier: cost_config.total_gain.amplifier,
         }));
         natives.push(Arc::new(TotalGainContributor {
             gain_amplifier: cost_config.total_gain.amplifier,
         }));
         Self {
             graph,
-            layers,
             native_contributors: natives,
             cost_config,
             dem: dem_for_breakdown,
@@ -795,57 +764,15 @@ impl Pathfinder {
     /// for vector + landcover layers uses this so both halves stay
     /// in lockstep without each call site having to remember the
     /// two pushes.
-    pub fn push_with_native(
-        &mut self,
-        legacy: Arc<dyn CostLayer>,
-        native: Arc<dyn crate::contributor::CostContributor>,
-    ) {
-        self.layers.push(legacy);
+    /// Register a cost contributor. (Was `push_with_native(legacy, native)`
+    /// until B2c deleted the legacy half.)
+    pub fn push_native(&mut self, native: Arc<dyn crate::contributor::CostContributor>) {
         self.native_contributors.push(native);
-    }
-
-    /// Append a custom layer at runtime. Layers added later compose
-    /// after the built-ins.
-    pub fn push_layer(&mut self, layer: Arc<dyn CostLayer>) {
-        self.layers.push(layer);
-    }
-
-    /// Switch the rasterised `mask_refusal` layer (if present) into
-    /// "defer water to vector" mode. Used when a vector `water`
-    /// integral layer supersedes the 25 m water bitmap — without
-    /// this call, both layers fire and the bitmap reintroduces the
-    /// "5 m tarn = 100 m halo" pathology we're trying to remove.
-    /// Glaciers + other refusal kinds in the raster mask remain
-    /// active.
-    ///
-    /// Takes the [`Mask`] from the caller (the original `Arc<Mask>`
-    /// is also held by `api_state.mask`) so we don't need to
-    /// downcast `Arc<dyn CostLayer>` to recover it.
-    pub fn defer_mask_water_to_vector(&mut self, mask: Arc<Mask>) {
-        for i in 0..self.layers.len() {
-            if self.layers[i].name() == "mask_refusal" {
-                self.layers[i] =
-                    Arc::new(crate::layers::MaskRefusalLayer::new(mask.clone()).deferring_water());
-                break;
-            }
-        }
-        // Keep the native side in lockstep so the solver's walk-
-        // seconds path sees the same "water now belongs to the
-        // vector layer" decision.
-        for i in 0..self.native_contributors.len() {
-            if self.native_contributors[i].name() == "mask_refusal" {
-                self.native_contributors[i] = Arc::new(
-                    crate::native_contributors::MaskRefusalContributor::new(mask.clone())
-                        .deferring_water(),
-                );
-                return;
-            }
-        }
     }
 
     /// List enabled layer names — useful for the admin UI.
     pub fn layer_names(&self) -> Vec<&'static str> {
-        self.layers.iter().map(|l| l.name()).collect()
+        self.native_contributors.iter().map(|c| c.name()).collect()
     }
 
     /// True if at least one registered layer claims authoritative
@@ -1045,27 +972,61 @@ impl Pathfinder {
     /// that it is.
     pub fn inspect_point(&self, lon: f64, lat: f64, profile: Profile) -> InspectPoint {
         let p = wgs84_to_utm33n(lon, lat);
-        let mut layers = Vec::with_capacity(self.layers.len());
-        let mut composed = 1.0f32;
+        let cell_m = default_mesh_cell_m();
+        // Same synthetic cell edge the solver prices (B2c), so the per-layer
+        // debug view reports what actually decides the route.
+        let probe = self
+            .dem
+            .as_ref()
+            .map(|d| EdgeElevProbe::new(d, p.x - 0.5 * cell_m, p.y, p.x + 0.5 * cell_m, p.y));
+        let ctx = EdgeContext {
+            fx: p.x - 0.5 * cell_m,
+            fy: p.y,
+            tx: p.x + 0.5 * cell_m,
+            ty: p.y,
+            length_m: cell_m,
+            profile,
+            kind: EdgeKind::Mesh,
+            elev_probe: probe.as_ref(),
+        };
+        let mut layers = Vec::with_capacity(self.native_contributors.len());
         let mut refused_by: Option<String> = None;
-        for layer in &self.layers {
-            let c = layer.cell_cost(p.x, p.y, profile);
-            let layer_refused = c.refused.map(|r| r.to_string());
+        let base = BASE_PACE_S_PER_M;
+        let mut extra_s = 0.0f64;
+        let mut factor = 1.0f64;
+        for c in &self.native_contributors {
+            let veto = c.veto(&ctx).map(|r| r.to_string());
             if refused_by.is_none() {
-                if let Some(ref r) = layer_refused {
-                    refused_by = Some(format!("{}:{}", layer.name(), r));
+                if let Some(ref r) = veto {
+                    refused_by = Some(format!("{}:{}", c.name(), r));
+                }
+            }
+            // Per-contributor multiplier: its own walk-seconds delta expressed
+            // against the flat-trail baseline, so the shape of the number the
+            // SPA renders is unchanged.
+            let dv = if veto.is_some() { 0.0 } else { c.contribute(&ctx) };
+            let mult = if veto.is_some() {
+                f32::INFINITY
+            } else {
+                ((base + dv / cell_m) / base) as f32
+            };
+            if veto.is_none() {
+                if dv.is_finite() {
+                    extra_s += dv;
+                }
+                let f = c.pace_factor(&ctx);
+                if f.is_finite() && f > 0.0 {
+                    factor *= f;
                 }
             }
             layers.push(InspectLayer {
-                name: layer.name().to_string(),
-                multiplier: c.multiplier,
-                refused: layer_refused,
-                covers: layer.covers(p.x, p.y),
+                name: c.name().to_string(),
+                multiplier: mult,
+                refused: veto,
+                covers: c.covers(p.x, p.y),
             });
-            if c.refused.is_none() {
-                composed *= c.multiplier;
-            }
         }
+        let composed = (((base + extra_s / cell_m) / base) * factor) as f32;
         InspectPoint {
             lon,
             lat,

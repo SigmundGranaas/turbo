@@ -208,98 +208,60 @@ pub fn build_pathfinder(
                         // lake/river is effectively impassable — water is only
                         // ever chosen as an absolute last resort.
                         const WATER_CROSS_PENALTY_PER_M: f64 = 400.0;
-                        let legacy = turbo_tiles_pathfind::PolygonIntegralLayer::new(
-                            "water",
-                            coll.clone(),
-                            |len, _attrs, _p| len * WATER_CROSS_PENALTY_PER_M,
-                        );
                         let native = turbo_tiles_pathfind::PolygonIntegralContributor::new(
                             "water",
                             coll,
                             |len, _attrs, _p| len * WATER_CROSS_PENALTY_PER_M,
                         );
-                        pf.push_with_native(Arc::new(legacy), Arc::new(native));
+                        pf.push_native(Arc::new(native));
                         taken_layer_names.insert("water");
-                        // Tell the raster `mask_refusal` layer to stop
-                        // vetoing water cells — the integral layer now
-                        // handles them with proper edge-length cost.
-                        if let Some(m) = art.mask.clone() {
-                            pf.defer_mask_water_to_vector(m);
-                            tracing::info!(
-                                "deferred raster mask water refusal to vector water layer"
-                            );
-                        }
+                        // The native `MaskRefusalContributor` prices water as
+                        // cost rather than vetoing it (`with_water`), so no
+                        // deferral step is needed since B2c removed the legacy
+                        // raster layer this used to reconfigure.
                     }
                     if let Some(coll) = store.try_collection("wetland") {
-                        let legacy = turbo_tiles_pathfind::PolygonIntegralLayer::new(
-                            "wetland",
-                            coll.clone(),
-                            |len, _attrs, _p| len * 1.5,
-                        );
                         let native = turbo_tiles_pathfind::PolygonIntegralContributor::new(
                             "wetland",
                             coll,
                             |len, _attrs, _p| len * 1.5,
                         );
-                        pf.push_with_native(Arc::new(legacy), Arc::new(native));
+                        pf.push_native(Arc::new(native));
                         taken_layer_names.insert("wetland");
                     }
                     if let Some(coll) = store.try_collection("cultivated") {
                         // Innmark — soft penalty so the solver routes
                         // around farmyards but doesn't refuse them.
-                        let legacy = turbo_tiles_pathfind::PolygonIntegralLayer::new(
-                            "cultivated",
-                            coll.clone(),
-                            |len, _attrs, _p| len * 3.0,
-                        );
                         let native = turbo_tiles_pathfind::PolygonIntegralContributor::new(
                             "cultivated",
                             coll,
                             |len, _attrs, _p| len * 3.0,
                         );
-                        pf.push_with_native(Arc::new(legacy), Arc::new(native));
+                        pf.push_native(Arc::new(native));
                         taken_layer_names.insert("cultivated");
                     }
                     if let Some(coll) = store.try_collection("ocean") {
                         // Saltwater is a hard veto — you cannot wade
                         // across a fjord.
-                        let legacy = turbo_tiles_pathfind::PolygonRefusalLayer::new(
-                            "ocean",
-                            coll.clone(),
-                            "ocean",
-                        );
                         let native = turbo_tiles_pathfind::PolygonRefusalContributor::new(
                             "ocean", coll, "ocean",
                         );
-                        pf.push_with_native(Arc::new(legacy), Arc::new(native));
+                        pf.push_native(Arc::new(native));
                         taken_layer_names.insert("ocean");
                     }
                     if let Some(coll) = store.try_collection("building") {
                         // Buildings are truly impassable — refusal layer,
                         // not integral.
-                        let legacy = turbo_tiles_pathfind::PolygonRefusalLayer::new(
-                            "building",
-                            coll.clone(),
-                            "building",
-                        );
                         let native = turbo_tiles_pathfind::PolygonRefusalContributor::new(
                             "building", coll, "building",
                         );
-                        pf.push_with_native(Arc::new(legacy), Arc::new(native));
+                        pf.push_native(Arc::new(native));
                         taken_layer_names.insert("building");
                     }
                     if let Some(coll) = store.try_collection("streams") {
                         // Stream crossings — width-aware cost. Width is
                         // metres; crossing cost = 10 + 5×width metres per
                         // crossing.
-                        let legacy = turbo_tiles_pathfind::LineCrossingLayer::new(
-                            "streams",
-                            coll.clone(),
-                            |n, attrs, _p| {
-                                let w = attrs.f32("width_m").unwrap_or(2.0) as f64;
-                                (n as f64) * (10.0 + 5.0 * w)
-                            },
-                        );
                         let native = turbo_tiles_pathfind::LineCrossingContributor::new(
                             "streams",
                             coll,
@@ -308,7 +270,7 @@ pub fn build_pathfinder(
                                 (n as f64) * (10.0 + 5.0 * w)
                             },
                         );
-                        pf.push_with_native(Arc::new(legacy), Arc::new(native));
+                        pf.push_native(Arc::new(native));
                         taken_layer_names.insert("streams");
                         // Mask-based stream_barrier + bridge_zone are
                         // strictly weaker than this — skip both.
@@ -368,11 +330,6 @@ pub fn build_pathfinder(
                     // composition) and the SPA inspect endpoints
                     // (visualisation). Share via Arc.
                     landcover.insert(*layer_name, arc.clone());
-                    let legacy = turbo_tiles_pathfind::LandcoverLayer {
-                        mask: arc.clone(),
-                        layer_name,
-                        multiplier: *multiplier,
-                    };
                     // Translate the legacy multiplier into a walk-
                     // seconds-per-metre delta against the flat-trail
                     // baseline. Infinity multipliers (building) become a
@@ -388,7 +345,7 @@ pub fn build_pathfinder(
                         layer_name,
                         delta_s_per_m,
                     );
-                    pf.push_with_native(Arc::new(legacy), Arc::new(native));
+                    pf.push_native(Arc::new(native));
                 }
                 Err(e) => {
                     tracing::error!(error = %e, path = %path.display(), "failed to open landcover artifact")
