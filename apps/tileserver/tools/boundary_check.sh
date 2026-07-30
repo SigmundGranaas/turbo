@@ -65,18 +65,52 @@ fi
 #
 # The structural guard: if `Dem` is unnameable inside the engine, the
 # concrete path is gone by construction — a type-level proof rather than
-# an assertion. `wgs84_to_utm33n` is the one knowing exception, pending
-# C4 (projection moves to turbo-geo-frame at L5); it is listed here so
-# that removing it removes the exemption too.
+# an assertion. C4 removed the last exception (the projection shim), so
+# this rule now admits none.
 # ---------------------------------------------------------------------
-hits=$(grep -rn 'turbo_tiles_elev::' crates/turbo-tiles-pathfind/src/ \
-        | grep -v 'wgs84_to_utm33n' | grep -v '^\s*//' || true)
+hits=$(grep -rn 'turbo_tiles_elev' crates/turbo-tiles-pathfind/src/ || true)
 if [[ -n "$hits" ]]; then
   bad "the engine names the concrete artifact crate (design §12, C1)" \
       "$(echo "$hits" | head -5)" \
       "Route it through a turbo-route-model port instead."
 else
-  ok "engine names turbo_tiles_elev only for the C4 projection shim"
+  ok "engine does not name the artifact crate at all"
+fi
+
+# ---------------------------------------------------------------------
+# 3b. The engine names no coordinate reference system.
+#
+# C4. Rev. 1 of the design proposed `Projection` as an engine port —
+# a port with exactly one implementation, which keeps the *concept* of
+# a CRS inside the engine so every future feature gets to ask "which
+# frame is this in?" until one of them answers wrongly. Removing the
+# concept is stronger than abstracting it: the engine takes metres and
+# returns metres. Comments count, because a comment asserting a frame
+# is a claim the next reader will code against.
+# ---------------------------------------------------------------------
+crs=$(grep -rniE 'utm|wgs ?84|epsg|25833|4326|lon_deg|lat_deg' \
+        crates/turbo-tiles-pathfind/src/ || true)
+if [[ -n "$crs" ]]; then
+  bad "the engine names a coordinate reference system (design §7.3, C4)" \
+      "$(echo "$crs" | head -5)" \
+      "The engine is planar-only. Projection is turbo-geo-frame, at L5."
+else
+  ok "engine names no coordinate reference system"
+fi
+
+# ---------------------------------------------------------------------
+# 3c. Projection lives in exactly one crate.
+#
+# A projection scattered across handlers is one that eventually gets
+# applied twice, or not at all, on some path nobody tested.
+# ---------------------------------------------------------------------
+if grep -rq 'fn wgs84_to_utm33n\|fn utm33n_to_wgs84' \
+     --include='*.rs' crates/ --exclude-dir=turbo-geo-frame; then
+  bad "the projection is defined outside turbo-geo-frame (design §7.3)" \
+      "$(grep -rn 'fn wgs84_to_utm33n\|fn utm33n_to_wgs84' --include='*.rs' \
+           crates/ --exclude-dir=turbo-geo-frame | head -3)"
+else
+  ok "projection defined only in turbo-geo-frame"
 fi
 
 # ---------------------------------------------------------------------

@@ -26,10 +26,11 @@
 //!   grows over time). The animation still shows the
 //!   characteristic exploration pattern, just with fewer frames.
 //!
-//! - **Coordinates in EPSG:25833 metres at record time**. The
-//!   `Pathfinder` converts to WGS84 once when serialising the
-//!   recording, not per event. Keeps the recorder allocation-free
-//!   on the hot path.
+//! - **Coordinates in the engine's planar frame**. The recording
+//!   leaves the engine in metres and the API layer projects it once
+//!   (C4). Keeps the recorder allocation-free on the hot path, and
+//!   keeps the engine free of a coordinate system it has no business
+//!   knowing.
 //!
 //! - **Phase frames**. Events are grouped into phases that match
 //!   the existing `tracer::phase` boundaries (`try_on_graph`,
@@ -57,9 +58,9 @@ use std::sync::Arc;
 
 use serde::Serialize;
 
-/// One recorded solver event. Coordinates are EPSG:25833 metres at
-/// record time; the pathfinder converts to WGS84 on serialise
-/// (record+replay path) or on each SSE-event emit (live path).
+/// One recorded solver event. Coordinates are planar metres; the API
+/// layer projects them on serialise (record+replay path) or on each
+/// SSE-event emit (live path).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SolverEvent {
@@ -93,7 +94,7 @@ pub enum SolverEvent {
     },
     /// Current best-path snapshot. Emitted only at the end of
     /// reconstruction so the SPA can show the answer snapping
-    /// into place. Coordinates are EPSG:25833 metres.
+    /// into place. Coordinates are planar metres.
     BestPathSnapshot { coords: Vec<[f32; 2]> },
 }
 
@@ -266,14 +267,14 @@ impl Recorder {
 
 thread_local! {
     static ACTIVE: RefCell<Option<Arc<Recorder>>> = const { RefCell::new(None) };
-    // UTM coords (EPSG:25833) prepended to every `BestPathSnapshot`.
+    // Planar coords prepended to every `BestPathSnapshot`.
     // Used by multi-waypoint `solve_route` so the live preview shows the
     // already-finalized earlier legs while a later leg is still solving,
     // instead of the preview jumping back to the current leg's start.
     static SNAPSHOT_PREFIX: RefCell<Vec<[f32; 2]>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Set the coords (UTM33N) prepended to subsequent `BestPathSnapshot`
+/// Set the planar coords prepended to subsequent `BestPathSnapshot`
 /// events. Pass an empty vec to clear. Cheap; intended to be set at
 /// per-leg boundaries by `Pathfinder::solve_route`.
 pub fn set_snapshot_prefix(coords: Vec<[f32; 2]>) {

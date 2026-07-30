@@ -59,10 +59,21 @@ impl From<Arc<Dem>> for DemHeightfield {
 /// The one coordinate translation in the adapter: the engine's planar
 /// `Point` is the artifact's `PointXY`, both metres in the same frame.
 /// This is a rename, not a projection — the engine never learns that the
-/// frame is EPSG:25833.
+/// frame is EPSG:25833, and this function does not tell it.
+///
+/// Public because the DEM-serving HTTP endpoints (`/v1/elev`,
+/// `/v1/slope`) legitimately hold both vocabularies: they project a
+/// request with `turbo-geo-frame` and then query the artifact directly,
+/// without going through the engine at all.
 #[inline]
-fn xy(p: Point) -> PointXY {
+pub fn xy(p: Point) -> PointXY {
     PointXY { x: p.x, y: p.y }
+}
+
+/// The inverse rename.
+#[inline]
+pub fn point(p: PointXY) -> Point {
+    Point { x: p.x, y: p.y }
 }
 
 impl Heightfield for DemHeightfield {

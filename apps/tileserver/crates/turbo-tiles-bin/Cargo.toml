@@ -10,6 +10,7 @@ name = "tileserver"
 path = "src/main.rs"
 
 [dependencies]
+turbo-geo-frame.workspace = true
 turbo-geodata-artifacts.workspace = true
 turbo-tiles-core.workspace = true
 turbo-tiles-db.workspace = true

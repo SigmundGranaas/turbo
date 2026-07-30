@@ -58,7 +58,7 @@ pub use native_contributors::{
     DISPLACED_LEGACY_LAYERS,
 };
 pub use pathfinder::{
-    utm33n_to_wgs84, CostMode, Inspect, InspectCell, InspectLayer, InspectPoint, LegKind, Path,
+    CostMode, Inspect, InspectCell, InspectLayer, InspectPoint, LegKind, Path,
     PathLeg, PathStrategy, PathfindError, Pathfinder, Prefs, WaypointLeg,
 };
 pub use solver_trace::{PhaseFrame, Recorder, SolverEvent, SolverRecording};

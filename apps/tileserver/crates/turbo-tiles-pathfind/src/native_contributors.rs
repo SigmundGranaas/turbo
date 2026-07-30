@@ -1395,7 +1395,7 @@ pub struct TrailProximityContributor {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct TrailSegment {
-    /// f32: at UTM33N magnitudes (~7e6 m) f32 resolves to <1 m — noise
+    /// f32: at typical planar magnitudes (~7e6 m) f32 resolves to <1 m — noise
     /// against the 30 m influence radius — and HALVES the rtree, which
     /// holds millions of decimated polyline segments.
     a: [f32; 2],

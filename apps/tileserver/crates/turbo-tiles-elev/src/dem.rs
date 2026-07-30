@@ -406,54 +406,6 @@ impl Dem {
     }
 }
 
-/// WGS84 (lon, lat) → EPSG:25833 (UTM33N) using the inverse of the
-/// standard ellipsoidal UTM formulas (WGS84 ellipsoid). Accurate to
-/// well under a metre for the entire UTM33N zone (Norway interior).
-pub fn wgs84_to_utm33n(lon_deg: f64, lat_deg: f64) -> PointXY {
-    const A: f64 = 6_378_137.0;
-    const F: f64 = 1.0 / 298.257_223_563;
-    let e2 = F * (2.0 - F);
-    let ep2 = e2 / (1.0 - e2);
-    let k0 = 0.9996;
-    let lon0 = 15.0_f64.to_radians();
-    let false_e = 500_000.0;
-    let false_n = 0.0;
-
-    let phi = lat_deg.to_radians();
-    let lam = lon_deg.to_radians();
-    let dlam = lam - lon0;
-
-    let sin_phi = phi.sin();
-    let cos_phi = phi.cos();
-    let tan_phi = phi.tan();
-    let n = A / (1.0 - e2 * sin_phi * sin_phi).sqrt();
-    let t = tan_phi * tan_phi;
-    let c = ep2 * cos_phi * cos_phi;
-    let a_term = cos_phi * dlam;
-
-    let m = A
-        * ((1.0 - e2 / 4.0 - 3.0 * e2 * e2 / 64.0 - 5.0 * e2 * e2 * e2 / 256.0) * phi
-            - (3.0 * e2 / 8.0 + 3.0 * e2 * e2 / 32.0 + 45.0 * e2 * e2 * e2 / 1024.0)
-                * (2.0 * phi).sin()
-            + (15.0 * e2 * e2 / 256.0 + 45.0 * e2 * e2 * e2 / 1024.0) * (4.0 * phi).sin()
-            - (35.0 * e2 * e2 * e2 / 3072.0) * (6.0 * phi).sin());
-
-    let x = k0
-        * n
-        * (a_term
-            + (1.0 - t + c) * a_term.powi(3) / 6.0
-            + (5.0 - 18.0 * t + t * t + 72.0 * c - 58.0 * ep2) * a_term.powi(5) / 120.0)
-        + false_e;
-    let y = k0
-        * (m + n
-            * tan_phi
-            * (a_term * a_term / 2.0
-                + (5.0 - t + 9.0 * c + 4.0 * c * c) * a_term.powi(4) / 24.0
-                + (61.0 - 58.0 * t + t * t + 600.0 * c - 330.0 * ep2) * a_term.powi(6) / 720.0))
-        + false_n;
-    PointXY { x, y }
-}
-
 #[allow(dead_code)]
 pub use crate::format::DemMeta as DemMetaPub;
 
@@ -461,11 +413,4 @@ pub use crate::format::DemMeta as DemMetaPub;
 mod tests {
     use super::*;
 
-    #[test]
-    fn wgs84_to_utm33n_oslo_within_100m() {
-        let p = wgs84_to_utm33n(10.7522, 59.9139);
-        let dx = (p.x - 262_000.0).abs();
-        let dy = (p.y - 6_649_000.0).abs();
-        assert!(dx < 1000.0 && dy < 1000.0);
-    }
 }

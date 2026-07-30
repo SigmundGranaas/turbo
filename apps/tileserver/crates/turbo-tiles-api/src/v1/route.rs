@@ -5,7 +5,7 @@ use std::time::Instant;
 use axum::extract::State;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use turbo_tiles_elev::wgs84_to_utm33n;
+use turbo_geo_frame::wgs84_to_utm33n;
 use turbo_tiles_graph::{GraphStats, Profile, RouteResult};
 
 use crate::error::ApiError;
@@ -106,7 +106,7 @@ pub async fn density(State(state): State<ApiState>) -> Result<Json<DensityResp>,
     let points: Vec<[f64; 2]> = nodes
         .into_iter()
         .map(|p| {
-            let (lon, lat) = turbo_tiles_pathfind::utm33n_to_wgs84(p.x as f64, p.y as f64);
+            let (lon, lat) = turbo_geo_frame::utm33n_to_wgs84(p.x as f64, p.y as f64);
             [lon, lat]
         })
         .collect();

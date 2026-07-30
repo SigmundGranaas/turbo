@@ -30,19 +30,6 @@ use std::sync::Arc;
 use thiserror::Error;
 use turbo_route_model::Point;
 
-/// Geographic → planar, pending C4.
-///
-/// The engine is planar-only by design: it works in one metric frame and
-/// never learns which one. This shim is the last place a CRS is named
-/// inside the engine, and it exists solely so the WGS84-in / WGS84-out
-/// HTTP contract keeps working while the projection moves out to
-/// `turbo-geo-frame` at the composition layer. Every call site here is a
-/// request-boundary conversion, not a solver-internal one.
-#[inline]
-fn wgs84_to_utm33n(lon_deg: f64, lat_deg: f64) -> Point {
-    let p = turbo_tiles_elev::wgs84_to_utm33n(lon_deg, lat_deg);
-    Point { x: p.x, y: p.y }
-}
 use turbo_tiles_graph::{Graph, Profile};
 use turbo_tiles_mask::Mask;
 
@@ -92,11 +79,11 @@ pub enum PathfindError {
     /// can point at the exact stop, plus the underlying per-segment
     /// error. Single 2-point routes never produce this (one leg, no
     /// ambiguity — the inner error surfaces directly).
-    #[error("leg {leg_index} ([{},{}] -> [{},{}]) failed: {source}", from[0], from[1], to[0], to[1])]
+    #[error("leg {leg_index} ([{},{}] -> [{},{}]) failed: {source}", from.x, from.y, to.x, to.y)]
     SegmentFailed {
         leg_index: usize,
-        from: [f64; 2],
-        to: [f64; 2],
+        from: Point,
+        to: Point,
         #[source]
         source: Box<PathfindError>,
     },
@@ -149,7 +136,9 @@ pub struct WaypointLeg {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Path {
     pub strategy: PathStrategy,
-    pub geometry: Vec<[f64; 2]>,
+    /// The route polyline in the engine's **planar** frame. The API
+    /// layer projects it (C4).
+    pub geometry: Vec<Point>,
     pub distances_m: Vec<f64>,
     pub length_m: f64,
     pub cost: f64,
@@ -192,7 +181,7 @@ pub struct Path {
     pub recording: Option<crate::solver_trace::SolverRecording>,
 }
 
-/// Convert the recorder's UTM33N coordinates to WGS84 for the
+/// Normalise the recorder's coordinates for the
 /// SPA. Coordinates are stored as `f32` metres at record time
 /// because the hot Theta* loop is dense and a per-event projection
 /// would hurt; the projection runs once here on the snapshot.
@@ -267,51 +256,6 @@ fn stitch_legs(legs: Vec<Path>) -> Path {
     }
     merged.waypoint_legs = wlegs;
     merged
-}
-
-fn serialise_recording(
-    mut rec: crate::solver_trace::SolverRecording,
-) -> crate::solver_trace::SolverRecording {
-    use crate::solver_trace::SolverEvent;
-    let project = |x: f32, y: f32| -> [f32; 2] {
-        let (lon, lat) = utm33n_to_wgs84(x as f64, y as f64);
-        [lon as f32, lat as f32]
-    };
-    for phase in &mut rec.phases {
-        for ev in &mut phase.events {
-            match ev {
-                SolverEvent::NodePopped { x, y, .. } => {
-                    let p = project(*x, *y);
-                    *x = p[0];
-                    *y = p[1];
-                }
-                SolverEvent::EdgeRelaxed { fx, fy, tx, ty, .. } => {
-                    let pa = project(*fx, *fy);
-                    let pb = project(*tx, *ty);
-                    *fx = pa[0];
-                    *fy = pa[1];
-                    *tx = pb[0];
-                    *ty = pb[1];
-                }
-                SolverEvent::LineOfSightCast { fx, fy, tx, ty, .. } => {
-                    let pa = project(*fx, *fy);
-                    let pb = project(*tx, *ty);
-                    *fx = pa[0];
-                    *fy = pa[1];
-                    *tx = pb[0];
-                    *ty = pb[1];
-                }
-                SolverEvent::BestPathSnapshot { coords } => {
-                    for c in coords.iter_mut() {
-                        let p = project(c[0], c[1]);
-                        *c = p;
-                    }
-                }
-                SolverEvent::MeshBuilt { .. } => {}
-            }
-        }
-    }
-    rec
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -426,7 +370,7 @@ pub struct Prefs {
     ///   the operator strongly trusts the trail network.
     #[serde(default)]
     pub off_trail_base: Option<f64>,
-    /// Polylines to AVOID, in EPSG:4326 `[lon, lat]` order. Each is
+    /// Polylines to AVOID, planar. Each is
     /// projected onto the trail (graph) edges it runs along; those
     /// edges get a strong-but-finite cost multiplier in the unified
     /// solver's Dijkstra leg (see [`crate::avoid`]). Empty by default.
@@ -436,7 +380,7 @@ pub struct Prefs {
     /// router can't escape by shadow-walking parallel off-trail — it
     /// takes a divergent marked trail instead.
     #[serde(default)]
-    pub avoid: Vec<Vec<[f64; 2]>>,
+    pub avoid: Vec<Vec<Point>>,
     /// Edge-projection distance (m) for [`Self::avoid`]. `None` reads
     /// `cost_config.avoid.radius_m` (default 30 m).
     #[serde(default)]
@@ -551,8 +495,8 @@ impl Prefs {
         for pl in &self.avoid {
             (pl.len() as u64).hash(&mut h);
             for c in pl {
-                c[0].to_bits().hash(&mut h);
-                c[1].to_bits().hash(&mut h);
+                c.x.to_bits().hash(&mut h);
+                c.y.to_bits().hash(&mut h);
             }
         }
         // Sort layer_weights for a deterministic order (HashMap iteration
@@ -789,7 +733,7 @@ impl Pathfinder {
     }
 
     /// True if at least one registered layer claims authoritative
-    /// data at this EPSG:25833 point. Used by the no-coverage
+    /// data at this planar point. Used by the no-coverage
     /// pre-check in `solve()`.
     pub fn point_covered(&self, x: f64, y: f64) -> bool {
         // INTERSECTION of Required contributors, not the union of anything
@@ -943,12 +887,10 @@ impl Pathfinder {
     /// trait this will report their native walk-seconds directly.
     pub fn cost_breakdown(
         &self,
-        from_lonlat: [f64; 2],
-        to_lonlat: [f64; 2],
+        from: Point,
+        to: Point,
         profile: Profile,
     ) -> crate::contributor::EdgeWalkCost {
-        let from = wgs84_to_utm33n(from_lonlat[0], from_lonlat[1]);
-        let to = wgs84_to_utm33n(to_lonlat[0], to_lonlat[1]);
         let dx = to.x - from.x;
         let dy = to.y - from.y;
         let length_m = (dx * dx + dy * dy).sqrt();
@@ -1052,8 +994,7 @@ impl Pathfinder {
     /// thinks. Powers the SPA's click-a-cell-to-inspect UX — the
     /// user wants to understand *why* a cell is red, not just see
     /// that it is.
-    pub fn inspect_point(&self, lon: f64, lat: f64, profile: Profile) -> InspectPoint {
-        let p = wgs84_to_utm33n(lon, lat);
+    pub fn inspect_point(&self, p: Point, profile: Profile) -> InspectPoint {
         let cell_m = default_mesh_cell_m();
         // Same synthetic cell edge the solver prices (B2c), so the per-layer
         // debug view reports what actually decides the route.
@@ -1110,10 +1051,7 @@ impl Pathfinder {
         }
         let composed = (((base + extra_s / cell_m) / base) * factor) as f32;
         InspectPoint {
-            lon,
-            lat,
-            x_25833: p.x,
-            y_25833: p.y,
+            at: p,
             composed_multiplier: composed,
             refused_by,
             layers,
@@ -1124,9 +1062,7 @@ impl Pathfinder {
     /// same off-trail mesh the solver would, but returns the cells
     /// (cost samples + refused polygons) instead of running Theta\*.
     /// Lets the admin UI visualise *why* the solver did what it did.
-    pub fn inspect(&self, from_lonlat: [f64; 2], to_lonlat: [f64; 2], prefs: &Prefs) -> Inspect {
-        let from_xy = wgs84_to_utm33n(from_lonlat[0], from_lonlat[1]);
-        let to_xy = wgs84_to_utm33n(to_lonlat[0], to_lonlat[1]);
+    pub fn inspect(&self, from_xy: Point, to_xy: Point, prefs: &Prefs) -> Inspect {
         // Inspect with the same effective padding the solver would
         // use so the overlay matches what the solver actually sees.
         let dx = to_xy.x - from_xy.x;
@@ -1143,24 +1079,20 @@ impl Pathfinder {
             self.mesh_inputs_for_bbox(bbox, prefs.mesh_cell_m, prefs.profile, &prefs.layer_weights);
         let cells: Vec<InspectCell> = samples
             .into_iter()
-            .map(|s| {
-                let (lon, lat) = utm33n_to_wgs84(s.at.x, s.at.y);
-                InspectCell {
-                    lon,
-                    lat,
-                    cost_mul: s.cost_mul as f32,
-                }
+            .map(|s| InspectCell {
+                at: Point {
+                    x: s.at.x,
+                    y: s.at.y,
+                },
+                cost_mul: s.cost_mul as f32,
             })
             .collect();
-        let refused_polys: Vec<Vec<[f64; 2]>> = refused
+        let refused_polys: Vec<Vec<Point>> = refused
             .into_iter()
             .map(|rp| {
                 rp.ring
                     .into_iter()
-                    .map(|p| {
-                        let (lon, lat) = utm33n_to_wgs84(p.x, p.y);
-                        [lon, lat]
-                    })
+                    .map(|p| Point { x: p.x, y: p.y })
                     .collect()
             })
             .collect();
@@ -1169,18 +1101,18 @@ impl Pathfinder {
             .as_ref()
             .and_then(|g| g.snap(from_xy.x, from_xy.y, prefs.bridge_radius_m).ok())
             .and_then(|n| self.graph.as_ref().and_then(|g| g.node(n)))
-            .map(|n| {
-                let (lon, lat) = utm33n_to_wgs84(n.x as f64, n.y as f64);
-                [lon, lat]
+            .map(|n| Point {
+                x: n.x as f64,
+                y: n.y as f64,
             });
         let snap_to = self
             .graph
             .as_ref()
             .and_then(|g| g.snap(to_xy.x, to_xy.y, prefs.bridge_radius_m).ok())
             .and_then(|n| self.graph.as_ref().and_then(|g| g.node(n)))
-            .map(|n| {
-                let (lon, lat) = utm33n_to_wgs84(n.x as f64, n.y as f64);
-                [lon, lat]
+            .map(|n| Point {
+                x: n.x as f64,
+                y: n.y as f64,
             });
         Inspect {
             mesh_cell_m: prefs.mesh_cell_m,
@@ -1192,15 +1124,10 @@ impl Pathfinder {
         }
     }
 
-    pub fn solve(
-        &self,
-        from_lonlat: [f64; 2],
-        to_lonlat: [f64; 2],
-        prefs: Prefs,
-    ) -> Result<Path, PathfindError> {
+    pub fn solve(&self, from: Point, to: Point, prefs: Prefs) -> Result<Path, PathfindError> {
         // A plain 2-point route is the degenerate multi-point route.
         // One code path keeps the two from drifting apart.
-        self.solve_route(&[from_lonlat, to_lonlat], prefs)
+        self.solve_route(&[from, to], prefs)
     }
 
     /// Route through an ORDERED list of `points` (start, zero or more
@@ -1212,7 +1139,7 @@ impl Pathfinder {
     /// own — standard and expected). A failing segment surfaces as
     /// [`PathfindError::SegmentFailed`] carrying the 0-based leg index
     /// and its endpoints, so the caller can point at the exact stop.
-    pub fn solve_route(&self, points: &[[f64; 2]], prefs: Prefs) -> Result<Path, PathfindError> {
+    pub fn solve_route(&self, points: &[Point], prefs: Prefs) -> Result<Path, PathfindError> {
         if points.len() < 2 {
             return Err(PathfindError::DegenerateInputs { dist_m: 0.0 });
         }
@@ -1230,7 +1157,7 @@ impl Pathfinder {
     /// Soft by construction: the return uses the same finite avoid
     /// multiplier, so a single-path spur (no divergent trail) gracefully
     /// returns an out-and-back rather than failing with NoRoute.
-    fn solve_round_trip(&self, points: &[[f64; 2]], prefs: Prefs) -> Result<Path, PathfindError> {
+    fn solve_round_trip(&self, points: &[Point], prefs: Prefs) -> Result<Path, PathfindError> {
         // Outbound: the caller's ordered points, WITHOUT the round-trip
         // flag (else infinite recursion).
         let mut outbound_prefs = prefs.clone();
@@ -1260,7 +1187,7 @@ impl Pathfinder {
         Ok(loop_path)
     }
 
-    fn solve_route_once(&self, points: &[[f64; 2]], prefs: Prefs) -> Result<Path, PathfindError> {
+    fn solve_route_once(&self, points: &[Point], prefs: Prefs) -> Result<Path, PathfindError> {
         if points.len() < 2 {
             return Err(PathfindError::DegenerateInputs { dist_m: 0.0 });
         }
@@ -1280,10 +1207,10 @@ impl Pathfinder {
                 .map(|i| {
                     (
                         fp,
-                        points[i][0].to_bits(),
-                        points[i][1].to_bits(),
-                        points[i + 1][0].to_bits(),
-                        points[i + 1][1].to_bits(),
+                        points[i].x.to_bits(),
+                        points[i].y.to_bits(),
+                        points[i + 1].x.to_bits(),
+                        points[i + 1].y.to_bits(),
                     )
                 })
                 .collect();
@@ -1316,15 +1243,10 @@ impl Pathfinder {
                     continue;
                 }
                 // Live-preview continuity: prefix this leg's snapshots with the
-                // already-resolved earlier legs (UTM, the recorder's space).
+                // already-resolved earlier legs (the recorder's space).
                 let prefix: Vec<[f32; 2]> = resolved
                     .iter()
-                    .flat_map(|p| {
-                        p.geometry.iter().map(|c| {
-                            let u = wgs84_to_utm33n(c[0], c[1]);
-                            [u.x as f32, u.y as f32]
-                        })
-                    })
+                    .flat_map(|p| p.geometry.iter().map(|c| [c.x as f32, c.y as f32]))
                     .collect();
                 crate::solver_trace::set_snapshot_prefix(prefix);
                 let seg = self
@@ -1359,20 +1281,14 @@ impl Pathfinder {
                 p.debug = Some(t.snapshot());
             }
             if let Some(r) = recorder.as_ref() {
-                p.recording = Some(serialise_recording(r.snapshot()));
+                // Planar, as recorded. The API layer projects (C4).
+                    p.recording = Some(r.snapshot());
             }
             p
         })
     }
 
-    fn solve_inner(
-        &self,
-        from_lonlat: [f64; 2],
-        to_lonlat: [f64; 2],
-        prefs: Prefs,
-    ) -> Result<Path, PathfindError> {
-        let from_xy = wgs84_to_utm33n(from_lonlat[0], from_lonlat[1]);
-        let to_xy = wgs84_to_utm33n(to_lonlat[0], to_lonlat[1]);
+    fn solve_inner(&self, from_xy: Point, to_xy: Point, prefs: Prefs) -> Result<Path, PathfindError> {
         let dx = to_xy.x - from_xy.x;
         let dy = to_xy.y - from_xy.y;
         let dist = (dx * dx + dy * dy).sqrt();
@@ -1641,19 +1557,19 @@ impl Pathfinder {
                 .avoid_radius_m
                 .unwrap_or(effective_cfg.avoid.radius_m)
                 .max(0.0);
-            let polylines_utm: Vec<Vec<(f64, f64)>> = prefs
+            let polylines_planar: Vec<Vec<(f64, f64)>> = prefs
                 .avoid
                 .iter()
                 .map(|pl| {
                     pl.iter()
                         .map(|c| {
-                            let u = wgs84_to_utm33n(c[0], c[1]);
+                            let u = *c;
                             (u.x, u.y)
                         })
                         .collect()
                 })
                 .collect();
-            crate::avoid::project_avoided_edges(graph, &polylines_utm, radius)
+            crate::avoid::project_avoided_edges(graph, &polylines_planar, radius)
         };
         let avoid_multiplier = effective_cfg.avoid.edge_multiplier as f32;
 
@@ -1674,25 +1590,22 @@ impl Pathfinder {
         )
         .ok_or(PathfindError::NoRoute)?;
 
-        let geometry: Vec<[f64; 2]> = route
-            .geometry_utm
+        let geometry: Vec<Point> = route
+            .geometry_planar
             .iter()
-            .map(|&(x, y)| {
-                let (lon, lat) = utm33n_to_wgs84(x, y);
-                [lon, lat]
-            })
+            .map(|&(x, y)| Point { x, y })
             .collect();
         // Build legs from contiguous on-trail / off-trail runs.
         let seg_len = |k: usize| -> f64 {
-            let a = route.geometry_utm[k];
-            let b = route.geometry_utm[k + 1];
+            let a = route.geometry_planar[k];
+            let b = route.geometry_planar[k + 1];
             ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt()
         };
-        // Cumulative distance along the route (EPSG:25833 metres).
-        let mut distances_m: Vec<f64> = Vec::with_capacity(route.geometry_utm.len());
+        // Cumulative distance along the route, planar metres.
+        let mut distances_m: Vec<f64> = Vec::with_capacity(route.geometry_planar.len());
         let mut acc = 0.0f64;
         distances_m.push(0.0);
-        for k in 0..route.geometry_utm.len().saturating_sub(1) {
+        for k in 0..route.geometry_planar.len().saturating_sub(1) {
             acc += seg_len(k);
             distances_m.push(acc);
         }
@@ -1795,15 +1708,12 @@ impl Pathfinder {
         prefs: &Prefs,
     ) -> Result<Path, PathfindError> {
         let segment = self.build_off_trail_segment(from_xy, to_xy, prefs)?;
-        let geometry: Vec<[f64; 2]> = segment
+        let geometry: Vec<Point> = segment
             .geometry
             .iter()
-            .map(|p| {
-                let (lon, lat) = utm33n_to_wgs84(p.x, p.y);
-                [lon, lat]
-            })
+            .map(|p| Point { x: p.x, y: p.y })
             .collect();
-        let (distances_m, length_m) = cumulative_distances_utm(&segment.geometry);
+        let (distances_m, length_m) = cumulative_distances_planar(&segment.geometry);
         let leg_len = length_m;
         let mut fkb_breakdown: std::collections::BTreeMap<String, f64> =
             std::collections::BTreeMap::new();
@@ -1833,8 +1743,8 @@ impl Pathfinder {
     }
 
     /// Build one off-trail mesh between two points (start and goal
-    /// in EPSG:25833 m), run Theta\*, return the resulting polyline
-    /// in UTM coordinates plus cost + observed-refusal layer names.
+    /// planar metres), run Theta\*, return the resulting polyline
+    /// plus cost + observed-refusal layer names.
     fn build_off_trail_segment(
         &self,
         from: Point,
@@ -1996,10 +1906,10 @@ pub struct InspectLayer {
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct InspectPoint {
-    pub lon: f64,
-    pub lat: f64,
-    pub x_25833: f64,
-    pub y_25833: f64,
+    /// The probed point, planar. The old projected-coordinate fields
+    /// are gone with the CRS (C4): naming a projection was the engine
+    /// asserting a frame it does not have.
+    pub at: Point,
     pub composed_multiplier: f32,
     pub refused_by: Option<String>,
     pub layers: Vec<InspectLayer>,
@@ -2008,8 +1918,9 @@ pub struct InspectPoint {
 /// One mesh cell as the inspect endpoint sees it.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct InspectCell {
-    pub lon: f64,
-    pub lat: f64,
+    /// Cell centre in the engine's planar frame. The API layer projects
+    /// it (C4) — the engine has no CRS to project from.
+    pub at: Point,
     pub cost_mul: f32,
 }
 
@@ -2017,15 +1928,14 @@ pub struct InspectCell {
 pub struct Inspect {
     pub mesh_cell_m: f64,
     pub cells: Vec<InspectCell>,
-    /// Outer rings of refused-region polygons in WGS84 lon/lat.
-    pub refused_polygons: Vec<Vec<[f64; 2]>>,
+    /// Outer rings of refused-region polygons, planar.
+    pub refused_polygons: Vec<Vec<Point>>,
     /// Layers that vetoed at least one cell.
     pub refused_by: Vec<String>,
-    /// Closest graph node within `bridge_radius_m` of `from`, in
-    /// WGS84 lon/lat — useful for understanding why a hybrid path
-    /// landed where it did.
-    pub nearest_graph_node_from: Option<[f64; 2]>,
-    pub nearest_graph_node_to: Option<[f64; 2]>,
+    /// Closest graph node within `bridge_radius_m` of `from`, planar —
+    /// useful for understanding why a hybrid path landed where it did.
+    pub nearest_graph_node_from: Option<Point>,
+    pub nearest_graph_node_to: Option<Point>,
 }
 
 struct OffTrailSegment {
@@ -2050,7 +1960,7 @@ struct OffTrailSegment {
 /// visibly straight line in MapLibre. Densifying just for the
 /// returned polyline gives the curator a visualisation that matches
 /// the mesh resolution without changing routing cost or length.
-fn cumulative_distances_utm(pts: &[Point2]) -> (Vec<f64>, f64) {
+fn cumulative_distances_planar(pts: &[Point2]) -> (Vec<f64>, f64) {
     let mut distances = Vec::with_capacity(pts.len());
     let mut total = 0.0;
     if !pts.is_empty() {
@@ -2065,58 +1975,9 @@ fn cumulative_distances_utm(pts: &[Point2]) -> (Vec<f64>, f64) {
     (distances, total)
 }
 
-/// Approximate UTM33N → WGS84 — the inverse of [`wgs84_to_utm33n`].
-pub fn utm33n_to_wgs84(x: f64, y: f64) -> (f64, f64) {
-    const A: f64 = 6_378_137.0;
-    const F: f64 = 1.0 / 298.257_223_563;
-    let e2 = F * (2.0 - F);
-    let ep2 = e2 / (1.0 - e2);
-    let k0 = 0.9996;
-    let lon0 = 15.0_f64.to_radians();
-    let false_e = 500_000.0;
-    let m = y / k0;
-
-    let e1 = (1.0 - (1.0 - e2).sqrt()) / (1.0 + (1.0 - e2).sqrt());
-    let mu = m / (A * (1.0 - e2 / 4.0 - 3.0 * e2 * e2 / 64.0 - 5.0 * e2 * e2 * e2 / 256.0));
-    let phi1 = mu
-        + (3.0 * e1 / 2.0 - 27.0 * e1.powi(3) / 32.0) * (2.0 * mu).sin()
-        + (21.0 * e1.powi(2) / 16.0 - 55.0 * e1.powi(4) / 32.0) * (4.0 * mu).sin()
-        + (151.0 * e1.powi(3) / 96.0) * (6.0 * mu).sin();
-    let sin_phi1 = phi1.sin();
-    let cos_phi1 = phi1.cos();
-    let tan_phi1 = phi1.tan();
-    let c1 = ep2 * cos_phi1 * cos_phi1;
-    let t1 = tan_phi1 * tan_phi1;
-    let n1 = A / (1.0 - e2 * sin_phi1 * sin_phi1).sqrt();
-    let r1 = A * (1.0 - e2) / (1.0 - e2 * sin_phi1 * sin_phi1).powf(1.5);
-    let d = (x - false_e) / (n1 * k0);
-    let phi = phi1
-        - (n1 * tan_phi1 / r1)
-            * (d * d / 2.0
-                - (5.0 + 3.0 * t1 + 10.0 * c1 - 4.0 * c1 * c1 - 9.0 * ep2) * d.powi(4) / 24.0
-                + (61.0 + 90.0 * t1 + 298.0 * c1 + 45.0 * t1 * t1 - 252.0 * ep2 - 3.0 * c1 * c1)
-                    * d.powi(6)
-                    / 720.0);
-    let lambda = lon0
-        + (d - (1.0 + 2.0 * t1 + c1) * d.powi(3) / 6.0
-            + (5.0 - 2.0 * c1 + 28.0 * t1 - 3.0 * c1 * c1 + 8.0 * ep2 + 24.0 * t1 * t1)
-                * d.powi(5)
-                / 120.0)
-            / cos_phi1;
-    (lambda.to_degrees(), phi.to_degrees())
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn utm33n_to_wgs84_round_trips_oslo() {
-        let lon0 = 10.7522;
-        let lat0 = 59.9139;
-        let p = wgs84_to_utm33n(lon0, lat0);
-        let (lon, lat) = utm33n_to_wgs84(p.x, p.y);
-        assert!((lon - lon0).abs() < 1e-3);
-        assert!((lat - lat0).abs() < 1e-3);
-    }
 }

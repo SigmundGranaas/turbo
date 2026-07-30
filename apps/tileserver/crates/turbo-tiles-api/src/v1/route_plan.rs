@@ -19,12 +19,14 @@ use axum::response::IntoResponse;
 use axum::Json;
 use futures::stream::StreamExt;
 use serde::{Deserialize, Serialize};
-use turbo_tiles_elev::{wgs84_to_utm33n, PointXY};
+use turbo_tiles_elev::{PointXY};
 use turbo_tiles_graph::Profile;
-use turbo_tiles_pathfind::{utm33n_to_wgs84, Path, Prefs, Recorder, SolverEvent};
+use turbo_geo_frame::utm33n_to_wgs84;
+use turbo_tiles_pathfind::{Path, Prefs, Recorder, SolverEvent};
 
 use super::pathfind::{apply_preset, map_pathfind_err};
 use crate::error::ApiError;
+use crate::v1::frame;
 use crate::state::ApiState;
 
 /// `POST /v1/route/plan` request.
@@ -120,7 +122,7 @@ pub async fn plan(
     let preset = req.preset.clone().or_else(|| Some("balanced".to_string()));
     apply_preset(&state, &preset, &mut prefs).map_err(ApiError::BadRequest)?;
     // Avoidance / round-trip ride on top of the preset (not part of it).
-    prefs.avoid = req.avoid.clone();
+    prefs.avoid = frame::planar_rings(&req.avoid);
     prefs.avoid_radius_m = req.avoid_radius_m;
     prefs.round_trip = req.round_trip;
 
@@ -131,7 +133,7 @@ pub async fn plan(
     let permit = state.acquire_routing_permit().await;
     let path = tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        pf.solve_route(&points, prefs)
+        pf.solve_route(&frame::planar_all(&points), prefs)
     })
     .await
     .map_err(|e| ApiError::Internal(format!("solve task failed: {e}")))?
@@ -175,7 +177,7 @@ pub async fn plan_stream(
         return sse_error(msg);
     }
     // Avoidance / round-trip ride on top of the preset (not part of it).
-    prefs.avoid = req.avoid.clone();
+    prefs.avoid = frame::planar_rings(&req.avoid);
     prefs.avoid_radius_m = req.avoid_radius_m;
     prefs.round_trip = req.round_trip;
     // Our streaming recorder is the live channel; don't let `solve` install
@@ -195,7 +197,7 @@ pub async fn plan_stream(
         let _permit = permit;
         let recorder = Arc::new(Recorder::new_streaming(record_cap, event_tx.clone()));
         let result = turbo_tiles_pathfind::solver_trace::with_installed(recorder, || {
-            pf.solve_route(&points, prefs)
+            pf.solve_route(&frame::planar_all(&points), prefs)
         });
         let terminal = match result {
             Ok(path) => Terminal::Done(Box::new(path)),
@@ -300,7 +302,7 @@ fn build_resp(state: &ApiState, path: &Path, profile: Profile) -> RoutePlanResp 
         surfaces,
         geometry: GeoLineString {
             kind: "LineString",
-            coordinates: path.geometry.clone(),
+            coordinates: frame::lonlat_all(&path.geometry),
         },
         legs,
     }
@@ -308,15 +310,18 @@ fn build_resp(state: &ApiState, path: &Path, profile: Profile) -> RoutePlanResp 
 
 /// Total positive ascent (m) along the geometry, sampled from the DEM.
 /// 0 when no DEM is loaded or the route falls outside coverage.
-fn ascent_along(state: &ApiState, geom: &[[f64; 2]]) -> f64 {
+fn ascent_along(state: &ApiState, geom: &[turbo_tiles_pathfind::Point]) -> f64 {
     let Some(dem) = state.dem.as_ref() else {
         return 0.0;
     };
     let mut prev: Option<f32> = None;
     let mut gain = 0.0_f64;
     for c in geom {
-        let u = wgs84_to_utm33n(c[0], c[1]);
-        let z = dem.sample(PointXY { x: u.x, y: u.y }).ok().flatten();
+        // Already planar — the engine's own frame (C4), no projection.
+        let z = dem
+            .sample(PointXY { x: c.x, y: c.y })
+            .ok()
+            .flatten();
         if let (Some(a), Some(b)) = (prev, z) {
             if b > a {
                 gain += (b - a) as f64;

@@ -16,3 +16,6 @@ publish.workspace = true
 # is broken.
 
 [dependencies]
+# The single permitted dependency (design §12.6). Domain types cross
+# the FFI and HTTP boundaries; deriving there is not source awareness.
+serde = { workspace = true, features = ["derive"] }

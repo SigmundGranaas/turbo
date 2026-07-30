@@ -3519,6 +3519,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
 
 [[package]]
+name = "turbo-geo-frame"
+version = "0.1.0"
+dependencies = [
+ "turbo-route-model",
+]
+
+[[package]]
 name = "turbo-geodata-artifacts"
 version = "0.1.0"
 dependencies = [
@@ -3529,6 +3536,9 @@ dependencies = [
 [[package]]
 name = "turbo-route-model"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "turbo-tiles-admin"
@@ -3578,6 +3588,8 @@ dependencies = [
  "tower 0.4.13",
  "tower-http 0.5.2",
  "tracing",
+ "turbo-geo-frame",
+ "turbo-geodata-artifacts",
  "turbo-tiles-artifacts",
  "turbo-tiles-auth",
  "turbo-tiles-core",
@@ -3637,6 +3649,7 @@ dependencies = [
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
+ "turbo-geo-frame",
  "turbo-geodata-artifacts",
  "turbo-tiles-admin",
  "turbo-tiles-api",
@@ -3674,6 +3687,7 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
+ "turbo-geo-frame",
  "turbo-tiles-artifacts",
  "turbo-tiles-core",
  "turbo-tiles-db",
@@ -3825,6 +3839,7 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
+ "turbo-geo-frame",
  "turbo-geodata-artifacts",
  "turbo-route-model",
  "turbo-tiles-artifacts",
@@ -3850,6 +3865,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tiny-skia",
  "tracing",
+ "turbo-geo-frame",
  "turbo-tiles-core",
  "turbo-tiles-db",
  "turbo-tiles-elev",

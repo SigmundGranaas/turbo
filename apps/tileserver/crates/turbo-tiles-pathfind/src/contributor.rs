@@ -149,12 +149,12 @@ impl<'a> EdgeElevProbe<'a> {
 }
 
 /// Geometric + categorical context for one edge a contributor is
-/// asked to cost. UTM33N metres throughout; the API layer projects.
+/// asked to cost. Planar metres throughout — the engine has no CRS (C4).
 pub struct EdgeContext<'a> {
-    /// Start coords (EPSG:25833 m).
+    /// Start coords, planar metres.
     pub fx: f64,
     pub fy: f64,
-    /// End coords (EPSG:25833 m).
+    /// End coords, planar metres.
     pub tx: f64,
     pub ty: f64,
     /// Edge length in metres. For graph edges this is the

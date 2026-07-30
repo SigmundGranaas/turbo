@@ -21,7 +21,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use turbo_tiles_elev::{wgs84_to_utm33n, Dem, PointXY};
+use turbo_geo_frame::wgs84_to_utm33n;
+use turbo_tiles_elev::{Dem, PointXY};
 use turbo_tiles_pathfind::{CostMode, PathStrategy, Pathfinder, Prefs};
 
 use crate::routing_setup;
@@ -314,13 +315,29 @@ fn solve_one(
     let truth = profile_line(dem, &h.polyline);
 
     let t0 = Instant::now();
-    let solved = pf.solve(h.from, h.to, prefs);
+    let solved = pf.solve(
+        turbo_geo_frame::wgs84_to_utm33n(h.from[0], h.from[1]),
+        turbo_geo_frame::wgs84_to_utm33n(h.to[0], h.to[1]),
+        prefs,
+    );
     let solve_ms = t0.elapsed().as_secs_f64() * 1e3;
 
     match solved {
         Ok(path) => {
-            let geometry_hash = hash_geometry(&path.geometry);
-            let solver = profile_line(dem, &path.geometry);
+            // The engine answers in its planar frame (C4); the corpus,
+            // the truth polylines and the geometry hash are all WGS84,
+            // so project once here. Same conversion the engine used to
+            // do internally — the hash is unchanged by the move.
+            let geom_ll: Vec<[f64; 2]> = path
+                .geometry
+                .iter()
+                .map(|p| {
+                    let (lon, lat) = turbo_geo_frame::utm33n_to_wgs84(p.x, p.y);
+                    [lon, lat]
+                })
+                .collect();
+            let geometry_hash = hash_geometry(&geom_ll);
+            let solver = profile_line(dem, &geom_ll);
             HikeResult {
                 id: h.id,
                 region: h.region.clone(),
@@ -365,7 +382,10 @@ fn profile_line(dem: &Dem, poly: &[[f64; 2]]) -> ProfiledLine {
         };
     }
     // Project vertices to UTM33N and build cumulative distances.
-    let utm: Vec<PointXY> = poly.iter().map(|p| wgs84_to_utm33n(p[0], p[1])).collect();
+    let utm: Vec<PointXY> = poly
+        .iter()
+        .map(|p| turbo_geodata_artifacts::xy(wgs84_to_utm33n(p[0], p[1])))
+        .collect();
     let mut seg_len = Vec::with_capacity(utm.len() - 1);
     let mut total = 0.0;
     for w in utm.windows(2) {

@@ -159,10 +159,10 @@ fn corridor_shape(from: Point, to: Point, cell_m: f64) -> Option<GridShape> {
     Some(GridShape::new_2d(nx, ny, origin_x, origin_y, cell_m))
 }
 
-/// Result of a unified solve: geometry in EPSG:25833 + a per-segment
+/// Result of a unified solve: planar geometry + a per-segment
 /// on-trail flag (for leg colouring / surface breakdown) + walk-seconds cost.
 pub(crate) struct UnifiedRoute {
-    pub geometry_utm: Vec<(f64, f64)>,
+    pub geometry_planar: Vec<(f64, f64)>,
     /// `seg_on_trail[k]` = true if segment `geometry[k]→geometry[k+1]` is
     /// a trail (graph) segment, false if off-trail mesh.
     pub seg_on_trail: Vec<bool>,
@@ -673,13 +673,13 @@ pub(crate) fn solve_unified(
     }
 
     // Smooth off-trail runs (trail runs stay exact).
-    let (geometry_utm, seg_on_trail, seg_fkb) =
+    let (geometry_planar, seg_on_trail, seg_fkb) =
         smooth_off_trail(&geom, &on_trail, &on_fkb, &corr, &overlay);
 
     // Final snapshot: the exact answer, so the live preview snaps into
     // place when the solve completes.
     crate::solver_trace::record(|| crate::solver_trace::SolverEvent::BestPathSnapshot {
-        coords: geometry_utm
+        coords: geometry_planar
             .iter()
             .map(|&(x, y)| [x as f32, y as f32])
             .collect(),
@@ -688,7 +688,7 @@ pub(crate) fn solve_unified(
     // refused_by is empty by construction: `mesh_step` never steps onto a
     // refused cell and trails bridge water legitimately.
     Some(UnifiedRoute {
-        geometry_utm,
+        geometry_planar,
         seg_on_trail,
         seg_fkb,
         cost_s: g[goal] as f64,

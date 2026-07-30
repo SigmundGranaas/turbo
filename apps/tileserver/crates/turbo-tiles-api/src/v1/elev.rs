@@ -11,7 +11,8 @@ use std::time::Instant;
 use axum::extract::State;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use turbo_tiles_elev::{wgs84_to_utm33n, PointXY};
+use crate::v1::frame::artifact_xy as wgs84_to_utm33n_xy;
+use turbo_tiles_elev::{PointXY};
 
 use crate::error::ApiError;
 use crate::state::ApiState;
@@ -41,7 +42,7 @@ pub async fn sample(
         .dem
         .as_ref()
         .ok_or(ApiError::PrimitiveUnavailable("dem"))?;
-    let p = wgs84_to_utm33n(req.lon, req.lat);
+    let p = wgs84_to_utm33n_xy(req.lon, req.lat);
     let start = Instant::now();
     let z = dem.sample(p).map_err(|e| match e {
         turbo_tiles_elev::DemError::OutOfCoverage { .. } => ApiError::BadRequest(e.to_string()),
@@ -95,7 +96,7 @@ pub async fn samples(
     let projected: Vec<PointXY> = req
         .points
         .iter()
-        .map(|p| wgs84_to_utm33n(p[0], p[1]))
+        .map(|p| wgs84_to_utm33n_xy(p[0], p[1]))
         .collect();
     let start = Instant::now();
     // Best-effort per point: out-of-coverage/nodata → None (Dem::profile
@@ -146,7 +147,7 @@ pub async fn profile(
     let projected: Vec<PointXY> = req
         .line
         .iter()
-        .map(|p| wgs84_to_utm33n(p[0], p[1]))
+        .map(|p| wgs84_to_utm33n_xy(p[0], p[1]))
         .collect();
     let mut seg_lens = Vec::with_capacity(projected.len());
     let mut total = 0.0;

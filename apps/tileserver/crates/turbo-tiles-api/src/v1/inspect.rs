@@ -10,8 +10,8 @@
 use axum::extract::{Query, State};
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use turbo_tiles_elev::wgs84_to_utm33n;
-use turbo_tiles_pathfind::utm33n_to_wgs84;
+use turbo_geo_frame::wgs84_to_utm33n;
+use turbo_geo_frame::utm33n_to_wgs84;
 
 use crate::error::ApiError;
 use crate::state::ApiState;

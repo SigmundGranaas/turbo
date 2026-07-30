@@ -11,7 +11,8 @@ use turbo_tiles_artifacts::{write_header as write_art_header, ArtifactKind, Head
 use turbo_tiles_graph::{
     write_meta as write_graph_meta, EdgeRecord, Graph, GraphMeta, NodePos, GRAPH_FORMAT_VERSION,
 };
-use turbo_tiles_pathfind::{utm33n_to_wgs84, PathStrategy, Pathfinder, Prefs};
+use turbo_tiles_pathfind::Point;
+use turbo_tiles_pathfind::{PathStrategy, Pathfinder, Prefs};
 
 /// Write a single-tile flat DEM (constant elevation) covering a
 /// `cells × cells` grid at 10 m resolution from upper-left `(ulx,
@@ -210,11 +211,11 @@ fn pathfinder_refuses_when_no_coverage_anywhere() {
     // uniform-cost mesh and return a straight line. This is the
     // regression test for the Halsvatnet-straight-line bug.
     let pf = Pathfinder::with_defaults(None, None, None);
-    let from = utm33n_to_wgs84(0.0, 0.0);
-    let to = utm33n_to_wgs84(500.0, 500.0);
+    let from = Point::new(0.0, 0.0);
+    let to = Point::new(500.0, 500.0);
     let prefs = Prefs::default();
     let err = pf
-        .solve([from.0, from.1], [to.0, to.1], prefs)
+        .solve(from, to, prefs)
         .expect_err("must refuse when no primitive covers the points");
     match err {
         turbo_tiles_pathfind::PathfindError::NoCoverage {
@@ -240,7 +241,7 @@ fn pathfinder_picks_cheapest_strategy() {
     // cost-based selector must pick OffTrail here even though both
     // endpoints snap to graph nodes — that's the architectural
     // invariant.
-    let p = turbo_tiles_elev::wgs84_to_utm33n(10.7522, 59.9139);
+    let p = turbo_geo_frame::wgs84_to_utm33n(10.7522, 59.9139);
     let tmp = tempfile::NamedTempFile::new().unwrap();
     write_square_graph_at(tmp.path(), p.x as f32, p.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
@@ -248,8 +249,8 @@ fn pathfinder_picks_cheapest_strategy() {
     let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
     // Snap radius is 200 m by default — pick lon/lat that's about
     // 50 m east + 50 m south of the anchor node.
-    let from = (10.7522, 59.9139);
-    let to = utm33n_to_wgs84(p.x + 100.0, p.y - 100.0);
+    let from = turbo_geo_frame::wgs84_to_utm33n(10.7522, 59.9139);
+    let to = Point::new(p.x + 100.0, p.y - 100.0);
     // Pin off_trail_base to 1.0 so the cost ceiling is calibration-
     // independent — the architectural property under test is "off-
     // trail diagonal beats 2-hop graph detour", not the absolute s/m
@@ -259,7 +260,7 @@ fn pathfinder_picks_cheapest_strategy() {
     // margin if calibration shifts.
     let mut prefs = Prefs::default();
     prefs.off_trail_base = Some(1.0);
-    let path = pf.solve([from.0, from.1], [to.0, to.1], prefs).unwrap();
+    let path = pf.solve(from, to, prefs).unwrap();
     // The unified router (default) cuts across off-trail here instead of
     // taking the 200 m graph 2-hop. It reports `Hybrid` (one solve over
     // trail + off-trail), so we assert on geometry/cost, not the enum.
@@ -289,16 +290,16 @@ fn pathfinder_hybrid_when_one_end_off_graph() {
     // `to` query sits right on a graph node so it snaps. The
     // pathfinder must produce a hybrid path: off-trail prefix from
     // `from` to the nearest graph node, then graph route to `to`.
-    let anchor = turbo_tiles_elev::wgs84_to_utm33n(10.7522, 59.9139);
+    let anchor = turbo_geo_frame::wgs84_to_utm33n(10.7522, 59.9139);
     let tmp = tempfile::NamedTempFile::new().unwrap();
     write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
     let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
     let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
-    let from = utm33n_to_wgs84(anchor.x + 600.0, anchor.y); // ~600 m east
-    let to = utm33n_to_wgs84(anchor.x, anchor.y); // sits on node 3
+    let from = Point::new(anchor.x + 600.0, anchor.y); // ~600 m east
+    let to = Point::new(anchor.x, anchor.y); // sits on node 3
     let prefs = Prefs::default();
-    let path = pf.solve([from.0, from.1], [to.0, to.1], prefs).unwrap();
+    let path = pf.solve(from, to, prefs).unwrap();
     // Cost-based selection: whichever strategy wins is the one with
     // the lowest cost. On this fixture (no terrain layers), the
     // straight-line off-trail diagonal (~600 m) beats hybrid (off-
@@ -320,27 +321,27 @@ fn multi_waypoint_stitches_into_one_continuous_path() {
     // distances, no duplicated seam vertex), its length must equal the
     // sum of the two 2-point legs, and `waypoint_legs` must describe
     // two contiguous legs sharing the middle seam vertex.
-    let anchor = turbo_tiles_elev::wgs84_to_utm33n(10.7522, 59.9139);
+    let anchor = turbo_geo_frame::wgs84_to_utm33n(10.7522, 59.9139);
     let tmp = tempfile::NamedTempFile::new().unwrap();
     write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
     let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
     let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
 
-    let p0 = utm33n_to_wgs84(anchor.x, anchor.y + 800.0);
-    let p1 = utm33n_to_wgs84(anchor.x, anchor.y); // mid stop
-    let p2 = utm33n_to_wgs84(anchor.x + 800.0, anchor.y);
+    let p0 = Point::new(anchor.x, anchor.y + 800.0);
+    let p1 = Point::new(anchor.x, anchor.y); // mid stop
+    let p2 = Point::new(anchor.x + 800.0, anchor.y);
 
     let leg_a = pf
-        .solve([p0.0, p0.1], [p1.0, p1.1], Prefs::default())
+        .solve(p0, p1, Prefs::default())
         .unwrap();
     let leg_b = pf
-        .solve([p1.0, p1.1], [p2.0, p2.1], Prefs::default())
+        .solve(p1, p2, Prefs::default())
         .unwrap();
 
     let route = pf
         .solve_route(
-            &[[p0.0, p0.1], [p1.0, p1.1], [p2.0, p2.1]],
+            &[p0, p1, p2],
             Prefs::default(),
         )
         .unwrap();
@@ -381,20 +382,20 @@ fn multi_waypoint_attributes_failing_leg() {
     // A degenerate middle->end pair (closer than mesh_cell_m) must fail
     // the WHOLE route with SegmentFailed naming leg index 1 — so the UI
     // can point at the exact bad stop rather than a generic error.
-    let anchor = turbo_tiles_elev::wgs84_to_utm33n(10.7522, 59.9139);
+    let anchor = turbo_geo_frame::wgs84_to_utm33n(10.7522, 59.9139);
     let tmp = tempfile::NamedTempFile::new().unwrap();
     write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
     let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
     let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
 
-    let p0 = utm33n_to_wgs84(anchor.x, anchor.y + 800.0);
-    let p1 = utm33n_to_wgs84(anchor.x, anchor.y);
-    let p2 = utm33n_to_wgs84(anchor.x + 10.0, anchor.y); // 10 m from p1 < mesh_cell
+    let p0 = Point::new(anchor.x, anchor.y + 800.0);
+    let p1 = Point::new(anchor.x, anchor.y);
+    let p2 = Point::new(anchor.x + 10.0, anchor.y); // 10 m from p1 < mesh_cell
 
     let err = pf
         .solve_route(
-            &[[p0.0, p0.1], [p1.0, p1.1], [p2.0, p2.1]],
+            &[p0, p1, p2],
             Prefs::default(),
         )
         .expect_err("degenerate final leg must fail the route");
@@ -410,16 +411,16 @@ fn multi_waypoint_attributes_failing_leg() {
 fn two_point_route_emits_single_waypoint_leg() {
     // The 2-point convenience path must still produce exactly one
     // waypoint leg spanning the whole geometry (uniform shape for UIs).
-    let anchor = turbo_tiles_elev::wgs84_to_utm33n(10.7522, 59.9139);
+    let anchor = turbo_geo_frame::wgs84_to_utm33n(10.7522, 59.9139);
     let tmp = tempfile::NamedTempFile::new().unwrap();
     write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
     let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
     let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
-    let from = utm33n_to_wgs84(anchor.x, anchor.y + 600.0);
-    let to = utm33n_to_wgs84(anchor.x + 600.0, anchor.y);
+    let from = Point::new(anchor.x, anchor.y + 600.0);
+    let to = Point::new(anchor.x + 600.0, anchor.y);
     let path = pf
-        .solve([from.0, from.1], [to.0, to.1], Prefs::default())
+        .solve(from, to, Prefs::default())
         .unwrap();
     assert_eq!(path.waypoint_legs.len(), 1);
     assert_eq!(path.waypoint_legs[0].geometry_start_idx, 0);
@@ -434,18 +435,18 @@ fn pathfinder_layer_weights_disable_preferred_edge_layer() {
     // Set layer_weights["slope"] = 0.0 — slope contributions get
     // suppressed even though the layer is registered. Smoke check:
     // the path still solves and reports the correct strategy.
-    let anchor = turbo_tiles_elev::wgs84_to_utm33n(10.7522, 59.9139);
+    let anchor = turbo_geo_frame::wgs84_to_utm33n(10.7522, 59.9139);
     let tmp = tempfile::NamedTempFile::new().unwrap();
     write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
     let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
     let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
-    let from = (10.7522, 59.9139);
-    let to = utm33n_to_wgs84(anchor.x + 100.0, anchor.y - 100.0);
+    let from = turbo_geo_frame::wgs84_to_utm33n(10.7522, 59.9139);
+    let to = Point::new(anchor.x + 100.0, anchor.y - 100.0);
     let mut prefs = Prefs::default();
     prefs.layer_weights.insert("preferred_edge".into(), 0.0);
     prefs.layer_weights.insert("marking".into(), 0.0);
-    let path = pf.solve([from.0, from.1], [to.0, to.1], prefs).unwrap();
+    let path = pf.solve(from, to, prefs).unwrap();
     // With zero-weighted edge layers the per-request multipliers are
     // identity. The selector still picks the cheapest path; on this
     // fixture (no mesh blockers), that's the off-trail diagonal.
@@ -464,7 +465,7 @@ fn cost_based_selection_beats_long_graph_detour() {
     // (1 km × 10 hops). Off-trail straight-line is 10 m. The
     // selector must prefer off-trail (cost ~14) over graph
     // (cost ~14000) even though both endpoints snap.
-    let p = turbo_tiles_elev::wgs84_to_utm33n(10.7522, 59.9139);
+    let p = turbo_geo_frame::wgs84_to_utm33n(10.7522, 59.9139);
     let tmp = tempfile::NamedTempFile::new().unwrap();
     write_long_detour_graph(tmp.path(), p.x as f32, p.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
@@ -473,11 +474,11 @@ fn cost_based_selection_beats_long_graph_detour() {
     // Place the clicks 200 m apart so we clear the DegenerateInputs
     // threshold (default mesh_cell_m = 100 m); still tiny vs the
     // 10 km graph detour.
-    let from = utm33n_to_wgs84(p.x, p.y);
-    let to = utm33n_to_wgs84(p.x + 200.0, p.y);
+    let from = Point::new(p.x, p.y);
+    let to = Point::new(p.x + 200.0, p.y);
     let mut prefs = Prefs::default();
     prefs.mesh_cell_m = 25.0; // fine grid for the small bbox
-    let path = pf.solve([from.0, from.1], [to.0, to.1], prefs).unwrap();
+    let path = pf.solve(from, to, prefs).unwrap();
     // The unified router cuts across (~200 m) rather than taking the
     // ~10 km graph detour. Assert on length (the regression we care about),
     // not the strategy enum.
@@ -512,8 +513,8 @@ fn switchback_gap_uniform_steep_face() {
     let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
 
     // Uphill = south (decreasing y, where z grows). 600 m climb.
-    let from = utm33n_to_wgs84(ox, oy + 300.0);
-    let to = utm33n_to_wgs84(ox, oy - 300.0);
+    let from = Point::new(ox, oy + 300.0);
+    let to = Point::new(ox, oy - 300.0);
     let uly = oy + 3000.0;
     let z_at = |x: f64, y: f64| {
         let _ = x;
@@ -523,16 +524,9 @@ fn switchback_gap_uniform_steep_face() {
     let measure = |label: &str, force_off_trail: bool| {
         let mut prefs = Prefs::default();
         prefs.force_off_trail = force_off_trail;
-        let path = pf.solve([from.0, from.1], [to.0, to.1], prefs).unwrap();
-        // back to UTM for geometry math
-        let pts: Vec<(f64, f64)> = path
-            .geometry
-            .iter()
-            .map(|p| {
-                let u = turbo_tiles_elev::wgs84_to_utm33n(p[0], p[1]);
-                (u.x, u.y)
-            })
-            .collect();
+        let path = pf.solve(from, to, prefs).unwrap();
+        // The geometry is already planar (C4) — no projection needed.
+        let pts: Vec<(f64, f64)> = path.geometry.iter().map(|p| (p.x, p.y)).collect();
         let straight = ((pts[0].0 - pts[pts.len() - 1].0).powi(2)
             + (pts[0].1 - pts[pts.len() - 1].1).powi(2))
         .sqrt();

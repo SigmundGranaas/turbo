@@ -17,7 +17,7 @@ use std::collections::HashSet;
 
 use turbo_tiles_graph::Graph;
 
-/// Project avoided polylines (EPSG:25833 metres) onto graph edges.
+/// Project avoided polylines (planar metres) onto graph edges.
 ///
 /// An edge is "avoided" when at least half of its sampled length lies
 /// within `radius_m` of some avoided polyline segment. The half-length

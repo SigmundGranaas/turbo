@@ -7,6 +7,7 @@ mod basemap;
 mod catalog;
 mod dem;
 mod elev;
+mod frame;
 mod inspect;
 mod mask;
 mod pathfind;

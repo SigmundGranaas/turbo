@@ -256,15 +256,16 @@ fn endpoint_refusal_agrees_with_solver_on_a_flat_dem() {
     // EndpointRefused — the check that would fire if the endpoint rule
     // disagreed with the (uniformly passable) cost field.
     let (x, y) = f.inside_dem;
-    let a = turbo_tiles_pathfind::utm33n_to_wgs84(x, y);
-    let b = turbo_tiles_pathfind::utm33n_to_wgs84(x + 600.0, y + 600.0);
+    // Planar throughout (C4) — no projection round trip.
+    let a = turbo_tiles_pathfind::Point::new(x, y);
+    let b = turbo_tiles_pathfind::Point::new(x + 600.0, y + 600.0);
 
     let mut prefs = turbo_tiles_pathfind::Prefs::default();
     prefs.force_off_trail = true;
     prefs.snap_radius_m = 0.0;
     prefs.bridge_radius_m = 0.0;
 
-    match pf.solve([a.0, a.1], [b.0, b.1], prefs) {
+    match pf.solve(a, b, prefs) {
         Err(turbo_tiles_pathfind::PathfindError::EndpointRefused { which, layer }) => {
             panic!("flat terrain inside the DEM must not refuse an endpoint: {which} / {layer}")
         }

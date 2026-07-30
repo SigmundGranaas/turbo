@@ -49,7 +49,7 @@
 /// which one. Geographic conversion is a composition-layer concern
 /// (`turbo-geo-frame`, L5). That is what lets the game-engine case need
 /// no projection at all, rather than an identity stub.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct Point {
     pub x: f64,
     pub y: f64,
@@ -64,7 +64,7 @@ impl Point {
 
 /// A planar axis-aligned bounding box, in the same metric frame as
 /// [`Point`].
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct Extent {
     pub min_x: f64,
     pub min_y: f64,
@@ -105,7 +105,7 @@ impl Extent {
 /// The engine consumes this; how the field derives it (finite
 /// differences over a tile, an analytic surface, a game's precomputed
 /// normal map) is entirely the implementation's business.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct SlopeAspect {
     pub slope_deg: f32,
     pub aspect_deg: f32,

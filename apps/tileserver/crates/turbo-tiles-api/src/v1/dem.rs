@@ -20,7 +20,8 @@ use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::Response;
 use image::{ImageEncoder, RgbaImage};
 use serde::Deserialize;
-use turbo_tiles_elev::{wgs84_to_utm33n, PointXY};
+use crate::v1::frame::artifact_xy as wgs84_to_utm33n_xy;
+use turbo_tiles_elev::{PointXY};
 
 use crate::error::ApiError;
 use crate::state::ApiState;
@@ -163,7 +164,7 @@ fn render_tile(
             let frac_y = (y as f64) + ((py as f64) + 0.5 - halo_f) / TILE_PX as f64;
             let (lng, lat) = tile_pixel_to_lng_lat(z, frac_x, frac_y);
             // Convert to UTM 33N (the DTM's native CRS) and sample.
-            let utm = wgs84_to_utm33n(lng, lat);
+            let utm = wgs84_to_utm33n_xy(lng, lat);
             let pixel = match dem.sample(PointXY { x: utm.x, y: utm.y }) {
                 Ok(Some(elev_m)) => encode_terrain_rgb(elev_m as f64),
                 _ => [0, 0, 0, 0], // transparent for out-of-coverage / nodata

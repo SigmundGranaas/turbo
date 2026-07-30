@@ -10,7 +10,8 @@
 //! visually-tested on synthetic surfaces without a DEM artifact present.
 
 use tiny_skia::Pixmap;
-use turbo_tiles_elev::{wgs84_to_utm33n, Dem, PointXY};
+use turbo_geo_frame::wgs84_to_utm33n;
+use turbo_tiles_elev::{Dem, PointXY};
 
 const WORLD_M: f64 = 20_037_508.342_789_244;
 

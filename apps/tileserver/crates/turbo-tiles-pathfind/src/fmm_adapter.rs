@@ -5,8 +5,8 @@
 //!
 //!   - `DemElevation` — implements `fmm::Elevation` against a
 //!     project `Arc<dyn Heightfield>`, translating grid `(i, j)` cell indices
-//!     into UTM33N `Point` for the DEM sampler.
-//!   - `solve_fmm_corridor` — given `(from, to)` in UTM33N + a
+//!     into planar `Point` for the heightfield sampler.
+//!   - `solve_fmm_corridor` — given planar `(from, to)` + a
 //!     contributor list, sizes a corridor bbox around the from-to
 //!     centerline, allocates the FMM grid, bakes the cost field
 //!     (Tobler + per-cell vetoes from the contributors), and runs
@@ -95,9 +95,9 @@ pub(crate) fn with_off_trail(
 /// so the phase 6 dispatch swap is a near-drop-in.
 #[derive(Debug, Clone)]
 pub struct FmmSolveInputs {
-    /// Start point in UTM33N (metres).
+    /// Start point, planar metres.
     pub from: Point,
-    /// Goal point in UTM33N (metres).
+    /// Goal point, planar metres.
     pub to: Point,
     /// Cell size for the FMM grid. 10 m matches the native DEM
     /// resolution; smaller values blow up memory + solve time
@@ -193,7 +193,7 @@ pub enum FmmAdapterError {
 
 /// Compute the corridor bbox for a from→to solve.
 ///
-/// The corridor is an *axis-aligned* (UTM-grid-aligned) rectangle
+/// The corridor is an *axis-aligned* rectangle
 /// that fully contains the oriented `from→to` centerline rectangle
 /// of half-width `corridor_half_width_m + pad`. We do not rotate
 /// the grid — keeping it axis-aligned lets neighbour indexing stay
@@ -206,7 +206,7 @@ pub enum FmmAdapterError {
 ///   `half_width = max(800 m, 0.20 · ‖to − from‖)`
 /// Corridor extent in the *along-direction*: `‖to − from‖ + 2·pad`.
 /// Corridor extent in the *cross-direction*: `2·(half_width + pad)`.
-/// We project both bounding box corners onto UTM-aligned coords by
+/// We project both bounding box corners onto axis-aligned coords by
 /// taking the AABB of the rotated rectangle's corners.
 pub fn compute_corridor_shape(
     from: Point,
@@ -675,13 +675,13 @@ pub fn solve_fmm_corridor(
 /// gradient-descent extract + cost-aware Chaikin smooth.
 ///
 /// This is the function Phase 6 dispatch wires into the off-trail
-/// strategy of `Pathfinder`. The returned `polyline` is in UTM33N
+/// strategy of `Pathfinder`. The returned `polyline` is in planar
 /// metres, ordered start → goal. `cost_seconds` is the arrival
 /// time at the goal cell, which (because the Tobler metric returns
 /// pace in s/m) is directly comparable to walk-seconds used by
 /// the other Pathfinder strategies.
 pub struct FmmPathOutput {
-    /// Smoothed polyline, start → goal, in EPSG:25833 metres.
+    /// Smoothed polyline, start → goal, planar metres.
     pub polyline: Vec<PathPoint>,
     /// Total walk-time cost from FMM (= arrival at goal cell).
     pub cost_seconds: f64,
