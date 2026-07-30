@@ -5,7 +5,7 @@
 //!
 //!   - `DemElevation` — implements `fmm::Elevation` against a
 //!     project `Arc<dyn Heightfield>`, translating grid `(i, j)` cell indices
-//!     into UTM33N `PointXY` for the DEM sampler.
+//!     into UTM33N `Point` for the DEM sampler.
 //!   - `solve_fmm_corridor` — given `(from, to)` in UTM33N + a
 //!     contributor list, sizes a corridor bbox around the from-to
 //!     centerline, allocates the FMM grid, bakes the cost field
@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use turbo_tiles_elev::PointXY;
+use turbo_route_model::Point;
 use turbo_tiles_fmm::{
     bake_aniso_corridor, bake_metric_2d, chaikin_smooth_cost_aware, extract_path_discrete,
     solve_2d_anisotropic, solve_2d_isotropic, CellForm, Elevation, FmmGrid, GridShape, PathPoint,
@@ -23,10 +23,10 @@ use turbo_tiles_fmm::{
 };
 
 use crate::contributor::{CostContributor, EdgeContext, EdgeKind};
-use crate::ports::Heightfield;
+use turbo_route_model::Heightfield;
 
 /// Implements `fmm::Elevation` against the project's `Arc<dyn Heightfield>`.
-/// Each cell sample goes through `Dem::sample(PointXY)`, which the
+/// Each cell sample goes through `Dem::sample(Point)`, which the
 /// DEM crate's tile cache hot-paths efficiently. The adapter holds
 /// the `Arc` so it can outlive the corridor solve.
 pub struct DemElevation {
@@ -66,7 +66,7 @@ impl Elevation for DemElevation {
             }
         }
         let (x, y) = shape.cell_centre(i, j);
-        let v = self.dem.height_at(PointXY { x, y });
+        let v = self.dem.height_at(Point { x, y });
         self.memo.lock().unwrap()[idx] = v.unwrap_or(f32::NAN);
         v
     }
@@ -96,9 +96,9 @@ pub(crate) fn with_off_trail(
 #[derive(Debug, Clone)]
 pub struct FmmSolveInputs {
     /// Start point in UTM33N (metres).
-    pub from: PointXY,
+    pub from: Point,
     /// Goal point in UTM33N (metres).
-    pub to: PointXY,
+    pub to: Point,
     /// Cell size for the FMM grid. 10 m matches the native DEM
     /// resolution; smaller values blow up memory + solve time
     /// faster than they improve accuracy.
@@ -135,8 +135,8 @@ pub struct FmmSolveInputs {
 impl Default for FmmSolveInputs {
     fn default() -> Self {
         Self {
-            from: PointXY { x: 0.0, y: 0.0 },
-            to: PointXY { x: 0.0, y: 0.0 },
+            from: Point { x: 0.0, y: 0.0 },
+            to: Point { x: 0.0, y: 0.0 },
             cell_m: 10.0,
             base_pace_s_per_m: 0.714,
             refuse_above_deg: 45.0,
@@ -209,8 +209,8 @@ pub enum FmmAdapterError {
 /// We project both bounding box corners onto UTM-aligned coords by
 /// taking the AABB of the rotated rectangle's corners.
 pub fn compute_corridor_shape(
-    from: PointXY,
-    to: PointXY,
+    from: Point,
+    to: Point,
     cell_m: f64,
 ) -> Result<GridShape, FmmAdapterError> {
     let dx = to.x - from.x;
@@ -977,8 +977,8 @@ mod tests {
     /// rather than allocating a huge grid.
     #[test]
     fn degenerate_corridor_errors() {
-        let from = PointXY { x: 100.0, y: 200.0 };
-        let to = PointXY { x: 100.5, y: 200.5 };
+        let from = Point { x: 100.0, y: 200.0 };
+        let to = Point { x: 100.5, y: 200.5 };
         assert!(matches!(
             compute_corridor_shape(from, to, 10.0),
             Err(FmmAdapterError::DegenerateCorridor(_))
@@ -991,8 +991,8 @@ mod tests {
     /// ~160-170, ny is ~220+ at 10 m cells.
     #[test]
     fn one_km_corridor_sized_sanely() {
-        let from = PointXY { x: 0.0, y: 0.0 };
-        let to = PointXY { x: 1000.0, y: 0.0 };
+        let from = Point { x: 0.0, y: 0.0 };
+        let to = Point { x: 1000.0, y: 0.0 };
         let shape = compute_corridor_shape(from, to, 10.0).expect("should compute");
         // x extent: 1000 + 2·pad where pad = max(40, 300) = 300; → 1600 m
         assert!(
@@ -1015,9 +1015,9 @@ mod tests {
     /// rotated-rectangle approach inflates both axes equally.
     #[test]
     fn rotated_corridor_inflates_aabb() {
-        let from = PointXY { x: 0.0, y: 0.0 };
+        let from = Point { x: 0.0, y: 0.0 };
         let d = 1000.0_f64;
-        let to = PointXY {
+        let to = Point {
             x: d / 2.0_f64.sqrt(),
             y: d / 2.0_f64.sqrt(),
         };

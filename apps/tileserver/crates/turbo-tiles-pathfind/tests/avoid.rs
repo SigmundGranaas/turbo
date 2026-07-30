@@ -269,7 +269,7 @@ impl Scene {
             Some(a) => ramp_dem_around(ox, oy, a),
             None => flat_dem_around(ox, oy),
         };
-        let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
+        let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
         Self {
             ox,
             oy,

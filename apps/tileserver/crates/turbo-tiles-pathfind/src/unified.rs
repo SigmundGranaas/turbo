@@ -26,13 +26,13 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 
-use turbo_tiles_elev::PointXY;
+use turbo_route_model::Point;
 use turbo_tiles_fmm::GridShape;
 use turbo_tiles_graph::{Graph, Profile};
 
 use crate::contributor::{compose_edge_walk_seconds, CostContributor, EdgeContext, EdgeKind};
 use crate::native_contributors::OffTrailRoughnessContributor;
-use crate::ports::Heightfield;
+use turbo_route_model::Heightfield;
 
 // Steep-terrain shaping for off-trail mesh edges (own copy — see module
 // docs on independence; these are physical constants, not shared code).
@@ -107,7 +107,7 @@ fn tobler_pace(grad_mag: f32) -> f32 {
 /// capped so the cell count grows O(d), not O(d²). Returns the
 /// CANONICAL [`GridShape`] (the same cell↔world mapping the FMM solver
 /// uses) — `None` if the endpoints are closer than half a cell.
-fn corridor_shape(from: PointXY, to: PointXY, cell_m: f64) -> Option<GridShape> {
+fn corridor_shape(from: Point, to: Point, cell_m: f64) -> Option<GridShape> {
     let dx = to.x - from.x;
     let dy = to.y - from.y;
     let d = (dx * dx + dy * dy).sqrt();
@@ -204,8 +204,8 @@ pub(crate) fn solve_unified(
     dem: &Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
     profile: Profile,
-    from: PointXY,
-    to: PointXY,
+    from: Point,
+    to: Point,
     cell_m: f64,
     base_pace_s_per_m: f32,
     off_trail_factor: f32,

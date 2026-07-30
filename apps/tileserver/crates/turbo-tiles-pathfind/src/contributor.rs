@@ -45,6 +45,7 @@
 
 use std::sync::Arc;
 
+pub use turbo_route_model::Requirement;
 use turbo_tiles_graph::{EdgeRecord, Profile};
 
 /// Walk pace at flat, maintained trail — seconds per metre.
@@ -82,7 +83,7 @@ pub enum EdgeKind<'a> {
 /// to every consumer. Values are identical to direct sampling; only
 /// the redundancy is removed.
 pub struct EdgeElevProbe<'a> {
-    dem: &'a dyn crate::ports::Heightfield,
+    dem: &'a dyn turbo_route_model::Heightfield,
     fx: f64,
     fy: f64,
     tx: f64,
@@ -100,7 +101,7 @@ pub struct EdgeElevProbe<'a> {
 }
 
 impl<'a> EdgeElevProbe<'a> {
-    pub fn new(dem: &'a dyn crate::ports::Heightfield, fx: f64, fy: f64, tx: f64, ty: f64) -> Self {
+    pub fn new(dem: &'a dyn turbo_route_model::Heightfield, fx: f64, fy: f64, tx: f64, ty: f64) -> Self {
         Self {
             dem,
             fx,
@@ -118,7 +119,7 @@ impl<'a> EdgeElevProbe<'a> {
         if let Some(&(_, z)) = self.points.borrow().iter().find(|(b, _)| *b == bits) {
             return z;
         }
-        let p = turbo_tiles_elev::PointXY {
+        let p = turbo_route_model::Point {
             x: self.fx + dx * t,
             y: self.fy + dy * t,
         };
@@ -197,35 +198,6 @@ pub enum ContributorKind {
     Legacy,
 }
 
-/// A single physical contribution to the cost of traversing an
-/// edge. All contributions are in **walk-seconds** (not metres,
-/// not multipliers).
-///
-/// Positive contributions make the edge harder (slope, brush,
-/// wetland); negative contributions make it preferred (DNT
-/// marking, cairns, viewpoints).
-/// Whether a contributor's data is *load-bearing* for routing.
-///
-/// The distinction exists because `Pathfinder::point_covered` used to be
-/// `layers.iter().any(|l| l.covers(x, y))` — the **union** of anything that
-/// could answer a question. E6 showed that lets an advisory landcover mask
-/// grant routing coverage at points with no elevation data at all, which
-/// defeats the pre-check whose whole job is to stop the solver returning
-/// "a uniform-cost mesh and a straight line — semantically a lie".
-///
-/// `TrailProximityLayer` already hand-rolled this rule, narrowing its own
-/// `covers` with a comment explaining that returning `true` would
-/// short-circuit exactly that pre-check. This generalises it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Requirement {
-    /// Routing is not meaningful without this contributor's data at a
-    /// point. Coverage is the **intersection** of these.
-    Required,
-    /// Absence means "no contribution here", not "no data". Never widens
-    /// coverage.
-    Advisory,
-}
-
 pub trait CostContributor: Send + Sync {
     /// Stable lower-case identifier. Same convention as
     /// `CostLayer::name`.
@@ -297,6 +269,13 @@ pub struct EdgeWalkCost {
     pub vetoed_by: Option<String>,
 }
 
+/// A single physical contribution to the cost of traversing an
+/// edge. All contributions are in **walk-seconds** (not metres,
+/// not multipliers).
+///
+/// Positive contributions make the edge harder (slope, brush,
+/// wetland); negative contributions make it preferred (DNT
+/// marking, cairns, viewpoints).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NamedContribution {
     pub name: String,

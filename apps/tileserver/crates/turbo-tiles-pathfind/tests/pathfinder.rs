@@ -245,7 +245,7 @@ fn pathfinder_picks_cheapest_strategy() {
     write_square_graph_at(tmp.path(), p.x as f32, p.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
     let (_dem_tmp, dem) = flat_dem_around(p.x, p.y);
-    let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
+    let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
     // Snap radius is 200 m by default — pick lon/lat that's about
     // 50 m east + 50 m south of the anchor node.
     let from = (10.7522, 59.9139);
@@ -294,7 +294,7 @@ fn pathfinder_hybrid_when_one_end_off_graph() {
     write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
     let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
-    let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
+    let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
     let from = utm33n_to_wgs84(anchor.x + 600.0, anchor.y); // ~600 m east
     let to = utm33n_to_wgs84(anchor.x, anchor.y); // sits on node 3
     let prefs = Prefs::default();
@@ -325,7 +325,7 @@ fn multi_waypoint_stitches_into_one_continuous_path() {
     write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
     let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
-    let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
+    let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
 
     let p0 = utm33n_to_wgs84(anchor.x, anchor.y + 800.0);
     let p1 = utm33n_to_wgs84(anchor.x, anchor.y); // mid stop
@@ -386,7 +386,7 @@ fn multi_waypoint_attributes_failing_leg() {
     write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
     let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
-    let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
+    let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
 
     let p0 = utm33n_to_wgs84(anchor.x, anchor.y + 800.0);
     let p1 = utm33n_to_wgs84(anchor.x, anchor.y);
@@ -415,7 +415,7 @@ fn two_point_route_emits_single_waypoint_leg() {
     write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
     let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
-    let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
+    let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
     let from = utm33n_to_wgs84(anchor.x, anchor.y + 600.0);
     let to = utm33n_to_wgs84(anchor.x + 600.0, anchor.y);
     let path = pf
@@ -439,7 +439,7 @@ fn pathfinder_layer_weights_disable_preferred_edge_layer() {
     write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
     let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
-    let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
+    let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
     let from = (10.7522, 59.9139);
     let to = utm33n_to_wgs84(anchor.x + 100.0, anchor.y - 100.0);
     let mut prefs = Prefs::default();
@@ -469,7 +469,7 @@ fn cost_based_selection_beats_long_graph_detour() {
     write_long_detour_graph(tmp.path(), p.x as f32, p.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
     let (_dem_tmp, dem) = flat_dem_around(p.x, p.y);
-    let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
+    let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
     // Place the clicks 200 m apart so we clear the DegenerateInputs
     // threshold (default mesh_cell_m = 100 m); still tiny vs the
     // 10 km graph detour.
@@ -509,7 +509,7 @@ fn switchback_gap_uniform_steep_face() {
     let g_tmp = tempfile::NamedTempFile::new().unwrap();
     write_square_graph_at(g_tmp.path(), (ox + 50_000.0) as f32, oy as f32);
     let g = Graph::open(g_tmp.path()).unwrap();
-    let pf = Pathfinder::with_defaults(Some(dem.clone()), None, Some(Arc::new(g)));
+    let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(dem.clone())), None, Some(Arc::new(g)));
 
     // Uphill = south (decreasing y, where z grows). 600 m climb.
     let from = utm33n_to_wgs84(ox, oy + 300.0);

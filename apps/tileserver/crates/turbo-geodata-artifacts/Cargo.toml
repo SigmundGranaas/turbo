@@ -1,0 +1,22 @@
+[package]
+name = "turbo-geodata-artifacts"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# L3 — the adapter that makes today's mmap'd Norwegian primitives
+# (`norway.{dem,mask,graph,vectors}`) satisfy the engine's model shapes.
+#
+# Boundary invariant (module design §12.5): adapters depend on
+# `turbo-route-model` and the artifact crates, and on NOTHING from the
+# engine. The engine must never gain a dependency on this crate — it is
+# *constructed* at L5 and handed in as `Arc<dyn Trait>`.
+#
+# Siblings that will implement the same shapes over different storage:
+# `turbo-geodata-pack` (an offline region pack) and `-memory` (arrays,
+# for fixtures and property tests).
+
+[dependencies]
+turbo-route-model.workspace = true
+turbo-tiles-elev.workspace = true

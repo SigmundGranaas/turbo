@@ -146,7 +146,7 @@ fn fixture() -> Fixture {
 #[test]
 fn dem_alone_reports_coverage_only_inside_the_dem() {
     let f = fixture();
-    let pf = Pathfinder::with_defaults(Some(f.dem.clone()), None, None);
+    let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(f.dem.clone())), None, None);
 
     assert!(
         pf.point_covered(f.inside_dem.0, f.inside_dem.1),
@@ -167,14 +167,14 @@ fn advisory_landcover_layer_does_not_grant_coverage_without_elevation() {
     let f = fixture();
     let (x, y) = f.outside_dem_inside_mask;
 
-    let dem_only = Pathfinder::with_defaults(Some(f.dem.clone()), None, None);
+    let dem_only = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(f.dem.clone())), None, None);
     assert!(
         !dem_only.point_covered(x, y),
         "precondition: the point is outside the DEM"
     );
 
     // Register the landcover mask exactly as `routing_setup.rs` does.
-    let mut pf = Pathfinder::with_defaults(Some(f.dem.clone()), None, None);
+    let mut pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(f.dem.clone())), None, None);
     pf.push_native(Arc::new(turbo_tiles_pathfind::LandcoverContributor::new(
         f.forest.clone(),
         "forest",
@@ -205,7 +205,7 @@ fn advisory_landcover_layer_does_not_grant_coverage_without_elevation() {
 #[test]
 fn required_vs_advisory_is_expressible() {
     let f = fixture();
-    let mut pf = Pathfinder::with_defaults(Some(f.dem.clone()), None, None);
+    let mut pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(f.dem.clone())), None, None);
     pf.push_native(Arc::new(turbo_tiles_pathfind::LandcoverContributor::new(
         f.forest.clone(),
         "forest",
@@ -249,7 +249,7 @@ fn required_vs_advisory_is_expressible() {
 #[test]
 fn endpoint_refusal_agrees_with_solver_on_a_flat_dem() {
     let f = fixture();
-    let pf = Pathfinder::with_defaults(Some(f.dem.clone()), None, None);
+    let pf = Pathfinder::with_defaults(Some(turbo_geodata_artifacts::heightfield(f.dem.clone())), None, None);
 
     // A flat DEM has no cliffs, so nothing inside coverage may be refused.
     // `solve` on two in-coverage points must therefore not fail with

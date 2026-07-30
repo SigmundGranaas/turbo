@@ -31,7 +31,6 @@ pub(crate) mod cost_field;
 pub mod fmm_adapter;
 pub mod native_contributors;
 pub mod pathfinder;
-pub mod ports;
 pub mod solver_trace;
 pub mod tracer;
 pub mod unified;
@@ -42,8 +41,12 @@ pub use config::{
 };
 pub use contributor::{
     compose_edge_walk_seconds, ContributorKind, CostContributor, EdgeContext, EdgeElevProbe,
-    EdgeKind, EdgeWalkCost, NamedContribution, Requirement, BASE_PACE_S_PER_M,
+    EdgeKind, EdgeWalkCost, NamedContribution, BASE_PACE_S_PER_M,
 };
+// The engine's ports and vocabulary live in `turbo-route-model` (L1),
+// which has zero dependencies — see that crate's docs for why. Re-exported
+// here so callers of the engine need not name two crates to use one API.
+pub use turbo_route_model::{Extent, Heightfield, ModeId, Point, Requirement, SlopeAspect};
 pub use core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
 pub use native_contributors::{
     has_native_replacement, AvalancheTerrainContributor, ContourCrossingContributor,
@@ -54,7 +57,6 @@ pub use native_contributors::{
     ToblerSlopeContributor, TotalGainContributor, TrailProximityContributor,
     DISPLACED_LEGACY_LAYERS,
 };
-pub use ports::Heightfield;
 pub use pathfinder::{
     utm33n_to_wgs84, CostMode, Inspect, InspectCell, InspectLayer, InspectPoint, LegKind, Path,
     PathLeg, PathStrategy, PathfindError, Pathfinder, Prefs, WaypointLeg,

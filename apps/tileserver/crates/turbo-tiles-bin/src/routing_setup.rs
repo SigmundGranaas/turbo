@@ -174,9 +174,10 @@ pub fn build_pathfinder(
     cost_config: CostConfig,
 ) -> (Pathfinder, HashMap<&'static str, Arc<Mask>>) {
     // The engine reasons about a `Heightfield`; `Dem` is the concrete
-    // mmap'd Norwegian artifact. Erasing the type is this composition
-    // root's job — the engine must never name the artifact.
-    let dem: Option<Arc<dyn Heightfield>> = art.dem.clone().map(|d| d as Arc<dyn Heightfield>);
+    // mmap'd Norwegian artifact. Adapting one to the other is the L3
+    // adapter's job and wiring them together is this composition root's
+    // — the engine names neither.
+    let dem: Option<Arc<dyn Heightfield>> = art.dem.clone().map(turbo_geodata_artifacts::heightfield);
     let mut pf = Pathfinder::with_defaults_and_config(
         dem,
         art.mask.clone(),

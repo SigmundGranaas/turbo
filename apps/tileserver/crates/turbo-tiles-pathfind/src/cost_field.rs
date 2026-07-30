@@ -19,11 +19,11 @@
 
 use std::sync::Arc;
 
-use turbo_tiles_elev::PointXY;
+use turbo_route_model::Point;
 use turbo_tiles_fmm::GridShape;
 
 use crate::contributor::{CostContributor, EdgeContext, EdgeElevProbe, EdgeKind};
-use crate::ports::Heightfield;
+use turbo_route_model::Heightfield;
 
 /// Lazily-evaluated per-cell cost field over a corridor grid.
 ///
@@ -166,7 +166,7 @@ impl<'a> LazyCostField<'a> {
             return if cached.is_nan() { None } else { Some(cached) };
         }
         let (cx, cy) = self.shape.cell_centre(i, j);
-        let v = self.dem.height_at(PointXY { x: cx, y: cy });
+        let v = self.dem.height_at(Point { x: cx, y: cy });
         self.elev.borrow_mut()[idx] = v.unwrap_or(f32::NAN);
         v
     }

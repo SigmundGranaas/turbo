@@ -28,7 +28,21 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use thiserror::Error;
-use turbo_tiles_elev::{wgs84_to_utm33n, PointXY};
+use turbo_route_model::Point;
+
+/// Geographic → planar, pending C4.
+///
+/// The engine is planar-only by design: it works in one metric frame and
+/// never learns which one. This shim is the last place a CRS is named
+/// inside the engine, and it exists solely so the WGS84-in / WGS84-out
+/// HTTP contract keeps working while the projection moves out to
+/// `turbo-geo-frame` at the composition layer. Every call site here is a
+/// request-boundary conversion, not a solver-internal one.
+#[inline]
+fn wgs84_to_utm33n(lon_deg: f64, lat_deg: f64) -> Point {
+    let p = turbo_tiles_elev::wgs84_to_utm33n(lon_deg, lat_deg);
+    Point { x: p.x, y: p.y }
+}
 use turbo_tiles_graph::{Graph, Profile};
 use turbo_tiles_mask::Mask;
 
@@ -36,7 +50,7 @@ use crate::core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
 use crate::contributor::{
     EdgeContext, EdgeElevProbe, EdgeKind, Requirement, BASE_PACE_S_PER_M,
 };
-use crate::ports::Heightfield;
+use turbo_route_model::Heightfield;
 
 #[derive(Debug, Error)]
 pub enum PathfindError {
@@ -813,16 +827,16 @@ impl Pathfinder {
     /// it can't lock the solver into a spiral.
     fn snap_endpoints_out_of_refusal(
         &self,
-        from: PointXY,
-        to: PointXY,
+        from: Point,
+        to: Point,
         prefs: &Prefs,
-    ) -> (PointXY, PointXY) {
+    ) -> (Point, Point) {
         let from = self.snap_one_out_of_refusal(from, prefs);
         let to = self.snap_one_out_of_refusal(to, prefs);
         (from, to)
     }
 
-    fn snap_one_out_of_refusal(&self, p: PointXY, prefs: &Prefs) -> PointXY {
+    fn snap_one_out_of_refusal(&self, p: Point, prefs: &Prefs) -> Point {
         if prefs.refusal_snap_m <= 0.0 {
             return p;
         }
@@ -836,7 +850,7 @@ impl Pathfinder {
             // 16 evenly-spaced directions on this ring.
             for i in 0..16 {
                 let theta = (i as f64) * std::f64::consts::TAU / 16.0;
-                let cand = PointXY {
+                let cand = Point {
                     x: p.x + r * theta.cos(),
                     y: p.y + r * theta.sin(),
                 };
@@ -890,8 +904,8 @@ impl Pathfinder {
     /// the request.
     fn endpoint_refused(
         &self,
-        from_xy: PointXY,
-        to_xy: PointXY,
+        from_xy: Point,
+        to_xy: Point,
         prefs: &Prefs,
     ) -> Option<(&'static str, String)> {
         let check = |x: f64, y: f64| -> Option<String> {
@@ -1364,8 +1378,8 @@ impl Pathfinder {
     /// corridor is degenerate, or when the goal is unreachable.
     fn try_build_off_trail_segment_fmm(
         &self,
-        from: PointXY,
-        to: PointXY,
+        from: Point,
+        to: Point,
         prefs: &Prefs,
     ) -> Result<OffTrailSegment, PathfindError> {
         let dem = self.dem.as_ref().ok_or_else(|| {
@@ -1470,8 +1484,8 @@ impl Pathfinder {
     /// are `Graph` legs (blue), off-trail runs `OffTrailPrefix` (vermillion).
     fn solve_unified_path(
         &self,
-        from_xy: PointXY,
-        to_xy: PointXY,
+        from_xy: Point,
+        to_xy: Point,
         prefs: &Prefs,
     ) -> Result<Path, PathfindError> {
         let Some(graph) = self.graph.as_ref() else {
@@ -1707,8 +1721,8 @@ impl Pathfinder {
 
     fn solve_off_trail(
         &self,
-        from_xy: PointXY,
-        to_xy: PointXY,
+        from_xy: Point,
+        to_xy: Point,
         prefs: &Prefs,
     ) -> Result<Path, PathfindError> {
         let segment = self.build_off_trail_segment(from_xy, to_xy, prefs)?;
@@ -1754,8 +1768,8 @@ impl Pathfinder {
     /// in UTM coordinates plus cost + observed-refusal layer names.
     fn build_off_trail_segment(
         &self,
-        from: PointXY,
-        to: PointXY,
+        from: Point,
+        to: Point,
         prefs: &Prefs,
     ) -> Result<OffTrailSegment, PathfindError> {
         // Off-trail routing is FMM-only. The legacy Theta* mesh fallback was

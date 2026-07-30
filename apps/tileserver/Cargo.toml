@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/turbo-route-model",
+    "crates/turbo-geodata-artifacts",
     "crates/turbo-tiles-core",
     "crates/turbo-tiles-db",
     "crates/turbo-tiles-mvt",
@@ -29,6 +31,9 @@ license = "AGPL-3.0-only"
 publish = false
 
 [workspace.dependencies]
+# L1 model + L3 adapters (routing-engine modularisation, Phase C).
+turbo-route-model = { path = "crates/turbo-route-model" }
+turbo-geodata-artifacts = { path = "crates/turbo-geodata-artifacts" }
 turbo-tiles-core = { path = "crates/turbo-tiles-core" }
 turbo-tiles-db = { path = "crates/turbo-tiles-db" }
 turbo-tiles-mvt = { path = "crates/turbo-tiles-mvt" }
