@@ -923,16 +923,18 @@ impl Pathfinder {
         p
     }
 
-    /// Ready for B2b, unused until the refusal port lands.
-    ///
     /// First contributor to veto a degenerate point-sized mesh edge at
     /// (x, y), if any. The shared basis for both refusal checks; uses the
     /// same synthetic east-west cell edge the solver's `CostField` builds,
     /// so a point is refused here exactly when the solver would refuse the
     /// cell containing it.
-    #[allow(dead_code)]
-    fn contributor_veto_at(&self, x: f64, y: f64, profile: Profile) -> Option<&'static str> {
-        let cell_m = default_mesh_cell_m();
+    fn contributor_veto_at(
+        &self,
+        x: f64,
+        y: f64,
+        profile: Profile,
+        cell_m: f64,
+    ) -> Option<&'static str> {
         let probe = self
             .dem
             .as_ref()
@@ -950,18 +952,9 @@ impl Pathfinder {
         self.native_contributors.iter().find_map(|c| c.veto(&ctx))
     }
 
-    /// Still on the legacy point query. Porting this to `contributor_veto_at`
-    /// is B2b: measured on the 90-hike corpus it moves 11-12 routes, because
-    /// a point query (`dem.slope_aspect(x, y)`) and an edge veto (elevations
-    /// sampled along a 25 m cell edge) are not the same question. That is a
-    /// behavioural change and gets its own review, separate from D1.
     fn point_is_refused(&self, x: f64, y: f64, prefs: &Prefs) -> bool {
-        for layer in &self.layers {
-            if layer.cell_cost(x, y, prefs.profile).refused.is_some() {
-                return true;
-            }
-        }
-        false
+        self.contributor_veto_at(x, y, prefs.profile, prefs.mesh_cell_m)
+            .is_some()
     }
 
     /// Return `Some((which, layer_name))` if either endpoint is in a
@@ -975,14 +968,9 @@ impl Pathfinder {
         to_xy: PointXY,
         prefs: &Prefs,
     ) -> Option<(&'static str, String)> {
-        // Legacy point query; see `point_is_refused` — ported in B2b.
         let check = |x: f64, y: f64| -> Option<String> {
-            for layer in &self.layers {
-                if layer.cell_cost(x, y, prefs.profile).refused.is_some() {
-                    return Some(layer.name().to_string());
-                }
-            }
-            None
+            self.contributor_veto_at(x, y, prefs.profile, prefs.mesh_cell_m)
+                .map(|s| s.to_string())
         };
         // Skip the refusal check at an endpoint that already snaps —
         // the graph leg will route around the refused region.

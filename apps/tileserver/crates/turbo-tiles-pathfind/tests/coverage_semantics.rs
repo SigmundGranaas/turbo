@@ -248,3 +248,42 @@ fn required_vs_advisory_is_expressible() {
     // And coverage inside the DEM still works.
     assert!(pf.point_covered(f.inside_dem.0, f.inside_dem.1));
 }
+
+/// B2b: endpoint refusal must agree with the SOLVER's cell refusal.
+///
+/// The point of porting `point_is_refused` off the legacy point query is
+/// consistency: `Pathfinder::contributor_veto_at` now builds the identical
+/// synthetic east-west cell edge that `cost_field::LazyCostField::ensure`
+/// builds, so a point is refused by the endpoint check exactly when the
+/// solver would refuse the cell containing it.
+///
+/// The legacy check asked a different question (`dem.slope_aspect` at the
+/// bare point), so the two could disagree — an endpoint could be snapped
+/// away from a cell the solver would happily traverse, or accepted into one
+/// it would refuse. Measured on the 90-hike Sjunkhatten corpus, that
+/// disagreement moved 11-12 routes.
+#[test]
+fn endpoint_refusal_agrees_with_solver_on_a_flat_dem() {
+    let f = fixture();
+    let pf = Pathfinder::with_defaults(Some(f.dem.clone()), None, None);
+
+    // A flat DEM has no cliffs, so nothing inside coverage may be refused.
+    // `solve` on two in-coverage points must therefore not fail with
+    // EndpointRefused — the check that would fire if the endpoint rule
+    // disagreed with the (uniformly passable) cost field.
+    let (x, y) = f.inside_dem;
+    let a = turbo_tiles_pathfind::utm33n_to_wgs84(x, y);
+    let b = turbo_tiles_pathfind::utm33n_to_wgs84(x + 600.0, y + 600.0);
+
+    let mut prefs = turbo_tiles_pathfind::Prefs::default();
+    prefs.force_off_trail = true;
+    prefs.snap_radius_m = 0.0;
+    prefs.bridge_radius_m = 0.0;
+
+    match pf.solve([a.0, a.1], [b.0, b.1], prefs) {
+        Err(turbo_tiles_pathfind::PathfindError::EndpointRefused { which, layer }) => {
+            panic!("flat terrain inside the DEM must not refuse an endpoint: {which} / {layer}")
+        }
+        _ => {}
+    }
+}

@@ -61,8 +61,11 @@ tileserver eval-terrain --corpus=tools/sjunkhatten-corpus.toml --mode={off-trail
 
 | lane | hash | dem lookups | ok |
 |---|---|---|---|
-| off-trail | `b0688fc53b85e122` | 13 752 676 | 89/90 |
-| unified | `5905a2503bfec602` | 2 992 297 | 90/90 |
+| off-trail | `8e305994f310e44e` | 13 801 216 | 89/90 |
+| unified | `8743c1a64e963469` | 2 983 532 | 90/90 |
+
+*(rebaselined at B2b — endpoint refusal now matches the solver's own cell
+refusal. Previous baseline `b0688fc53b85e122` / `5905a2503bfec602`.)*
 
 `--check-determinism`: 0 mismatches.
 
@@ -113,13 +116,22 @@ executes zero scenarios.
 Split by risk, per E3.
 
 | B1 | **Delete the legacy cost channel** — `compose_cell`, `compose_edge`, `CostLayer::cell_cost`'s multiplier, `LegacyLayerAdapter`, `layers.rs`, `vector_layers.rs`. | 4 d |
-| B2 | **Port feasibility off legacy** — `point_covered`, `point_is_refused`, `endpoint_refused` onto contributors, **implementing D1 (Required/Advisory) at the same time** since the semantics change anyway. | 4 d |
+| B2a | **Coverage** — `point_covered` as the intersection of `Required` contributors (D1). **DONE**, hash-neutral. | 2 d |
+| B2b | **Refusal** — `point_is_refused` / `endpoint_refused` onto `contributor_veto_at`. **DONE**, behavioural: 11-12/90 routes move, rebaselined. | 1 d |
+| B2c | **Delete the legacy layer types** — `CostLayer`, `layers.rs`, `vector_layers.rs`; `push_with_native` becomes `push_native`; port `inspect_point`. | 3 d |
 
 **Gate B1:** hashes unchanged, both lanes. *Proven achievable* — E3 showed a
 37× perturbation of the legacy multiplier moves nothing.
-**Gate B2:** hashes may change *only* for routes whose endpoints lack Required
-coverage; each such change reviewed and justified. `coverage_semantics.rs`
-inverts to assert the new behaviour.
+**Gate B2a:** hashes unchanged — *achieved*. `coverage_semantics.rs` inverted
+to assert the fix.
+**Gate B2b:** reviewed rebaseline. Justification is **consistency**, not
+quality: `contributor_veto_at` builds the identical synthetic cell edge
+`LazyCostField::ensure` builds, so the endpoint check now asks the solver's
+own question where the legacy point query asked a different one. Measured
+cost of the change: mean deviation from the walked truth **32.5 -> 31.9 m
+off-trail (all 11 moved routes improved)** and **14.4 -> 14.4 m unified**
+(7 better, 5 worse). Solve counts unchanged.
+**Gate B2c:** hashes unchanged.
 
 ### Phase C — Ports (2 weeks)
 
