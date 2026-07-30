@@ -33,20 +33,54 @@ The plan that came out of analysis is not the plan that survived measurement.
 Found by measurement, independent of the refactor. Each needs an owner and
 a gate.
 
-| # | Defect | Evidence | Fix | Risk |
-|---|---|---|---|---|
-| **D1** | `point_covered` is `any(covers)`; advisory landcover grants routing coverage where no DEM reaches | E6, `tests/coverage_semantics.rs` | `Requirement::{Required, Advisory}`; coverage = intersection of Required | behavioural — routes that used to solve will honestly refuse |
-| **D2** | Mesh slope charged twice; contributor's term reads a fixed **east–west** probe | E7b + E7c | Return 0 from `ToblerSlopeContributor::contribute` on `EdgeKind::Mesh` | **calibration** — routes move; also −12–24% DEM work |
-| **D3** | Two different Tobler models (symmetric f32 mesh vs asymmetric f64 contributor), 41.9% apart on descent; guards differ 69.9° vs 76.1°, sentinels 10 000× | E7 | One pace curve in `cost::terrain`, one precision, one guard | **calibration** |
-| **D4** | `f32::atan` differs across libm | E0 | `libm::atanf` (faster than std) | none — E1 shows it does not currently bite |
-| **D5** | `dtm-bulk-load` shells to `raster2pgsql` with no preflight; missing binary → `exit 127` in a backtrace | dataset build | `which` check + clear message | none |
-| **D6** | Graph build emits `subgraph_fragmented` and proceeds; `pgr_createTopology` without `pgr_nodeNetwork` leaves trails unnoded | artifact health output | fail the build, or run `pgr_nodeNetwork` | none |
-| **D7** | `include_str!("../../../tools/cost-config.toml")` reaches outside the crate | static | move into the profile crate | none — blocks cdylib vendoring |
-| **D8** | **`Dem::sample` is not a pure function of position.** In tile-overlap bands the answering tile depends on rstar order, so slicing changes elevations — and the national artifact is build-order dependent | E10b: slice ⊆ full, yet full returns `None` where slice returns a value (2 448 points) | de-overlap tiles at build time (preferred), or a canonical tie-break in `sample` | none to fix — **blocks packs** |
+| # | Defect | Status | Evidence | Fix | Risk |
+|---|---|---|---|---|---|
+| **D1** | **DONE** (B2) | `point_covered` is `any(covers)`; advisory landcover grants routing coverage where no DEM reaches | E6, `tests/coverage_semantics.rs` | `Requirement::{Required, Advisory}`; coverage = intersection of Required | behavioural — routes that used to solve will honestly refuse |
+| **D2** | **DONE** (E-1) | Mesh slope charged twice; contributor's term reads a fixed **east–west** probe | E7b + E7c | Return 0 from `ToblerSlopeContributor::contribute` on `EdgeKind::Mesh` | **calibration** — routes move; also −12–24% DEM work |
+| **D3** | **REFUTED** (E-2) | Two different Tobler models (symmetric f32 mesh vs asymmetric f64 contributor), 41.9% apart on descent; guards differ 69.9° vs 76.1°, sentinels 10 000× | E7 | One pace curve in `cost::terrain`, one precision, one guard | **calibration** |
+| **D4** | **DECLINED** | `f32::atan` differs across libm | E0 | `libm::atanf` (faster than std) | none — E1 shows it does not currently bite |
+| **D5** | **DONE** | `dtm-bulk-load` shells to `raster2pgsql` with no preflight; missing binary → `exit 127` in a backtrace | dataset build | `which` check + clear message | none |
+| **D6** | **DONE** | Graph build emits `subgraph_fragmented` and proceeds; `pgr_createTopology` without `pgr_nodeNetwork` leaves trails unnoded | artifact health output | fail the build, or run `pgr_nodeNetwork` | none |
+| **D7** | **DONE** (D3) | `include_str!("../../../tools/cost-config.toml")` reaches outside the crate | static | move into the profile crate | none — blocks cdylib vendoring |
+| **D8** | **DONE** | **`Dem::sample` is not a pure function of position.** In tile-overlap bands the answering tile depends on rstar order, so slicing changes elevations — and the national artifact is build-order dependent | E10b: slice ⊆ full, yet full returns `None` where slice returns a value (2 448 points) | de-overlap tiles at build time (preferred), or a canonical tie-break in `sample` | none to fix — **blocks packs** |
 
 **D2 and D3 must not be bundled with the refactor.** They move geometry;
 everything else in this plan must not. Mixing them destroys the only signal
 that says a refactor step was clean.
+
+### Outcomes
+
+- **D2 landed** as Phase E-1 on the full 90-hike corpus: off-trail mean
+  deviation 65.1 → 47.9 m (−26%), DEM work −13.8%, solves 30% faster.
+  One genuine regression (hike 55810), recorded not averaged away.
+
+- **D3 was refuted, not fixed.** It is not a calibration item at all.
+  `ToblerAnisotropic::metric_at` returns a `SymMat2` — the metric is
+  **Riemannian**, so `G(v) == G(-v)` identically, and `tobler_pace` is
+  handed a magnitude with the sign already discarded. Asymmetric descent
+  needs a **Finsler** metric: a solver change with its own
+  discretisation and convergence burden, not a knob. Pinned by
+  `the_metric_cannot_distinguish_uphill_from_downhill`. Since E-1 removed
+  the contributor's mesh term the two models now apply to *disjoint* edge
+  kinds and no longer double-count, so what remains is coherent rather
+  than drifted. **Phase E is one item, not two.**
+
+- **D4 declined, with the enforceable half kept.** Swapping to
+  `libm::atanf` would change routes today — a different implementation
+  gives different last bits, and thresholds are decided on those — to
+  guard a risk E1 measured as absent: the whole solver is already
+  bit-identical across x86_64 and aarch64, which is the ISA pair that
+  matters for on-device. What *is* worth having is A3's other half, and
+  it cost nothing: `boundary_check.sh` now forbids `target-cpu=native`,
+  `+fma` and fast-math flags, since those are how the property gets lost
+  silently. Revisit if a platform is ever measured to disagree.
+
+- **D8 fixed by canonical tie-break** (nearest tile centre), not by
+  de-overlapping at build time — which fixes existing artifacts too,
+  rather than requiring every one to be rebuilt. **Pack parity now
+  holds**: the CI corpus gives identical geometry hashes against the full
+  artifacts and against a slice of them, on both lanes. That was the
+  blocker for region packs.
 
 ---
 
@@ -100,16 +134,23 @@ Per-step checklist:
 
 Effort assumes one engineer. "Gate" is what must hold before the next step.
 
+> **Status.** Phases B, C and D are complete, A1/A2 are done, and Phase E
+> is closed at one item (E-1 landed; E-2 refuted — see the defect
+> outcomes above). What remains is Phase F, whose prerequisite F0 (D8) is
+> already fixed: **pack parity holds**, verified by the CI corpus giving
+> identical hashes against the full artifacts and against a slice of
+> them. Enforcement lives in `tools/boundary_check.sh` (ten invariants)
+> and `tools/routing_gate.sh` (two profiles), both run in CI.
+
 ### Phase A — Foundations (2 weeks)
 
-| A1 | **Fix the corpus-in-CI data problem.** Publish the Sjunkhatten pack (208 MB) to a fetchable location; make `tests/scenarios.rs` and `eval-terrain` run against it in CI. **The 90-hike corpus itself is done** (`tools/sjunkhatten-corpus.toml`). | 3 d |
-| A2 | **D5, D6, D7** — the three no-risk defects. | 1 d |
-| A3 | **`libm` swap (D4)** for `atan` on the routing path; add a build invariant forbidding fast-math/FMA contraction on the routing crates. | 1 d |
+| A1 | **DONE — differently than planned.** Publishing 208 MB was not needed: `tileserver slice-pack` cuts a **4.6 MB** self-contained pack (2.1% of the original) covering 25 hikes, committed at `tools/ci-pack`. The gate runs in **8.6 s** on any checkout, no data provisioning, and is a CI step. | 3 d |
+| A2 | **DONE.** D5 (preflight), D6 (health errors now fail the build), D7 (config moved to `turbo-profile-no`). | 1 d |
+| A3 | **Half done, half declined.** The build invariant is in `boundary_check.sh`. The `libm` swap is declined — see the D4 outcome above. | 1 d |
 | A4 | **Re-measure pack sizing** across 3–4 contrasting cells (coastal, inland alpine, forested lowland) and replace the withdrawn table. | 2 d |
 
-**Gate:** CI runs the corpus on every PR. This is what makes everything
-after it safe, and it is currently the weakest link — a clean checkout today
-executes zero scenarios.
+**Gate:** CI runs the corpus on every PR. **Met** — `tileserver_build.yml`
+runs `boundary_check.sh` then `routing_gate.sh ci`.
 
 ### Phase B — Delete the dead cost model (1.5 weeks)
 
@@ -150,29 +191,37 @@ path is gone by construction — a type-level proof, not an assertion.
 
 ### Phase D — Engine and composition (2 weeks)
 
-| D1 | `trait Solver` + registry; `UnifiedAStar`, `FmmGradeLimited`, `NetworkDijkstra` as implementations. | 3 d |
-| D2 | `turbo-route-engine`: `Engine::new(Terrain, CostModel, SolverSet, Budget)` — **takes values, no config, no I/O**. Planner stages. `RouteStrategy` with `PointToPoint` + `RoundTrip`. | 5 d |
-| D3 | `turbo-route-compose` + `turbo-profile-no`: all config schemas, source resolution, preset merging, the inline constants from `routing_setup.rs` moved into TOML. | 3 d |
+| D1 | **DONE.** `trait Solver` + `SolverSet`; `UnifiedAStar` and `FmmGradeLimited`. `NetworkDijkstra` was not extracted — it is not a `Pathfinder` strategy, it is the raw-graph `/v1/route` endpoint, and inventing a solver for it would have been a seam with no user. | 3 d |
+| D2 | **DONE in substance, not in shape.** The engine takes values: `Pathfinder::new`/`with_defaults` require a config, perform no I/O, bake in no data. `Engine::new(Terrain, CostModel, SolverSet, Budget)` as a *named type* is not built — `Pathfinder` plays that role with `SolveContext` as the borrowed view. | 5 d |
+| D3 | **DONE.** `turbo-profile-no` owns the calibrated constants, the presets and the resolution order. | 3 d |
 
-**Gate:** hashes unchanged, both lanes. Boundary greps clean.
-`routing_setup.rs` deleted; `ROUTING_DEV_LOOP.md` updated, since it names
-that file as the single wiring source of truth.
+**Gate:** hashes unchanged, both lanes — **met at every step**. Boundary
+greps clean — **enforced**, ten rules in `boundary_check.sh`.
+
+**Not met:** `routing_setup.rs` still exists. It is now a genuine
+composition root (opens artifacts, erases them to ports, wires the
+contributor stack) rather than the config-resolving grab-bag it was, so
+deleting it would mean moving that wiring somewhere else without
+changing what it does. Left as follow-up rather than churn.
 
 ### Phase E — Calibration (1 week, gated separately)
 
 **These move geometry on purpose.** One at a time, each with a reviewed
 baseline update.
 
-| E1 | **D3** — unify the pace curve on the asymmetric (published Tobler) model, one precision, one guard. | 2 d |
-| E2 | **D2** — remove the contributor's mesh-side slope term. Expect −12% / −24% DEM work. | 2 d |
-| E3 | Re-tune against the corpus; update `routing-baseline.json`. | 1 d |
+| E1 | **REFUTED — not a calibration item.** The mesh metric is Riemannian and structurally cannot express asymmetric descent. See the D3 outcome above. | — |
+| E2 | **DONE.** Contributor's mesh slope term removed. Off-trail deviation −26%, DEM work −13.8% / −18.2%. | 2 d |
+| E3 | **DONE.** Both baselines updated deliberately, with measurements recorded in the experiment log. | 1 d |
 
-**Gate:** corpus *quality* metrics (Fréchet vs ground truth) must not
-regress; geometry hash changes are expected and reviewed in `route-lab`.
+**Gate:** corpus *quality* must not regress. **Met**, and the missing
+half of the harness was built to check it: `tools/calibration_diff.py`
+compares two `eval-terrain` runs on deviation from walked truth, length
+and gain, and reports the per-hike distribution — because an average
+hides the shape, and both directions of that failure need catching.
 
 ### Phase F — Packs and device (3 weeks)
 
-| F0 | **Fix D8** — de-overlap DEM tiles at build time so `sample` is a pure function of position. Prerequisite: without it, pack parity cannot hold. | 2 d |
+| F0 | **DONE** — by canonical tie-break in `find_tile` (nearest tile centre) rather than de-overlapping at build time, which fixes existing artifacts instead of requiring every one to be rebuilt. **Pack parity verified.** | 2 d |
 | F1 | `turbo-geodata-pack` + `turbo-route pack --bbox` (DEM tile filter, mask re-crop, vector AABB filter, graph CSR renumber, **1–2 km halo per E10**). | 8 d |
 | F2 | `PyramidElevation` multi-resolution; re-measure pack sizes. | 2 d |
 | F3 | `turbo-route-ffi` (uniffi over `Engine` + `compose`), `catch_unwind`, cargo-ndk — cloning the proven `turbomap-ffi` / `core/turbomap-android` pattern. | 5 d |

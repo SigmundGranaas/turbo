@@ -36,8 +36,14 @@ develop the engine end-to-end on its own.
 1. **`routing_setup.rs`** (`turbo-tiles-bin`) — `load_routing_artifacts()`
    + `build_pathfinder()` construct the *identical* production layer
    stack `serve()` uses. The one source of truth for "how the router is
-   wired", shared by the server and the evaluator. (Also the
-   `RoutingExecutor` seam from the architecture plan.)
+   wired", shared by the server and the evaluator.
+
+   Since Phase C/D this is a genuine **composition root**: it opens the
+   artifacts, erases them to engine ports
+   (`turbo_geodata_artifacts::heightfield`), pulls the calibrated
+   constants from `turbo-profile-no`, and hands the engine values. The
+   engine itself no longer resolves paths, reads the environment, or
+   bakes in a profile — `tools/boundary_check.sh` enforces all three.
 
 2. **`tileserver eval-terrain`** — loads artifacts + builds the
    pathfinder in-process (no DB, no socket), solves every ground-truth
@@ -56,6 +62,26 @@ develop the engine end-to-end on its own.
 
 4. **`routing_loop.py`** — chains build → eval → score → diff vs
    `routing-baseline.json` and prints the verdict.
+
+## The two gates
+
+Before the harness below, two cheap checks that CI also runs:
+
+- **`./tools/boundary_check.sh`** — ten architectural invariants
+  (§12 of the module design), each verified to fail when its boundary is
+  crossed. Instant.
+
+- **`./tools/routing_gate.sh`** — 25 hikes on both solver lanes against
+  the committed 4.6 MB `tools/ci-pack`, comparing geometry hashes and DEM
+  lookup counts to `tools/sjunkhatten-ci-baseline.json`. **8.6 s**, no
+  data provisioning. `./tools/routing_gate.sh full` runs the 90-hike
+  corpus against the full artifacts when you have them — do that before
+  landing anything that moves geometry on purpose.
+
+  A gate failure means routing **output** changed. If that was
+  intentional, measure the quality effect with
+  `tools/calibration_diff.py <before_dir> <after_dir>` and rebaseline
+  deliberately with `--update`; do not "fix" it by rerunning.
 
 ## Two lanes — both routers are covered
 

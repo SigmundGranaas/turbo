@@ -176,4 +176,30 @@ else
   ok "no concrete DEM holders in the engine"
 fi
 
+# ---------------------------------------------------------------------
+# 6. Nothing enables non-deterministic floating point.
+#
+# D4/A3. E0 and E1 established that the solver is bit-identical across
+# x86_64 and aarch64 — which is what makes a route computed on a phone
+# match the one computed on the server, and what lets a geometry hash
+# be a regression gate at all. That property is not intrinsic: it holds
+# because nothing in the build permits FMA contraction or fast-math
+# reassociation, either of which would let the optimiser produce
+# different last bits per target.
+#
+# `target-cpu=native` is the realistic way it gets lost — someone adds
+# it for speed, and the artifact stops being reproducible on any other
+# machine. Cheap to forbid, expensive to debug afterwards.
+# ---------------------------------------------------------------------
+fp=$(grep -rn 'target-cpu\|target-feature=+fma\|fast-math\|ffast-math' \
+       Cargo.toml .cargo/config.toml 2>/dev/null || true)
+if [[ -n "$fp" ]]; then
+  bad "the build enables target-specific or relaxed floating point (D4/A3)" \
+      "$(echo "$fp" | head -3)" \
+      "E0/E1 proved cross-ISA bit-identity; these flags forfeit it, and the" \
+      "geometry-hash gate stops meaning anything."
+else
+  ok "no target-specific or relaxed floating point in the build"
+fi
+
 exit $fail
