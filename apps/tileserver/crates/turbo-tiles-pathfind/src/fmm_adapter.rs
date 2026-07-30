@@ -305,6 +305,7 @@ fn bake_contributor_pace(
     cost: &mut FmmGrid<f32>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
     base_pace_s_per_m: f32,
 ) {
     let cell_m = shape.cell_m;
@@ -326,6 +327,7 @@ fn bake_contributor_pace(
                 profile,
                 kind: EdgeKind::Mesh,
                 elev_probe: None,
+                tuning,
             };
             // Sum walk-seconds contributions; skip Inf (vetoes). Also
             // accumulate the multiplicative pace factors (off-trail
@@ -359,6 +361,7 @@ fn bake_vetoes(
     cost: &mut FmmGrid<f32>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
 ) -> (u32, Vec<String>) {
     use std::collections::BTreeSet;
     let mut refused = 0u32;
@@ -380,6 +383,7 @@ fn bake_vetoes(
                 profile,
                 kind: EdgeKind::Mesh,
                 elev_probe: None,
+                tuning,
             };
             for c in contributors {
                 if let Some(label) = c.veto(&ctx) {
@@ -409,6 +413,7 @@ fn apply_contributor_factors_aniso(
     forms: &mut FmmGrid<CellForm>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
     base_pace_s_per_m: f32,
 ) {
     let cell_m = shape.cell_m;
@@ -429,6 +434,7 @@ fn apply_contributor_factors_aniso(
                 profile,
                 kind: EdgeKind::Mesh,
                 elev_probe: None,
+                tuning,
             };
             let mut extra_s: f64 = 0.0;
             let mut factor: f64 = 1.0;
@@ -466,6 +472,7 @@ fn bake_vetoes_aniso(
     forms: &mut FmmGrid<CellForm>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
 ) -> (u32, Vec<String>) {
     use std::collections::BTreeSet;
     let mut refused = 0u32;
@@ -483,6 +490,7 @@ fn bake_vetoes_aniso(
                 profile,
                 kind: EdgeKind::Mesh,
                 elev_probe: None,
+                tuning,
             };
             for c in contributors {
                 if let Some(label) = c.veto(&ctx) {
@@ -510,6 +518,7 @@ fn solve_fmm_corridor_aniso(
     dem: Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
 ) -> Result<FmmSolveOutput, FmmAdapterError> {
     let shape = compute_corridor_shape(inputs.from, inputs.to, inputs.cell_m)?;
     let start_cell = shape
@@ -533,9 +542,11 @@ fn solve_fmm_corridor_aniso(
         &mut forms,
         contributors,
         profile,
+        tuning,
         inputs.base_pace_s_per_m * inputs.off_trail_factor,
     );
-    let (vetoed_cells, refused_by) = bake_vetoes_aniso(shape, &mut forms, contributors, profile);
+    let (vetoed_cells, refused_by) =
+        bake_vetoes_aniso(shape, &mut forms, contributors, profile, tuning);
 
     let t0 = std::time::Instant::now();
     let result = solve_2d_anisotropic(
@@ -588,9 +599,10 @@ pub fn solve_fmm_corridor(
     dem: Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
 ) -> Result<FmmSolveOutput, FmmAdapterError> {
     if inputs.use_anisotropic {
-        return solve_fmm_corridor_aniso(&inputs, dem, contributors, profile);
+        return solve_fmm_corridor_aniso(&inputs, dem, contributors, profile, tuning);
     }
     let shape = compute_corridor_shape(inputs.from, inputs.to, inputs.cell_m)?;
     let start_cell = shape
@@ -632,12 +644,13 @@ pub fn solve_fmm_corridor(
         &mut cost,
         &augmented,
         profile,
+        tuning,
         inputs.base_pace_s_per_m,
     );
 
     // 3) Bake hard refusals on top — water/ocean/glacier/building
     //    polygons. Sets `cost = +∞` for vetoed cells.
-    let (vetoed_cells, refused_by) = bake_vetoes(shape, &mut cost, &augmented, profile);
+    let (vetoed_cells, refused_by) = bake_vetoes(shape, &mut cost, &augmented, profile, tuning);
 
     // 3) Solve.
     let t0 = std::time::Instant::now();
@@ -697,14 +710,15 @@ pub fn solve_fmm_path(
     dem: Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
 ) -> Result<FmmPathOutput, FmmAdapterError> {
     if inputs.use_grade_limited {
-        return solve_grade_limited_path(inputs, dem, contributors, profile);
+        return solve_grade_limited_path(inputs, dem, contributors, profile, tuning);
     }
     let from = inputs.from;
     let to = inputs.to;
     let use_aniso = inputs.use_anisotropic;
-    let solve = solve_fmm_corridor(inputs, dem, contributors, profile)?;
+    let solve = solve_fmm_corridor(inputs, dem, contributors, profile, tuning)?;
     let start_pp = PathPoint {
         x: from.x,
         y: from.y,
@@ -756,6 +770,7 @@ fn solve_grade_limited_path(
     dem: Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
 ) -> Result<FmmPathOutput, FmmAdapterError> {
     use turbo_tiles_fmm::{
         extract_path_lifted, solve_lifted_grade_limited, GradeLimitedCost, N_HEADINGS,
@@ -793,6 +808,7 @@ fn solve_grade_limited_path(
         inputs.base_pace_s_per_m,
         profile,
         &augmented,
+        tuning,
     );
 
     let cost = GradeLimitedCost {

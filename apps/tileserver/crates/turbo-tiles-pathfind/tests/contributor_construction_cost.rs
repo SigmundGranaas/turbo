@@ -154,7 +154,7 @@ fn measure_contributor_construction_scaling() {
 
         // Isolate the R-tree build.
         let t = Instant::now();
-        let tp = TrailProximityContributor::new(&graph, 150.0, 0.6);
+        let tp = TrailProximityContributor::new(&graph);
         let tp_ms = t.elapsed().as_secs_f64() * 1e3;
         std::hint::black_box(&tp);
 

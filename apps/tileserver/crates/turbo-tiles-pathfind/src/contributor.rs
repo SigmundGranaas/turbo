@@ -174,6 +174,22 @@ pub struct EdgeContext<'a> {
     /// `None` = contributors sample their own primitives directly
     /// (graph edges, tests, callers that don't price terrain).
     pub elev_probe: Option<&'a EdgeElevProbe<'a>>,
+    /// **The resolved per-request tuning.** Boot config merged with any
+    /// per-request patch, once, by the caller.
+    ///
+    /// Contributors read their scalars from here rather than owning
+    /// them, and that is not a style preference — it is the fix for a
+    /// class of bug. A contributor that copies a config value into a
+    /// field at construction can never see a per-request patch: the
+    /// knob compiles, parses, reaches the API, renders in the SPA
+    /// dropdown, and does nothing. Four shipped that way
+    /// (`trail_proximity_*`, `water_*`) and nothing caught it, because
+    /// every check in the repo was structural and none asked whether a
+    /// knob *does* anything.
+    ///
+    /// `tests/knob_liveness.rs` is the guard. A scalar that belongs to
+    /// `CostConfigPatch` and lives on a contributor field will fail it.
+    pub tuning: &'a crate::config::CostConfig,
 }
 
 impl<'a> EdgeContext<'a> {
@@ -379,6 +395,7 @@ mod tests {
     }
 
     fn ctx(length_m: f64) -> EdgeContext<'static> {
+        static T: std::sync::OnceLock<crate::config::CostConfig> = std::sync::OnceLock::new();
         EdgeContext {
             fx: 0.0,
             fy: 0.0,
@@ -388,6 +405,7 @@ mod tests {
             profile: Profile::Foot,
             kind: EdgeKind::Mesh,
             elev_probe: None,
+            tuning: T.get_or_init(crate::config::test_config),
         }
     }
 

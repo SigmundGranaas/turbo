@@ -3,7 +3,7 @@
 //! `boundary_check.sh` enforces ten invariants and every one of them is
 //! structural — who may name whom, which crate may read a file. Not one
 //! asks whether anything *does* something. This is the behavioural
-//! counterpart, and the gap it fills is not hypothetical: four knobs in
+//! counterpart, and the gap it fills is not hypothetical: six knobs in
 //! `CostConfigPatch` were completely inert, and the whole refactor ran
 //! green over them because the corpus gate cannot see this property.
 //!
@@ -30,11 +30,13 @@
 //! moves route length by **0.07%**; on these fixtures the same class of
 //! change moves it by 50–155%.
 //!
-//! # This test is expected to FAIL until the `Tuning` split lands
+//! # It was written before the fix, and it failed
 //!
-//! That is the point of building it first. A fitness function written
-//! after the fix proves nothing about whether it could have caught the
-//! bug.
+//! That was the point. A fitness function written after the fix proves
+//! nothing about whether it could have caught the bug. On its first run
+//! seven knobs reported INERT; six were real and the `Tuning` split
+//! fixed them, and the seventh turned out to be a bad probe — see
+//! `every_probe_actually_changes_the_config`.
 
 use std::sync::Arc;
 
@@ -143,11 +145,11 @@ struct Ctx {
     off_trail_lane: bool,
     /// Applied to BOTH the baseline and the probe, so the comparison
     /// isolates the knob under test rather than the conditions it needs
-    /// to be reachable. `grade_limited_enabled` is the case that forces
-    /// this: it only changes a route when the grade constraint actually
-    /// binds, so the baseline must already carry a tight
-    /// `max_grade_deg` or the probe measures nothing and reports a
-    /// wiring bug that is not there.
+    /// to be reachable. `grade_limited_turn_penalty_s` is the case that
+    /// forces this: a turn penalty only shapes a route once the grade
+    /// constraint binds hard enough to make the solver switchback, so
+    /// its base carries a tight `max_grade_deg`. Without that the probe
+    /// measures nothing and reports a wiring bug that is not there.
     base: CostConfigPatch,
     /// An `fkb_type` the pack must contain for this knob to be
     /// judgeable at all. A surface-pace knob for a surface no edge in
@@ -215,12 +217,19 @@ fn probes() -> Vec<(&'static str, CostConfigPatch, Ctx)> {
         grade_limited_max_grade_deg: Some(8.0),
         ..Default::default()
     };
-    // For `enabled` itself the base must carry the tight grade but NOT
-    // the enable, or baseline and probe are the same config.
-    let gl_grade_only = CostConfigPatch {
-        grade_limited_max_grade_deg: Some(8.0),
-        ..Default::default()
-    };
+    // For `enabled` itself the base carries nothing and the probe turns
+    // the solver OFF, because the calibrated config already has it ON.
+    // Probing `= true` against a boot value of `true` is a patch that
+    // patches nothing: identical routes, reported as a dead knob. See
+    // `every_probe_actually_changes_the_config`, which now makes that
+    // mistake impossible to repeat silently.
+    let gl_grade_only = CostConfigPatch::default();
+    fn water_ctx() -> Ctx {
+        Ctx {
+            off_trail_lane: true,
+            ..Ctx::default()
+        }
+    }
     let ski_surface = Ctx {
         profile: Some(Profile::Ski),
         needs_fkb: Some(3),
@@ -233,8 +242,6 @@ fn probes() -> Vec<(&'static str, CostConfigPatch, Ctx)> {
         p!(off_trail_base_ski = 9.0, prof(Profile::Ski)),
         p!(trail_proximity_influence_radius_m = 500.0),
         p!(trail_proximity_bonus_at_zero = 0.001),
-        p!(slope_cell_quadratic_scale_deg = 2.0),
-        p!(slope_cell_refuse_above_deg = 5.0),
         p!(slope_graph_quadratic_scale_deg = 2.0),
         p!(slope_graph_refuse_above_deg = 5.0),
         p!(total_gain_amplifier = 12.0),
@@ -249,9 +256,15 @@ fn probes() -> Vec<(&'static str, CostConfigPatch, Ctx)> {
                 ..Ctx::default()
             }
         ),
-        p!(water_cost_s_per_m = 99.0),
-        p!(water_shore_band_m = 400.0),
-        p!(grade_limited_enabled = true, gl(gl_grade_only)),
+        // Water prices MESH cells. On the unified lane a route that
+        // crosses a lake usually does so on a trail — graph edges are
+        // priced from baked metadata at synthetic coordinates, on
+        // purpose, so a bridge is not water-vetoed. Judge these on the
+        // off-trail lane, where every metre is mesh and a crossing is
+        // actually charged.
+        p!(water_cost_s_per_m = 99.0, water_ctx()),
+        p!(water_shore_band_m = 400.0, water_ctx()),
+        p!(grade_limited_enabled = false, gl(gl_grade_only)),
         p!(grade_limited_max_grade_deg = 8.0, gl(gl_on)),
         p!(grade_limited_turn_penalty_s = 600.0, gl(gl_tight)),
     ]
@@ -270,8 +283,6 @@ fn every_knob_has_a_probe() {
         off_trail_base_ski: Some(1.0),
         trail_proximity_influence_radius_m: Some(1.0),
         trail_proximity_bonus_at_zero: Some(1.0),
-        slope_cell_quadratic_scale_deg: Some(1.0),
-        slope_cell_refuse_above_deg: Some(1.0),
         slope_graph_quadratic_scale_deg: Some(1.0),
         slope_graph_refuse_above_deg: Some(1.0),
         total_gain_amplifier: Some(1.0),
@@ -300,6 +311,42 @@ fn every_knob_has_a_probe() {
          add it to `probes()` in this file.\n\
          (If this fails after adding a field to the `all` literal above, that \
          literal is the completeness oracle and must list every field.)"
+    );
+}
+
+/// A probe must actually change the resolved config.
+///
+/// This is the instrument checking its own instrument. `grade_limited_
+/// enabled` was probed with `Some(true)` while the calibrated config
+/// already sets `enabled = true` — so baseline and probe resolved to the
+/// same `CostConfig`, produced the same routes, and the liveness table
+/// reported a **dead knob**. It was a dead *probe*. That misdiagnosis
+/// cost more than the real bugs did, because it pointed at the engine.
+///
+/// The check is deliberately generic: resolve both configs and compare
+/// them whole, rather than mapping each patch field to its config path.
+/// A field-name mapping would need updating with every new knob and
+/// would silently pass the ones it forgot — the exact rot this file
+/// exists to prevent.
+#[test]
+fn every_probe_actually_changes_the_config() {
+    let boot = turbo_profile_no::cost_config().expect("calibrated config");
+    let mut vacuous = Vec::new();
+    for (name, patch, ctx) in probes() {
+        let baseline = boot.with_patch(&CostConfigPatch::default().over(&ctx.base));
+        let probed = boot.with_patch(&patch.over(&ctx.base));
+        if serde_json::to_value(&baseline).unwrap() == serde_json::to_value(&probed).unwrap() {
+            vacuous.push(name);
+        }
+    }
+    assert!(
+        vacuous.is_empty(),
+        "probe(s) that resolve to the SAME config as their baseline: {vacuous:?}.\n\
+         These test nothing and will report their knob as INERT no matter how \
+         well it is wired.\n\
+         Usually the probe restates the value the calibrated config already \
+         carries — pick a value that differs from `tools/cost-config.toml`, not \
+         just from `Default::default()`."
     );
 }
 
@@ -362,7 +409,7 @@ fn every_knob_moves_at_least_one_route() {
             "\nNOTE: {} knob(s) unexercised by this pack: {:?}. Widen the \
              fixture pack to judge them.",
             unexercised.len(),
-            unexercised.iter().map(|(n, _)| *n).collect::<Vec<_>>()
+            unexercised
         );
     }
 
@@ -371,15 +418,22 @@ fn every_knob_moves_at_least_one_route() {
         "\n{} knob(s) are INERT — an extreme value, in the context where the \
          knob is supposed to bite, changes no route at all:\n  {}\n\n\
          These are wired end to end at the API and the SPA and do nothing.\n\n\
-         MOST have one structural cause: contributors copy config scalars into \
-         their own fields at construction, while a per-request patch only \
-         reaches what the solvers read from `SolveContext::cost_config`. A knob \
-         whose only consumer is a contributor field cannot be reached per \
-         request. The fix for those is the `Tuning` split — contributors read \
-         scalars from the request context instead of owning them.\n\n\
-         Do NOT assume that explains all of them. `grade_limited_enabled` is \
-         applied by `with_patch` AND read by the solver, and is still inert — a \
-         different bug wearing the same symptom. Diagnose each before fixing.",
+         Three causes have produced this symptom here; check them in this \
+         order, cheapest first.\n\n\
+         1. A DEAD PROBE. The probe value equals what the calibrated config \
+         already carries, so nothing is patched. \
+         `every_probe_actually_changes_the_config` catches this now — if it is \
+         green, rule this out and move on.\n\n\
+         2. A MISSING PRECONDITION. The knob is fine but this context cannot \
+         reach it — the wrong profile, the wrong lane, a base that does not \
+         make the constraint bind. Declare it on the probe's `Ctx`; that is \
+         what `Ctx` is for.\n\n\
+         3. THE REAL BUG, and the one this file was built for: a contributor \
+         copies the config scalar into its own field at construction, while a \
+         per-request patch only reaches what is read from the request. Such a \
+         knob cannot be reached per request at all. The fix is the one the \
+         `Tuning` split made: read the scalar from `EdgeContext::tuning` at \
+         evaluation time instead of owning a copy of it.",
         dead.len(),
         dead.join("\n  ")
     );
@@ -432,5 +486,69 @@ fn every_preset_routes_differently_from_balanced() {
         "preset(s) that route identically to `balanced`: {inert:?}. \
          A trip style the user can select which changes nothing is a product \
          bug, whatever the patch says."
+    );
+}
+
+/// The water knobs, checked at the contributor rather than end to end.
+///
+/// The liveness table judges them too, now that `shoreline_detour` is in
+/// the fixture set — but only two scenarios move, and both are the
+/// off-trail lane. This pins the mechanism directly: the charge scales
+/// *linearly* with the tuned cost, which is the specific thing a baked
+/// field cannot do. If a future change makes the water knobs go quiet
+/// end to end, the pair of results tells you immediately whether the
+/// wiring broke or the fixtures stopped touching water.
+#[test]
+fn water_knobs_reach_the_cost_model() {
+    use turbo_tiles_pathfind::{CostContributor, EdgeContext, EdgeKind, MaskRefusalContributor};
+
+    let d = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tools/ci-pack")
+        .canonicalize()
+        .unwrap();
+    let mask = Arc::new(turbo_tiles_mask::Mask::open(d.join("norway.mask")).unwrap());
+    let contributor = MaskRefusalContributor::new(mask.clone());
+    let base = turbo_profile_no::cost_config().unwrap();
+
+    // Any water cell in the pack will do — the contributor prices by
+    // classification, not by location.
+    let cov = mask.coverage();
+    let res = cov.meta.resolution_m as f64;
+    let mut water = None;
+    'outer: for j in 0..cov.meta.cells_y {
+        for i in 0..cov.meta.cells_x {
+            let x = cov.meta.min_x + i as f64 * res + res * 0.5;
+            let y = cov.meta.max_y - j as f64 * res - res * 0.5;
+            if matches!(mask.refused(x, y), Ok(turbo_tiles_mask::RefusalKind::Water)) {
+                water = Some((x, y));
+                break 'outer;
+            }
+        }
+    }
+    let (x, y) = water.expect("the CI pack contains water");
+
+    let charge = |cost_s_per_m: f64| -> f64 {
+        let mut cfg = base.clone();
+        cfg.water.cost_s_per_m = cost_s_per_m;
+        let ctx = EdgeContext {
+            fx: x - 5.0,
+            fy: y,
+            tx: x + 5.0,
+            ty: y,
+            length_m: 10.0,
+            profile: turbo_tiles_graph::Profile::Foot,
+            kind: EdgeKind::Mesh,
+            elev_probe: None,
+            tuning: &cfg,
+        };
+        contributor.contribute(&ctx)
+    };
+
+    let (a, b) = (charge(1.0), charge(50.0));
+    assert!(
+        a > 0.0 && (b - a * 50.0).abs() < 1e-6,
+        "the water charge must scale with the tuned cost — got {a} at 1.0 and \
+         {b} at 50.0. If these are equal, the contributor is reading a baked \
+         field again instead of `EdgeContext::tuning`."
     );
 }

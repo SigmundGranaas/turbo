@@ -238,21 +238,26 @@ fn build_off_trail_segment_fmm(
         turn_penalty_s: effective_cfg.grade_limited.turn_penalty_s,
     };
     let contributors = ctx.contributors;
-    let out =
-        crate::fmm_adapter::solve_fmm_path(inputs, Arc::clone(dem), contributors, prefs.profile)
-            .map_err(|e| {
-                use crate::fmm_adapter::FmmAdapterError;
-                match e {
-                    // Goal genuinely unreachable through the terrain (corridor
-                    // severed by water/glacier/cliff, or no DEM coverage). This
-                    // is an honest "no route", NOT an internal error — and there
-                    // is no Theta* fallback to paper over it with a garbage line.
-                    FmmAdapterError::GoalUnreachable
-                    | FmmAdapterError::StartOutsideGrid
-                    | FmmAdapterError::GoalOutsideGrid => PathfindError::NoRoute,
-                    other => PathfindError::Internal(format!("off-trail solver: {other}")),
-                }
-            })?;
+    let out = crate::fmm_adapter::solve_fmm_path(
+        inputs,
+        Arc::clone(dem),
+        contributors,
+        prefs.profile,
+        effective_cfg,
+    )
+    .map_err(|e| {
+        use crate::fmm_adapter::FmmAdapterError;
+        match e {
+            // Goal genuinely unreachable through the terrain (corridor
+            // severed by water/glacier/cliff, or no DEM coverage). This
+            // is an honest "no route", NOT an internal error — and there
+            // is no Theta* fallback to paper over it with a garbage line.
+            FmmAdapterError::GoalUnreachable
+            | FmmAdapterError::StartOutsideGrid
+            | FmmAdapterError::GoalOutsideGrid => PathfindError::NoRoute,
+            other => PathfindError::Internal(format!("off-trail solver: {other}")),
+        }
+    })?;
     tracing::debug!(
         cells_accepted = out.cells_accepted,
         vetoed_cells = out.vetoed_cells,
@@ -387,6 +392,7 @@ fn solve_unified(
         graph,
         dem,
         &contributors,
+        effective_cfg,
         prefs.profile,
         from_xy,
         to_xy,

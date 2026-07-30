@@ -5,10 +5,12 @@
 //! to layers + the off-trail solver, overridable per request via
 //! [`crate::pathfinder::Prefs::cost_config_override`].
 //!
-//! See `tools/cost-config.toml` for the on-disk schema. The
-//! embedded defaults compiled into the binary match that file
-//! exactly so a fresh build with no config on disk still produces
-//! the calibrated behaviour.
+//! See `tools/cost-config.toml` for the on-disk schema. This module
+//! defines that schema and nothing else: it does **not** carry the
+//! calibrated numbers and does not resolve where a config comes from.
+//! Both moved to `turbo-profile-no` (D3), which bakes the TOML and
+//! hands the parsed result to the engine — so a caller embedding this
+//! engine supplies its own tuning instead of inheriting Norway's.
 
 use std::collections::BTreeMap;
 
@@ -260,10 +262,6 @@ pub struct CostConfigPatch {
     #[serde(default)]
     pub trail_proximity_influence_radius_m: Option<f32>,
     #[serde(default)]
-    pub slope_cell_quadratic_scale_deg: Option<f32>,
-    #[serde(default)]
-    pub slope_cell_refuse_above_deg: Option<f32>,
-    #[serde(default)]
     pub slope_graph_quadratic_scale_deg: Option<f32>,
     #[serde(default)]
     pub slope_graph_refuse_above_deg: Option<f32>,
@@ -327,12 +325,6 @@ impl CostConfig {
         if let Some(v) = patch.trail_proximity_influence_radius_m {
             c.trail_proximity.influence_radius_m = v;
         }
-        if let Some(v) = patch.slope_cell_quadratic_scale_deg {
-            c.slope_cell.quadratic_scale_deg = v;
-        }
-        if let Some(v) = patch.slope_cell_refuse_above_deg {
-            c.slope_cell.refuse_above_deg = v;
-        }
         if let Some(v) = patch.slope_graph_quadratic_scale_deg {
             c.slope_graph.quadratic_scale_deg = v;
         }
@@ -361,6 +353,45 @@ impl CostConfig {
     }
 }
 
+/// A minimal, deliberately un-calibrated config for unit tests.
+///
+/// Not `Default`, and not the shipped numbers. D3 moved the calibrated
+/// values out of this crate into `turbo-profile-no`, and a `Default` here
+/// would quietly put a second set back — one that compiles, that nothing
+/// calibrates, and that a forgotten `unwrap_or_default()` could ship. The
+/// unit tests that use this assert contributor *shape* (sign, magnitude,
+/// monotonicity) and read almost nothing from it; the tests that care
+/// what a tuned value does live in `tests/knob_liveness.rs` and use the
+/// real profile.
+#[cfg(test)]
+pub(crate) fn test_config() -> CostConfig {
+    CostConfig::from_toml(
+        r#"
+        [base]
+        pace_s_per_m = 0.714
+        [off_trail_base]
+        foot = 2.0
+        bicycle = 4.0
+        ski = 2.0
+        [trail_proximity]
+        influence_radius_m = 150.0
+        bonus_at_zero = 0.6
+        [slope_cell]
+        quadratic_scale_deg = 15.0
+        refuse_above_deg = 50.0
+        [slope_graph]
+        quadratic_scale_deg = 15.0
+        refuse_above_deg = 50.0
+        [total_gain]
+        amplifier = 1.0
+        [surface_multiplier.foot]
+        [surface_multiplier.bicycle]
+        [surface_multiplier.ski]
+        "#,
+    )
+    .expect("the test config must parse — if this fails, a required field was added")
+}
+
 impl CostConfigPatch {
     /// Overlay `self` (e.g. an explicit per-request override) onto `base`
     /// (e.g. a preset): for every field, `self`'s value wins when set,
@@ -381,8 +412,6 @@ impl CostConfigPatch {
             off_trail_base_ski: pick!(off_trail_base_ski),
             trail_proximity_bonus_at_zero: pick!(trail_proximity_bonus_at_zero),
             trail_proximity_influence_radius_m: pick!(trail_proximity_influence_radius_m),
-            slope_cell_quadratic_scale_deg: pick!(slope_cell_quadratic_scale_deg),
-            slope_cell_refuse_above_deg: pick!(slope_cell_refuse_above_deg),
             slope_graph_quadratic_scale_deg: pick!(slope_graph_quadratic_scale_deg),
             slope_graph_refuse_above_deg: pick!(slope_graph_refuse_above_deg),
             total_gain_amplifier: pick!(total_gain_amplifier),

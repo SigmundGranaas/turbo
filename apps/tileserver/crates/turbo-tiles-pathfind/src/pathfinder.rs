@@ -674,17 +674,10 @@ impl Pathfinder {
             natives.push(Arc::new(AvalancheTerrainContributor::new(d.clone())));
         }
         if let Some(m) = mask.as_ref() {
-            natives.push(Arc::new(MaskRefusalContributor::new(m.clone()).with_water(
-                cost_config.water.cost_s_per_m,
-                cost_config.water.shore_band_m,
-            )));
+            natives.push(Arc::new(MaskRefusalContributor::new(m.clone())));
         }
         if let Some(g) = graph.as_ref() {
-            natives.push(Arc::new(TrailProximityContributor::new(
-                g.as_ref(),
-                cost_config.trail_proximity.influence_radius_m as f64,
-                cost_config.trail_proximity.bonus_at_zero,
-            )));
+            natives.push(Arc::new(TrailProximityContributor::new(g.as_ref())));
         }
         natives.push(Arc::new(PreferredEdgeContributor::default()));
         natives.push(Arc::new(MarkingBonusContributor::default()));
@@ -824,6 +817,7 @@ impl Pathfinder {
             profile,
             kind: EdgeKind::Mesh,
             elev_probe: probe.as_ref(),
+            tuning: &self.cost_config,
         };
         self.native_contributors.iter().find_map(|c| c.veto(&ctx))
     }
@@ -895,6 +889,7 @@ impl Pathfinder {
             profile,
             kind: crate::contributor::EdgeKind::Mesh,
             elev_probe: None,
+            tuning: &self.cost_config,
         };
         let contributors = self.contributors_for_breakdown();
         crate::contributor::compose_edge_walk_seconds(&contributors, &ctx)
@@ -934,6 +929,7 @@ impl Pathfinder {
             profile,
             kind: EdgeKind::Mesh,
             elev_probe: probe.as_ref(),
+            tuning: &self.cost_config,
         };
         let mut layers = Vec::with_capacity(self.native_contributors.len());
         let mut refused_by: Option<String> = None;
@@ -1326,6 +1322,7 @@ impl Pathfinder {
             profile,
             kind: EdgeKind::Mesh,
             elev_probe: probe.as_ref(),
+            tuning: &self.cost_config,
         };
         for c in &self.native_contributors {
             if let Some(label) = c.veto(&ctx) {

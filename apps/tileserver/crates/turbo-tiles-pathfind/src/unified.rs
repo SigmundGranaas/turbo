@@ -203,6 +203,7 @@ pub(crate) fn solve_unified(
     graph: &Graph,
     dem: &Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
+    tuning: &crate::config::CostConfig,
     profile: Profile,
     from: Point,
     to: Point,
@@ -250,6 +251,7 @@ pub(crate) fn solve_unified(
         base_pace_s_per_m,
         profile,
         &mesh_contribs,
+        tuning,
     );
 
     // ---- Splice the trail network over a GENEROUS region ----
@@ -309,6 +311,7 @@ pub(crate) fn solve_unified(
             profile,
             kind: EdgeKind::Graph(er),
             elev_probe: None,
+            tuning,
         };
         let cost = compose_edge_walk_seconds(contributors, &ctx);
         if !cost.total_walk_seconds.is_finite() {

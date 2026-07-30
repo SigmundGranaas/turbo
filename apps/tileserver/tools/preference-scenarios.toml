@@ -60,3 +60,17 @@ name = "short_hop"
 # tell you which you have.
 from = [506947.0, 7432646.0]
 to = [509708.5, 7432646.0]
+
+[[scenario]]
+name = "shoreline_detour"
+# Added after the water knobs reported INERT on the five pairs above —
+# not because they were broken, but because none of those routes goes
+# anywhere near a lake, and a water knob cannot bite on dry ground.
+#
+# Found the same way as the others: a grid search for pairs whose route
+# length moves when `water_cost_s_per_m` does. Only 7 of ~150 candidates
+# qualify, which is the point — water sensitivity is rare enough that a
+# fixture set will miss it by default, and a knob nothing exercises is
+# indistinguishable from a knob that does not work.
+from = [500724.0, 7436378.3]
+to = [502798.3, 7440810.7]

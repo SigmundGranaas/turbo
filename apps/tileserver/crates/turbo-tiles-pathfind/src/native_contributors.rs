@@ -396,15 +396,6 @@ pub struct MaskRefusalContributor {
     /// crossing-length cost instead. Matches
     /// `MaskRefusalLayer::deferring_water`.
     pub defer_water_to_vector: bool,
-    /// Extra walk-seconds per metre for traversing a *passable*
-    /// (shoreline) water cell. The deep-water interior stays a hard
-    /// veto; the shoreline ring is finite-but-expensive so the
-    /// off-trail geodesic can hug a shore like the marked trail
-    /// without shortcutting across open water.
-    pub water_cost_s_per_m: f64,
-    /// Ring radius (m) used to classify a water cell as shoreline
-    /// (passable) vs deep interior (refused).
-    pub water_shore_band_m: f64,
 }
 
 /// Classification of a water cell for the continuous-water model.
@@ -420,32 +411,24 @@ enum WaterState {
 
 impl MaskRefusalContributor {
     pub fn new(mask: Arc<Mask>) -> Self {
-        let d = crate::config::WaterConfig::default();
         Self {
             mask,
             defer_water_to_vector: false,
-            water_cost_s_per_m: d.cost_s_per_m,
-            water_shore_band_m: d.shore_band_m,
         }
     }
     pub fn deferring_water(mut self) -> Self {
         self.defer_water_to_vector = true;
         self
     }
-    pub fn with_water(mut self, cost_s_per_m: f64, shore_band_m: f64) -> Self {
-        self.water_cost_s_per_m = cost_s_per_m;
-        self.water_shore_band_m = shore_band_m;
-        self
-    }
 
     /// Classify the water at `(x, y)`: shoreline if any non-water cell
-    /// lies within `water_shore_band_m`, else deep. We scan 8 spokes at
+    /// lies within the tuned shore band, else deep. We scan 8 spokes at
     /// several radii (not a single ring) — sampling only the band radius
     /// overshoots a thin shoreline strip and lands back in water on the
     /// far side, misclassifying near-shore cells as deep. Step ≈ half a
     /// water-raster cell (12.5 m) so a shore puffed inward by ~1 cell is
     /// always caught. Cheap: ~8×N mmap point lookups.
-    fn water_state(&self, x: f64, y: f64) -> WaterState {
+    fn water_state(&self, x: f64, y: f64, band_m: f64) -> WaterState {
         if !matches!(self.mask.refused(x, y), Ok(RefusalKind::Water)) {
             return WaterState::NotWater;
         }
@@ -471,7 +454,7 @@ impl MaskRefusalContributor {
         // Checking only the ring endpoint ignores those interior holes: a
         // truly-deep cell is surrounded by water at the band ring in every
         // direction, while a near-shore cell reaches land in at least one.
-        let band = self.water_shore_band_m;
+        let band = band_m;
         for (dx, dy) in DIRS {
             if !matches!(
                 self.mask.refused(x + dx * band, y + dy * band),
@@ -507,8 +490,8 @@ impl CostContributor for MaskRefusalContributor {
         let mid_y = 0.5 * (ctx.fy + ctx.ty);
         // Passable shoreline water → finite high cost. (Deep water is
         // vetoed in `veto`, so it never reaches the cost stack.)
-        if self.water_state(mid_x, mid_y) == WaterState::Shoreline {
-            self.water_cost_s_per_m * ctx.length_m
+        if self.water_state(mid_x, mid_y, ctx.tuning.water.shore_band_m) == WaterState::Shoreline {
+            ctx.tuning.water.cost_s_per_m * ctx.length_m
         } else {
             0.0
         }
@@ -520,10 +503,12 @@ impl CostContributor for MaskRefusalContributor {
             RefusalKind::Water if self.defer_water_to_vector => None,
             // Continuous water: refuse only the deep interior; the
             // shoreline ring is passable (high cost via `contribute`).
-            RefusalKind::Water => match self.water_state(mid_x, mid_y) {
-                WaterState::Deep => Some("water"),
-                _ => None,
-            },
+            RefusalKind::Water => {
+                match self.water_state(mid_x, mid_y, ctx.tuning.water.shore_band_m) {
+                    WaterState::Deep => Some("water"),
+                    _ => None,
+                }
+            }
             RefusalKind::Glacier => Some("glacier"),
             RefusalKind::Reserved3 => Some("restricted"),
             _ => None,
@@ -1241,12 +1226,16 @@ impl CostContributor for TotalGainContributor {
 /// 0.95` corresponds to `-0.05 × BASE_PACE_S_PER_M × length` at
 /// distance zero.
 /// Bonus for routing near an existing trail of the profile's own kind.
+/// Bonus for routing near an existing trail of the profile's own kind.
+///
+/// Owns its spatial index and nothing else: the influence radius and
+/// the bonus strength come from the per-request tuning
+/// ([`EdgeContext::tuning`]). They used to be fields, which made both
+/// knobs unreachable from a request — see that field's documentation.
 pub struct TrailProximityContributor {
     sti: RTree<TrailSegment>,
     vei: RTree<TrailSegment>,
     skiloype: RTree<TrailSegment>,
-    pub influence_radius_m: f64,
-    pub bonus_at_zero: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1297,7 +1286,7 @@ impl PointDistance for TrailSegment {
 }
 
 impl TrailProximityContributor {
-    pub fn new(graph: &Graph, influence_radius_m: f64, bonus_at_zero: f32) -> Self {
+    pub fn new(graph: &Graph) -> Self {
         // sti (foot): polyline-following segments at ~50 m — endpoint
         // chords misplace twisty mountain paths by hundreds of metres
         // and attract routes to phantom lines (measured: corpus Fréchet
@@ -1319,8 +1308,6 @@ impl TrailProximityContributor {
             sti: to_tree(graph.collect_polyline_segments_with_fkb_types(&[1], 100.0)),
             vei: to_tree(graph.collect_segments_with_fkb_types(&[2])),
             skiloype: to_tree(graph.collect_segments_with_fkb_types(&[3])),
-            influence_radius_m,
-            bonus_at_zero,
         }
     }
 
@@ -1332,13 +1319,13 @@ impl TrailProximityContributor {
         }
     }
 
-    fn delta_at(&self, x: f64, y: f64, profile: Profile) -> f64 {
+    fn delta_at(&self, x: f64, y: f64, profile: Profile, radius_m: f64, bonus_at_zero: f32) -> f64 {
         let rt = self.rtree_for(profile);
         // Bounded query: only the distance WITHIN the influence radius
         // matters, so a radius-limited scan beats a global nearest-
         // neighbor proof (which must visit far more of the tree).
         let p = [x as f32, y as f32];
-        let r2 = (self.influence_radius_m * self.influence_radius_m) as f32;
+        let r2 = (radius_m * radius_m) as f32;
         let mut best: f32 = f32::INFINITY;
         for seg in rt.locate_within_distance(p, r2) {
             let d2 = seg.distance_2(&p);
@@ -1350,12 +1337,12 @@ impl TrailProximityContributor {
             return 0.0;
         }
         let d = (best as f64).sqrt();
-        if d >= self.influence_radius_m {
+        if d >= radius_m {
             return 0.0;
         }
         // Linear fall-off: bonus_at_zero at d=0, 0 at d=radius.
-        let t = (d / self.influence_radius_m) as f32;
-        let mult = self.bonus_at_zero + t * (1.0 - self.bonus_at_zero);
+        let t = (d / radius_m) as f32;
+        let mult = bonus_at_zero + t * (1.0 - bonus_at_zero);
         ((mult as f64) - 1.0) * BASE_PACE_S_PER_M
     }
 }
@@ -1372,7 +1359,13 @@ impl CostContributor for TrailProximityContributor {
             EdgeKind::Mesh => {
                 let mid_x = 0.5 * (ctx.fx + ctx.tx);
                 let mid_y = 0.5 * (ctx.fy + ctx.ty);
-                self.delta_at(mid_x, mid_y, ctx.profile) * ctx.length_m
+                self.delta_at(
+                    mid_x,
+                    mid_y,
+                    ctx.profile,
+                    ctx.tuning.trail_proximity.influence_radius_m as f64,
+                    ctx.tuning.trail_proximity.bonus_at_zero,
+                ) * ctx.length_m
             }
             EdgeKind::Graph(_) => 0.0,
         }
@@ -1772,6 +1765,16 @@ mod tests {
     use crate::contributor::{compose_edge_walk_seconds, EdgeContext, EdgeKind};
     use turbo_tiles_graph::Profile;
 
+    /// The calibrated tuning, as a `&'static` so test contexts can be
+    /// built without threading a config through every helper. These
+    /// tests assert contributor *shape* (sign, magnitude, monotonicity)
+    /// at the default tuning; the tests that vary a tuned value build
+    /// their own config and are in `tests/knob_liveness.rs`.
+    fn tuning() -> &'static crate::config::CostConfig {
+        static T: std::sync::OnceLock<crate::config::CostConfig> = std::sync::OnceLock::new();
+        T.get_or_init(crate::config::test_config)
+    }
+
     fn mesh_ctx(length_m: f64) -> EdgeContext<'static> {
         EdgeContext {
             fx: 0.0,
@@ -1782,6 +1785,22 @@ mod tests {
             profile: Profile::Foot,
             kind: EdgeKind::Mesh,
             elev_probe: None,
+            tuning: tuning(),
+        }
+    }
+
+    /// A graph edge of `length_m` running due east from the origin.
+    fn graph_ctx(er: &turbo_tiles_graph::EdgeRecord, length_m: f64) -> EdgeContext<'_> {
+        EdgeContext {
+            fx: 0.0,
+            fy: 0.0,
+            tx: length_m,
+            ty: 0.0,
+            length_m,
+            profile: Profile::Foot,
+            kind: EdgeKind::Graph(er),
+            elev_probe: None,
+            tuning: tuning(),
         }
     }
 
@@ -1820,16 +1839,7 @@ mod tests {
         let layer = MarkingBonusContributor::default();
         let mut er: EdgeRecord = unsafe { std::mem::zeroed() };
         er.marking = 1; // red T
-        let ctx = EdgeContext {
-            fx: 0.0,
-            fy: 0.0,
-            tx: 1000.0,
-            ty: 0.0,
-            length_m: 1000.0,
-            profile: Profile::Foot,
-            kind: EdgeKind::Graph(&er),
-            elev_probe: None,
-        };
+        let ctx = graph_ctx(&er, 1000.0);
         let c = layer.contribute(&ctx);
         assert!(c < 0.0, "red-T should be a bonus, got {c}");
         // Magnitude: ~15% of base pace × 1000 m = ~107 s/km.
@@ -1842,16 +1852,7 @@ mod tests {
         let layer = MarkingBonusContributor::default();
         let mut er: EdgeRecord = unsafe { std::mem::zeroed() };
         er.marking = 4; // unmarked
-        let ctx = EdgeContext {
-            fx: 0.0,
-            fy: 0.0,
-            tx: 1000.0,
-            ty: 0.0,
-            length_m: 1000.0,
-            profile: Profile::Foot,
-            kind: EdgeKind::Graph(&er),
-            elev_probe: None,
-        };
+        let ctx = graph_ctx(&er, 1000.0);
         let c = layer.contribute(&ctx);
         assert!(c > 0.0);
     }
@@ -1879,16 +1880,7 @@ mod tests {
         let layer = PreferredEdgeContributor::default();
         let mut er: EdgeRecord = unsafe { std::mem::zeroed() };
         er.source = 3; // dnt
-        let ctx = EdgeContext {
-            fx: 0.0,
-            fy: 0.0,
-            tx: 1000.0,
-            ty: 0.0,
-            length_m: 1000.0,
-            profile: Profile::Foot,
-            kind: EdgeKind::Graph(&er),
-            elev_probe: None,
-        };
+        let ctx = graph_ctx(&er, 1000.0);
         let c = layer.contribute(&ctx);
         assert!(c < 0.0, "dnt should be a bonus, got {c}");
     }
@@ -1899,16 +1891,7 @@ mod tests {
         let layer = GraphSlopeContributor::default();
         let mut er: EdgeRecord = unsafe { std::mem::zeroed() };
         er.slope_max_deg = 55.0; // > 50° refuse threshold
-        let ctx = EdgeContext {
-            fx: 0.0,
-            fy: 0.0,
-            tx: 100.0,
-            ty: 0.0,
-            length_m: 100.0,
-            profile: Profile::Foot,
-            kind: EdgeKind::Graph(&er),
-            elev_probe: None,
-        };
+        let ctx = graph_ctx(&er, 100.0);
         assert_eq!(layer.veto(&ctx), Some("slope_too_steep"));
     }
 
@@ -1918,16 +1901,7 @@ mod tests {
         let layer = GraphSlopeContributor::default();
         let mut er: EdgeRecord = unsafe { std::mem::zeroed() };
         er.slope_max_deg = 15.0;
-        let ctx = EdgeContext {
-            fx: 0.0,
-            fy: 0.0,
-            tx: 100.0,
-            ty: 0.0,
-            length_m: 100.0,
-            profile: Profile::Foot,
-            kind: EdgeKind::Graph(&er),
-            elev_probe: None,
-        };
+        let ctx = graph_ctx(&er, 100.0);
         // (15/15)² × 0.714 × 100 ≈ 71 s.
         let c = layer.contribute(&ctx);
         assert!(c > 60.0 && c < 90.0, "expected ~71s, got {c}");
@@ -1943,32 +1917,14 @@ mod tests {
         let mut er: EdgeRecord = unsafe { std::mem::zeroed() };
         er.gain_m = 50.0;
         er.length_m = 1000.0;
-        let ctx = EdgeContext {
-            fx: 0.0,
-            fy: 0.0,
-            tx: 1000.0,
-            ty: 0.0,
-            length_m: 1000.0,
-            profile: Profile::Foot,
-            kind: EdgeKind::Graph(&er),
-            elev_probe: None,
-        };
+        let ctx = graph_ctx(&er, 1000.0);
         // k × gain × (amp-1) = 8 × 50 × 1 = 400 "extra metres".
         // In walk-seconds: 400 × 0.714 ≈ 286 s.
         let c = layer.contribute(&ctx);
         assert!(c > 250.0 && c < 320.0);
         // Flat edge → zero contribution.
         er.gain_m = 0.0;
-        let ctx2 = EdgeContext {
-            fx: 0.0,
-            fy: 0.0,
-            tx: 1000.0,
-            ty: 0.0,
-            length_m: 1000.0,
-            profile: Profile::Foot,
-            kind: EdgeKind::Graph(&er),
-            elev_probe: None,
-        };
+        let ctx2 = graph_ctx(&er, 1000.0);
         assert_eq!(layer.contribute(&ctx2), 0.0);
     }
 

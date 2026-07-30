@@ -134,7 +134,6 @@ mod tests {
         assert!((c.off_trail_base.foot - 2.3).abs() < 1e-6);
         assert_eq!(c.trail_proximity.influence_radius_m, 30.0);
         assert!((c.trail_proximity.bonus_at_zero - 0.15).abs() < 1e-6);
-        assert_eq!(c.slope_cell.refuse_above_deg, 45.0);
         assert_eq!(c.slope_graph.refuse_above_deg, 50.0);
         assert!(c.surface_multiplier.foot.by_kind.contains_key("sti"));
     }

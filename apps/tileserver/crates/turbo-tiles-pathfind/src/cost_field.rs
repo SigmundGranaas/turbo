@@ -35,6 +35,8 @@ pub(crate) struct LazyCostField<'a> {
     base_pace: f32,
     profile: turbo_tiles_graph::Profile,
     contributors: &'a [Arc<dyn CostContributor>],
+    /// Resolved per-request tuning, handed to every contributor.
+    tuning: &'a crate::config::CostConfig,
     state: std::cell::RefCell<Vec<u8>>,
     mul: std::cell::RefCell<Vec<f32>>,
     /// Per-cell cell-centre elevation memo. The mesh solvers query each
@@ -59,6 +61,7 @@ impl<'a> LazyCostField<'a> {
         base_pace: f32,
         profile: turbo_tiles_graph::Profile,
         contributors: &'a [Arc<dyn CostContributor>],
+        tuning: &'a crate::config::CostConfig,
     ) -> Self {
         let n = (shape.nx as usize) * (shape.ny as usize);
         Self {
@@ -67,6 +70,7 @@ impl<'a> LazyCostField<'a> {
             base_pace,
             profile,
             contributors,
+            tuning,
             state: std::cell::RefCell::new(vec![0u8; n]),
             mul: std::cell::RefCell::new(vec![1.0f32; n]),
             elev: std::cell::RefCell::new(Vec::new()),
@@ -100,6 +104,7 @@ impl<'a> LazyCostField<'a> {
             profile: self.profile,
             kind: EdgeKind::Mesh,
             elev_probe: Some(&probe),
+            tuning: self.tuning,
         };
         for c in self.contributors {
             if let Some(label) = c.veto(&ctx) {
