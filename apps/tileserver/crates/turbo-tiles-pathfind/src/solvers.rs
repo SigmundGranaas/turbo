@@ -303,39 +303,15 @@ fn solve_unified(
         .unwrap_or_else(|| effective_cfg.off_trail_base.for_profile(prefs.profile))
         as f32;
     let base_pace = crate::contributor::BASE_PACE_S_PER_M as f32;
-    // Per-surface pace (road avoidance) is applied live here using the
-    // EFFECTIVE config (boot + per-request/preset patch), so it isn't
-    // baked at boot and presets can tune it. Graph edges only; mesh
-    // edges return 1.0.
-    let mut contributors = ctx.contributors.to_vec();
-    // Rebuild the cheap, purely config-driven graph contributors from the
-    // EFFECTIVE (boot + per-request/preset) config, so overrides for
-    // slope_graph / total_gain actually bite on the unified solve (they
-    // were previously baked at boot and silently ignored here). Build
-    // fresh by name — no downcast needed. (TrailProximity holds an RTree
-    // and isn't rebuilt per request; off_trail_base/surface_pace cover the
-    // trail-vs-everything preference.)
-    for c in contributors.iter_mut() {
-        match c.name() {
-            "graph_slope" => {
-                *c = std::sync::Arc::new(crate::native_contributors::GraphSlopeContributor {
-                    quadratic_scale_deg: effective_cfg.slope_graph.quadratic_scale_deg,
-                    refuse_above_deg: effective_cfg.slope_graph.refuse_above_deg,
-                })
-            }
-            "total_gain" => {
-                *c = std::sync::Arc::new(crate::native_contributors::TotalGainContributor {
-                    gain_amplifier: effective_cfg.total_gain.amplifier,
-                })
-            }
-            _ => {}
-        }
-    }
-    contributors.push(std::sync::Arc::new(
-        crate::native_contributors::SurfacePaceContributor::from_config(
-            &effective_cfg.surface_pace,
-        ),
-    ));
+    // The contributor stack is used AS BUILT. It used to be cloned and
+    // partially rebuilt here — `graph_slope` and `total_gain` swapped for
+    // fresh instances carrying the effective config, `surface_pace`
+    // appended — because those three baked their scalars at boot and a
+    // per-request patch could not otherwise reach them. That workaround
+    // only ever existed on this lane, so the same knobs were silently
+    // dead on the off-trail one. All three now read `ctx.tuning`, which
+    // is the resolved config, so there is nothing left to rebuild.
+    let contributors = ctx.contributors;
     // Off-trail mesh steepness + climb-aversion knobs (previously hard-
     // coded in the mesh). `max_grade_deg` sets where the soft steep
     // penalty starts; `gain_k` (k·(amplifier−1)) adds Naismith climb cost
@@ -391,7 +367,7 @@ fn solve_unified(
     let route = crate::unified::solve_unified(
         graph,
         dem,
-        &contributors,
+        contributors,
         effective_cfg,
         prefs.profile,
         from_xy,

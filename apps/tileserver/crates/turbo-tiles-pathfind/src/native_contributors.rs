@@ -341,22 +341,11 @@ impl CostContributor for MarkingBonusContributor {
 /// class in the graph artifact, so all road-class edges share one
 /// knob today. A finer gravel-vs-asphalt split would key on
 /// `EdgeRecord.surface` (a follow-up).
-pub struct SurfacePaceContributor {
-    /// `[profile_id][fkb_type code 0..=3]` → pace multiplier (1.0 =
-    /// no effect). profile_id: Foot = 0, Bicycle = 1, Ski = 2.
-    pub factor: [[f64; 4]; 3],
-}
-
-impl SurfacePaceContributor {
-    /// Build the lookup table from config. The per-profile rows are
-    /// laid out by `fkb_type` code: `[unknown, sti, vei, skiloype]`.
-    pub fn from_config(cfg: &crate::config::SurfacePaceConfig) -> Self {
-        let row = |p: &crate::config::SurfacePaceProfile| [p.unknown, p.sti, p.vei, p.skiloype];
-        Self {
-            factor: [row(&cfg.foot), row(&cfg.bicycle), row(&cfg.ski)],
-        }
-    }
-}
+///
+/// Stateless: the multipliers come from `ctx.tuning` at evaluation time,
+/// so a per-request patch reaches them. See `EdgeContext::tuning`.
+#[derive(Clone, Default)]
+pub struct SurfacePaceContributor;
 
 impl CostContributor for SurfacePaceContributor {
     fn name(&self) -> &'static str {
@@ -371,12 +360,22 @@ impl CostContributor for SurfacePaceContributor {
     fn pace_factor(&self, ctx: &EdgeContext<'_>) -> f64 {
         match ctx.kind {
             EdgeKind::Graph(er) => {
-                let p = match ctx.profile {
-                    Profile::Foot => 0,
-                    Profile::Bicycle => 1,
-                    Profile::Ski => 2,
+                let cfg = &ctx.tuning.surface_pace;
+                let row = match ctx.profile {
+                    Profile::Foot => &cfg.foot,
+                    Profile::Bicycle => &cfg.bicycle,
+                    Profile::Ski => &cfg.ski,
                 };
-                self.factor[p][(er.fkb_type as usize).min(3)]
+                // `fkb_type` codes, as the graph builder emits them.
+                // Anything the builder could not classify falls in the
+                // 0 bucket, which is why `unknown` is a real knob and
+                // not a placeholder.
+                match er.fkb_type {
+                    1 => row.sti,
+                    2 => row.vei,
+                    3 => row.skiloype,
+                    _ => row.unknown,
+                }
             }
             EdgeKind::Mesh => 1.0,
         }
@@ -1123,20 +1122,11 @@ impl CostContributor for OffTrailRoughnessContributor {
 ///   slope < refuse → delta_per_m = (slope / k)² × BASE_PACE
 ///   slope >= refuse → veto with label "slope_too_steep"
 /// ```
-#[derive(Clone)]
-pub struct GraphSlopeContributor {
-    pub quadratic_scale_deg: f32,
-    pub refuse_above_deg: f32,
-}
-
-impl Default for GraphSlopeContributor {
-    fn default() -> Self {
-        Self {
-            quadratic_scale_deg: 15.0,
-            refuse_above_deg: 50.0,
-        }
-    }
-}
+///
+/// Stateless: both scalars come from `ctx.tuning` at evaluation time,
+/// so a per-request patch reaches them. See `EdgeContext::tuning`.
+#[derive(Clone, Default)]
+pub struct GraphSlopeContributor;
 
 impl CostContributor for GraphSlopeContributor {
     fn name(&self) -> &'static str {
@@ -1149,10 +1139,10 @@ impl CostContributor for GraphSlopeContributor {
         match ctx.kind {
             EdgeKind::Graph(er) => {
                 let s = er.slope_max_deg;
-                if s <= 5.0 || s >= self.refuse_above_deg {
+                if s <= 5.0 || s >= ctx.tuning.slope_graph.refuse_above_deg {
                     return 0.0;
                 }
-                let t = (s / self.quadratic_scale_deg) as f64;
+                let t = (s / ctx.tuning.slope_graph.quadratic_scale_deg) as f64;
                 (t * t) * BASE_PACE_S_PER_M * ctx.length_m
             }
             EdgeKind::Mesh => 0.0,
@@ -1160,7 +1150,7 @@ impl CostContributor for GraphSlopeContributor {
     }
     fn veto(&self, ctx: &EdgeContext<'_>) -> Option<&'static str> {
         if let EdgeKind::Graph(er) = ctx.kind {
-            if er.slope_max_deg >= self.refuse_above_deg {
+            if er.slope_max_deg >= ctx.tuning.slope_graph.refuse_above_deg {
                 return Some("slope_too_steep");
             }
         }
@@ -1172,18 +1162,11 @@ impl CostContributor for GraphSlopeContributor {
 /// `profile_cost` already adds `k × gain_m` per profile; this
 /// contributor lets the curator amplify or attenuate that term per
 /// request without a graph rebuild. Mesh edges → 0 (graph-only).
-#[derive(Clone)]
-pub struct TotalGainContributor {
-    pub gain_amplifier: f32,
-}
-
-impl Default for TotalGainContributor {
-    fn default() -> Self {
-        Self {
-            gain_amplifier: 1.0,
-        }
-    }
-}
+///
+/// Stateless: the amplifier comes from `ctx.tuning` at evaluation time,
+/// so a per-request patch reaches it. See `EdgeContext::tuning`.
+#[derive(Clone, Default)]
+pub struct TotalGainContributor;
 
 impl CostContributor for TotalGainContributor {
     fn name(&self) -> &'static str {
@@ -1193,7 +1176,8 @@ impl CostContributor for TotalGainContributor {
         ContributorKind::Slope
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
-        if (self.gain_amplifier - 1.0).abs() < 1e-6 {
+        let amplifier = ctx.tuning.total_gain.amplifier;
+        if (amplifier - 1.0).abs() < 1e-6 {
             return 0.0;
         }
         match ctx.kind {
@@ -1209,7 +1193,7 @@ impl CostContributor for TotalGainContributor {
                 // (the Naismith term is already in length-equivalent
                 // units that flatten to seconds via base pace).
                 let gain = (er.gain_m as f64).max(0.0);
-                let extra = k * gain * (self.gain_amplifier as f64 - 1.0);
+                let extra = k * gain * (amplifier as f64 - 1.0);
                 extra * BASE_PACE_S_PER_M
             }
             EdgeKind::Mesh => 0.0,
@@ -1791,6 +1775,16 @@ mod tests {
 
     /// A graph edge of `length_m` running due east from the origin.
     fn graph_ctx(er: &turbo_tiles_graph::EdgeRecord, length_m: f64) -> EdgeContext<'_> {
+        graph_ctx_tuned(er, length_m, tuning())
+    }
+
+    /// As `graph_ctx`, with a caller-supplied tuning — for the
+    /// contributors whose behaviour IS a tuned value.
+    fn graph_ctx_tuned<'a>(
+        er: &'a turbo_tiles_graph::EdgeRecord,
+        length_m: f64,
+        tuning: &'a crate::config::CostConfig,
+    ) -> EdgeContext<'a> {
         EdgeContext {
             fx: 0.0,
             fy: 0.0,
@@ -1800,7 +1794,7 @@ mod tests {
             profile: Profile::Foot,
             kind: EdgeKind::Graph(er),
             elev_probe: None,
-            tuning: tuning(),
+            tuning,
         }
     }
 
@@ -1888,7 +1882,7 @@ mod tests {
     #[test]
     fn graph_slope_vetoes_above_threshold() {
         use turbo_tiles_graph::EdgeRecord;
-        let layer = GraphSlopeContributor::default();
+        let layer = GraphSlopeContributor;
         let mut er: EdgeRecord = unsafe { std::mem::zeroed() };
         er.slope_max_deg = 55.0; // > 50° refuse threshold
         let ctx = graph_ctx(&er, 100.0);
@@ -1898,7 +1892,7 @@ mod tests {
     #[test]
     fn graph_slope_quadratic_below_threshold() {
         use turbo_tiles_graph::EdgeRecord;
-        let layer = GraphSlopeContributor::default();
+        let layer = GraphSlopeContributor;
         let mut er: EdgeRecord = unsafe { std::mem::zeroed() };
         er.slope_max_deg = 15.0;
         let ctx = graph_ctx(&er, 100.0);
@@ -1911,21 +1905,31 @@ mod tests {
     #[test]
     fn total_gain_amplifies_only_on_climb() {
         use turbo_tiles_graph::EdgeRecord;
-        let layer = TotalGainContributor {
-            gain_amplifier: 2.0,
-        };
+        let layer = TotalGainContributor;
+        // The amplifier arrives through the request, not through a field
+        // on the contributor — that is the whole point of the split.
+        let mut cfg = crate::config::test_config();
+        cfg.total_gain.amplifier = 2.0;
         let mut er: EdgeRecord = unsafe { std::mem::zeroed() };
         er.gain_m = 50.0;
         er.length_m = 1000.0;
-        let ctx = graph_ctx(&er, 1000.0);
+        let ctx = graph_ctx_tuned(&er, 1000.0, &cfg);
         // k × gain × (amp-1) = 8 × 50 × 1 = 400 "extra metres".
         // In walk-seconds: 400 × 0.714 ≈ 286 s.
         let c = layer.contribute(&ctx);
         assert!(c > 250.0 && c < 320.0);
         // Flat edge → zero contribution.
         er.gain_m = 0.0;
-        let ctx2 = graph_ctx(&er, 1000.0);
+        let ctx2 = graph_ctx_tuned(&er, 1000.0, &cfg);
         assert_eq!(layer.contribute(&ctx2), 0.0);
+        // Amplifier back at 1.0 → the term switches off entirely, even
+        // on a climb.
+        er.gain_m = 50.0;
+        let neutral = crate::config::test_config();
+        assert_eq!(
+            layer.contribute(&graph_ctx_tuned(&er, 1000.0, &neutral)),
+            0.0
+        );
     }
 
     #[test]

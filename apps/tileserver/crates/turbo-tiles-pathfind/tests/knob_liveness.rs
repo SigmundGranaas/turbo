@@ -402,12 +402,19 @@ fn every_knob_moves_at_least_one_route() {
     }
 
     // Coverage gaps are reported, never silently tolerated — but they
-    // are not failures. A knob nothing in the fixture can exercise is
-    // an argument for a better fixture, not evidence of a bug.
+    // are not failures here. A knob nothing in the fixture can exercise
+    // is an argument for a better fixture, not evidence of a bug.
+    //
+    // For these two the better fixture cannot be a bigger slice: the
+    // WHOLE Sjunkhatten source pack contains 9,642 edges and not one of
+    // them is `fkb_type` 0 or 3, so no widening of the CI pack can reach
+    // them. `surface_pace_knobs_bite_on_a_synthetic_network` judges them
+    // on a purpose-built network instead.
     if !unexercised.is_empty() {
         println!(
-            "\nNOTE: {} knob(s) unexercised by this pack: {:?}. Widen the \
-             fixture pack to judge them.",
+            "\nNOTE: {} knob(s) unexercised by this pack: {:?}. No slice of \
+             Sjunkhatten contains these surfaces — see \
+             `surface_pace_knobs_bite_on_a_synthetic_network`.",
             unexercised.len(),
             unexercised
         );
@@ -551,4 +558,288 @@ fn water_knobs_reach_the_cost_model() {
          {b} at 50.0. If these are equal, the contributor is reading a baked \
          field again instead of `EdgeContext::tuning`."
     );
+}
+
+// ---- the surfaces Sjunkhatten does not have --------------------------
+
+/// `surface_pace_skiloype` and `surface_pace_unknown`, judged end to end
+/// on a network built to contain them.
+///
+/// The liveness table above reports both **unexercised**, and no bigger
+/// slice can fix that: the full Sjunkhatten pack is 9,642 edges of
+/// `fkb_type` 1 (sti) and 2 (vei), with zero of type 3 (skiløype) or 0
+/// (the builder's "unclassified" fallback). It is a national park —
+/// there are no prepared ski tracks in the FKB data, and the ingest
+/// classifies everything it finds. So the knobs are not weakly covered;
+/// they are uncoverable there, and the honest options are a network that
+/// has these surfaces or no claim at all.
+///
+/// The network is the smallest thing that can express a *preference*: two
+/// corridors between the same endpoints, so the router has a decision to
+/// make rather than a single path to follow.
+///
+/// ```text
+///        N (500, 150)          north corridor: the surface under test
+///       /              \       length 1044 m
+///   A (0,0) ---------- B (1000, 0)
+///       \              /       south corridor: sti (the control)
+///        S (500, -500)         length 1414 m
+/// ```
+///
+/// At the calibrated pace the north corridor wins on length even after
+/// its surface multiplier (1044 × 1.2 = 1253 < 1414). Slow that surface
+/// down and the south corridor wins. The route must therefore change —
+/// and it changes to another *trail*, not to a straight off-trail line,
+/// since cutting across costs 1000 × 2.3 = 2300.
+///
+/// A flat DEM on purpose: with slope and gain identically zero, the two
+/// corridors differ in exactly two things, length and surface, so a
+/// route that moves can only have moved because of the surface.
+#[test]
+fn surface_pace_knobs_bite_on_a_synthetic_network() {
+    let dir = tempfile::tempdir().unwrap();
+    let dem_path = dir.path().join("flat.dem");
+    write_flat_dem(&dem_path, -2000.0, 2000.0, 600, 100.0);
+    let dem = turbo_geodata_artifacts::heightfield(Arc::new(
+        turbo_tiles_elev::Dem::open(&dem_path).unwrap(),
+    ));
+
+    // (knob name, the fkb_type it prices, its calibrated foot value)
+    let cases: [(&str, u8, f64); 2] = [
+        ("surface_pace_skiloype", 3, 1.2),
+        ("surface_pace_unknown", 0, 1.0),
+    ];
+
+    for (knob, fkb, calibrated) in cases {
+        let g_path = dir.path().join(format!("two_corridor_{fkb}.graph"));
+        write_two_corridor_graph(&g_path, fkb);
+        let graph = Arc::new(turbo_tiles_graph::Graph::open(&g_path).unwrap());
+        let pf = Pathfinder::with_defaults(
+            Some(dem.clone()),
+            None,
+            Some(graph),
+            turbo_profile_no::cost_config().expect("calibrated config"),
+        );
+
+        let route = |patch: CostConfigPatch| -> Vec<(i64, i64)> {
+            let prefs = Prefs {
+                cost_config_override: Some(patch.over(&neutral_proximity())),
+                ..Default::default()
+            };
+            pf.solve(Point::new(0.0, 0.0), Point::new(1000.0, 0.0), prefs)
+                .unwrap_or_else(|e| panic!("{knob}: fixture must route: {e:?}"))
+                .geometry
+                .iter()
+                .map(|p| ((p.x * 1e3) as i64, (p.y * 1e3) as i64))
+                .collect()
+        };
+        // Which side of the A–B axis the route runs along, by signed area.
+        let side = |g: &[(i64, i64)]| -> f64 { g.iter().map(|p| p.1 as f64).sum::<f64>() };
+
+        let base = route(CostConfigPatch::default());
+        let mut slow = CostConfigPatch::default();
+        match fkb {
+            3 => slow.surface_pace_skiloype = Some(9.0),
+            0 => slow.surface_pace_unknown = Some(9.0),
+            _ => unreachable!(),
+        }
+        let slowed = route(slow);
+
+        assert!(
+            side(&base) > 0.0,
+            "{knob}: at the calibrated pace ({calibrated}) the north corridor is \
+             the cheaper line (1044 m x {calibrated} = {:.0} < 1414 m), so the \
+             baseline route should run north of the A-B axis. It did not, so \
+             this fixture is no longer testing what it claims — check the \
+             geometry before reading anything into the result below.",
+            1044.0 * calibrated
+        );
+        assert!(
+            side(&slowed) < 0.0,
+            "{knob} is INERT: making `fkb_type {fkb}` nine times slower left \
+             the route on the north corridor, which is built entirely from \
+             that surface. The south corridor is sti and 370 m longer, so at \
+             this pace it is far cheaper — the router would have to be \
+             ignoring the knob to stay north.\n\
+             This is the one class of knob the CI pack cannot judge (no \
+             Sjunkhatten edge has fkb_type 0 or 3), so this fixture is the \
+             only thing standing between it and shipping dead."
+        );
+        println!("{knob:<38} live  (north -> south on the synthetic network)");
+    }
+}
+
+/// Trail proximity, switched off — applied to BOTH sides of the
+/// comparison above.
+///
+/// It has to go, and finding out why is the more interesting half of
+/// this fixture. `TrailProximityContributor::rtree_for` indexes ONE
+/// surface per profile: sti for Foot, vei for Bicycle, skiløype for Ski.
+/// So on the Foot profile the south (sti) corridor radiates a 0.15×
+/// pace bonus over the mesh beside it and the north corridor radiates
+/// nothing — and a mesh line hugging the sti is then cheaper than
+/// walking on ANY trail. The first version of this fixture measured
+/// exactly that and read it as the surface knob failing.
+///
+/// That is a real property of the cost model, not a bug: for a walker,
+/// nearness to a marked path is genuinely what makes open ground easy.
+/// It is simply a much larger effect than the one under test here, so
+/// it is pinned on both sides, which is what `Ctx::base` exists to do.
+fn neutral_proximity() -> CostConfigPatch {
+    CostConfigPatch {
+        trail_proximity_bonus_at_zero: Some(1.0),
+        ..Default::default()
+    }
+}
+
+/// Two corridors between the same endpoints — north built from
+/// `fkb_type = north_fkb`, south from sti (1). See the test above for
+/// the geometry and why it is shaped this way.
+fn write_two_corridor_graph(path: &std::path::Path, north_fkb: u8) {
+    use byteorder::{LittleEndian, WriteBytesExt};
+    use std::io::Write;
+    use turbo_tiles_artifacts::{write_header, ArtifactKind, Header};
+    use turbo_tiles_graph::{
+        write_meta as write_graph_meta, EdgeRecord, GraphMeta, NodePos, GRAPH_FORMAT_VERSION,
+    };
+
+    // A, B, N (north waypoint), S (south waypoint).
+    let nodes = vec![
+        NodePos { x: 0.0, y: 0.0 },
+        NodePos { x: 1000.0, y: 0.0 },
+        NodePos { x: 500.0, y: 150.0 },
+        NodePos {
+            x: 500.0,
+            y: -500.0,
+        },
+    ];
+    let leg = |a: u32, b: u32, fkb: u8| {
+        let (dx, dy) = (
+            (nodes[b as usize].x - nodes[a as usize].x) as f64,
+            (nodes[b as usize].y - nodes[a as usize].y) as f64,
+        );
+        let len = (dx * dx + dy * dy).sqrt() as f32;
+        // Both directions: the router walks a directed CSR.
+        [(a, b), (b, a)].map(|(from_id, to_id)| EdgeRecord {
+            from_id,
+            to_id,
+            length_m: len,
+            gain_m: 0.0,
+            loss_m: 0.0,
+            slope_max_deg: 0.0,
+            fkb_type: fkb,
+            marking: 0,
+            surface: 0,
+            source: 1,
+            attr_flags: 0,
+        })
+    };
+    let edges: Vec<EdgeRecord> = [
+        leg(0, 2, north_fkb),
+        leg(2, 1, north_fkb),
+        leg(0, 3, 1),
+        leg(3, 1, 1),
+    ]
+    .concat();
+
+    let (nc, ec, pc) = (nodes.len() as u32, edges.len() as u32, 3u32);
+    let mut f = std::io::BufWriter::new(std::fs::File::create(path).unwrap());
+    write_header(
+        &mut f,
+        &Header {
+            kind: ArtifactKind::Graph,
+            format_version: GRAPH_FORMAT_VERSION,
+            build_timestamp_unix_sec: 0,
+        },
+    )
+    .unwrap();
+    write_graph_meta(
+        &mut f,
+        &GraphMeta {
+            node_count: nc,
+            edge_count: ec,
+            profile_count: pc,
+            srid: 25833,
+        },
+    )
+    .unwrap();
+    f.write_all(bytemuck::cast_slice(&nodes)).unwrap();
+    f.write_all(bytemuck::cast_slice(&edges)).unwrap();
+
+    // CSR: offsets by from_id, then the edge-index table in that order.
+    let mut offsets = vec![0u32; nc as usize + 1];
+    for e in &edges {
+        offsets[e.from_id as usize + 1] += 1;
+    }
+    for i in 1..offsets.len() {
+        offsets[i] += offsets[i - 1];
+    }
+    for o in &offsets {
+        f.write_u32::<LittleEndian>(*o).unwrap();
+    }
+    let mut cursor = offsets.clone();
+    let mut table = vec![0u32; ec as usize];
+    for (ei, e) in edges.iter().enumerate() {
+        let slot = &mut cursor[e.from_id as usize];
+        table[*slot as usize] = ei as u32;
+        *slot += 1;
+    }
+    for t in &table {
+        f.write_u32::<LittleEndian>(*t).unwrap();
+    }
+    // Baked per-profile cost: length, so the profile channel is neutral
+    // and every cost difference comes from the contributor stack.
+    for e in &edges {
+        for _ in 0..pc {
+            f.write_f32::<LittleEndian>(e.length_m).unwrap();
+        }
+    }
+    f.flush().unwrap();
+}
+
+/// Single-tile flat DEM at 10 m resolution, upper-left `(ulx, uly)`.
+/// Flat because these fixtures are about surface, not terrain: slope and
+/// gain are identically zero, so they cannot confound the comparison.
+fn write_flat_dem(path: &std::path::Path, ulx: f64, uly: f64, cells: u32, elev: f32) {
+    use std::io::Write;
+    use turbo_tiles_artifacts::{write_header, ArtifactKind, Header, HEADER_BYTES};
+    use turbo_tiles_elev::{
+        write_meta as write_dem_meta, write_tile_entry, DemMeta, TileEntry, COMPRESSION_ZSTD,
+        DEM_FORMAT_VERSION, DEM_META_BYTES, NODATA_SENTINEL, TILE_ENTRY_BYTES,
+    };
+    let mut f = std::fs::File::create(path).unwrap();
+    write_header(
+        &mut f,
+        &Header {
+            kind: ArtifactKind::Dem,
+            format_version: DEM_FORMAT_VERSION,
+            build_timestamp_unix_sec: 0,
+        },
+    )
+    .unwrap();
+    write_dem_meta(
+        &mut f,
+        &DemMeta {
+            tile_count: 1,
+            tile_cells: cells,
+            pixel_size_m: 10.0,
+            nodata: NODATA_SENTINEL,
+            compression: COMPRESSION_ZSTD,
+        },
+    )
+    .unwrap();
+    let data = vec![elev; (cells * cells) as usize];
+    let compressed = zstd::encode_all(bytemuck::cast_slice::<f32, u8>(&data), 1).unwrap();
+    write_tile_entry(
+        &mut f,
+        &TileEntry {
+            ulx,
+            uly,
+            offset: (HEADER_BYTES + DEM_META_BYTES + TILE_ENTRY_BYTES) as u64,
+            compressed_size: compressed.len() as u32,
+        },
+    )
+    .unwrap();
+    f.write_all(&compressed).unwrap();
+    f.sync_all().unwrap();
 }

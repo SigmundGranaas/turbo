@@ -622,8 +622,8 @@ impl Pathfinder {
         use crate::native_contributors::{
             AvalancheTerrainContributor, ContourCrossingContributor, DemCoveragePenaltyContributor,
             GraphSlopeContributor, MarkingBonusContributor, MaskRefusalContributor,
-            NaismithGainContributor, PreferredEdgeContributor, ToblerSlopeContributor,
-            TotalGainContributor, TrailProximityContributor,
+            NaismithGainContributor, PreferredEdgeContributor, SurfacePaceContributor,
+            ToblerSlopeContributor, TotalGainContributor, TrailProximityContributor,
         };
         let dem_for_breakdown = dem.clone();
         let mask_for_breakdown = mask.clone();
@@ -681,13 +681,9 @@ impl Pathfinder {
         }
         natives.push(Arc::new(PreferredEdgeContributor::default()));
         natives.push(Arc::new(MarkingBonusContributor::default()));
-        natives.push(Arc::new(GraphSlopeContributor {
-            quadratic_scale_deg: cost_config.slope_graph.quadratic_scale_deg,
-            refuse_above_deg: cost_config.slope_graph.refuse_above_deg,
-        }));
-        natives.push(Arc::new(TotalGainContributor {
-            gain_amplifier: cost_config.total_gain.amplifier,
-        }));
+        natives.push(Arc::new(GraphSlopeContributor));
+        natives.push(Arc::new(TotalGainContributor));
+        natives.push(Arc::new(SurfacePaceContributor));
         Self {
             graph,
             native_contributors: natives,
