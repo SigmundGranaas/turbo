@@ -72,21 +72,70 @@ pub struct RouteOptions {
     pub preset: Option<String>,
     /// Skip the trail network entirely and route cross-country.
     pub force_off_trail: bool,
+    /// Close the route back to its origin, taking a different line home.
+    ///
+    /// The engine solves the outbound leg, feeds that geometry back as
+    /// an avoided polyline, and solves the return — so the loop diverges
+    /// where the network allows and gracefully degrades to an
+    /// out-and-back on a single-path spur.
+    ///
+    /// Exposed because the Android app already sends it on every request
+    /// (`RouteViewModel.roundTrip`). Without it here, the on-device path
+    /// would answer a round-trip request with a one-way route: the worst
+    /// kind of gap, because it looks like it worked.
+    pub round_trip: bool,
+    /// Polylines to route around, WGS84. The penalty lands on the trail
+    /// edges the geometry runs along, so the router detours onto a
+    /// divergent trail rather than shadow-walking beside the avoided one.
+    ///
+    /// Soft, not a veto: an avoided path with no alternative is still
+    /// used, expensively. "Avoid" is a preference, and a router that
+    /// turns it into a refusal strands the user.
+    pub avoid: Vec<Vec<GeoPoint>>,
+    /// How far (m) from an avoided polyline a trail edge is still
+    /// considered part of it. `None` uses the profile's calibrated value.
+    pub avoid_radius_m: Option<f64>,
     /// Refuse a request whose endpoints span more than this, straight
     /// line, in kilometres.
     ///
-    /// **This is a budget, and on a phone it is load-bearing.** The
-    /// engine's own guard (`max_off_trail_km`) only bounds the
-    /// cross-country mesh; a request that can reach the trail network
-    /// is not bounded by anything. Writing the host tests surfaced the
-    /// consequence: a route from Oslo to a Sjunkhatten pack — 850 km,
-    /// one endpoint outside coverage entirely — **solved, in 83
-    /// seconds**. On a server that is a slow request. On a phone it is
-    /// an ANR, a flat battery, and a user who force-quits.
+    /// **This is a budget, and on a phone it is load-bearing.** Writing
+    /// the host tests surfaced why: a route from Oslo to a Sjunkhatten
+    /// pack — 850 km, one endpoint outside coverage entirely — **solved,
+    /// in 83 seconds**. On a server that is a slow request. On a phone it
+    /// is an ANR, a flat battery, and a user who force-quits.
+    ///
+    /// This used to say the engine's `max_off_trail_km` bounded the
+    /// cross-country mesh and that only the trail-network case was
+    /// unbounded. That was wrong in the way documentation goes wrong:
+    /// the knob existed, was defaulted, was hashed into the leg
+    /// fingerprint and echoed by the debug endpoint, and **nothing read
+    /// it**. Nothing was bounded, which is why 850 km solved at all. It
+    /// is enforced now (`solvers.rs`, `FmmGradeLimited::solve`), and
+    /// [`Self::max_off_trail_km`] below sets it per request.
     ///
     /// The default is generous for the use case (a long day's walk is
     /// under 50 km) and cheap to raise deliberately.
     pub max_span_km: f64,
+    /// Span budget for the **cross-country lane only**, in kilometres.
+    ///
+    /// Separate from [`Self::max_span_km`] because the two lanes cost
+    /// wildly different amounts, and one budget for both is either too
+    /// tight for trail routing or too loose for terrain. Measured
+    /// through this façade on the CI pack, release build, desktop:
+    ///
+    /// ```text
+    ///            unified    cross-country
+    ///   1 km      251 ms         427 ms
+    ///   4 km      249 ms         734 ms
+    ///   6 km      293 ms       1 891 ms
+    ///  11 km      265 ms       8 515 ms
+    /// ```
+    ///
+    /// The unified lane is flat in distance — adaptive cell sizing
+    /// bounds its work. The cross-country lane is not. A phone core is
+    /// slower than that desktop, so the right default here is well below
+    /// the whole-request budget.
+    pub max_off_trail_km: f64,
 }
 
 impl Default for RouteOptions {
@@ -95,7 +144,13 @@ impl Default for RouteOptions {
             mode: TravelMode::Foot,
             preset: Some("balanced".to_string()),
             force_off_trail: false,
+            round_trip: false,
+            avoid: Vec::new(),
+            avoid_radius_m: None,
             max_span_km: 100.0,
+            // The engine's own default, restated rather than inherited:
+            // a host reading this file should see the number it gets.
+            max_off_trail_km: 10.0,
         }
     }
 }
@@ -201,12 +256,59 @@ impl RouteEngine {
                 return Err(RouteError::Pack(format!("{pack_dir} is not a directory")));
             }
 
+            // The manifest first, before any bytes are mapped. A pack
+            // written by a newer build may mean something this one would
+            // misread, and finding that out after routing is worse than
+            // finding it out at open: on a phone the pack sits on the
+            // user's disk until they delete it, so a silently-wrong route
+            // is a permanent condition rather than a bad deploy.
+            //
+            // Absent is fine. Packs cut before the manifest existed —
+            // including the committed CI pack — still open, because the
+            // artifacts have always been enough to route. The manifest
+            // adds refusal and a cheap extent, not permission.
+            let manifest_path = dir.join(turbo_tiles_artifacts::PackManifest::FILENAME);
+            let manifest: Option<turbo_tiles_artifacts::PackManifest> =
+                match std::fs::read_to_string(&manifest_path) {
+                    Ok(text) => {
+                        let m: turbo_tiles_artifacts::PackManifest = toml::from_str(&text)
+                            .map_err(|e| {
+                                RouteError::Pack(format!("{}: {e}", manifest_path.display()))
+                            })?;
+                        m.check_compatible()
+                            .map_err(|e| RouteError::Pack(e.to_string()))?;
+                        Some(m)
+                    }
+                    Err(_) => None,
+                };
+
             let dem_path = dir.join("norway.dem");
             let dem = turbo_tiles_elev::Dem::open(&dem_path)
                 .map_err(|e| RouteError::Pack(format!("{}: {e}", dem_path.display())))?;
+            // Coverage: the manifest's extent when there is one, else the
+            // DEM's own bounds.
+            //
+            // They are not the same claim. The DEM's bounds are whole
+            // tiles plus the halo — ground the pack HAS, deliberately
+            // wider than the ground it was cut to serve, so that routing
+            // inside the region can see far enough. The manifest records
+            // what was requested. A host gating "can I route here?" wants
+            // the second: offering the margin invites routes whose
+            // quality the halo exists to admit is worse at the edge.
             let cov = dem.coverage();
-            let (min_lon, min_lat) = turbo_geo_frame::utm33n_to_wgs84(cov.min_x, cov.min_y);
-            let (max_lon, max_lat) = turbo_geo_frame::utm33n_to_wgs84(cov.max_x, cov.max_y);
+            let (min_lon, min_lat, max_lon, max_lat) = match &manifest {
+                Some(m) => (
+                    m.pack.extent[0],
+                    m.pack.extent[1],
+                    m.pack.extent[2],
+                    m.pack.extent[3],
+                ),
+                None => {
+                    let (min_lon, min_lat) = turbo_geo_frame::utm33n_to_wgs84(cov.min_x, cov.min_y);
+                    let (max_lon, max_lat) = turbo_geo_frame::utm33n_to_wgs84(cov.max_x, cov.max_y);
+                    (min_lon, min_lat, max_lon, max_lat)
+                }
+            };
             let field = turbo_geodata_artifacts::heightfield(Arc::new(dem));
 
             let mask = turbo_tiles_mask::Mask::open(dir.join("norway.mask"))
@@ -275,6 +377,18 @@ impl RouteEngine {
                     TravelMode::Ski => turbo_tiles_graph::Profile::Ski,
                 },
                 force_off_trail: options.force_off_trail,
+                round_trip: options.round_trip,
+                avoid_radius_m: options.avoid_radius_m,
+                max_off_trail_km: options.max_off_trail_km,
+                avoid: options
+                    .avoid
+                    .iter()
+                    .map(|ring| {
+                        ring.iter()
+                            .map(|p| turbo_geo_frame::wgs84_to_utm33n(p.lon, p.lat))
+                            .collect()
+                    })
+                    .collect(),
                 ..Default::default()
             };
             if let Some(name) = options.preset.as_deref() {
@@ -399,6 +513,11 @@ fn map_err(e: turbo_tiles_pathfind::PathfindError) -> RouteError {
         E::EndpointRefused { .. } => RouteError::EndpointBlocked(e.to_string()),
         E::NoRoute => RouteError::NoRoute,
         E::DegenerateInputs { .. } => RouteError::InvalidRequest(e.to_string()),
+        // The cross-country budget, refused. `TooLong` rather than
+        // `Internal` because the host's response is specific and the
+        // user's fix is real: shorten the leg, or raise
+        // `max_off_trail_km` deliberately.
+        E::BboxTooLarge { .. } => RouteError::TooLong(e.to_string()),
         other => RouteError::Internal(other.to_string()),
     }
 }

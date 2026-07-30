@@ -35,8 +35,15 @@ turbo-geo-frame.workspace = true
 turbo-profile-no.workspace = true
 turbo-tiles-elev.workspace = true
 turbo-tiles-mask.workspace = true
+# The pack manifest's shape + version constant, shared with the tool that
+# writes it so the two cannot drift.
+turbo-tiles-artifacts.workspace = true
+toml = "0.8"
 uniffi = { version = "0.29", features = ["cli"] }
 thiserror.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.14"
+
+[dev-dependencies]
+tempfile = "3"

@@ -89,6 +89,12 @@ pub enum ArtifactError {
         file: u32,
         code: u32,
     },
+    /// A region pack written by a NEWER build than this one. Its own
+    /// variant because the user's fix is specific and possible — update
+    /// the app — where the artifact mismatch above means a corrupt or
+    /// mismatched file they can do nothing about.
+    #[error("pack format v{file} is newer than this build understands (v{code}); update the app")]
+    PackTooNew { file: u32, code: u32 },
 }
 
 pub fn write_header<W: Write>(w: &mut W, h: &Header) -> Result<(), ArtifactError> {
@@ -139,6 +145,85 @@ pub fn check_header(
         });
     }
     Ok(())
+}
+
+// ---- region packs ---------------------------------------------------
+
+/// Current pack-manifest version. Bump when the manifest's meaning
+/// changes in a way an older reader would misinterpret.
+pub const PACK_FORMAT_VERSION: u32 = 1;
+
+/// The manifest at the root of a region pack (`pack.toml`).
+///
+/// A pack is the unit an app downloads: a directory of the same
+/// `norway.*` artifacts the server reads, cut to a region. The files
+/// alone are enough to route, and packs cut before this manifest existed
+/// still open — but they cannot answer two questions a host has to ask
+/// before it trusts one.
+///
+/// **Which area does this cover?** Answerable from the DEM, but only by
+/// opening and indexing it. A host listing six downloaded regions wants
+/// six extents, not six mmapped rasters.
+///
+/// **Can this build read it?** Not answerable at all without a version
+/// marker. Artifact files carry per-kind versions, so a *format* change
+/// is caught — but a change in what the bytes mean (a re-projected
+/// frame, a different graph encoding of the same shape) is not, and the
+/// symptom is a route that is quietly wrong rather than a file that
+/// fails to open. On a server a bad deploy is noticed in minutes; on a
+/// phone the pack is on the user's disk until they delete it.
+///
+/// Deliberately NOT here: the cost config. The design sketch proposed
+/// shipping it in the pack so device and server geometry match bit for
+/// bit. That buys exactness at the price of a pack that pins its own
+/// calibration, and the requirement is equivalence — the same route, not
+/// the same floats — so the calibration stays with the engine build.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PackManifest {
+    pub pack: PackMeta,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PackMeta {
+    /// See [`PACK_FORMAT_VERSION`].
+    pub format_version: u32,
+    /// Free-form label for the tool/build that cut this pack, for
+    /// support ("which build produced this?"). Never parsed.
+    #[serde(default)]
+    pub created_by: String,
+    /// Coordinate frame of the artifact files.
+    pub frame: String,
+    /// Region covered, WGS84 `[min_lon, min_lat, max_lon, max_lat]` —
+    /// the frame a host speaks, so it can gate its UI without projecting.
+    ///
+    /// The REQUESTED region, not the halo. A pack contains whole DEM
+    /// tiles and so covers somewhat more ground than this; promising the
+    /// larger number would promise routing quality near the edge that
+    /// the halo exists precisely to admit is worse.
+    pub extent: [f64; 4],
+    /// Terrain kept beyond `extent`, metres.
+    #[serde(default)]
+    pub halo_m: f64,
+}
+
+impl PackManifest {
+    pub const FILENAME: &'static str = "pack.toml";
+
+    /// Is this pack readable by a build expecting `PACK_FORMAT_VERSION`?
+    ///
+    /// Refuses the future, accepts the past. A newer pack may mean
+    /// something this build would misread, so it is an error; an older
+    /// one is readable by construction, because that is what bumping the
+    /// version is for.
+    pub fn check_compatible(&self) -> Result<(), ArtifactError> {
+        if self.pack.format_version > PACK_FORMAT_VERSION {
+            return Err(ArtifactError::PackTooNew {
+                file: self.pack.format_version,
+                code: PACK_FORMAT_VERSION,
+            });
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -211,6 +296,59 @@ mod tests {
         };
         let err = check_header(&h, ArtifactKind::Dem, 1).unwrap_err();
         assert!(matches!(err, ArtifactError::VersionMismatch { .. }));
+    }
+
+    #[test]
+    fn pack_manifest_round_trips_through_toml() {
+        // Writer and reader share this struct, so the types agree by
+        // construction — what can still drift is the TOML *text*, which
+        // is what ships in the pack and what a support engineer reads.
+        let m = PackManifest {
+            pack: PackMeta {
+                format_version: PACK_FORMAT_VERSION,
+                created_by: "test".into(),
+                frame: "utm33n".into(),
+                extent: [14.95, 67.02, 15.2, 67.12],
+                halo_m: 1000.0,
+            },
+        };
+        let text = toml::to_string_pretty(&m).unwrap();
+        assert_eq!(toml::from_str::<PackManifest>(&text).unwrap(), m);
+    }
+
+    #[test]
+    fn pack_manifest_accepts_a_minimal_file() {
+        // `created_by` and `halo_m` are documentary; a hand-written or
+        // older manifest without them must still load, or the version
+        // gate becomes a reason packs stop working rather than a reason
+        // they stay correct.
+        let m: PackManifest = toml::from_str(
+            "[pack]\nformat_version = 1\nframe = \"utm33n\"\n\
+             extent = [1.0, 2.0, 3.0, 4.0]\n",
+        )
+        .unwrap();
+        assert!(m.check_compatible().is_ok());
+        assert_eq!(m.pack.halo_m, 0.0);
+    }
+
+    #[test]
+    fn a_newer_pack_is_refused() {
+        let mut m = PackManifest {
+            pack: PackMeta {
+                format_version: PACK_FORMAT_VERSION + 1,
+                created_by: String::new(),
+                frame: "utm33n".into(),
+                extent: [0.0; 4],
+                halo_m: 0.0,
+            },
+        };
+        assert!(matches!(
+            m.check_compatible(),
+            Err(ArtifactError::PackTooNew { .. })
+        ));
+        // Older is fine: that is what bumping the version is for.
+        m.pack.format_version = 1;
+        assert!(m.check_compatible().is_ok());
     }
 
     #[test]

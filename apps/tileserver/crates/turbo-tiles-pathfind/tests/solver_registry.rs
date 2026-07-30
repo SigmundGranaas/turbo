@@ -181,6 +181,98 @@ fn the_engine_dispatches_through_the_registered_set() {
 }
 
 /// The calibrated Norwegian config. Tests are a composition root, so
+/// **The off-trail budget must actually refuse.**
+///
+/// `Prefs::max_off_trail_km` was declared, defaulted to 10, hashed into
+/// the leg fingerprint, echoed by `/v1/debug/prefs` — and read by
+/// nothing. `PathfindError::BboxTooLarge` was declared and mapped to a
+/// 400 by the API without ever being constructed. Two halves of a guard
+/// that did not exist, and a doc comment on the FFI façade asserting it
+/// did.
+///
+/// The budget is checked before the corridor is sized, so this test
+/// needs no terrain: a solver that refuses only after doing the work is
+/// not a budget, and running it without a DEM proves it refused first.
+#[test]
+fn the_off_trail_budget_refuses_before_it_solves() {
+    let cfg = cfg();
+    let contributors: Vec<Arc<dyn turbo_tiles_pathfind::CostContributor>> = Vec::new();
+    let ctx = SolveContext {
+        // `FmmGradeLimited::accepts` requires terrain, so `solve` is
+        // called directly — this asserts the guard, not the selection.
+        terrain: None,
+        network: None,
+        contributors: &contributors,
+        cost_config: &cfg,
+    };
+    let from = turbo_tiles_pathfind::Point::new(500_000.0, 7_500_000.0);
+    let far = turbo_tiles_pathfind::Point::new(530_000.0, 7_500_000.0); // 30 km
+
+    let prefs = Prefs {
+        force_off_trail: true,
+        ..Default::default()
+    };
+    assert_eq!(prefs.max_off_trail_km, 10.0, "the default budget moved");
+    let req = SolveRequest {
+        from,
+        to: far,
+        prefs: &prefs,
+    };
+    match FmmGradeLimited.solve(&ctx, &req) {
+        Err(PathfindError::BboxTooLarge { extent_km }) => {
+            assert!((extent_km - 30.0).abs() < 0.1, "reported {extent_km} km");
+        }
+        other => panic!(
+            "a 30 km off-trail request must be refused by the 10 km budget, got {other:?}.\n\
+             If this returns a route, `max_off_trail_km` is inert again and the phone \
+             has no bound on the one lane whose cost grows with span."
+        ),
+    }
+
+    // Raising the budget past the span lets it through to the real
+    // solver, which then fails for its own reason (no terrain). The
+    // point is that it got that far: the budget gates, it does not veto
+    // everything.
+    let generous = Prefs {
+        force_off_trail: true,
+        max_off_trail_km: 50.0,
+        ..Default::default()
+    };
+    let req = SolveRequest {
+        from,
+        to: far,
+        prefs: &generous,
+    };
+    assert!(
+        !matches!(
+            FmmGradeLimited.solve(&ctx, &req),
+            Err(PathfindError::BboxTooLarge { .. })
+        ),
+        "a 30 km request under a 50 km budget must not be refused by the budget"
+    );
+
+    // 0 = no budget, matching how the rest of the engine reads a zero
+    // limit. Without this a host that means "unlimited" gets "refuse
+    // everything", which is the opposite.
+    let unlimited = Prefs {
+        force_off_trail: true,
+        max_off_trail_km: 0.0,
+        ..Default::default()
+    };
+    let req = SolveRequest {
+        from,
+        to: far,
+        prefs: &unlimited,
+    };
+    assert!(
+        !matches!(
+            FmmGradeLimited.solve(&ctx, &req),
+            Err(PathfindError::BboxTooLarge { .. })
+        ),
+        "`max_off_trail_km = 0` must mean unlimited, not refuse-everything"
+    );
+}
+
 /// they name the profile explicitly — the engine no longer supplies one
 /// (D3).
 fn cfg() -> turbo_tiles_pathfind::CostConfig {

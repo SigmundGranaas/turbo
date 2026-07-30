@@ -3754,10 +3754,13 @@ name = "turbo-route-ffi"
 version = "0.1.0"
 dependencies = [
  "android_logger",
+ "tempfile",
  "thiserror 1.0.69",
+ "toml 0.8.23",
  "turbo-geo-frame",
  "turbo-geodata-artifacts",
  "turbo-profile-no",
+ "turbo-tiles-artifacts",
  "turbo-tiles-elev",
  "turbo-tiles-graph",
  "turbo-tiles-mask",
@@ -3845,6 +3848,7 @@ dependencies = [
  "byteorder",
  "serde",
  "thiserror 1.0.69",
+ "toml 0.8.23",
 ]
 
 [[package]]

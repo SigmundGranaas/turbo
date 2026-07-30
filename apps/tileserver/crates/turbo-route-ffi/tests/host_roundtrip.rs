@@ -208,3 +208,224 @@ fn the_engine_is_shareable_across_threads() {
         assert!(h.join().unwrap(), "concurrent plans must all succeed");
     }
 }
+
+// ---- the options a host actually sends ------------------------------
+
+/// **Round-trip must produce a loop, not a one-way route.**
+///
+/// The Android app sends `roundTrip` on every request
+/// (`RouteViewModel.roundTrip`). The engine has supported it since
+/// `Prefs::round_trip`, and the HTTP API exposes it — but this façade did
+/// not, so an on-device round-trip request would have answered with a
+/// one-way line. That is the failure mode worth a test: not an error a
+/// host can see, but a plausible wrong answer it cannot.
+#[test]
+fn round_trip_closes_the_loop() {
+    let engine = RouteEngine::open(pack_dir()).unwrap();
+
+    let one_way = engine
+        .plan(vec![FROM, TO], RouteOptions::default())
+        .expect("the one-way route must solve");
+    let loop_route = engine
+        .plan(
+            vec![FROM, TO],
+            RouteOptions {
+                round_trip: true,
+                ..RouteOptions::default()
+            },
+        )
+        .expect("the round trip must solve");
+
+    let ends_where_it_started = |r: &turbo_route_ffi::Route| {
+        let (a, b) = (r.geometry.first().unwrap(), r.geometry.last().unwrap());
+        // ~1e-4 deg is ~10 m at this latitude — the tolerance of a route
+        // that returns to its origin rather than one that happens to end
+        // nearby.
+        (a.lon - b.lon).abs() < 1e-4 && (a.lat - b.lat).abs() < 1e-4
+    };
+
+    assert!(
+        !ends_where_it_started(&one_way),
+        "the one-way control must NOT close — if it does, this fixture \
+         cannot tell a loop from a line and proves nothing"
+    );
+    assert!(
+        ends_where_it_started(&loop_route),
+        "a round trip must return to its origin; it ended at {:?} having \
+         started at {:?}. If this fails, `round_trip` is not reaching \
+         `Prefs` and the app's loop button silently produces one-way routes.",
+        loop_route.geometry.last().unwrap(),
+        loop_route.geometry.first().unwrap()
+    );
+    assert!(
+        loop_route.length_m > one_way.length_m,
+        "a loop back to the start must be longer than the one-way leg \
+         ({:.0} m vs {:.0} m)",
+        loop_route.length_m,
+        one_way.length_m
+    );
+}
+
+/// **`avoid` must move the route.**
+///
+/// Judged on geometry rather than on the option being accepted: an
+/// option that parses and changes nothing is the exact defect
+/// `knob_liveness.rs` was built to catch on the cost knobs, and there is
+/// no reason the façade's options deserve a weaker standard.
+#[test]
+fn avoiding_the_route_moves_it() {
+    let engine = RouteEngine::open(pack_dir()).unwrap();
+
+    let base = engine
+        .plan(vec![FROM, TO], RouteOptions::default())
+        .expect("the baseline route must solve");
+
+    // Avoid the baseline itself — the strongest available probe, and the
+    // same trick `round_trip` uses internally.
+    let avoided = engine
+        .plan(
+            vec![FROM, TO],
+            RouteOptions {
+                avoid: vec![base.geometry.clone()],
+                avoid_radius_m: Some(50.0),
+                ..RouteOptions::default()
+            },
+        )
+        .expect("avoiding the baseline must still find some route");
+
+    let same = base.geometry.len() == avoided.geometry.len()
+        && base
+            .geometry
+            .iter()
+            .zip(&avoided.geometry)
+            .all(|(a, b)| (a.lon - b.lon).abs() < 1e-9 && (a.lat - b.lat).abs() < 1e-9);
+    assert!(
+        !same,
+        "asking the router to avoid its own route returned that exact \
+         route ({} points, {:.0} m). `avoid` is not reaching `Prefs`.",
+        base.geometry.len(),
+        base.length_m
+    );
+}
+
+/// **The cross-country budget must refuse, and only that lane.**
+///
+/// `max_off_trail_km` was inert engine-wide until it was enforced in
+/// `FmmGradeLimited::solve`: declared, defaulted, hashed into the leg
+/// fingerprint, echoed by the debug endpoint, read by nothing. This pins
+/// both halves of the fix — that the budget bites on the expensive lane,
+/// and that it does not touch the cheap one.
+#[test]
+fn the_cross_country_budget_is_enforced_per_lane() {
+    let engine = RouteEngine::open(pack_dir()).unwrap();
+
+    // A tiny budget the FROM–TO pair (~1 km) certainly exceeds.
+    let tight = RouteOptions {
+        force_off_trail: true,
+        max_off_trail_km: 0.1,
+        ..RouteOptions::default()
+    };
+    match engine.plan(vec![FROM, TO], tight) {
+        Err(RouteError::TooLong(msg)) => {
+            assert!(
+                msg.contains("off-trail"),
+                "the message should say which budget refused: {msg}"
+            );
+        }
+        other => panic!(
+            "a 1 km cross-country request under a 100 m budget must be \
+             refused as TooLong, got {other:?}"
+        ),
+    }
+
+    // The SAME tiny budget on the unified lane must change nothing: that
+    // lane is flat in distance and is bounded by `max_span_km` instead.
+    // Without this half, "enforced" could mean "refuses everything".
+    let unified_under_the_same_budget = RouteOptions {
+        force_off_trail: false,
+        max_off_trail_km: 0.1,
+        ..RouteOptions::default()
+    };
+    assert!(
+        engine
+            .plan(vec![FROM, TO], unified_under_the_same_budget)
+            .is_ok(),
+        "the cross-country budget must not bound the unified lane"
+    );
+}
+
+// ---- the pack manifest ----------------------------------------------
+
+/// A pack from a NEWER build must be refused, not misread.
+///
+/// The failure this prevents is specific to shipping on a phone. A
+/// server reading a pack it half-understands is a bad deploy, noticed in
+/// minutes and rolled back. A phone has the pack on the user's disk
+/// until they delete it, and the symptom — routes that are subtly wrong
+/// rather than absent — is one nobody reports as a bug.
+#[test]
+fn a_pack_from_the_future_is_refused() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Copy the committed pack, then plant a manifest from a later build.
+    for f in std::fs::read_dir(pack_dir()).unwrap() {
+        let f = f.unwrap();
+        std::fs::copy(f.path(), tmp.path().join(f.file_name())).unwrap();
+    }
+    std::fs::write(
+        tmp.path().join("pack.toml"),
+        "[pack]\nformat_version = 999\nframe = \"utm33n\"\n\
+         extent = [15.0, 67.0, 15.1, 67.1]\n",
+    )
+    .unwrap();
+
+    match RouteEngine::open(tmp.path().to_string_lossy().into_owned()) {
+        Err(RouteError::Pack(msg)) => assert!(
+            msg.contains("999") && msg.contains("update"),
+            "the error must say the pack is too new AND what to do: {msg}"
+        ),
+        Err(e) => panic!("a v999 pack must be refused as a Pack error, got {e}"),
+        Ok(_) => panic!("a v999 pack must be refused at open, but it opened"),
+    }
+}
+
+/// A manifest's extent is what `coverage()` reports — and it is the
+/// requested region, not the wider ground the pack happens to contain.
+#[test]
+fn the_manifest_extent_is_the_coverage_a_host_sees() {
+    let tmp = tempfile::tempdir().unwrap();
+    for f in std::fs::read_dir(pack_dir()).unwrap() {
+        let f = f.unwrap();
+        std::fs::copy(f.path(), tmp.path().join(f.file_name())).unwrap();
+    }
+    // Deliberately narrower than the artifacts cover.
+    std::fs::write(
+        tmp.path().join("pack.toml"),
+        "[pack]\nformat_version = 1\nframe = \"utm33n\"\n\
+         extent = [15.00, 67.05, 15.06, 67.07]\nhalo_m = 1000.0\n",
+    )
+    .unwrap();
+
+    let engine = RouteEngine::open(tmp.path().to_string_lossy().into_owned()).unwrap();
+    let cov = engine.coverage();
+    assert!(
+        (cov.min_lon - 15.00).abs() < 1e-9 && (cov.max_lat - 67.07).abs() < 1e-9,
+        "coverage must come from the manifest, got {cov:?}"
+    );
+
+    // The manifest narrows the ADVERTISED region; it does not shrink the
+    // data. A point inside it still routes — which is the whole reason
+    // `coverage()` is documented as a UI gate rather than a promise.
+    assert!(engine.plan(vec![FROM, TO], RouteOptions::default()).is_ok());
+}
+
+/// The committed pack has no manifest, and must still open.
+///
+/// Packs predate the manifest, and the artifacts alone have always been
+/// enough to route. A version marker that made existing packs unopenable
+/// would be a migration, not a safety net.
+#[test]
+fn a_pack_without_a_manifest_still_opens() {
+    let engine = RouteEngine::open(pack_dir()).expect("the committed pack has no pack.toml");
+    let cov = engine.coverage();
+    assert!(cov.max_lat > cov.min_lat, "fell back to the DEM's bounds");
+}

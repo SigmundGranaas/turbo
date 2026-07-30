@@ -118,6 +118,30 @@ impl Solver for FmmGradeLimited {
         req.prefs.force_off_trail && ctx.terrain.is_some()
     }
     fn solve(&self, ctx: &SolveContext<'_>, req: &SolveRequest<'_>) -> Result<Path, PathfindError> {
+        // The off-trail budget, enforced. `Prefs::max_off_trail_km` was
+        // declared, defaulted to 10, hashed into the leg fingerprint and
+        // echoed by `/v1/debug/prefs` — and never read by anything, which
+        // made it an inert knob of the exact kind `knob_liveness.rs`
+        // exists to catch (it watches `CostConfigPatch`, and this one
+        // lives in `Prefs`). `PathfindError::BboxTooLarge` was likewise
+        // declared and mapped to a 400 without ever being raised. The
+        // guard the FFI's own documentation promised did not exist.
+        //
+        // It matters most off-device. This lane's cost grows steeply with
+        // span where the unified lane's does not — measured on the CI
+        // pack at 0.43 s for 1 km, 1.9 s for 6 km and 8.5 s for 11 km,
+        // against a flat ~0.26 s for the unified lane at every one of
+        // those distances. On a phone that difference is the gap between
+        // a spinner and a force-quit.
+        //
+        // Checked before any work: the corridor is sized from the span,
+        // so a request that will be refused is refused for free.
+        let dx = req.to.x - req.from.x;
+        let dy = req.to.y - req.from.y;
+        let extent_km = (dx * dx + dy * dy).sqrt() / 1000.0;
+        if req.prefs.max_off_trail_km > 0.0 && extent_km > req.prefs.max_off_trail_km {
+            return Err(PathfindError::BboxTooLarge { extent_km });
+        }
         crate::solver_trace::begin_phase("solve_off_trail");
         crate::tracer::phase("solve_off_trail", || {
             solve_off_trail(ctx, req.from, req.to, req.prefs)

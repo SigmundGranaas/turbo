@@ -88,13 +88,69 @@ struct Shrink {
     detail: String,
 }
 
+/// What region to cut, and how it was specified.
+///
+/// Two callers with different knowledge. The routing gate has a corpus
+/// and wants a pack that covers every hike in it. An app has a map
+/// viewport and wants a pack for that rectangle — and has no corpus,
+/// because the whole point is to route somewhere nobody has walked yet.
+/// Deriving one from the other is not possible in either direction, so
+/// the tool takes both and the caller says which it has.
+pub enum Region {
+    /// Cover every vertex of every hike in this corpus.
+    Corpus(std::path::PathBuf),
+    /// Cover this WGS84 rectangle: `[min_lon, min_lat, max_lon, max_lat]`.
+    Bbox([f64; 4]),
+}
+
+impl Region {
+    /// The requested region in planar metres, BEFORE the halo.
+    fn planar(&self) -> Result<Bbox, Box<dyn std::error::Error>> {
+        match self {
+            Region::Corpus(p) => corpus_bbox(p),
+            Region::Bbox([min_lon, min_lat, max_lon, max_lat]) => {
+                if min_lon >= max_lon || min_lat >= max_lat {
+                    return Err(format!(
+                        "bbox must be min_lon,min_lat,max_lon,max_lat with min < max; \
+                         got [{min_lon}, {min_lat}, {max_lon}, {max_lat}]"
+                    )
+                    .into());
+                }
+                // All four corners, not two: a lon/lat rectangle is not a
+                // rectangle in UTM, and projecting only the diagonal
+                // corners would cut inside the requested area along the
+                // bowed edges.
+                let corners = [
+                    turbo_geo_frame::wgs84_to_utm33n(*min_lon, *min_lat),
+                    turbo_geo_frame::wgs84_to_utm33n(*min_lon, *max_lat),
+                    turbo_geo_frame::wgs84_to_utm33n(*max_lon, *min_lat),
+                    turbo_geo_frame::wgs84_to_utm33n(*max_lon, *max_lat),
+                ];
+                Ok(Bbox {
+                    min_x: corners.iter().map(|p| p.x).fold(f64::INFINITY, f64::min),
+                    min_y: corners.iter().map(|p| p.y).fold(f64::INFINITY, f64::min),
+                    max_x: corners
+                        .iter()
+                        .map(|p| p.x)
+                        .fold(f64::NEG_INFINITY, f64::max),
+                    max_y: corners
+                        .iter()
+                        .map(|p| p.y)
+                        .fold(f64::NEG_INFINITY, f64::max),
+                })
+            }
+        }
+    }
+}
+
 pub fn run(
     src: &Path,
     dst: &Path,
-    corpus: &Path,
+    region: &Region,
     halo_m: f64,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let bbox = corpus_bbox(corpus)?.expand(halo_m);
+    let requested = region.planar()?;
+    let bbox = requested.expand(halo_m);
     println!(
         "bbox (halo {halo_m:.0} m): [{:.0}, {:.0}] .. [{:.0}, {:.0}]  ({:.1} x {:.1} km)",
         bbox.min_x,
@@ -112,7 +168,8 @@ pub fn run(
         slice_graph(src, dst, bbox)?,
     ];
 
-    verify(src, dst, corpus)?;
+    verify(src, dst, region, requested)?;
+    write_manifest(dst, region, requested, halo_m)?;
 
     println!();
     let (mut b, mut a) = (0u64, 0u64);
@@ -499,21 +556,52 @@ fn slice_graph(src: &Path, dst: &Path, bbox: Bbox) -> Result<Shrink, Box<dyn std
 ///
 /// DEM *values* are checked, not just coverage, but with one documented
 /// exception — see the mismatch handling below.
-fn verify(src: &Path, dst: &Path, corpus: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn verify(
+    src: &Path,
+    dst: &Path,
+    region: &Region,
+    requested: Bbox,
+) -> Result<(), Box<dyn std::error::Error>> {
     use turbo_tiles_elev::{Dem, PointXY};
     use turbo_tiles_mask::Mask;
 
-    let text = std::fs::read_to_string(corpus)?;
-    let doc: toml::Value = toml::from_str(&text)?;
-    let hikes = doc.get("hike").and_then(|h| h.as_array()).unwrap();
-    let mut pts = Vec::new();
-    for h in hikes {
-        for c in h.get("polyline").and_then(|p| p.as_array()).unwrap() {
-            let c = c.as_array().unwrap();
-            pts.push(turbo_geo_frame::wgs84_to_utm33n(
-                num(&c[0]).unwrap(),
-                num(&c[1]).unwrap(),
-            ));
+    // A grid over the requested region, ALWAYS — the check that does not
+    // depend on having a corpus, and the one that would have caught the
+    // mask-row inversion that shipped in the first version of this tool
+    // (rows run down from max_y; indexing up from min_y mirrors the
+    // raster, so land reads as water and endpoints get refused). Corpus
+    // vertices missed it because they happened to sit near the middle.
+    //
+    // 64 x 64 over the region: dense enough that a mirrored or shifted
+    // raster cannot hide between samples, cheap enough to be unnoticed.
+    const GRID: usize = 64;
+    let mut pts: Vec<turbo_tiles_pathfind::Point> = Vec::with_capacity(GRID * GRID);
+    for j in 0..GRID {
+        for i in 0..GRID {
+            let t = |a: f64, b: f64, k: usize| a + (b - a) * (k as f64 / (GRID - 1) as f64);
+            pts.push(turbo_tiles_pathfind::Point {
+                x: t(requested.min_x, requested.max_x, i),
+                y: t(requested.min_y, requested.max_y, j),
+            });
+        }
+    }
+    let grid_pts = pts.len();
+
+    // Plus every corpus vertex, when there is a corpus: those are the
+    // points a route actually walks, and the gate's baseline depends on
+    // them agreeing exactly.
+    if let Region::Corpus(corpus) = region {
+        let text = std::fs::read_to_string(corpus)?;
+        let doc: toml::Value = toml::from_str(&text)?;
+        let hikes = doc.get("hike").and_then(|h| h.as_array()).unwrap();
+        for h in hikes {
+            for c in h.get("polyline").and_then(|p| p.as_array()).unwrap() {
+                let c = c.as_array().unwrap();
+                pts.push(turbo_geo_frame::wgs84_to_utm33n(
+                    num(&c[0]).unwrap(),
+                    num(&c[1]).unwrap(),
+                ));
+            }
         }
     }
 
@@ -545,9 +633,9 @@ fn verify(src: &Path, dst: &Path, corpus: &Path) -> Result<(), Box<dyn std::erro
     }
 
     println!(
-        "verify: {} corpus vertices — dem {dem_diff} differ / {dem_gone} lost, \
-         mask {mask_diff} differ / {mask_gone} lost",
-        pts.len()
+        "verify: {grid_pts} grid + {} corpus points — dem {dem_diff} differ / \
+         {dem_gone} lost, mask {mask_diff} differ / {mask_gone} lost",
+        pts.len() - grid_pts
     );
     if mask_diff > 0 || mask_gone > 0 || dem_gone > 0 {
         return Err(format!(
@@ -570,5 +658,70 @@ fn verify(src: &Path, dst: &Path, corpus: &Path) -> Result<(), Box<dyn std::erro
              this pack."
         );
     }
+    Ok(())
+}
+
+/// Write `pack.toml` beside the artifacts.
+///
+/// The extent recorded is the REQUESTED region, projected back to WGS84
+/// — not the halo, and not the DEM's tile-aligned coverage. Both of
+/// those are larger, and a host that gated its UI on them would offer
+/// routing in a margin that exists to make routing *inside* the region
+/// correct, not to be routed in itself.
+fn write_manifest(
+    dst: &Path,
+    region: &Region,
+    requested: Bbox,
+    halo_m: f64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use turbo_tiles_artifacts::{PackManifest, PackMeta, PACK_FORMAT_VERSION};
+
+    // A bbox request echoes the caller's own rectangle; a corpus
+    // request has no lon/lat to echo and projects its planar box back.
+    //
+    // The distinction is not pedantry. A lon/lat rectangle is not a
+    // rectangle in UTM, so `Region::planar` takes the bounding box of
+    // all four projected corners — which CONTAINS the request. Round-
+    // tripping that back would record an extent slightly larger than
+    // what was asked for (~35 m of longitude here), and an extent that
+    // over-promises is the one thing this field must never do: a host
+    // gates "can I route here?" on it.
+    let [min_lon, min_lat, max_lon, max_lat] = match region {
+        Region::Bbox(b) => *b,
+        Region::Corpus(_) => {
+            let (min_lon, min_lat) =
+                turbo_geo_frame::utm33n_to_wgs84(requested.min_x, requested.min_y);
+            let (max_lon, max_lat) =
+                turbo_geo_frame::utm33n_to_wgs84(requested.max_x, requested.max_y);
+            [min_lon, min_lat, max_lon, max_lat]
+        }
+    };
+
+    let manifest = PackManifest {
+        pack: PackMeta {
+            format_version: PACK_FORMAT_VERSION,
+            created_by: format!("tileserver slice-pack {}", env!("CARGO_PKG_VERSION")),
+            frame: "utm33n".to_string(),
+            extent: [min_lon, min_lat, max_lon, max_lat],
+            halo_m,
+        },
+    };
+    let body = toml::to_string_pretty(&manifest)?;
+    let header = match region {
+        Region::Corpus(p) => format!("# Cut from corpus {}\n", p.display()),
+        Region::Bbox(b) => format!("# Cut from bbox {b:?}\n"),
+    };
+    std::fs::write(
+        dst.join(PackManifest::FILENAME),
+        format!(
+            "# Region pack manifest — written by `tileserver slice-pack`,\n\
+             # read by `RouteEngine::open`. Hand-editing the extent does not\n\
+             # change what the pack contains.\n{header}\n{body}"
+        ),
+    )?;
+    println!(
+        "manifest: v{PACK_FORMAT_VERSION}  extent [{min_lon:.4}, {min_lat:.4}] .. \
+         [{max_lon:.4}, {max_lat:.4}]  halo {halo_m:.0} m"
+    );
     Ok(())
 }

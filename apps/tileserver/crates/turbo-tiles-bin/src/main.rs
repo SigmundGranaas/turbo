@@ -161,9 +161,16 @@ enum Command {
         /// Destination directory for the sliced pack.
         #[arg(long)]
         dst: std::path::PathBuf,
-        /// Corpus whose hikes the pack must cover.
+        /// Corpus whose hikes the pack must cover. Mutually exclusive
+        /// with `--bbox`; exactly one is required.
+        #[arg(long, conflicts_with = "bbox")]
+        corpus: Option<std::path::PathBuf>,
+        /// WGS84 rectangle the pack must cover, as
+        /// `min_lon,min_lat,max_lon,max_lat`. What an app asks for: it
+        /// has a viewport, not a corpus, and the point of downloading a
+        /// region is to route somewhere nobody has walked yet.
         #[arg(long)]
-        corpus: std::path::PathBuf,
+        bbox: Option<String>,
         /// Terrain kept beyond the corpus bbox. E10 measured 500 m as
         /// sufficient; 1000 m is the default because the cost of the
         /// extra ring is small and the cost of finding out it was too
@@ -270,9 +277,29 @@ async fn main() -> Result<()> {
             src,
             dst,
             corpus,
+            bbox,
             halo_m,
-        } => slice_pack::run(&src, &dst, &corpus, halo_m)
-            .map_err(|e| anyhow::anyhow!("slice-pack failed: {e}")),
+        } => {
+            let region = match (corpus, bbox) {
+                (Some(c), None) => slice_pack::Region::Corpus(c),
+                (None, Some(b)) => {
+                    let v: Result<Vec<f64>, _> =
+                        b.split(',').map(|p| p.trim().parse::<f64>()).collect();
+                    let v = v.map_err(|e| anyhow::anyhow!("--bbox: {e}"))?;
+                    let v: [f64; 4] = v.try_into().map_err(|v: Vec<f64>| {
+                        anyhow::anyhow!(
+                            "--bbox needs 4 comma-separated numbers \
+                             (min_lon,min_lat,max_lon,max_lat), got {}",
+                            v.len()
+                        )
+                    })?;
+                    slice_pack::Region::Bbox(v)
+                }
+                _ => anyhow::bail!("pass exactly one of --corpus or --bbox"),
+            };
+            slice_pack::run(&src, &dst, &region, halo_m)
+                .map_err(|e| anyhow::anyhow!("slice-pack failed: {e}"))
+        }
     }
 }
 
