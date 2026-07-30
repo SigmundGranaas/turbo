@@ -902,6 +902,120 @@ caveat recorded against them is discharged.
 
 ---
 
+## E10 — Pack slice fidelity **DONE. Halo answered — and a format defect found underneath it.**
+
+**Method.** `tools/experiments/e10_packslice` slices the DEM (54% of the
+pack) to each route's own bbox expanded by a varying halo, keeps mask and
+graph whole, and asks at what halo the route reproduces whole-DEM geometry
+bit-exactly. Payloads are copied **byte-for-byte** — no decode, no resample,
+no recompression — so any difference is attributable to *missing* terrain,
+never to *altered* terrain. That property is what makes the second finding
+below provable.
+
+### First attempt was confounded
+
+The initial sweep sized every slice to the **union** of all five routes'
+endpoints, handing each route a ~48 km effective halo. The sweep was
+meaningless and non-monotonic. Re-run with per-route bboxes:
+
+```
+## lane: off-trail
+halo_m      n-3496285  n-3894666  n-1821249   n-1884462  n-1895277  slice_MB  tiles
+0               MATCH     DIFF+0      MATCH    DIFF-384      MATCH       0.9     10
+500             MATCH     DIFF+0      MATCH       MATCH      MATCH       2.0     21
+1000            MATCH     DIFF+0      MATCH       MATCH      MATCH       2.9     30
+2000            MATCH     DIFF+0      MATCH       MATCH      MATCH       4.2     46
+6000            MATCH     DIFF+0      MATCH       MATCH      MATCH      15.3    174
+```
+(unified lane identical in pattern; `n-1884462` differs by −24 pts at halo 0.)
+
+### The halo answer
+
+**500 m suffices** for every route that reproduces at all. Zero halo is
+*not* enough — the longest route (7.1 km) loses 384 points without it.
+
+Notably 500 m is far below the 3000 m `PAD_CAP_M` corridor bound, because
+A\* prunes long before exploring the full padded rectangle. Slice cost at
+500 m is roughly 2× the zero-halo size and still tiny (2.0 MB for five
+routes).
+
+**Recommendation: 1–2 km halo.** 500 m is the measured floor on five routes
+in one region; the margin is cheap (a few MB) and the failure mode — a
+silently different route near a pack edge — is expensive.
+
+### The defect underneath: `Dem::sample` is not stable under slicing
+
+`n-3894666` differs at **every** halo, including 6000 m. That cannot be
+terrain starvation. `tools/experiments/e10_packslice --bin probe` samples
+identical point grids from the full DEM and from each slice:
+
+| halo | samples | **differ** | only_full | **only_slice** |
+|---|---|---|---|---|
+| 0 | 838 656 | 4 010 | 10 656 | 0 |
+| 500 | 860 769 | 1 005 | 0 | **2 448** |
+| 2000 | 914 370 | 1 286 | 0 | 3 008 |
+| 6000 | 1 122 842 | 5 235 | 9 024 | 2 464 |
+
+Observed disagreements are real elevation deltas: `975.525` vs `975.19995`,
+`915.8` vs `914.39996` — up to ~1.4 m.
+
+**The `only_slice` column is the airtight proof.** A slice is a strict
+*subset* of the full DEM's tiles. Any point the slice can answer, the full
+DEM can also answer. Yet at halo 500 there are **2 448 points where the full
+DEM returns `None` and the slice returns a value.** The only mechanism that
+explains that is tile-selection order.
+
+### Mechanism
+
+DEM v2 stores one entry per source raster with its own origin and builds an
+rstar over tile bboxes at `open()`. Its own docs state: *"Tiles overlap only
+when source rasters did (rare); a sample inside an overlap returns the
+latest source's value (insertion order)."*
+
+The Sjunkhatten DEM has **76 overlapping tile pairs** — the four DTM10 sheet
+quadrants genuinely overlap, both horizontally (ulx 548435 vs 549795, a
+1200 m band) and vertically (equal ulx, uly closer than the 2560 m span).
+Inside an overlap two tiles both contain the point, and **which one answers
+depends on rstar traversal order, which depends on the item set**. Slicing
+changes the set, so the answer changes — and when the winning tile has
+nodata there, `sample` returns `None` on the full DEM while the slice
+succeeds.
+
+**Not established:** which specific overlap band affects which route. The
+proximity check performed tested route *endpoints* against band extents, not
+the corridors actually sampled, and is too crude to attribute per-route.
+`n-3894666`'s behaviour is *consistent* with this mechanism but not proven
+to be caused by it.
+
+### Consequences
+
+1. **Pack parity is broken at the format level, independent of the halo.**
+   "Same pack ⇒ same route" cannot hold while sampling depends on the tile
+   set. This defeats the geometry-hash verification strategy for packs.
+2. **The national artifact is itself build-order dependent.** Rebuilding
+   with sources ingested in a different order yields different elevations in
+   overlap bands — a reproducibility problem that exists today, with no
+   packs involved.
+3. Magnitude is small (0.12–0.62% of points, ≲1.4 m) but it **silently
+   changes routes**, which is the worst combination.
+
+### Fix — belongs in Phase F, before the slicer
+
+Preferred: **de-overlap at build time.** Clip tiles to non-overlapping
+extents when writing the artifact, so uniqueness is structural rather than a
+runtime rule. Slightly shrinks the artifact and makes `sample` a pure
+function of position.
+
+Fallback: a **deterministic tie-break** in `Dem::sample` — when several
+tiles contain a point, choose by a canonical rule (lowest `(ulx, uly)`
+lexicographically, or an explicit priority field), never by rstar order.
+
+Either way this is a **new prerequisite for the pack work** that the
+implementation plan did not have, and it is cheap relative to discovering it
+after packs ship.
+
+---
+
 ## Summary — all twelve experiments
 
 | | Question | Verdict |
@@ -917,6 +1031,7 @@ caveat recorded against them is discharged.
 | **E7b** | Is the solver's slope term redundant? | **No — structural.** Removing it explodes the search |
 | **E7c** | Is the contributor's slope term redundant? | **Additive, removable**, −12–24% DEM work |
 | **E9** | Would config-as-string absorb change? | 3/31 commits, all additive |
+| **E10** | Does a sliced pack reproduce routes? | **500 m halo suffices — but `Dem::sample` is unstable under slicing** |
 | **E11** | Does the port API hold up? | Compiles and runs from memory |
 
 Phase-0 caveat that applies throughout: **wall-clock numbers from single

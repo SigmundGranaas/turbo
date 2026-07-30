@@ -42,6 +42,7 @@ a gate.
 | **D5** | `dtm-bulk-load` shells to `raster2pgsql` with no preflight; missing binary → `exit 127` in a backtrace | dataset build | `which` check + clear message | none |
 | **D6** | Graph build emits `subgraph_fragmented` and proceeds; `pgr_createTopology` without `pgr_nodeNetwork` leaves trails unnoded | artifact health output | fail the build, or run `pgr_nodeNetwork` | none |
 | **D7** | `include_str!("../../../tools/cost-config.toml")` reaches outside the crate | static | move into the profile crate | none — blocks cdylib vendoring |
+| **D8** | **`Dem::sample` is not a pure function of position.** In tile-overlap bands the answering tile depends on rstar order, so slicing changes elevations — and the national artifact is build-order dependent | E10b: slice ⊆ full, yet full returns `None` where slice returns a value (2 448 points) | de-overlap tiles at build time (preferred), or a canonical tie-break in `sample` | none to fix — **blocks packs** |
 
 **D2 and D3 must not be bundled with the refactor.** They move geometry;
 everything else in this plan must not. Mixing them destroys the only signal
@@ -143,7 +144,8 @@ regress; geometry hash changes are expected and reviewed in `route-lab`.
 
 ### Phase F — Packs and device (3 weeks)
 
-| F1 | `turbo-geodata-pack` + `turbo-route pack --bbox` (DEM tile filter, mask re-crop, vector AABB filter, graph CSR renumber with halo). | 8 d |
+| F0 | **Fix D8** — de-overlap DEM tiles at build time so `sample` is a pure function of position. Prerequisite: without it, pack parity cannot hold. | 2 d |
+| F1 | `turbo-geodata-pack` + `turbo-route pack --bbox` (DEM tile filter, mask re-crop, vector AABB filter, graph CSR renumber, **1–2 km halo per E10**). | 8 d |
 | F2 | `PyramidElevation` multi-resolution; re-measure pack sizes. | 2 d |
 | F3 | `turbo-route-ffi` (uniffi over `Engine` + `compose`), `catch_unwind`, cargo-ndk — cloning the proven `turbomap-ffi` / `core/turbomap-android` pattern. | 5 d |
 
@@ -176,7 +178,7 @@ G Observability              ░░░░░░░░░░░░░░░░░
 ```
 
 **Server-side modular and CI-gated: ~7.5 weeks (A–E).**
-**Through device: ~11.5 weeks.**
+**Through device: ~12 weeks.**
 
 Close to the original 7–9 / 6–8 estimate, but the *content* shifted:
 foundations grew (corpus-in-CI is a real data problem), ports shrank (E2
@@ -198,8 +200,9 @@ the original plan did not have.
 
 **Still assumed — flagged, not hidden:**
 - **Bionic determinism on real hardware.** Only device testing settles it.
-- **Pack slicing fidelity.** No slicer exists yet; the halo/boundary policy
-  is untested (was E10, not run).
+- ~~Pack slicing fidelity~~ — **measured (E10).** 500 m halo suffices;
+  1–2 km recommended. But it surfaced **D8**, a format-level determinism
+  defect that must be fixed before any pack ships.
 - **Pack size across terrain types.** One coastal sample only.
 - **That Phases B–D are hash-neutral.** Each step's gate is the test; E3
   makes B1 near-certain, C and D are mechanical but unproven.

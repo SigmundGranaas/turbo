@@ -1,0 +1,21 @@
+[package]
+name = "e10_packslice"
+version = "0.0.0"
+edition = "2021"
+
+[[bin]]
+name = "e10"
+path = "src/main.rs"
+
+[dependencies]
+turbo-tiles-pathfind = { path = "../../../crates/turbo-tiles-pathfind" }
+turbo-tiles-elev = { path = "../../../crates/turbo-tiles-elev" }
+turbo-tiles-graph = { path = "../../../crates/turbo-tiles-graph" }
+turbo-tiles-mask = { path = "../../../crates/turbo-tiles-mask" }
+turbo-tiles-artifacts = { path = "../../../crates/turbo-tiles-artifacts" }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+
+[workspace]
