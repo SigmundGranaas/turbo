@@ -53,8 +53,24 @@ that says a refactor step was clean.
 ## 2. The acceptance gate for every step
 
 ```
-corpus geometry hash unchanged  AND  dem_cache_lookups unchanged
+tileserver eval-terrain --corpus=tools/sjunkhatten-corpus.toml --mode={off-trail,unified}
+  -> corpus geometry hash unchanged  AND  dem_cache_lookups unchanged
 ```
+
+**Baselines (90-hike Sjunkhatten corpus):**
+
+| lane | hash | dem lookups | ok |
+|---|---|---|---|
+| off-trail | `b0688fc53b85e122` | 13 752 676 | 89/90 |
+| unified | `5905a2503bfec602` | 2 992 297 | 90/90 |
+
+`--check-determinism`: 0 mismatches.
+
+Sjunkhatten is the **only** validation set — there is no national artifact
+corpus. That makes corpus size the binding constraint on what a green gate
+proves, which is why the old 5-6 usable `nordland` hikes were replaced by 90
+generated from the local network (`tools/sample_sjunkhatten_corpus.py`):
+7.2x the DEM work on the off-trail lane, 12x on unified.
 
 on **both lanes** (`--mode=off-trail` and `--mode=unified`). Phase 0 proved
 these are exactly stable across runs while wall clock is not (16–19% range),
@@ -83,7 +99,7 @@ Effort assumes one engineer. "Gate" is what must hold before the next step.
 
 ### Phase A — Foundations (2 weeks)
 
-| A1 | **Fix the corpus-in-CI data problem.** Publish the Sjunkhatten pack (208 MB) to a fetchable location; make `tests/scenarios.rs` and `eval-terrain` run against it in CI. | 4 d |
+| A1 | **Fix the corpus-in-CI data problem.** Publish the Sjunkhatten pack (208 MB) to a fetchable location; make `tests/scenarios.rs` and `eval-terrain` run against it in CI. **The 90-hike corpus itself is done** (`tools/sjunkhatten-corpus.toml`). | 3 d |
 | A2 | **D5, D6, D7** — the three no-risk defects. | 1 d |
 | A3 | **`libm` swap (D4)** for `atan` on the routing path; add a build invariant forbidding fast-math/FMA contraction on the routing crates. | 1 d |
 | A4 | **Re-measure pack sizing** across 3–4 contrasting cells (coastal, inland alpine, forested lowland) and replace the withdrawn table. | 2 d |
@@ -206,8 +222,10 @@ the original plan did not have.
 - **Pack size across terrain types.** One coastal sample only.
 - **That Phases B–D are hash-neutral.** Each step's gate is the test; E3
   makes B1 near-certain, C and D are mechanical but unproven.
-- **Corpus coverage.** All conclusions rest on 12 hikes over one 100 km
-  cell, not the 60-hike national corpus.
+- **Corpus coverage.** Sjunkhatten is the only validation region and always
+  will be — there is no national artifact set. The corpus is now 90 hikes /
+  149.7 km drawn from the local `sti` network, but every conclusion is still
+  scoped to one 100 km cell of coastal Nordland terrain.
 
 ---
 
