@@ -1040,6 +1040,95 @@ exactly stable and carry every conclusion above.
 
 ---
 
+---
+
+## Phase E-1 — Landing E7c on the full corpus. **DONE. Kept.**
+
+E7c measured the contributor's isotropic mesh slope term on a 12-hike
+corpus and concluded it was additive rather than structural. This lands
+it against all 90 Sjunkhatten hikes, and — unlike a refactor step —
+judges it on **quality**, since a calibration change is supposed to move
+geometry and the gate can only confirm that it did.
+
+`tools/calibration_diff.py` compares two `eval-terrain` runs on mean
+deviation from the walked truth, route length, and elevation gain.
+
+### Off-trail lane
+
+```
+metric           before      after      delta   better   worse
+dev_m              65.1       47.9      -17.2       59      27
+length_m         1705.3     1675.5      -29.8       62      22
+gain_m             60.8       60.5       -0.3       42      32
+
+improved  59   total 1680 m   best single -466.1 m   median  -2.66 m
+degraded  27   total  150 m   worst single  +96.6 m  median  +0.57 m
+```
+
+**Mean deviation -26%**, with 11 hikes improving by more than 20 m and
+exactly one degrading by more than 20 m. DEM lookups 13 801 216 ->
+11 901 773 (**-13.8%**); mean solve 251 -> 175 ms.
+
+### Unified lane
+
+```
+metric           before      after      delta   better   worse
+dev_m              14.8       13.6       -1.3       40      46
+length_m         1624.5     1616.1       -8.4       65      20
+gain_m             60.4       59.6       -0.8       44      31
+
+improved  40   total  364 m   best single -223.0 m   median  -0.70 m
+degraded  46   total  249 m   worst single +180.9 m  median  +0.64 m
+```
+
+DEM lookups 2 983 532 -> 2 441 330 (**-18.2%**).
+
+### Why this was kept despite 46 > 40 on the unified lane
+
+The raw win/loss count is the wrong summary here, and the tool's own
+docs warn about the opposite failure — a change that rescues a handful
+of routes while degrading many. This is the mirror image, and it earns
+the same scrutiny rather than the same verdict:
+
+- The **medians are sub-metre in both directions** (-0.70 vs +0.64 m).
+  Most of the 86 routes that moved moved by less than the DEM's own
+  10 m resolution, so counting them equally weights noise with signal.
+- **Total displacement favours the change** in both lanes: 1680 m of
+  improvement against 150 m of degradation off-trail, 364 against 249
+  unified.
+- The **tails are asymmetric in the right direction**: 11 routes
+  improve by >20 m off-trail (3 unified) against one degrading in each.
+
+### The one real regression
+
+Hike **55810** (`sjunkhatten-long`, truth 3353 m) degrades in both
+lanes — solver length 3526 -> 4093 m, deviation +96.6 m off-trail and
++180.9 m unified. A genuine loss, not a metric artefact: with the extra
+slope charge gone, the router prefers a longer line it now prices as
+cheaper. Recorded rather than explained away. Corpus mean *length* fell
+in both lanes, so it is an outlier and not a trend.
+
+### A note on the measuring instrument
+
+`calibration_diff.py`'s first version computed distances on raw WGS84
+degrees and reported `dev_m = 0.0` for every hike in both runs. That
+reads exactly like "the change had no effect" — the most plausible
+possible result, and completely wrong. Worth stating because it is the
+same failure shape as E7b (a patch that measured nothing because the
+code path never ran): a null result deserves a check that the
+instrument can produce a non-null one.
+
+### Baselines updated
+
+```
+full  off-trail 2b8239eaa049e85e  lookups=11901773  ok=89/90
+      unified   5005c4cb2ccb9035  lookups=2441330   ok=90/90
+ci    off-trail d27e60b7d508a594  lookups=2275940   ok=25/25
+      unified   56f90de536583bd6  lookups=275229    ok=25/25
+```
+
+---
+
 ## Environment notes
 
 - `rustc 1.94.1`, x86_64-unknown-linux-gnu, single target installed.

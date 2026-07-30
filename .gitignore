@@ -47,3 +47,4 @@ infra/compose/data/
 # from the recipe in
 # docs/architecture/2026-07-routing-engine-experiment-results.md.
 /.data/
+__pycache__/
