@@ -45,7 +45,7 @@
 
 use std::sync::Arc;
 
-pub use turbo_route_model::Requirement;
+pub use turbo_route_model::{ParamSet, Requirement};
 use turbo_tiles_graph::{EdgeRecord, Profile};
 
 /// Walk pace at flat, maintained trail — seconds per metre.
@@ -252,6 +252,44 @@ pub trait CostContributor: Send + Sync {
     /// hard-coded `tobler × off × mul` in the solver).
     fn pace_factor(&self, _ctx: &EdgeContext<'_>) -> f64 {
         1.0
+    }
+
+    /// Return this contributor with `params` applied, sharing every
+    /// expensive structure with the original. `None` means "no bound
+    /// parameters, reuse me as-is" — which is the common case and is
+    /// why the caller clones an `Arc` rather than allocating.
+    ///
+    /// # Why this exists rather than rebuilding
+    ///
+    /// E4 timed rebuilding the stack when tuning changes: **555 ms on a
+    /// 1 M-edge graph, 2.8 s at 5 M**, against a 250 ms mean solve —
+    /// dominated by re-bulk-loading the trail-proximity R-trees, which
+    /// alone are ~60% of construction. Rebinding is an `Arc` clone plus
+    /// a scalar write. The measured ratio is roughly 5.6 million to one,
+    /// so per-request rebuild is not a design alternative; it is a
+    /// non-starter, and this method is the mandated replacement.
+    ///
+    /// # The contract implementers must honour
+    ///
+    /// The returned contributor must share — never copy — its index. A
+    /// `rebind` that reconstructs the expensive structure type-checks
+    /// perfectly and silently reintroduces exactly the cost this method
+    /// exists to avoid. `contributor_rebind_shares_indices` in the
+    /// crate's tests measures that it does not.
+    fn rebind(&self, _params: &ParamSet) -> Option<Arc<dyn CostContributor>> {
+        None
+    }
+
+    /// Stable content hash over identity *and* tuned parameters.
+    ///
+    /// Stable means stable across processes and releases: this is
+    /// intended as a cache key, and a per-process hash would silently
+    /// turn every cache into a miss. The default covers the name only,
+    /// which is correct for contributors with no tunable scalars;
+    /// anything `rebind` can change MUST be folded in, or two
+    /// differently-tuned stacks collide on one key.
+    fn fingerprint(&self) -> u64 {
+        turbo_route_model::fnv_name(self.name())
     }
 }
 

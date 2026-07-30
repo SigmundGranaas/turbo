@@ -50,7 +50,7 @@ use crate::core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
 use crate::contributor::{
     EdgeContext, EdgeElevProbe, EdgeKind, Requirement, BASE_PACE_S_PER_M,
 };
-use turbo_route_model::Heightfield;
+use turbo_route_model::{Heightfield, ParamSet};
 
 #[derive(Debug, Error)]
 pub enum PathfindError {
@@ -977,6 +977,75 @@ impl Pathfinder {
     /// so the breakdown still has data to show.
     pub fn contributors_for_breakdown(&self) -> Vec<Arc<dyn crate::contributor::CostContributor>> {
         self.native_contributors.clone()
+    }
+
+    /// Stable fingerprint of the whole cost stack: identity and tuned
+    /// parameters of every contributor, in registration order.
+    ///
+    /// Order participates deliberately. E5 showed contributor order does
+    /// not change geometry today, but it is not a property the trait
+    /// guarantees, and a fingerprint that ignored order would silently
+    /// alias two stacks that are only *currently* equivalent.
+    pub fn cost_fingerprint(&self) -> u64 {
+        let mut h = turbo_route_model::fnv_name("cost_stack");
+        for c in &self.native_contributors {
+            h = turbo_route_model::fnv_f64(h, f64::from_bits(c.fingerprint()));
+        }
+        h
+    }
+
+    /// A `Pathfinder` with `params` applied to its cost stack, sharing
+    /// every index with this one.
+    ///
+    /// This replaces per-request rebuilding, which E4 showed costs
+    /// 555 ms on a 1 M-edge graph and 2.8 s at 5 M — two to eleven times
+    /// an entire solve — because the trail-proximity R-trees are rebuilt
+    /// from scratch. Rebinding is an `Arc` clone plus a scalar write per
+    /// contributor.
+    ///
+    /// Returns the rebound `Pathfinder` and the parameter keys **no
+    /// contributor claimed**. Reporting those is not politeness: a
+    /// silently-ignored tuning key is indistinguishable from a key that
+    /// had no effect, and the caller would conclude the parameter does
+    /// nothing rather than that it was misspelled. Callers should treat
+    /// a non-empty list as an error.
+    pub fn rebind(&self, params: &ParamSet) -> (Self, Vec<String>) {
+        let mut claimed: std::collections::BTreeSet<String> = Default::default();
+        let contributors = self
+            .native_contributors
+            .iter()
+            .map(|c| match c.rebind(params) {
+                Some(next) => {
+                    claimed.insert(c.name().to_string());
+                    next
+                }
+                // Untouched by this ParamSet: share the original
+                // outright. No clone of anything but a pointer.
+                None => Arc::clone(c),
+            })
+            .collect();
+
+        let unclaimed = params
+            .contributors()
+            .filter(|n: &&str| !claimed.contains(*n))
+            .map(str::to_string)
+            .collect();
+
+        (
+            Self {
+                graph: self.graph.clone(),
+                native_contributors: contributors,
+                cost_config: self.cost_config.clone(),
+                dem: self.dem.clone(),
+                mask: self.mask.clone(),
+                // The leg cache is keyed on prefs and endpoints, not on
+                // the cost stack — a rebound stack prices the same leg
+                // differently, so carrying entries over would serve
+                // answers computed under the old tuning. Start empty.
+                leg_cache: Default::default(),
+            },
+            unclaimed,
+        )
     }
 
     /// Per-point debug: for one (lon, lat), ask every layer what it
