@@ -6,6 +6,9 @@ import com.sigmundgranaas.turbo.expressive.domain.RoutePreset
 import com.sigmundgranaas.turbo.expressive.domain.RouteStreamEvent
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -13,6 +16,7 @@ import uniffi.turbo_route_ffi.GeoPoint
 import uniffi.turbo_route_ffi.RouteEngine
 import uniffi.turbo_route_ffi.RouteException
 import uniffi.turbo_route_ffi.RouteOptions
+import uniffi.turbo_route_ffi.RouteProgress
 import uniffi.turbo_route_ffi.TravelMode
 
 /**
@@ -97,8 +101,39 @@ class OnDeviceRouteRepository(
         // whatever they were when this line was written, and a retune would
         // stop reaching the phone.
 
+        // Snapshots arrive on the solver's thread; the flow is collected
+        // on another. A channel would be the general answer, but these are
+        // latest-wins previews — an older snapshot is worthless once a
+        // newer one exists — so the newest is simply published and the
+        // emitting loop below picks it up. No queue to bound, and no
+        // backpressure to design.
+        val latest = java.util.concurrent.atomic.AtomicReference<List<LatLng>?>(null)
+        val progress = object : RouteProgress {
+            override fun onProgress(geometry: List<GeoPoint>) {
+                latest.set(geometry.map { LatLng(it.lat, it.lon) })
+            }
+        }
+
         val event = try {
-            val route = engineFor(pack).plan(points.map { GeoPoint(it.lng, it.lat) }, options)
+            val route = coroutineScope {
+                val solve = async(dispatcher) {
+                    engineFor(pack).planWithProgress(
+                        points.map { GeoPoint(it.lng, it.lat) },
+                        options,
+                        progress,
+                    )
+                }
+                while (solve.isActive) {
+                    latest.getAndSet(null)?.let { emit(RouteStreamEvent.Progress(it)) }
+                    delay(PROGRESS_POLL_MS)
+                }
+                // Deliberately NOT draining `latest` here. Whatever the
+                // last poll missed is superseded by the finished route
+                // emitted immediately below, and showing a stale preview
+                // one frame before the real thing is a visible flicker
+                // for no information.
+                solve.await()
+            }
             RouteStreamEvent.Result(
                 RouteMapping.plan(
                     geometry = route.geometry.map { LatLng(it.lat, it.lon) },
@@ -137,5 +172,18 @@ class OnDeviceRouteRepository(
         is RouteException.Pack -> "The downloaded map couldn't be opened. Try downloading it again."
         is RouteException.InvalidRequest -> "That route request doesn't make sense."
         else -> "Something went wrong planning that route."
+    }
+
+    private companion object {
+        /**
+         * How often the collector publishes the newest snapshot.
+         *
+         * Slower than the solver produces them, on purpose: the map is
+         * redrawing a polyline and ~12 fps of route preview is already
+         * more than the eye resolves on a line that changes shape
+         * slightly. Emitting every snapshot would spend the phone's
+         * frame budget animating work nobody asked to watch in detail.
+         */
+        const val PROGRESS_POLL_MS = 80L
     }
 }

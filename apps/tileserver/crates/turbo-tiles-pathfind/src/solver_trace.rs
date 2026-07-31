@@ -145,6 +145,24 @@ pub struct Recorder {
     /// snapshot so the SPA / scripts can flag "stream dropped N
     /// events" rather than silently truncating.
     dropped_to_channel: std::cell::Cell<u64>,
+    /// Synchronous fan-out, called on the solver's own thread.
+    ///
+    /// The tokio channel above serves a server, which has a runtime to
+    /// receive on. An FFI host has neither — it has a callback object
+    /// and a blocking `plan()` call — so this hands the event straight
+    /// to it. Riding on the recorder rather than adding a second
+    /// thread-local keeps `record`'s no-listener cost at exactly one
+    /// `RefCell::borrow`, which the hot loops were written around.
+    /// `Send` because `Recorder` was `Send` (never `Sync` — it holds a
+    /// `RefCell`) before this field existed, and a sink without the bound
+    /// would quietly take that away. Nothing needs to move a recorder
+    /// between threads today; it costs nothing here, and the alternative
+    /// is discovering the loss at the one call site that does.
+    sink: Option<Box<dyn Fn(&SolverEvent) + Send>>,
+    /// Keep events in memory? False for a pure sink: a phone streaming
+    /// snapshots to its UI has no use for a replayable recording, and
+    /// accumulating one would grow with the solve for nothing.
+    buffer: bool,
 }
 
 #[derive(Debug)]
@@ -182,9 +200,23 @@ impl Recorder {
         Self::with_channel(cap, Some(tx))
     }
 
+    /// A recorder that ONLY fans out, synchronously, and keeps nothing.
+    ///
+    /// For hosts without a runtime to receive on — the FFI façade hands
+    /// each event to a foreign callback as the solver produces it.
+    pub fn new_sink(sink: Box<dyn Fn(&SolverEvent) + Send>) -> Self {
+        Self {
+            buffer: false,
+            sink: Some(sink),
+            ..Self::with_channel(1, None)
+        }
+    }
+
     fn with_channel(cap: u64, tx: Option<tokio::sync::mpsc::Sender<SolverEvent>>) -> Self {
         Self {
             cap: cap.max(1),
+            sink: None,
+            buffer: true,
             inner: RefCell::new(RecorderInner {
                 phases: Vec::new(),
                 observed: 0,
@@ -228,7 +260,7 @@ impl Recorder {
         if g.retained >= (cap.saturating_mul(8) / 10) {
             g.keep_every = g.keep_every.saturating_mul(2).max(2);
         }
-        let keep_in_memory = g.observed.is_multiple_of(g.keep_every);
+        let keep_in_memory = self.buffer && g.observed.is_multiple_of(g.keep_every);
         if keep_in_memory {
             if g.phases.is_empty() {
                 let started_at_us = g.started_at.elapsed().as_micros() as u64;
@@ -242,8 +274,12 @@ impl Recorder {
             g.retained = g.retained.saturating_add(1);
         }
         // Drop the inner borrow before doing channel work — the
-        // tx send is non-blocking but might allocate.
+        // tx send is non-blocking but might allocate, and the sink
+        // calls into foreign code that must not re-enter a held borrow.
         drop(g);
+        if let Some(sink) = self.sink.as_ref() {
+            sink(&event);
+        }
         if let Some(tx) = self.tx.as_ref() {
             if tx.try_send(event).is_err() {
                 // Channel full or closed — best-effort streaming;

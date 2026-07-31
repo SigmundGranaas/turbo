@@ -429,3 +429,85 @@ fn a_pack_without_a_manifest_still_opens() {
     let cov = engine.coverage();
     assert!(cov.max_lat > cov.min_lat, "fell back to the DEM's bounds");
 }
+
+// ---- progress -------------------------------------------------------
+
+/// **A route must draw, not just appear.**
+///
+/// The one visible way the phone was worse than the network: the server
+/// streams the solver's best-path snapshots and the map animates them,
+/// while `plan` returned a finished polyline out of nowhere. That gap is
+/// why the app's routing policy still leads with the server, so closing
+/// it is a prerequisite rather than a polish item.
+#[test]
+fn progress_arrives_while_the_solve_runs() {
+    use std::sync::Mutex;
+
+    struct Recorder {
+        snapshots: Mutex<Vec<usize>>,
+    }
+    impl turbo_route_ffi::RouteProgress for Recorder {
+        fn on_progress(&self, geometry: Vec<GeoPoint>) {
+            self.snapshots.lock().unwrap().push(geometry.len());
+        }
+    }
+
+    let engine = RouteEngine::open(pack_dir()).unwrap();
+    let obs = std::sync::Arc::new(Recorder {
+        snapshots: Mutex::new(Vec::new()),
+    });
+
+    let route = engine
+        .plan_with_progress(vec![FROM, TO], RouteOptions::default(), obs.clone())
+        .expect("the route must still solve");
+
+    let seen = obs.snapshots.lock().unwrap().clone();
+    assert!(
+        seen.len() > 1,
+        "expected a stream of snapshots, got {}. One is not progress — it \
+         is the answer, delivered through a different door.",
+        seen.len()
+    );
+    assert!(
+        seen.iter().all(|&n| n > 0),
+        "an empty snapshot would blank the line the user is watching"
+    );
+    // The final route is unchanged by being observed. Watching a solve
+    // must not alter it — otherwise the animated route and the one the
+    // user keeps are different routes.
+    let quiet = engine
+        .plan(vec![FROM, TO], RouteOptions::default())
+        .unwrap();
+    assert_eq!(route.geometry.len(), quiet.geometry.len());
+    assert!((route.length_m - quiet.length_m).abs() < 1e-9);
+}
+
+/// A panic in a host's callback must not take the process with it.
+///
+/// The callback is foreign code called from inside the solver, which is
+/// the one place this crate's `catch_unwind` guarantee could leak: a
+/// Kotlin exception surfacing as a Rust panic mid-solve, unwinding
+/// through the engine. It has to become a failed request, not a dead app.
+#[test]
+fn a_panicking_observer_does_not_kill_the_engine() {
+    struct Exploding;
+    impl turbo_route_ffi::RouteProgress for Exploding {
+        fn on_progress(&self, _geometry: Vec<GeoPoint>) {
+            panic!("the host's callback threw");
+        }
+    }
+
+    let engine = RouteEngine::open(pack_dir()).unwrap();
+    let result = engine.plan_with_progress(
+        vec![FROM, TO],
+        RouteOptions::default(),
+        std::sync::Arc::new(Exploding),
+    );
+    match result {
+        Err(RouteError::Internal(_)) => {}
+        other => panic!("a panicking observer must surface as Internal, got {other:?}"),
+    }
+
+    // And the engine still works afterwards.
+    assert!(engine.plan(vec![FROM, TO], RouteOptions::default()).is_ok());
+}

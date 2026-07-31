@@ -33,6 +33,11 @@
 //! [`RouteError::Internal`] instead.
 
 #![forbid(unsafe_code)]
+// The solver recorder holds a `RefCell`, so it is `Send` but not `Sync`,
+// and `with_installed` takes it as an `Arc` because that is the shape the
+// thread-local install uses — never crossing a thread. The engine and the
+// HTTP crate carry the same allow for the same `Arc`, for the same reason.
+#![allow(clippy::arc_with_non_send_sync)]
 
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
@@ -229,6 +234,20 @@ pub enum RouteError {
     Internal(String),
 }
 
+/// Receives the best path found so far, while a solve is running.
+///
+/// A callback interface rather than a returned stream, because uniffi's
+/// blocking call shape is the one every host already uses and this rides
+/// inside it — no async runtime on either side, no second API to cancel.
+#[uniffi::export(with_foreign)]
+pub trait RouteProgress: Send + Sync {
+    /// A better path than the last one, WGS84, ready to draw.
+    ///
+    /// Called many times per solve and cheap to ignore: a host that only
+    /// wants the final route uses [`RouteEngine::plan`] instead.
+    fn on_progress(&self, geometry: Vec<GeoPoint>);
+}
+
 // ---- the engine handle ----------------------------------------------
 
 /// A routing engine bound to one offline pack.
@@ -370,6 +389,37 @@ impl RouteEngine {
     /// Plan a route through an ordered list of points (start, any vias,
     /// end).
     pub fn plan(&self, points: Vec<GeoPoint>, options: RouteOptions) -> Result<Route, RouteError> {
+        self.plan_inner(points, options, None)
+    }
+
+    /// As [`Self::plan`], reporting the best path found so far as the
+    /// solver works.
+    ///
+    /// This is what lets an on-device route **draw** rather than appear.
+    /// The server has streamed these snapshots for a while — its SSE
+    /// endpoint reads them off the same solver hook — and their absence
+    /// here was the one visible way the phone was worse than the network.
+    ///
+    /// `observer` is called on the calling thread, synchronously, before
+    /// `plan_with_progress` returns. A host that hops to its UI thread
+    /// inside the callback must not block waiting for it: the solver is
+    /// stopped for the duration, and a round trip per snapshot would
+    /// dominate the solve.
+    pub fn plan_with_progress(
+        &self,
+        points: Vec<GeoPoint>,
+        options: RouteOptions,
+        observer: Arc<dyn RouteProgress>,
+    ) -> Result<Route, RouteError> {
+        self.plan_inner(points, options, Some(observer))
+    }
+
+    fn plan_inner(
+        &self,
+        points: Vec<GeoPoint>,
+        options: RouteOptions,
+        observer: Option<Arc<dyn RouteProgress>>,
+    ) -> Result<Route, RouteError> {
         guard(|| {
             if points.len() < 2 {
                 return Err(RouteError::InvalidRequest(
@@ -434,10 +484,37 @@ impl RouteEngine {
                 )));
             }
 
-            let path = self
-                .pathfinder
-                .solve_route(&planar, prefs)
-                .map_err(map_err)?;
+            let solve = || self.pathfinder.solve_route(&planar, prefs.clone());
+            let path = match &observer {
+                None => solve(),
+                Some(obs) => {
+                    // Snapshots are planar; the host speaks WGS84, so they
+                    // are projected here — the same one place `plan`'s
+                    // result is projected, for the same reason.
+                    let obs = obs.clone();
+                    let recorder = Arc::new(turbo_tiles_pathfind::Recorder::new_sink(Box::new(
+                        move |ev| {
+                            if let turbo_tiles_pathfind::SolverEvent::BestPathSnapshot { coords } =
+                                ev
+                            {
+                                let geometry = coords
+                                    .iter()
+                                    .map(|c| {
+                                        let (lon, lat) = turbo_geo_frame::utm33n_to_wgs84(
+                                            c[0] as f64,
+                                            c[1] as f64,
+                                        );
+                                        GeoPoint { lon, lat }
+                                    })
+                                    .collect();
+                                obs.on_progress(geometry);
+                            }
+                        },
+                    )));
+                    turbo_tiles_pathfind::solver_trace::with_installed(recorder, solve)
+                }
+            }
+            .map_err(map_err)?;
 
             let geometry: Vec<GeoPoint> = path
                 .geometry

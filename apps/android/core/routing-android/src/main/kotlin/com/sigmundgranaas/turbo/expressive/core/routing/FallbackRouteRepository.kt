@@ -15,20 +15,22 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * On-device routing is the better end state — predictable, no radio, no
  * data, and it works when connectivity *lies*, which in a valley it
- * routinely does. But it is measurably worse in one visible way today:
- * the façade's `plan` is a single blocking call, so a route appears
- * rather than draws, where the server streams best-path snapshots the
- * map animates.
+ * routinely does.
  *
- * Leading with the server makes this release **strictly additive**.
- * Nobody who is happy today gets a worse experience, nobody loses the
- * animation on the path they already use, and the device path earns its
- * trust on requests that currently fail outright — which is exactly the
- * set where "no animation" beats "no route".
+ * It used to be visibly worse in one way: the façade's `plan` was a
+ * single blocking call, so a route appeared rather than drew. That gap
+ * is closed — `planWithProgress` streams the same best-path snapshots
+ * the server's SSE endpoint reads off the same solver hook — so the
+ * argument for leading with the server is now down to ONE thing, and it
+ * is an absence of evidence rather than a known deficit: **nobody has
+ * measured a solve on real hardware.** Every latency figure quoted for
+ * the device path is extrapolated from a desktop.
  *
- * Flipping the order is [the plan][1] once progress events cross the FFI
- * and device latency is measured on real hardware rather than
- * extrapolated from a desktop.
+ * Until someone runs a route on a phone, leading with the server keeps
+ * this release **strictly additive**: nobody who is happy today gets a
+ * worse experience, and the device path earns its trust on requests that
+ * currently fail outright. Flipping the order is a one-line change here
+ * and [the plan][1] — but it should follow a measurement, not a hunch.
  *
  * [1]: apps/android/docs/on-device-routing-ux-plan.md
  *
