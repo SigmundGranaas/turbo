@@ -25,6 +25,8 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
  */
 plugins {
     id("turbo.android.library")
+    // Hilt: this module owns the `RouteRepository` binding now.
+    id("turbo.android.hilt")
 }
 
 android {
@@ -100,14 +102,18 @@ tasks.named("preBuild") { dependsOn(generateRouteFfiBindings, buildRouteFfiAndro
 dependencies {
     // LatLng, RoutePlan, RoutePreset, RouteStreamEvent — the app's own vocabulary.
     implementation(project(":core:model"))
-    // The `RouteRepository` seam this module provides a second implementation of.
+    // The `RouteRepository` seam this module provides a second implementation
+    // of, plus the HTTP client it wraps.
     implementation(project(":core:data"))
+    // `NetworkMonitor` — validated connectivity, for the fallback decision.
+    implementation(project(":core:map"))
 
     // JNA for Android (@aar bundles libjnidispatch.so for each ABI).
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.core)

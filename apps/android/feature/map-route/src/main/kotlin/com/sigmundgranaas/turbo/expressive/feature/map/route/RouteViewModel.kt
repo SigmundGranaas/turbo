@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.feature.map.route
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sigmundgranaas.turbo.expressive.core.tracking.FollowController
+import com.sigmundgranaas.turbo.expressive.core.data.OfflineRoutingCoverage
 import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
@@ -31,7 +32,14 @@ sealed interface RouteUiState {
     data class Solving(val progress: List<LatLng>) : RouteUiState
     data class Done(val plan: RoutePlan) : RouteUiState
     data class Following(val plan: RoutePlan) : RouteUiState
-    data class Error(val message: String) : RouteUiState
+    /**
+     * [offerDownload] turns the dead end into an offer. It is set only
+     * when a downloaded region would actually have helped — no pack
+     * covers these waypoints — so the button never appears next to
+     * "no route through this terrain", where downloading more map
+     * changes nothing and the suggestion would be noise.
+     */
+    data class Error(val message: String, val offerDownload: Boolean = false) : RouteUiState
 
     /** The polyline to draw for this state (empty when nothing to show). */
     val polyline: List<LatLng>
@@ -50,6 +58,7 @@ class RouteViewModel @Inject constructor(
     private val paths: PathRepository,
     private val offline: OfflineTileManager,
     private val follow: FollowController,
+    private val coverage: OfflineRoutingCoverage,
 ) : ViewModel() {
     private val _state = MutableStateFlow<RouteUiState>(RouteUiState.Idle)
     val state: StateFlow<RouteUiState> = _state.asStateFlow()
@@ -222,11 +231,22 @@ class RouteViewModel @Inject constructor(
                         is RouteStreamEvent.Failure ->
                             // A failed reroute must not blow away the live view — keep following
                             // the existing line; only a normal solve surfaces the error.
-                            if (!silentFollow) _state.value = RouteUiState.Error(event.message) else resumeFollowing = false
+                            if (!silentFollow) {
+                                _state.value = RouteUiState.Error(event.message, offerDownload(points))
+                            } else {
+                                resumeFollowing = false
+                            }
                     }
                 }
             } catch (t: Throwable) {
-                if (!silentFollow) _state.value = RouteUiState.Error("Couldn't reach the router.") else resumeFollowing = false
+                // Couldn't reach the router AND no pack covers this — the
+                // one case where the honest next step is a download rather
+                // than a retry.
+                if (!silentFollow) {
+                    _state.value = RouteUiState.Error("Couldn't reach the router.", offerDownload(points))
+                } else {
+                    resumeFollowing = false
+                }
             }
         }
     }
@@ -319,6 +339,29 @@ class RouteViewModel @Inject constructor(
         _waypoints.value = emptyList()
         undoStack.clear()
         _state.value = RouteUiState.Idle
+    }
+
+    /**
+     * Would downloading this area have helped?
+     *
+     * Only when no pack covers the waypoints. A route that fails inside a
+     * downloaded region failed for some other reason, and offering more
+     * map there would send the user to spend megabytes on nothing.
+     */
+    private fun offerDownload(points: List<LatLng>): Boolean = !coverage.covers(points)
+
+    /**
+     * Download the area around the CURRENT WAYPOINTS, not the solved
+     * route — because there is no solved route when this is offered.
+     *
+     * That is the chicken-and-egg the region-shaped pack exists for: you
+     * cannot download "along the route" before you have one.
+     */
+    fun downloadAroundWaypoints(base: BaseLayer, name: String = "Route area") {
+        val bounds = RouteCorridor.bounds(_waypoints.value) ?: return
+        offline.download(
+            DownloadSpec(name = name, base = base, bounds = bounds, minZoom = 8.0, maxZoom = 15.0),
+        )
     }
 
     /** Queue an offline download of the padded corridor around the solved route. */

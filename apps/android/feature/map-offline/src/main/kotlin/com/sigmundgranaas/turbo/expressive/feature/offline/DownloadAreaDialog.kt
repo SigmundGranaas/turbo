@@ -88,6 +88,20 @@ fun DownloadAreaDialog(
                     style = MaterialTheme.typography.bodyMedium,
                     color = cs.onSurfaceVariant,
                 )
+                // Said once, plainly, and only when it is true. The size
+                // above already includes the pack; this is the sentence
+                // that explains why the number grew and what it buys —
+                // the alternative being a user who notices the megabytes
+                // and not the capability.
+                if (ok && estimate.packBytes > 0L) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        stringResource(R.string.offline_download_includes_routing),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = cs.onSurfaceVariant,
+                        modifier = Modifier.testTag("routingIncluded"),
+                    )
+                }
             }
         },
         confirmButton = {

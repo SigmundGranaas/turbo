@@ -85,7 +85,8 @@ object RemoteRepositoriesModule {
      */
     @Provides
     @Singleton
-    fun provideRouteRepository(
+    @Remote
+    fun provideRemoteRouteRepository(
         http: HttpRouteRepository,
         synthetic: SyntheticRouteRepository,
     ): RouteRepository = if (useSynthetic) synthetic else http

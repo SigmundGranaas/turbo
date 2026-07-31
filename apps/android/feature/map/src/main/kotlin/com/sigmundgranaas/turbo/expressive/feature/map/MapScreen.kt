@@ -958,6 +958,9 @@ fun MapScreen(
                     },
                     onSave = { ui.showRouteSave = true },
                     onDownloadOffline = { routeViewModel.downloadAlongRoute(state.baseLayer) },
+                    // Offered on a coverage failure, where there is no solved
+                    // route to download along — only waypoints.
+                    onDownloadArea = { routeViewModel.downloadAroundWaypoints(state.baseLayer) },
                     onClear = {
                         // Stopping a follow offers to keep it (→ Saved Tracks history);
                         // any other state just clears.

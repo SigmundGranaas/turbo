@@ -12,6 +12,7 @@
     <string name="offline_download_cancel">Avbryt</string>
     <string name="offline_download_confirm">Last ned</string>
     <string name="offline_download_estimate">Omtrent %1$s · %2$d fliser lagres for frakoblet bruk.</string>
+    <string name="offline_download_includes_routing">Inkluderer ruteplanlegging, så du kan planlegge turer her uten dekning.</string>
     <string name="offline_download_title">Last ned dette området?</string>
     <string name="offline_download_too_large">Dette området er for stort (omtrent %1$s). Zoom inn og prøv igjen.</string>
     <string name="offline_downloaded">Lastet ned · %1$s</string>

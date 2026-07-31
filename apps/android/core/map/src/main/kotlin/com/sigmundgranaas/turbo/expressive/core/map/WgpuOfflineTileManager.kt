@@ -7,6 +7,7 @@ import com.sigmundgranaas.turbo.expressive.domain.DownloadSpec
 import com.sigmundgranaas.turbo.expressive.domain.OfflineEstimate
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
 import com.sigmundgranaas.turbo.expressive.domain.OfflineStatus
+import com.sigmundgranaas.turbo.expressive.domain.RoutingPack
 import com.sigmundgranaas.turbo.expressive.ui.map.MapStyles
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.OkHttpClient
@@ -61,6 +63,13 @@ class WgpuOfflineTileManager internal constructor(
     private val laneProvider: (DownloadSpec) -> List<Lane>,
     private val scope: CoroutineScope,
     private val now: () -> Long,
+    /**
+     * Fetches the routing pack for a region. `null` disables routing
+     * downloads entirely — which is what the tile-focused tests want, and
+     * a legitimate configuration rather than a test affordance: a build
+     * without the routing module still browses maps.
+     */
+    private val packs: PackDownloader? = null,
 ) : OfflineTileManager {
 
     @Inject
@@ -75,6 +84,11 @@ class WgpuOfflineTileManager internal constructor(
         laneProvider = ::defaultLanes,
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
         now = System::currentTimeMillis,
+        packs = PackDownloader(
+            root = File(context.filesDir, RoutingPack.DIR),
+            baseUrl = PACKS_BASE_URL,
+            fetch = okHttpPackFetcher(defaultHttp()),
+        ),
     )
 
     /** One source's tile pyramid: a cache-key layer id + URL template + native max zoom. */
@@ -175,6 +189,9 @@ class WgpuOfflineTileManager internal constructor(
         jobs.remove(id)?.cancel()
         userPaused.remove(id)
         val spec = specs.remove(id)
+        // One region, one delete. Leaving the pack behind would leave
+        // megabytes the user cannot see in any list and cannot remove.
+        spec?.takeIf { it.includeRouting }?.let { packs?.delete(it.bounds) }
         store.delete(id)
         _regions.update { list -> list.filterNot { it.id == id } }
         // Drop this region's tiles, but keep any still covered by another region.
@@ -217,8 +234,47 @@ class WgpuOfflineTileManager internal constructor(
             TileMath.tilesFor(spec.bounds, spec.minZoom, hi).map { lane to it }
         }
         val total = work.size
+
+        // The routing pack first, and its share of the progress bar is
+        // its share of the BYTES, not of the file count. Five files
+        // against a thousand tiles would round to nothing by count while
+        // being a third of the download — a bar that sits at 0% through
+        // the slowest part and then races.
+        val estimate = TileMath.estimate(spec)
+        val packShare = if (spec.includeRouting && estimate.bytes > 0) {
+            (estimate.packBytes.toDouble() / estimate.bytes).coerceIn(0.0, 0.9)
+        } else {
+            0.0
+        }
+        var packBytes = 0L
+        if (spec.includeRouting && packs != null) {
+            when (val r = packs.download(
+                bounds = spec.bounds,
+                onProgress = { soFar, packTotal ->
+                    if (packTotal > 0) {
+                        val f = (soFar.toDouble() / packTotal * packShare).toFloat()
+                        update(id) { it.copy(progress = f) }
+                    }
+                },
+                waitForBuild = { seconds -> delay(seconds.coerceIn(1, 60) * 1000L) },
+            )) {
+                is PackDownloader.Outcome.Done -> packBytes = r.bytes
+                // A failed pack fails the region. The alternative — a
+                // region that browses but cannot route — is a state the
+                // user has no way to see and no way to fix, and it would
+                // surface much later as "why does routing work over
+                // there and not here".
+                is PackDownloader.Outcome.Failed -> {
+                    markFailed(id, r.reason)
+                    return
+                }
+            }
+        }
+
         if (total == 0) {
-            update(id) { it.copy(status = OfflineStatus.Complete, progress = 1f) }
+            update(id) {
+                it.copy(status = OfflineStatus.Complete, progress = 1f, sizeBytes = packBytes)
+            }
             return
         }
         val sem = Semaphore(PARALLELISM)
@@ -252,9 +308,10 @@ class WgpuOfflineTileManager internal constructor(
                             if (done % PROGRESS_EVERY == 0 || done == total) {
                                 update(id) {
                                     it.copy(
-                                        progress = done.toFloat() / total,
+                                        progress = (packShare + (1.0 - packShare) *
+                                            (done.toDouble() / total)).toFloat(),
                                         tileCount = stored.toLong(),
-                                        sizeBytes = bytes,
+                                        sizeBytes = bytes + packBytes,
                                     )
                                 }
                             }
@@ -271,7 +328,7 @@ class WgpuOfflineTileManager internal constructor(
                     status = OfflineStatus.Complete,
                     progress = 1f,
                     tileCount = stored.toLong(),
-                    sizeBytes = bytes,
+                    sizeBytes = bytes + packBytes,
                 )
             }
         }
@@ -361,6 +418,19 @@ class WgpuOfflineTileManager internal constructor(
         private const val TIMEOUT_MS = 10_000L
         private const val USER_AGENT = "turbo-android-wgpu"
 
+        /**
+         * Where routing packs are served. No data version in the path —
+         * the edge cache prefixes its own, so a rebuild orphans packs
+         * exactly as it orphans tiles, and a client that had to know the
+         * server's version first would need a round trip to learn a
+         * string.
+         */
+        private const val PACKS_BASE_URL = "https://kart-api.sandring.no/v1/packs"
+
+        /** `202`: the region is still being cut. Not a failure. */
+        private const val HTTP_ACCEPTED = 202
+        private const val DEFAULT_RETRY_AFTER = 10
+
         /** Cache-key layer for DEM tiles — matches turbomap-ffi's TERRAIN_KEY and
          *  TurbomapMapView.isDemKey, so a pre-populated DEM tile hits at render. */
         private const val DEM_LAYER = "__terrain"
@@ -381,6 +451,50 @@ class WgpuOfflineTileManager internal constructor(
                 .map { Lane(it.id, it.tileUrlTemplate, it.maxZoom) }
             val dem = Lane(DEM_LAYER, MapStyles.TERRAIN_DEM_URL, DEM_MAX_ZOOM)
             return raster + vector + dem
+        }
+
+        /**
+         * Streams one pack file to disk.
+         *
+         * Streamed rather than `bytes()` because the DEM is megabytes and
+         * this runs on a phone: buffering a whole artifact to write it out
+         * again spends the memory the file was going to occupy anyway,
+         * twice, on the device least able to spare it.
+         *
+         * `202` is not an error — the server is still cutting the region
+         * and says when to come back.
+         */
+        private fun okHttpPackFetcher(
+            http: OkHttpClient,
+        ): suspend (String, File) -> PackDownloader.FetchResult = { url, into ->
+            withContext(Dispatchers.IO) {
+                try {
+                    http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build())
+                        .execute()
+                        .use { resp ->
+                            when {
+                                resp.code == HTTP_ACCEPTED -> PackDownloader.FetchResult.Building(
+                                    resp.header("Retry-After")?.toIntOrNull() ?: DEFAULT_RETRY_AFTER,
+                                )
+                                !resp.isSuccessful ->
+                                    PackDownloader.FetchResult.Failed("Server said ${resp.code}.")
+                                else -> {
+                                    val body = resp.body
+                                        ?: return@use PackDownloader.FetchResult.Failed("Empty response.")
+                                    into.parentFile?.mkdirs()
+                                    body.byteStream().use { input ->
+                                        into.outputStream().use { output -> input.copyTo(output) }
+                                    }
+                                    PackDownloader.FetchResult.Ok(into.length())
+                                }
+                            }
+                        }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    PackDownloader.FetchResult.Failed(e.message ?: "Download failed")
+                }
+            }
         }
 
         private fun defaultHttp(): OkHttpClient = OkHttpClient.Builder()

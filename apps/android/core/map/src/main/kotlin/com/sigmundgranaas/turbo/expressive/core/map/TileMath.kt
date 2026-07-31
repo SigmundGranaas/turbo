@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.core.map
 import com.sigmundgranaas.turbo.expressive.domain.DownloadSpec
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.OfflineEstimate
+import com.sigmundgranaas.turbo.expressive.domain.RoutingPack
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.asinh
@@ -92,9 +93,15 @@ object TileMath {
             abs(spec.bounds.north - spec.bounds.south),
             abs(spec.bounds.east - spec.bounds.west),
         )
+        // The routing pack rides with the tiles, so it belongs in the
+        // number the user is shown and in the guard that number feeds. An
+        // estimate that omitted it would under-promise the download and
+        // compute `withinLimits` against the wrong size.
+        val packBytes = if (spec.includeRouting) RoutingPack.estimatedBytes(spec.bounds) else 0L
         return OfflineEstimate(
             tiles = tiles,
-            bytes = tiles * AVG_RASTER_TILE_BYTES,
+            bytes = tiles * AVG_RASTER_TILE_BYTES + packBytes,
+            packBytes = packBytes,
             withinLimits = span <= MAX_SPAN_DEGREES && tiles <= MAX_TILES,
         )
     }

@@ -49,7 +49,7 @@ import uniffi.turbo_route_ffi.TravelMode
 class OnDeviceRouteRepository(
     private val packs: PackStore,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
-) : RouteRepository {
+) : RouteRepository, com.sigmundgranaas.turbo.expressive.core.data.OfflineRoutingCoverage {
 
     /**
      * One open engine per pack, kept for the process lifetime.
@@ -72,6 +72,8 @@ class OnDeviceRouteRepository(
     /** Is there a downloaded pack covering all of [points]? */
     fun canPlanOffline(points: List<LatLng>): Boolean =
         packs.covering(points.map { it.lng to it.lat }) != null
+
+    override fun covers(points: List<LatLng>): Boolean = canPlanOffline(points)
 
     override fun planStream(
         points: List<LatLng>,

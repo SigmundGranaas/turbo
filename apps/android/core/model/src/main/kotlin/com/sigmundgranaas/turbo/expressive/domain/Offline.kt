@@ -62,6 +62,17 @@ data class DownloadSpec(
     val minZoom: Double,
     val maxZoom: Double,
     val overlays: Set<OverlayId> = emptySet(),
+    /**
+     * Also download the routing pack for this region, so routes can be
+     * planned here without signal.
+     *
+     * Default on. The pack is a fraction of the tiles it rides with —
+     * measured at 2.6 MB against roughly 6 MB of raster for the same
+     * 13 x 13 km — and a checkbox would ask the user to trade that for a
+     * capability they cannot evaluate in the abstract. One region, one
+     * download, one size.
+     */
+    val includeRouting: Boolean = true,
 )
 
 /**
@@ -76,7 +87,10 @@ enum class DetailLevel(val zoomSpan: Double) {
 /** A pre-download estimate of how big a [DownloadSpec] will be. */
 data class OfflineEstimate(
     val tiles: Long,
+    /** Total download size: map tiles plus the routing pack. */
     val bytes: Long,
+    /** The routing pack's share of [bytes]. 0 when routing is excluded. */
+    val packBytes: Long = 0L,
     /** False when the area is too large to download (tile limit / span guard). */
     val withinLimits: Boolean = true,
 )

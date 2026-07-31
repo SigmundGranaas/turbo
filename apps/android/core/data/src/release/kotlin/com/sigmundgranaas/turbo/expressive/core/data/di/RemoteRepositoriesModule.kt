@@ -40,9 +40,12 @@ object RemoteRepositoriesModule {
     @Singleton
     fun provideReverseGeocodeRepository(http: KartverketReverseGeocodeRepository): ReverseGeocodeRepository = http
 
+    /** The network router. `:core:routing-android` wraps it in the
+     *  on-device fallback and provides the unqualified `RouteRepository`. */
     @Provides
     @Singleton
-    fun provideRouteRepository(http: HttpRouteRepository): RouteRepository = http
+    @Remote
+    fun provideRemoteRouteRepository(http: HttpRouteRepository): RouteRepository = http
 
     @Provides
     @Singleton
