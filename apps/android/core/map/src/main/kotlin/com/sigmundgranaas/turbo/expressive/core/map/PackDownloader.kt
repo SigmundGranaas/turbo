@@ -37,11 +37,35 @@ class PackDownloader(
         data class Ok(val bytes: Long) : FetchResult
         /** The server is still cutting this region — retry the same URL. */
         data class Building(val retryAfterSeconds: Int) : FetchResult
+        /** `404`. Distinct from [Failed] — see [Outcome.Unsupported]. */
+        data object NotFound : FetchResult
         data class Failed(val reason: String) : FetchResult
     }
 
     sealed interface Outcome {
         data class Done(val key: String, val dir: File, val bytes: Long) : Outcome
+
+        /**
+         * This server does not serve routing packs.
+         *
+         * A deployment state, not a broken download, and the difference
+         * matters more than it looks. The app and the tileserver ship
+         * separately: whichever order they land in, there is a window
+         * where an app that asks for packs meets a server that has never
+         * heard of them. Treating that as a failure would break offline
+         * map downloads — a feature that works today — for everyone in
+         * that window.
+         *
+         * So the region completes without one. Routing keeps using the
+         * network, exactly as before, and the next download after the
+         * server ships gets a pack.
+         *
+         * Only a missing MANIFEST means this. A file missing *after* the
+         * manifest listed it is a real failure: that server does serve
+         * packs, and this one is broken.
+         */
+        data object Unsupported : Outcome
+
         data class Failed(val reason: String) : Outcome
     }
 
@@ -77,8 +101,18 @@ class PackDownloader(
         val manifestFile = File(partial, RoutingPack.MANIFEST)
         when (val r = fetchWithBuildWait(url(key, RoutingPack.MANIFEST), manifestFile, waitForBuild)) {
             is FetchResult.Ok -> Unit
-            is FetchResult.Building -> return Outcome.Failed("The map server is still preparing this area.")
-            is FetchResult.Failed -> return Outcome.Failed(r.reason)
+            is FetchResult.NotFound -> {
+                partial.deleteRecursively()
+                return Outcome.Unsupported
+            }
+            is FetchResult.Building -> {
+                partial.deleteRecursively()
+                return Outcome.Failed("The map server is still preparing this area.")
+            }
+            is FetchResult.Failed -> {
+                partial.deleteRecursively()
+                return Outcome.Failed(r.reason)
+            }
         }
 
         val expected = parseManifest(manifestFile.readText())
@@ -93,6 +127,13 @@ class PackDownloader(
             val target = File(partial, f.name)
             when (val r = fetchWithBuildWait(url(key, f.name), target, waitForBuild)) {
                 is FetchResult.Ok -> Unit
+                // The manifest listed this file, so the server does serve
+                // packs and this one is incomplete. A real failure, unlike
+                // a missing manifest.
+                is FetchResult.NotFound -> {
+                    partial.deleteRecursively()
+                    return Outcome.Failed("${f.name} is missing from the routing pack.")
+                }
                 is FetchResult.Building -> {
                     partial.deleteRecursively()
                     return Outcome.Failed("The map server is still preparing this area.")

@@ -259,11 +259,19 @@ class WgpuOfflineTileManager internal constructor(
                 waitForBuild = { seconds -> delay(seconds.coerceIn(1, 60) * 1000L) },
             )) {
                 is PackDownloader.Outcome.Done -> packBytes = r.bytes
-                // A failed pack fails the region. The alternative — a
-                // region that browses but cannot route — is a state the
-                // user has no way to see and no way to fix, and it would
-                // surface much later as "why does routing work over
-                // there and not here".
+                // This server has no pack endpoint yet. The app and the
+                // tileserver ship separately, so there is a window in
+                // whichever order they land where one asks and the other
+                // has never heard of packs. Failing here would break
+                // offline downloads — which work today — for everyone in
+                // that window. The region completes without routing data;
+                // the next download after the server ships gets it.
+                PackDownloader.Outcome.Unsupported -> Unit
+                // A pack the server DOES serve and could not deliver is a
+                // real failure. The alternative — a region that browses
+                // but cannot route — is a state the user has no way to
+                // see and no way to fix, and it would surface much later
+                // as "why does routing work over there and not here".
                 is PackDownloader.Outcome.Failed -> {
                     markFailed(id, r.reason)
                     return
@@ -431,6 +439,9 @@ class WgpuOfflineTileManager internal constructor(
         private const val HTTP_ACCEPTED = 202
         private const val DEFAULT_RETRY_AFTER = 10
 
+        /** `404` on the manifest: this server serves no packs. */
+        private const val HTTP_NOT_FOUND = 404
+
         /** Cache-key layer for DEM tiles — matches turbomap-ffi's TERRAIN_KEY and
          *  TurbomapMapView.isDemKey, so a pre-populated DEM tile hits at render. */
         private const val DEM_LAYER = "__terrain"
@@ -476,6 +487,7 @@ class WgpuOfflineTileManager internal constructor(
                                 resp.code == HTTP_ACCEPTED -> PackDownloader.FetchResult.Building(
                                     resp.header("Retry-After")?.toIntOrNull() ?: DEFAULT_RETRY_AFTER,
                                 )
+                                resp.code == HTTP_NOT_FOUND -> PackDownloader.FetchResult.NotFound
                                 !resp.isSuccessful ->
                                     PackDownloader.FetchResult.Failed("Server said ${resp.code}.")
                                 else -> {

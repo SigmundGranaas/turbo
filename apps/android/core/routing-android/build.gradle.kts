@@ -96,8 +96,19 @@ val buildRouteFfiAndroid = tasks.register<Exec>("buildRouteFfiAndroid") {
     outputs.upToDateWhen { false }
 }
 
+// The committed CI pack, staged as a test asset so the on-device suite
+// needs no server and no download — it runs on a phone in aeroplane mode.
+// Copied rather than referenced: AGP packages `assets/`, and the pack
+// lives in the tileserver's tree because that is what produces it.
+val stageRoutingPack = tasks.register<Copy>("stageRoutingPack") {
+    group = "routing"
+    description = "Copy tools/ci-pack into androidTest assets."
+    from(tileserverDir.resolve("tools/ci-pack"))
+    into(projectDir.resolve("src/androidTest/assets/ci-pack"))
+}
+
 tasks.withType<KotlinCompile>().configureEach { dependsOn(generateRouteFfiBindings) }
-tasks.named("preBuild") { dependsOn(generateRouteFfiBindings, buildRouteFfiAndroid) }
+tasks.named("preBuild") { dependsOn(generateRouteFfiBindings, buildRouteFfiAndroid, stageRoutingPack) }
 
 dependencies {
     // LatLng, RoutePlan, RoutePreset, RouteStreamEvent — the app's own vocabulary.

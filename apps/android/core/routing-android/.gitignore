@@ -3,3 +3,5 @@
 #   buildRouteFfiAndroid     → cargo-ndk per-ABI .so
 /src/main/kotlin/uniffi/
 /src/main/jniLibs/
+# Staged from apps/tileserver/tools/ci-pack by `stageRoutingPack`.
+/src/androidTest/assets/

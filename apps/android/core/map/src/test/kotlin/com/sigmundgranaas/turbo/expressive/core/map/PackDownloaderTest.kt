@@ -72,7 +72,7 @@ class PackDownloaderTest {
                 server.buildOnce = false
                 PackDownloader.FetchResult.Building(1)
             } else if (body == null) {
-                PackDownloader.FetchResult.Failed("Server said 404.")
+                PackDownloader.FetchResult.NotFound
             } else {
                 val written = when {
                     name in corrupt -> ByteArray(body.size) { 0 }
@@ -167,6 +167,35 @@ class PackDownloaderTest {
         val out = downloader(s).download(bounds)
         assertTrue(out is PackDownloader.Outcome.Done)
         assertTrue("a present pack must not be re-fetched: ${s.requests}", s.requests.isEmpty())
+    }
+
+    @Test
+    fun `a server with no pack endpoint is not a failure`() = runTest {
+        // The merge-order landmine. The app and the tileserver ship
+        // separately, so whichever lands first there is a window where an
+        // app that asks for packs meets a server that has never heard of
+        // them. Failing here would break offline map downloads — which
+        // work today — for everyone in that window.
+        val out = downloader(server(), missing = setOf(RoutingPack.MANIFEST)).download(bounds)
+        assertTrue(
+            "a missing manifest means this server serves no packs, which is a " +
+                "deployment state rather than a broken download: got $out",
+            out is PackDownloader.Outcome.Unsupported,
+        )
+        assertNoLeftovers()
+    }
+
+    @Test
+    fun `a file missing AFTER the manifest listed it is still a failure`() = runTest {
+        // The distinction the case above rests on. This server does serve
+        // packs — it answered with a manifest — so a file it named and
+        // cannot deliver is broken, not absent.
+        val out = downloader(server(), missing = setOf("norway.dem")).download(bounds)
+        assertTrue(
+            "a server that lists a file and then 404s it is broken: got $out",
+            out is PackDownloader.Outcome.Failed,
+        )
+        assertNoLeftovers()
     }
 
     @Test
