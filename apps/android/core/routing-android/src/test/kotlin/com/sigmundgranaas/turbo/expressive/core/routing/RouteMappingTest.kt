@@ -42,9 +42,10 @@ class RouteMappingTest {
 
         // A surface class this build has never heard of came from the trail
         // network, so it counts as trail. Listing the known-good ones instead
-        // would silently reclassify it as wilderness.
+        // would silently reclassify it as wilderness — the share would DROP
+        // to 4/6 here instead of rising to 5/6.
         val withNewSurface = surfaces + ("klopp" to 1000.0)
-        assertEquals(0.8, RouteMapping.onTrailFraction(withNewSurface), 1e-9)
+        assertEquals(5.0 / 6.0, RouteMapping.onTrailFraction(withNewSurface), 1e-9)
 
         assertEquals(1.0, RouteMapping.onTrailFraction(mapOf("sti" to 500.0)), 1e-9)
         assertEquals(0.0, RouteMapping.onTrailFraction(mapOf("off_trail" to 500.0)), 1e-9)

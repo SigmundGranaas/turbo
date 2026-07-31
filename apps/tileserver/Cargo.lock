@@ -3773,6 +3773,7 @@ name = "turbo-route-ffi"
 version = "0.1.0"
 dependencies = [
  "android_logger",
+ "log",
  "tempfile",
  "thiserror 1.0.69",
  "toml 0.8.23",

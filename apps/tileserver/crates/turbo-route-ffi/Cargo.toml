@@ -44,6 +44,11 @@ thiserror.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.14"
+# `log::LevelFilter`, for `init_logging`. Its absence went unnoticed for
+# as long as nobody had an Android target installed: the code is behind
+# `cfg(target_os = "android")`, so `cargo check` on a workstation never
+# looked at it. The first cross-compile found it immediately.
+log = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
