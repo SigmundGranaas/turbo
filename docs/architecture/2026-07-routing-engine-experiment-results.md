@@ -840,8 +840,17 @@ and finding A1 resolve in the design's favour.
 
 ### Caveats that survive
 
-1. **glibc vs glibc, under QEMU.** Android links **bionic**. This settles
-   the *ISA* question, not the *platform* one. The `libm` swap for `atan`
+1. ~~**glibc vs glibc, under QEMU.** Android links **bionic**. This settles
+   the *ISA* question, not the *platform* one.~~ **CLOSED** by
+   `tools/bionic_parity.sh`: the NDK ships bionic and a statically linked
+   binary needs no Android loader, so the real engine now runs against
+   bionic on aarch64 under qemu-user alongside the other two. All four
+   route hashes match across x86_64/glibc, aarch64/glibc and
+   aarch64/bionic — while the three libm fingerprints all DIFFER, which
+   is what makes the match meaningful rather than a coincidence of shared
+   implementations. Original text follows.
+
+   The `libm` swap for `atan`
    remains cheap insurance and should still be taken.
 2. QEMU is IEEE-accurate for these operations, but it is emulation, not
    silicon.

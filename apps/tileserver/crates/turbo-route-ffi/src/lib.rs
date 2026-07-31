@@ -626,8 +626,13 @@ fn ascent_along(pf: &Pathfinder, geom: &[Point]) -> f64 {
 }
 
 /// Route Rust logs to logcat so a device build is debuggable at all.
-/// No-op elsewhere.
-#[cfg(target_os = "android")]
+///
+/// A no-op off Android, and a no-op with the `logcat` feature disabled —
+/// which a statically-linked build must do, since `liblog` exists only as
+/// a shared library. The export stays either way: the bindings are
+/// generated once, and a host should not have to know how this build was
+/// configured to know whether the function is there.
+#[cfg(all(target_os = "android", feature = "logcat"))]
 #[uniffi::export]
 pub fn init_logging() {
     android_logger::init_once(
@@ -635,6 +640,6 @@ pub fn init_logging() {
     );
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(all(target_os = "android", feature = "logcat")))]
 #[uniffi::export]
 pub fn init_logging() {}

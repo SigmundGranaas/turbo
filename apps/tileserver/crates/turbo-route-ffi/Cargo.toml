@@ -42,13 +42,21 @@ toml = "0.8"
 uniffi = { version = "0.29", features = ["cli"] }
 thiserror.workspace = true
 
+[features]
+# Route Rust logs to logcat. On by default — a real Android build wants
+# it — but optional because `liblog` ships only as a shared library, so
+# anything statically linked (the cross-ISA parity harness, which runs
+# under qemu-user with no Android loader to resolve it) cannot have it.
+default = ["logcat"]
+logcat = ["dep:android_logger", "dep:log"]
+
 [target.'cfg(target_os = "android")'.dependencies]
-android_logger = "0.14"
+android_logger = { version = "0.14", optional = true }
 # `log::LevelFilter`, for `init_logging`. Its absence went unnoticed for
 # as long as nobody had an Android target installed: the code is behind
 # `cfg(target_os = "android")`, so `cargo check` on a workstation never
 # looked at it. The first cross-compile found it immediately.
-log = "0.4"
+log = { version = "0.4", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

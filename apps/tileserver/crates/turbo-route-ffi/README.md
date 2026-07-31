@@ -169,15 +169,32 @@ aarch64, so a route computed on a phone matches the one computed on the
 server. `tools/boundary_check.sh` forbids the build flags that would
 forfeit that (`target-cpu=native`, `+fma`, fast-math).
 
-Re-verified at this façade, including the `roundTrip`, `avoid` and
-cross-country paths: all four geometry hashes are identical between
-x86_64 and aarch64, and the 14 host tests pass on both.
+**Bionic is now verified too** (`tools/bionic_parity.sh`), and the result
+is stronger than "they agree". Three targets, three libcs:
 
-**Still open:** that is glibc-vs-glibc under QEMU. Bionic on real silicon
-is unverified — run the host tests on a device before relying on
-server/device agreement. Note that the requirement is *equivalence*, not
-bit-identity, so a divergence here is a quality question rather than a
-correctness one.
+| target | libm fingerprint | routes |
+|---|---|---|
+| x86_64 glibc | `704b6847…` | identical |
+| aarch64 glibc | `0b725cd1…` | identical |
+| aarch64 **bionic** | `3ff50ead…` | identical |
+
+The libm fingerprints **differ on all three** — the transcendentals the
+cost model calls genuinely disagree at the bit level, which is what E0
+found for `f32::atan` and what made bionic worth worrying about. The four
+route geometries are bit-identical anyway. So this is not "the libms
+happen to match"; it is "the libms provably do not, and the solver does
+not care."
+
+That fingerprint is printed for exactly this reason. Route hashes alone
+cannot distinguish "bionic agrees with glibc" from "Rust never asked
+either of them", and a test proving the second while claiming the first
+is worse than none.
+
+The NDK ships bionic and a statically linked binary needs no Android
+loader, so this runs under qemu-user with no phone involved. What is
+still unmeasured is *silicon*, not *libc* — and the requirement is
+equivalence rather than bit-identity, so what remains is a performance
+question, not a correctness one.
 
 ## The generated Kotlin
 
