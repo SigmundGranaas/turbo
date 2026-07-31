@@ -13,6 +13,7 @@
     <string name="offline_download_confirm">Download</string>
     <string name="offline_download_estimate">About %1$s · %2$d tiles will be saved for offline use.</string>
     <string name="offline_download_includes_routing">Includes trail routing, so you can plan routes here without signal.</string>
+    <string name="offline_download_no_routing">Too large for offline routing \u2014 the map still downloads. Zoom in to include trail routing.</string>
     <string name="offline_download_title">Download this area?</string>
     <string name="offline_download_too_large">This area is too large (about %1$s). Zoom in and try again.</string>
     <string name="offline_downloaded">Downloaded · %1$s</string>

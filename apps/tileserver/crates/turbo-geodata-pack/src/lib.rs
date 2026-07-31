@@ -97,12 +97,33 @@ impl Bbox {
     }
 }
 
-/// One line of the report: what shrank, and by how much.
+/// One line of the report: what shrank, by how much, and how long it took.
+///
+/// `elapsed` is here because the sizes alone cannot answer the question
+/// the server asks. `GET /v1/packs/...` cuts a region on demand and
+/// waits [a bounded time][1] before answering "come back"; whether that
+/// bound is right depends on which phase costs what, and the three
+/// phases scale on different axes — the DEM on the source's *tile
+/// count*, the mask on the source's *cell count*, the graph on the
+/// source's *edge count*. A single total hides which one to fix.
+///
+/// [1]: ../turbo_tiles_api/packs/constant.BUILD_WAIT.html
 pub struct Shrink {
     pub name: &'static str,
     pub before: u64,
     pub after: u64,
     pub detail: String,
+    pub elapsed: std::time::Duration,
+}
+
+/// Run `f`, returning its [`Shrink`] with `elapsed` filled in.
+fn timed(
+    f: impl FnOnce() -> Result<Shrink, Box<dyn std::error::Error>>,
+) -> Result<Shrink, Box<dyn std::error::Error>> {
+    let t = std::time::Instant::now();
+    let mut s = f()?;
+    s.elapsed = t.elapsed();
+    Ok(s)
 }
 
 /// What region to cut, and how it was specified.
@@ -170,6 +191,18 @@ pub struct Report {
     pub manifest: turbo_tiles_artifacts::PackManifest,
     /// Points sampled by [`verify`], for the caller to report.
     pub verified_points: usize,
+    /// Time in [`verify`] — re-opening BOTH packs and sampling.
+    ///
+    /// Separate from the slice phases because it is the one phase whose
+    /// cost is not obviously proportional to anything: it opens the
+    /// *source* DEM, which bulk-loads an r-tree over every tile in it.
+    /// On a regional source that is invisible; on a national one it is
+    /// the largest single term, and a total would not say so.
+    pub verify_elapsed: std::time::Duration,
+    /// Time in [`write_manifest`] — dominated by digesting the output.
+    pub manifest_elapsed: std::time::Duration,
+    /// Wall time for the whole of [`build`].
+    pub total_elapsed: std::time::Duration,
 }
 
 impl Report {
@@ -194,24 +227,33 @@ pub fn build(
     region: &Region,
     halo_m: f64,
 ) -> Result<Report, Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
     let requested = region.planar()?;
     let bbox = requested.expand(halo_m);
     std::fs::create_dir_all(dst)?;
 
     let shrink = vec![
-        slice_dem(&src.join("norway.dem"), &dst.join("norway.dem"), bbox)?,
-        slice_mask(&src.join("norway.mask"), &dst.join("norway.mask"), bbox)?,
-        slice_graph(src, dst, bbox)?,
+        timed(|| slice_dem(&src.join("norway.dem"), &dst.join("norway.dem"), bbox))?,
+        timed(|| slice_mask(&src.join("norway.mask"), &dst.join("norway.mask"), bbox))?,
+        timed(|| slice_graph(src, dst, bbox))?,
     ];
 
+    let t = std::time::Instant::now();
     let verified_points = verify(src, dst, region, requested)?;
+    let verify_elapsed = t.elapsed();
+
+    let t = std::time::Instant::now();
     let manifest = write_manifest(dst, region, requested, halo_m)?;
+    let manifest_elapsed = t.elapsed();
 
     Ok(Report {
         bbox,
         shrink,
         manifest,
         verified_points,
+        verify_elapsed,
+        manifest_elapsed,
+        total_elapsed: started.elapsed(),
     })
 }
 
@@ -325,6 +367,7 @@ fn slice_dem(src: &Path, dst: &Path, bbox: Bbox) -> Result<Shrink, Box<dyn std::
         before,
         after: std::fs::metadata(dst)?.len(),
         detail: format!("{} / {} tiles", keep.len(), meta.tile_count),
+        elapsed: Default::default(),
     })
 }
 
@@ -406,6 +449,7 @@ fn slice_mask(src: &Path, dst: &Path, bbox: Bbox) -> Result<Shrink, Box<dyn std:
         before,
         after: std::fs::metadata(dst)?.len(),
         detail: format!("{nx}x{ny} of {}x{} cells", meta.cells_x, meta.cells_y),
+        elapsed: Default::default(),
     })
 }
 
@@ -559,6 +603,7 @@ fn slice_graph(src: &Path, dst: &Path, bbox: Bbox) -> Result<Shrink, Box<dyn std
         before,
         after,
         detail: format!("{} / {nc} nodes, {} / {ec} edges", nodes.len(), edges.len()),
+        elapsed: Default::default(),
     })
 }
 
@@ -879,9 +924,33 @@ impl PackKey {
         ]
     }
 
-    /// Cells spanned — the cheap proxy for how much work a build is.
+    /// Cells spanned — a cheap proxy for the *shape* of a request.
+    ///
+    /// Not a proxy for its cost. A z12 cell is square on the ground at
+    /// every latitude, but its size falls as latitude rises: the same
+    /// cell is 5.2 km a side at 58°N and 3.8 km at 67°N, so equal cell
+    /// counts differ by 1.9x in area across Norway. Use
+    /// [`area_sq_km`](Self::area_sq_km) to bound work.
     pub fn cells(&self) -> u64 {
         (self.x1 - self.x0 + 1) as u64 * (self.y1 - self.y0 + 1) as u64
+    }
+
+    /// Ground area covered, in km² — what a build's cost is proportional to.
+    ///
+    /// The DEM copy, the mask crop, the digest and the download all
+    /// scale with this and none of them scale with cell count. Measured
+    /// (M2): about 14.6 KB of pack and 1.3 ms of build per km².
+    ///
+    /// Spherical-Earth arithmetic on the mean latitude, which is
+    /// accurate to well under a percent over a region of this size and
+    /// is deliberately simple enough for the Android side to mirror
+    /// exactly — the client must reach the same verdict as the server
+    /// or it will offer downloads that get refused.
+    pub fn area_sq_km(&self) -> f64 {
+        const KM_PER_DEG: f64 = 111.32;
+        let [min_lon, min_lat, max_lon, max_lat] = self.extent();
+        let mid = (min_lat + max_lat) / 2.0;
+        (max_lon - min_lon) * KM_PER_DEG * mid.to_radians().cos() * (max_lat - min_lat) * KM_PER_DEG
     }
 
     /// `z12_1092_378_1095_381`.
@@ -1000,5 +1069,42 @@ mod key_tests {
     fn cells_counts_the_rectangle() {
         let k = PackKey::parse("z12_10_20_13_22").unwrap();
         assert_eq!(k.cells(), 4 * 3);
+    }
+}
+
+#[cfg(test)]
+mod area_tests {
+    use super::*;
+
+    /// Reference values the Android side asserts against.
+    ///
+    /// `RoutingPack.areaSqKm` is a hand-written copy of
+    /// [`PackKey::area_sq_km`] in another language, and the client's
+    /// pre-flight check is only worth anything if the two agree: the
+    /// point of checking locally is to never ask for what would be
+    /// refused, and a client that computed a *smaller* area than the
+    /// server would ask anyway and fail the download it was trying to
+    /// protect.
+    ///
+    /// Two copies of a formula cannot share a test, so they share
+    /// numbers instead. These are printed here and asserted verbatim in
+    /// `RoutingPackTest.kt`; changing one without the other fails there.
+    #[test]
+    fn area_reference_values_for_the_android_side() {
+        let cases = [
+            // (min_lon, min_lat, max_lon, max_lat, expected km²)
+            (15.00, 67.03, 15.28, 67.13, 232.54),
+            (8.00, 60.00, 11.00, 61.20, 23_407.79),
+            (5.20, 58.90, 5.60, 59.10, 762.00),
+        ];
+        for (min_lon, min_lat, max_lon, max_lat, expected) in cases {
+            let key = PackKey::covering(min_lon, min_lat, max_lon, max_lat, PACK_GRID_Z);
+            let got = key.area_sq_km();
+            assert!(
+                (got - expected).abs() < 0.5,
+                "{key}: expected {expected} km², got {got:.2} — update \
+                 RoutingPackTest.kt in the same commit"
+            );
+        }
     }
 }

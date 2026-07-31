@@ -93,6 +93,14 @@ fun DownloadAreaDialog(
                 // that explains why the number grew and what it buys —
                 // the alternative being a user who notices the megabytes
                 // and not the capability.
+                //
+                // And when it is NOT true, said just as plainly. A
+                // region can be small enough to download and too big for
+                // one routing pack — the two caps bound different things
+                // — and the difference is invisible until the user is
+                // standing in it without signal. An absent line would
+                // read as an oversight; this one is the answer to "why
+                // did routing work in the other area I saved".
                 if (ok && estimate.packBytes > 0L) {
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -100,6 +108,14 @@ fun DownloadAreaDialog(
                         style = MaterialTheme.typography.bodySmall,
                         color = cs.onSurfaceVariant,
                         modifier = Modifier.testTag("routingIncluded"),
+                    )
+                } else if (ok && estimate.routingOmittedForSize) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        stringResource(R.string.offline_download_no_routing),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = cs.error,
+                        modifier = Modifier.testTag("routingExcluded"),
                     )
                 }
             }

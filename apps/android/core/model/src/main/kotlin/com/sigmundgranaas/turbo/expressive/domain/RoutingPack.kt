@@ -83,14 +83,52 @@ object RoutingPack {
         )
     }
 
-    /** Rough size of the pack covering [bounds], for a pre-download estimate. */
-    fun estimatedBytes(bounds: GeoBounds): Long {
+    /**
+     * Largest region one pack may cover, in km². **Must match the
+     * server's `MAX_AREA_SQ_KM`.**
+     *
+     * The server refuses a bigger region with a 400, and a 400 arriving
+     * mid-download is a bad way to learn this: the request has already
+     * been made, and there is nothing useful to do with the answer. So
+     * the client applies the same rule first, with the same formula, and
+     * simply does not ask.
+     *
+     * The number is not arbitrary and is not about the phone. It is what
+     * keeps a server-side cut inside the window a request waits inline
+     * (measured: ~11 s at the cap) and the pack inside what is sane to
+     * hand a walker on a mountain connection (~80 MB).
+     *
+     * # Why an area and not a span or a cell count
+     *
+     * This cap used to be expressed server-side in grid cells, and that
+     * was wrong in a way worth remembering here: a z12 cell is square on
+     * the ground but *shrinks* as latitude rises, so 400 cells is
+     * 5 842 km² at 67°N and 11 017 km² at 58°N. A cap in cells is a cap
+     * that is nearly twice as loose in southern Norway as in the north.
+     */
+    const val MAX_AREA_SQ_KM: Double = 5_500.0
+
+    /**
+     * Ground area of the pack covering [bounds], in km².
+     *
+     * The *covered* area, not the requested one: [keyFor] snaps outward,
+     * so the server always builds something bigger than the viewport and
+     * it is the bigger figure both sides must judge.
+     */
+    fun areaSqKm(bounds: GeoBounds): Double {
         val covered = extentOf(keyFor(bounds)) ?: bounds
         val midLat = (covered.north + covered.south) / 2.0
         val kmNorthSouth = abs(covered.north - covered.south) * DEG_TO_KM
         val kmEastWest = abs(covered.east - covered.west) * DEG_TO_KM * cos(midLat * PI / 180.0)
-        return (kmNorthSouth * kmEastWest * BYTES_PER_SQ_KM).toLong()
+        return kmNorthSouth * kmEastWest
     }
+
+    /** Can one pack cover [bounds], or is the region past [MAX_AREA_SQ_KM]? */
+    fun fitsOnePack(bounds: GeoBounds): Boolean = areaSqKm(bounds) <= MAX_AREA_SQ_KM
+
+    /** Rough size of the pack covering [bounds], for a pre-download estimate. */
+    fun estimatedBytes(bounds: GeoBounds): Long =
+        (areaSqKm(bounds) * BYTES_PER_SQ_KM).toLong()
 
     private const val DEG_TO_KM = 111.320
 

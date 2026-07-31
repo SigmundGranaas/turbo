@@ -93,4 +93,15 @@ data class OfflineEstimate(
     val packBytes: Long = 0L,
     /** False when the area is too large to download (tile limit / span guard). */
     val withinLimits: Boolean = true,
+    /**
+     * True when routing was asked for and the region is past the pack
+     * cap — downloadable as a map, but with no offline routing.
+     *
+     * Explicit rather than inferred from `packBytes == 0`, because that
+     * is also what a caller who never wanted routing gets, and telling
+     * them their area is too large for a thing they did not ask for is
+     * a worse answer than saying nothing. The two zeroes mean different
+     * things and the dialog shows different text for them.
+     */
+    val routingOmittedForSize: Boolean = false,
 )

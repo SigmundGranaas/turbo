@@ -267,6 +267,13 @@ class WgpuOfflineTileManager internal constructor(
                 // that window. The region completes without routing data;
                 // the next download after the server ships gets it.
                 PackDownloader.Outcome.Unsupported -> Unit
+                // Too big for one pack, but not too big for tiles — the
+                // two caps are different sizes because a tile pyramid
+                // degrades as it grows and a pack does not. The dialog
+                // already told the user this area comes without offline
+                // routing; failing the download now would take the map
+                // away too, which is not what they asked for.
+                is PackDownloader.Outcome.TooLarge -> Unit
                 // A pack the server DOES serve and could not deliver is a
                 // real failure. The alternative — a region that browses
                 // but cannot route — is a state the user has no way to
@@ -442,6 +449,14 @@ class WgpuOfflineTileManager internal constructor(
         /** `404` on the manifest: this server serves no packs. */
         private const val HTTP_NOT_FOUND = 404
 
+        /**
+         * What the pack endpoint answers for a region past its cap.
+         *
+         * Mapped separately from the other 4xx because the region is
+         * not broken, it is big — see [PackDownloader.Outcome.TooLarge].
+         */
+        private const val HTTP_BAD_REQUEST = 400
+
         /** Cache-key layer for DEM tiles — matches turbomap-ffi's TERRAIN_KEY and
          *  TurbomapMapView.isDemKey, so a pre-populated DEM tile hits at render. */
         private const val DEM_LAYER = "__terrain"
@@ -488,6 +503,7 @@ class WgpuOfflineTileManager internal constructor(
                                     resp.header("Retry-After")?.toIntOrNull() ?: DEFAULT_RETRY_AFTER,
                                 )
                                 resp.code == HTTP_NOT_FOUND -> PackDownloader.FetchResult.NotFound
+                                resp.code == HTTP_BAD_REQUEST -> PackDownloader.FetchResult.TooLarge
                                 !resp.isSuccessful ->
                                     PackDownloader.FetchResult.Failed("Server said ${resp.code}.")
                                 else -> {

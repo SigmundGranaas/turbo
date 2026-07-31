@@ -44,19 +44,36 @@ pub fn run(
     println!();
     for s in &r.shrink {
         println!(
-            "  {:<14} {:>8.1} MB -> {:>6.1} MB   {}",
+            "  {:<14} {:>8.1} MB -> {:>6.1} MB  {:>7.2} s   {}",
             s.name,
             s.before as f64 / 1e6,
             s.after as f64 / 1e6,
+            s.elapsed.as_secs_f64(),
             s.detail
         );
     }
+    // Verify and manifest are phases too, and on a large source the
+    // first is the expensive one — it re-opens the SOURCE dem, which
+    // bulk-loads an r-tree over every tile in it. Printing only the
+    // slice phases would leave the biggest number off the report.
+    println!(
+        "  {:<14} {:>8}    {:>6}   {:>7.2} s   {} points",
+        "verify", "", "", r.verify_elapsed.as_secs_f64(), r.verified_points
+    );
+    println!(
+        "  {:<14} {:>8}    {:>6}   {:>7.2} s   sha256 over the output",
+        "manifest",
+        "",
+        "",
+        r.manifest_elapsed.as_secs_f64()
+    );
     let (b, a) = (r.before_bytes(), r.after_bytes());
     println!(
-        "  {:<14} {:>8.1} MB -> {:>6.1} MB   ({:.1}% of original)",
+        "  {:<14} {:>8.1} MB -> {:>6.1} MB  {:>7.2} s   ({:.1}% of original)",
         "TOTAL",
         b as f64 / 1e6,
         a as f64 / 1e6,
+        r.total_elapsed.as_secs_f64(),
         100.0 * a as f64 / b as f64
     );
     Ok(())

@@ -3758,6 +3758,7 @@ dependencies = [
  "turbo-tiles-graph",
  "turbo-tiles-mask",
  "turbo-tiles-pathfind",
+ "zstd",
 ]
 
 [[package]]

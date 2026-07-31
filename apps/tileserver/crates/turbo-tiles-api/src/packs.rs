@@ -20,7 +20,7 @@
 //!
 //! Three things, because this endpoint turns a GET into arbitrary CPU:
 //!
-//! - a **cell cap**, so no single request can ask for the country;
+//! - an **area cap**, so no single request can ask for the country;
 //! - a **global permit**, so N requests cannot each take a core; and
 //! - a **per-key lock**, so the same region is never built twice at once.
 //!
@@ -37,13 +37,41 @@ use turbo_geodata_pack::{PackKey, Region};
 /// E10 measured 500 m as sufficient and this leaves margin.
 const HALO_M: f64 = 1000.0;
 
-/// Largest region a single request may ask for, in grid cells.
+/// Largest region a single request may ask for, in **ground area**.
 ///
-/// 400 z12 cells is roughly 76 x 76 km at 67°N — comfortably more than
-/// the app's own download dialog allows, and far less than a request
-/// that would wedge the server for minutes. A cap the client never hits
-/// and an attacker always does.
-const MAX_CELLS: u64 = 400;
+/// # Why not cells
+///
+/// This cap was 400 z12 cells, described as "roughly 76 x 76 km at
+/// 67°N". That description was accurate and the cap was still wrong,
+/// because a cell is a Mercator cell: it is square on the ground at
+/// every latitude, but its *size* falls as latitude rises. The same 400
+/// cells are 5 842 km² at 67°N and **11 017 km²** at 58°N — and Norway
+/// runs from 58 to 71, so the cap was loosest exactly where most of the
+/// country is.
+///
+/// M2 measured what that costs. Cutting 84.9 x 99.0 km (8 405 km²) out
+/// of the Sjunkhatten source took **12.0 s** and produced **122 MB**;
+/// the phases that scale with the region were 10.9 s of it. Scaled to
+/// 11 017 km² and with the graph phase against national rather than
+/// regional artifacts, a southern request at the old cap was a ~161 MB
+/// pack and ~18 s of build — inside [`BUILD_WAIT`] by 10%, and a
+/// download no phone on a mountain connection should be offered as one
+/// indivisible unit.
+///
+/// # Where the number comes from
+///
+/// 5 500 km² keeps the build near 11 s and the pack near 80 MB at every
+/// Norwegian latitude. It is deliberately close to what 400 cells meant
+/// at 67°N — the intent behind the old constant was right; only its
+/// units were not.
+const MAX_AREA_SQ_KM: f64 = 5_500.0;
+
+/// A cheap pre-filter, applied before any trigonometry.
+///
+/// A key naming an absurd span is rejected on arithmetic alone. The
+/// area cap is the real bound; this one exists so a malformed or
+/// hostile key never reaches the projection maths.
+const MAX_CELLS: u64 = 4_096;
 
 /// How long a request waits for a build before being told to come back.
 ///
@@ -56,8 +84,13 @@ const BUILD_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 pub enum PackError {
     #[error("{0}")]
     BadKey(String),
-    #[error("region too large: {cells} cells, limit {MAX_CELLS}")]
-    TooLarge { cells: u64 },
+    /// The region is bigger than one pack may cover.
+    ///
+    /// Carries km² rather than cells because that is the number the
+    /// client can act on: it computes its own area with the same
+    /// formula and never asks for what it would be refused.
+    #[error("region too large: {area_sq_km:.0} km², limit {MAX_AREA_SQ_KM:.0} km²")]
+    TooLarge { area_sq_km: f64 },
     #[error("pack build failed: {0}")]
     Build(String),
     /// Not an error — the build is running, come back.
@@ -111,13 +144,18 @@ impl PackService {
             .is_file()
     }
 
-    /// Resolve a key string, enforcing the cell cap.
+    /// Resolve a key string, enforcing the size caps.
     pub fn parse_key(&self, s: &str) -> Result<PackKey, PackError> {
         let key = PackKey::parse(s)
             .ok_or_else(|| PackError::BadKey(format!("malformed pack key '{s}'")))?;
-        let cells = key.cells();
-        if cells > MAX_CELLS {
-            return Err(PackError::TooLarge { cells });
+        if key.cells() > MAX_CELLS {
+            return Err(PackError::TooLarge {
+                area_sq_km: f64::INFINITY,
+            });
+        }
+        let area_sq_km = key.area_sq_km();
+        if area_sq_km > MAX_AREA_SQ_KM {
+            return Err(PackError::TooLarge { area_sq_km });
         }
         Ok(key)
     }
@@ -254,4 +292,116 @@ fn build_one(src: &Path, dst: &Path, key: &PackKey) -> Result<(), String> {
         "built pack"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Measured (M2): 122.4 MB over 8 405 km², cutting real terrain.
+    const KB_PER_SQ_KM: f64 = 14.6;
+
+    /// What `MAX_AREA_SQ_KM` costs, stated in the units it bounds.
+    ///
+    /// Nobody operating this server cares about km² either. They care
+    /// about two numbers the cap implies and does not say: how long a
+    /// build at the cap takes, and how big the pack a phone is then
+    /// offered. Both were measured; both are easy to invalidate by
+    /// editing one constant; so both are asserted.
+    ///
+    /// Cutting 84.9 x 99.0 km (8 405 km²) out of the Sjunkhatten source
+    /// took 12.0 s, of which 10.9 s was in phases that scale with the
+    /// region. The graph phase costs ~2.9 s more against national
+    /// artifacts than regional ones (measured separately: 5.9 M edges,
+    /// cold), and the rest is roughly fixed.
+    #[test]
+    fn the_cap_bounds_a_build_that_fits_the_wait_and_a_pack_that_fits_a_phone() {
+        let build_s = 10.9 * (MAX_AREA_SQ_KM / 8_405.0) + 1.1 + 2.9;
+        assert!(
+            build_s < BUILD_WAIT.as_secs_f64() * 0.7,
+            "the largest region this cap admits needs ~{build_s:.0} s of the {}s a request \
+             waits inline. Not an outage — the 202 path handles it — but with this little \
+             headroom the 202 becomes the common case, which is not what BUILD_WAIT is for.",
+            BUILD_WAIT.as_secs()
+        );
+
+        let mb = MAX_AREA_SQ_KM * KB_PER_SQ_KM / 1000.0;
+        assert!(
+            mb < 100.0,
+            "the cap admits a {mb:.0} MB pack — past this the phone is the problem, not the \
+             server: it is minutes on a mountain connection, offered as one indivisible unit"
+        );
+    }
+
+    /// The bug this cap's units were hiding.
+    ///
+    /// The old cap was 400 cells, reasoned about at 67°N where it means
+    /// 5 842 km². A z12 cell is square on the ground — the cos(lat) that
+    /// shrinks a degree of longitude is the same one that stretches the
+    /// Mercator y scale — but it still *shrinks* with latitude, so the
+    /// same 400 cells are 11 017 km² at 58°N. Norway runs 58 to 71, and
+    /// the cap was loosest where most of the country is.
+    ///
+    /// This is the regression test for that: whatever the cap is
+    /// expressed in, it must admit the same amount of WORK everywhere.
+    #[test]
+    fn the_cap_admits_the_same_work_at_every_norwegian_latitude() {
+        let svc = PackService::new(PathBuf::from("/nonexistent"), PathBuf::from("/tmp"), 1);
+        let mut areas = Vec::new();
+
+        // Lindesnes to Nordkapp.
+        for lat in [58.0, 62.0, 67.0, 71.0] {
+            let one = PackKey::covering(15.0, lat, 15.0, lat, turbo_geodata_pack::PACK_GRID_Z);
+            let block = |side: u32| PackKey {
+                z: one.z,
+                x0: one.x0,
+                y0: one.y0,
+                x1: one.x0 + side - 1,
+                y1: one.y0 + side - 1,
+            };
+            // Grow until the SERVICE refuses. Asking `parse_key` rather
+            // than recomputing the area here is the whole point: this
+            // test must measure the cap that ships, not a second copy of
+            // the formula that would agree with it by construction.
+            let mut side = 1u32;
+            while side < 200 && svc.parse_key(&block(side + 1).to_string()).is_ok() {
+                side += 1;
+            }
+            assert!(side > 1, "nothing at all was admissible at {lat}degN");
+            areas.push(block(side).area_sq_km());
+        }
+
+        let (lo, hi) = (
+            areas.iter().cloned().fold(f64::INFINITY, f64::min),
+            areas.iter().cloned().fold(0.0, f64::max),
+        );
+        // Cells are discrete, so the largest admissible block cannot sit
+        // exactly on the cap at every latitude — but it must land in the
+        // same neighbourhood, not vary by the 1.9x a cell cap gave.
+        assert!(
+            hi / lo < 1.35,
+            "the cap admits {hi:.0} km² at one Norwegian latitude and {lo:.0} km² at another \
+             ({:.1}x) — it is bounding cells again, not work. Areas: {areas:?}",
+            hi / lo
+        );
+    }
+
+    /// A region past the cap is refused, and the refusal says km².
+    #[test]
+    fn an_oversized_region_is_refused_in_the_clients_units() {
+        let svc = PackService::new(PathBuf::from("/nonexistent"), PathBuf::from("/tmp"), 1);
+        // 30 x 30 cells at 58degN: ~24 000 km², comfortably past the cap.
+        let one = PackKey::covering(15.0, 58.0, 15.0, 58.0, turbo_geodata_pack::PACK_GRID_Z);
+        let big = PackKey { z: one.z, x0: one.x0, y0: one.y0, x1: one.x0 + 29, y1: one.y0 + 29 };
+        match svc.parse_key(&big.to_string()) {
+            Err(PackError::TooLarge { area_sq_km }) => {
+                assert!(area_sq_km > MAX_AREA_SQ_KM, "got {area_sq_km:.0} km²");
+                assert!(
+                    area_sq_km.is_finite(),
+                    "the area cap, not the shape pre-filter, should have caught this"
+                );
+            }
+            other => panic!("expected TooLarge, got {other:?}"),
+        }
+    }
 }

@@ -4,6 +4,7 @@ import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.DownloadSpec
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.OverlayId
+import com.sigmundgranaas.turbo.expressive.domain.RoutingPack
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -52,5 +53,32 @@ class TileMathTest {
         assertTrue(TileMath.isWithinLimits(DownloadSpec("ok", BaseLayer.Norgeskart, small, 8.0, 14.0)))
         val huge = GeoBounds(south = 0.0, west = 0.0, north = 50.0, east = 50.0)
         assertFalse(TileMath.isWithinLimits(DownloadSpec("no", BaseLayer.Norgeskart, huge, 8.0, 14.0)))
+    }
+
+    @Test
+    fun `a region past the pack cap estimates as map-only, not as a failure`() {
+        // The band between the two guards. `withinLimits` is about tiles
+        // and stays true here; the pack simply cannot be cut this big, so
+        // the estimate must stop counting bytes that will never arrive
+        // AND say why — a bare zero is also what "routing not requested"
+        // looks like, and the dialog shows different text for each.
+        val big = DownloadSpec(
+            "big",
+            BaseLayer.Norgeskart,
+            GeoBounds(south = 60.0, west = 8.0, north = 61.2, east = 11.0),
+            6.0,
+            9.0,
+        )
+        assertFalse("this fixture must exceed the pack cap", RoutingPack.fitsOnePack(big.bounds))
+        val e = TileMath.estimate(big)
+        assertTrue("the tiles are still downloadable", e.withinLimits)
+        assertEquals("no pack bytes for a region that gets no pack", 0L, e.packBytes)
+        assertTrue("and the reason must be legible", e.routingOmittedForSize)
+
+        // The counterpart, so this is not just asserting that zero is zero.
+        val ok = big.copy(bounds = GeoBounds(south = 67.03, west = 15.0, north = 67.13, east = 15.28))
+        val eo = TileMath.estimate(ok)
+        assertTrue("a normal region still gets a pack", eo.packBytes > 0L)
+        assertFalse(eo.routingOmittedForSize)
     }
 }

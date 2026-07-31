@@ -39,6 +39,18 @@ class PackDownloader(
         data class Building(val retryAfterSeconds: Int) : FetchResult
         /** `404`. Distinct from [Failed] — see [Outcome.Unsupported]. */
         data object NotFound : FetchResult
+        /**
+         * `400`. The server will not build a pack this big.
+         *
+         * [download] checks the same rule before asking, so in a matched
+         * pair this never arrives. It exists for the pair that is not
+         * matched: the app and the tileserver ship separately, and a
+         * server that tightens its cap must not turn every oversized
+         * region into a failed map download on the phones already out
+         * there. Same reasoning as [Outcome.Unsupported], different
+         * cause.
+         */
+        data object TooLarge : FetchResult
         data class Failed(val reason: String) : FetchResult
     }
 
@@ -66,6 +78,23 @@ class PackDownloader(
          */
         data object Unsupported : Outcome
 
+        /**
+         * The region is too big for one routing pack.
+         *
+         * Like [Unsupported] and unlike [Failed], this must not fail the
+         * region: the map tiles are downloadable and the user asked for
+         * them. What they do not get is offline routing, and the dialog
+         * says so before they commit — `RoutingPack.fitsOnePack` gates
+         * the same rule at estimate time, so reaching this outcome means
+         * either an unmatched app/server pair or a region that grew
+         * between the estimate and the download.
+         *
+         * The map cap and the pack cap are genuinely different sizes: a
+         * tile pyramid degrades gracefully as it grows and a pack does
+         * not, because a pack is one file set built in one request.
+         */
+        data class TooLarge(val areaSqKm: Double) : Outcome
+
         data class Failed(val reason: String) : Outcome
     }
 
@@ -90,6 +119,14 @@ class PackDownloader(
             return Outcome.Done(key, done, done.walkTopDown().filter { it.isFile }.sumOf { it.length() })
         }
 
+        // Before the network, not after. The server refuses a region
+        // past its cap with a 400, and learning that from a response is
+        // a wasted round trip and a worse error: by then the download is
+        // underway and the only honest thing left to report is failure.
+        if (!RoutingPack.fitsOnePack(bounds)) {
+            return Outcome.TooLarge(RoutingPack.areaSqKm(bounds))
+        }
+
         val partial = File(root, "$key.partial")
         partial.deleteRecursively()
         if (!partial.mkdirs()) return Outcome.Failed("Couldn't create $partial")
@@ -104,6 +141,13 @@ class PackDownloader(
             is FetchResult.NotFound -> {
                 partial.deleteRecursively()
                 return Outcome.Unsupported
+            }
+            // Only reachable against a server whose cap is tighter than
+            // this app's copy of it. Reported as the region being too
+            // big rather than broken, which is what it is.
+            is FetchResult.TooLarge -> {
+                partial.deleteRecursively()
+                return Outcome.TooLarge(RoutingPack.areaSqKm(bounds))
             }
             is FetchResult.Building -> {
                 partial.deleteRecursively()
@@ -133,6 +177,13 @@ class PackDownloader(
                 is FetchResult.NotFound -> {
                     partial.deleteRecursively()
                     return Outcome.Failed("${f.name} is missing from the routing pack.")
+                }
+                // The manifest was served, so the cap was not the
+                // problem for this key; a 400 on a file it listed is the
+                // server contradicting itself.
+                is FetchResult.TooLarge -> {
+                    partial.deleteRecursively()
+                    return Outcome.Failed("The map server refused ${f.name} after listing it.")
                 }
                 is FetchResult.Building -> {
                     partial.deleteRecursively()

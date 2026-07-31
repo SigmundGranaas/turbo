@@ -210,6 +210,46 @@ class PackDownloaderTest {
         )
     }
 
+    @Test
+    fun `a region too big for one pack is not a failure`() = runTest {
+        // The two caps bound different things. A tile pyramid degrades
+        // as it grows — more tiles, longer download — so the map guard
+        // sits at 6 degrees of span. A pack does not degrade: it is one
+        // file set cut in one server request, and past ~5500 km² the cut
+        // outlives the window a request waits inline and the result is
+        // ~80 MB. So there is a legitimate band of regions that download
+        // as maps and cannot have routing, and failing them would take
+        // away the map the user actually asked for.
+        val huge = GeoBounds(south = 60.0, west = 8.0, north = 61.2, east = 11.0)
+        assertFalse("this fixture must exceed the cap", RoutingPack.fitsOnePack(huge))
+
+        val s = server()
+        val out = downloader(s).download(huge)
+        assertTrue("expected TooLarge, got $out", out is PackDownloader.Outcome.TooLarge)
+        // And it never asked. The server would answer 400; finding that
+        // out costs a round trip and arrives too late to be useful.
+        assertTrue("an oversized region must not be requested at all: ${s.requests}", s.requests.isEmpty())
+        assertNoLeftovers()
+    }
+
+    @Test
+    fun `a server that refuses the size is not a broken download`() = runTest {
+        // The version-skew case: a server whose cap is tighter than this
+        // app's copy of it. Same reasoning as the missing-endpoint test
+        // above — the app and the tileserver ship separately, and a
+        // tightened cap must not start failing map downloads on the
+        // phones already out there.
+        val small = bounds
+        assertTrue("this fixture must be within the cap", RoutingPack.fitsOnePack(small))
+        val out = PackDownloader(
+            root = tmp.root,
+            baseUrl = "https://example.test/v1/packs",
+            fetch = { _, _ -> PackDownloader.FetchResult.TooLarge },
+        ).download(small)
+        assertTrue("expected TooLarge, got $out", out is PackDownloader.Outcome.TooLarge)
+        assertNoLeftovers()
+    }
+
     private fun assertNoLeftovers() {
         val stray = tmp.root.listFiles()?.map { it.name }.orEmpty()
         assertTrue("a failed download must leave nothing behind: $stray", stray.isEmpty())
