@@ -16,6 +16,7 @@ byteorder.workspace = true
 turbo-tiles-artifacts.workspace = true
 turbo-geo-frame.workspace = true
 turbo-geodata-artifacts.workspace = true
+turbo-geodata-pack.workspace = true
 turbo-tiles-core.workspace = true
 turbo-tiles-db.workspace = true
 sqlx.workspace = true

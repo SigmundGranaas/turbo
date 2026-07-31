@@ -375,6 +375,46 @@ async fn serve(
     // autonomous evaluation loop routes through the IDENTICAL layer
     // stack the server serves.
     let mut api_state = ApiState::new(db.clone(), auth, public_base_url.clone());
+
+    // Region packs for on-device routing. Built by slicing the same
+    // artifacts this process already serves from, so the endpoint needs
+    // only a place to cache the results.
+    //
+    // `TILESERVER_PACK_CACHE_DIR` should be its OWN volume, not a
+    // subdirectory of the artifacts. The artifacts are what the router
+    // mmaps to answer every route; a pack cache that filled the disk
+    // they sit on would take routing down to serve downloads.
+    if let Some(src) = artifacts_dir.as_deref() {
+        let cache = std::env::var("TILESERVER_PACK_CACHE_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| src.join("packs"));
+        let builders = std::env::var("TILESERVER_PACK_BUILD_CONCURRENCY")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(2);
+        match std::fs::create_dir_all(&cache) {
+            Ok(()) => {
+                tracing::info!(
+                    src = %src.display(),
+                    cache = %cache.display(),
+                    builders,
+                    "region packs enabled"
+                );
+                api_state.packs = Some(std::sync::Arc::new(
+                    turbo_tiles_api::packs::PackService::new(src.to_path_buf(), cache, builders),
+                ));
+            }
+            // Degraded, not fatal: every other artifact-backed surface
+            // here reports itself unavailable rather than refusing to
+            // boot, and routing does not depend on this one.
+            Err(e) => tracing::warn!(
+                cache = %cache.display(),
+                error = %e,
+                "pack cache unusable; /v1/packs will report unavailable"
+            ),
+        }
+    }
     let art = routing_setup::load_routing_artifacts(artifacts_dir.as_deref());
     api_state.dem = art.dem.clone();
     api_state.mask = art.mask.clone();

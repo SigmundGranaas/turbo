@@ -6,6 +6,7 @@ members = [
     "crates/turbo-profile-no",
     "crates/turbo-route-ffi",
     "crates/turbo-geodata-artifacts",
+    "crates/turbo-geodata-pack",
     "crates/turbo-tiles-core",
     "crates/turbo-tiles-db",
     "crates/turbo-tiles-mvt",
@@ -40,6 +41,7 @@ turbo-geo-frame = { path = "crates/turbo-geo-frame" }
 turbo-profile-no = { path = "crates/turbo-profile-no" }
 turbo-route-ffi = { path = "crates/turbo-route-ffi" }
 turbo-geodata-artifacts = { path = "crates/turbo-geodata-artifacts" }
+turbo-geodata-pack = { path = "crates/turbo-geodata-pack" }
 turbo-tiles-core = { path = "crates/turbo-tiles-core" }
 turbo-tiles-db = { path = "crates/turbo-tiles-db" }
 turbo-tiles-mvt = { path = "crates/turbo-tiles-mvt" }
@@ -92,7 +94,7 @@ geo = "0.28"
 geozero = { version = "0.13", features = ["with-postgis-sqlx", "with-wkb"] }
 gpx = "0.10"
 quick-xml = { version = "0.36", features = ["serialize"] }
-sha2 = "0.10"
+sha2 = { version = "0.10" }
 hex = "0.4"
 bytes = "1"
 http = "1"

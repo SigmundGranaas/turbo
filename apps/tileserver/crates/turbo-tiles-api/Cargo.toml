@@ -17,6 +17,7 @@ turbo-tiles-auth.workspace = true
 turbo-tiles-artifacts.workspace = true
 turbo-tiles-elev.workspace = true
 turbo-tiles-mask.workspace = true
+turbo-geodata-pack.workspace = true
 turbo-tiles-graph.workspace = true
 turbo-tiles-search.workspace = true
 turbo-tiles-pathfind.workspace = true
@@ -40,6 +41,9 @@ tokio = { workspace = true }
 # events through, async-stream for the trailing terminal frame.
 futures = "0.3"
 tokio-stream = "0.1"
+# Streaming a pack file off disk into the response body without
+# buffering it — the DEM is tens of megabytes.
+tokio-util = { version = "0.7", features = ["io"] }
 async-stream = "0.3"
 
 [dev-dependencies]
@@ -47,3 +51,9 @@ turbo-tiles-ingest.workspace = true
 tokio = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 tempfile = "3"
+# Verifying the manifest a pack build wrote, in the pack endpoint tests.
+toml = "0.8"
+sha2.workspace = true
+# Opening a pack the endpoint just built, exactly as a phone would —
+# the only check that proves a served pack is routable.
+turbo-route-ffi.workspace = true

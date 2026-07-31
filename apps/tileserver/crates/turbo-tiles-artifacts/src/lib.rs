@@ -204,6 +204,36 @@ pub struct PackMeta {
     /// Terrain kept beyond `extent`, metres.
     #[serde(default)]
     pub halo_m: f64,
+    /// Every file in the pack, with its size and digest.
+    ///
+    /// A client needs the sizes **before** it starts, or its progress bar
+    /// is a spinner. It needs the digests **after**, and for a reason the
+    /// tile downloader never had: a tile is 20 KB and is either on disk or
+    /// not, so "skip what exists" is a sound resume rule. A pack's DEM is
+    /// tens of megabytes and can be half-written, and a truncated DEM does
+    /// not fail to open — it opens and answers `None` for the missing
+    /// ground, which the router reads as "no terrain here" and routes
+    /// around. Silent, wrong, and indistinguishable from a coastline.
+    ///
+    /// `#[serde(default)]` so packs cut before this existed still parse.
+    #[serde(default)]
+    pub files: Vec<PackFile>,
+}
+
+/// One file in a pack.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PackFile {
+    /// Filename, no path — packs are flat by construction.
+    pub name: String,
+    pub bytes: u64,
+    /// Lowercase hex SHA-256.
+    ///
+    /// SHA-256 rather than something cheaper because this digest is the
+    /// only end-to-end integrity check between an artifact on the origin
+    /// and the bytes a phone routes on, crossing a CDN and a resumable
+    /// download on the way. The pack is built once and cached; the cost
+    /// is paid on a machine with the whole file already in page cache.
+    pub sha256: String,
 }
 
 impl PackManifest {
@@ -223,6 +253,16 @@ impl PackManifest {
             });
         }
         Ok(())
+    }
+
+    /// The file entry for `name`, if the manifest lists one.
+    pub fn file(&self, name: &str) -> Option<&PackFile> {
+        self.pack.files.iter().find(|f| f.name == name)
+    }
+
+    /// Total bytes a client must download.
+    pub fn total_bytes(&self) -> u64 {
+        self.pack.files.iter().map(|f| f.bytes).sum()
     }
 }
 
@@ -310,6 +350,11 @@ mod tests {
                 frame: "utm33n".into(),
                 extent: [14.95, 67.02, 15.2, 67.12],
                 halo_m: 1000.0,
+                files: vec![PackFile {
+                    name: "norway.dem".into(),
+                    bytes: 2_401_670,
+                    sha256: "a2f2".repeat(16),
+                }],
             },
         };
         let text = toml::to_string_pretty(&m).unwrap();
@@ -329,6 +374,12 @@ mod tests {
         .unwrap();
         assert!(m.check_compatible().is_ok());
         assert_eq!(m.pack.halo_m, 0.0);
+        // A pack cut before file entries existed still parses, and
+        // reports honestly that it does not know its own sizes rather
+        // than reporting zero as though it were empty.
+        assert!(m.pack.files.is_empty());
+        assert_eq!(m.total_bytes(), 0);
+        assert!(m.file("norway.dem").is_none());
     }
 
     #[test]
@@ -340,6 +391,7 @@ mod tests {
                 frame: "utm33n".into(),
                 extent: [0.0; 4],
                 halo_m: 0.0,
+                files: Vec::new(),
             },
         };
         assert!(matches!(

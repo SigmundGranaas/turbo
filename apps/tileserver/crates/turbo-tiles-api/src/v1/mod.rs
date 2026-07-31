@@ -10,6 +10,7 @@ mod elev;
 mod frame;
 mod inspect;
 mod mask;
+mod packs;
 mod pathfind;
 mod raster;
 mod resource;
@@ -64,6 +65,10 @@ pub fn router() -> Router<ApiState> {
         .route("/mask/sample", post(mask::sample))
         .route("/debug/mask/coverage", get(mask::coverage))
         // Stage 4: routing graph
+        // Region packs for on-device routing. Immutable per key, so the
+        // edge caches them hard; the key is a grid rectangle the client
+        // computes itself.
+        .route("/packs/:key/:file", get(packs::file))
         .route("/route", post(route::route))
         .route("/debug/graph/stats", get(route::stats))
         .route("/debug/graph/density", get(route::density))

@@ -32,6 +32,11 @@ pub struct ApiState {
     /// entries simply orphan, no CDN purge needed. Empty = feature off (URLs stay
     /// unversioned and keep the shorter revalidating cache policy).
     pub data_version: Arc<String>,
+    /// Serves region packs for on-device routing. `None` when no
+    /// artifacts directory is configured — the endpoint then reports
+    /// itself unavailable rather than 500ing, matching how every other
+    /// artifact-backed surface degrades.
+    pub packs: Option<Arc<crate::packs::PackService>>,
     pub dem: Option<Arc<turbo_tiles_elev::Dem>>,
     pub mask: Option<Arc<turbo_tiles_mask::Mask>>,
     pub graph: Option<Arc<turbo_tiles_graph::Graph>>,
@@ -95,6 +100,27 @@ pub struct ApiState {
 }
 
 impl ApiState {
+    /// State with no database and no artifacts, for tests that exercise
+    /// a handler rather than a deployment.
+    ///
+    /// The pool is *lazy* and points at a port nothing listens on —
+    /// exactly what `--no-db` does in production. A DB-touching endpoint
+    /// fails when it tries to connect; every artifact-backed one reports
+    /// itself unavailable. Both are honest, and neither needs a Postgres
+    /// to run a test about pack files.
+    #[doc(hidden)]
+    pub fn for_tests() -> Self {
+        let db = turbo_tiles_db::DbConfig {
+            url: "postgres://nobody@127.0.0.1:1/none".to_string(),
+            max_connections: 1,
+            min_connections: 0,
+            statement_timeout_ms: 1_000,
+        }
+        .connect_lazy()
+        .expect("a lazy pool connects to nothing and cannot fail");
+        Self::new(db, AuthConfig::disabled(), "http://localhost".to_string())
+    }
+
     pub fn new(db: DbPool, auth: AuthConfig, public_base_url: String) -> Self {
         let permits = std::env::var("TILESERVER_ROUTING_CONCURRENCY")
             .ok()
@@ -110,6 +136,7 @@ impl ApiState {
             auth: AuthState(Arc::new(auth)),
             public_base_url: Arc::new(public_base_url),
             data_version: Arc::new(std::env::var("TILESERVER_DATA_VERSION").unwrap_or_default()),
+            packs: None,
             dem: None,
             mask: None,
             graph: None,

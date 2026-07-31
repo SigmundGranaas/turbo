@@ -3742,6 +3742,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "turbo-geodata-pack"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "byteorder",
+ "sha2",
+ "tempfile",
+ "thiserror 1.0.69",
+ "toml 0.8.23",
+ "tracing",
+ "turbo-geo-frame",
+ "turbo-tiles-artifacts",
+ "turbo-tiles-elev",
+ "turbo-tiles-graph",
+ "turbo-tiles-mask",
+ "turbo-tiles-pathfind",
+]
+
+[[package]]
 name = "turbo-profile-no"
 version = "0.1.0"
 dependencies = [
@@ -3815,17 +3834,22 @@ dependencies = [
  "image",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx 0.8.6",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
+ "tokio-util",
+ "toml 0.8.23",
  "tower 0.4.13",
  "tower-http 0.5.2",
  "tracing",
  "turbo-geo-frame",
  "turbo-geodata-artifacts",
+ "turbo-geodata-pack",
  "turbo-profile-no",
+ "turbo-route-ffi",
  "turbo-tiles-artifacts",
  "turbo-tiles-auth",
  "turbo-tiles-core",
@@ -3890,6 +3914,7 @@ dependencies = [
  "tracing-subscriber",
  "turbo-geo-frame",
  "turbo-geodata-artifacts",
+ "turbo-geodata-pack",
  "turbo-profile-no",
  "turbo-tiles-admin",
  "turbo-tiles-api",

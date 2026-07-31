@@ -1,0 +1,30 @@
+[package]
+name = "turbo-geodata-pack"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Region packs — cutting one, naming one, and checking one.
+#
+# An L5 format, not an engine format: the engine never hears of a pack,
+# it is handed artifacts. This crate exists because the code was in the
+# CLI binary, which meant the server could not serve what the CLI could
+# build. Both depend on this now.
+
+[dependencies]
+turbo-tiles-artifacts.workspace = true
+turbo-tiles-elev.workspace = true
+turbo-tiles-mask.workspace = true
+turbo-tiles-graph.workspace = true
+turbo-geo-frame.workspace = true
+turbo-tiles-pathfind.workspace = true
+byteorder.workspace = true
+bytemuck.workspace = true
+toml = "0.8"
+sha2.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
