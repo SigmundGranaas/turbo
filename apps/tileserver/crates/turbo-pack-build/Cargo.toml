@@ -1,0 +1,44 @@
+[package]
+name = "turbo-pack-build"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Builds a routing pack for one region straight from Kartverket's public
+# services, with no database anywhere in the path.
+#
+# `turbo-tiles-build` does the same job from PostGIS staging, and both
+# write through the same format crates (`turbo-tiles-elev`, `-mask`,
+# `-graph`). That shared seam is the point: the two builders can be
+# pointed at the same region and their output compared, which is the
+# only way "does a device-built pack match a server-built one" is a
+# question with an answer.
+#
+# No sqlx, and nothing here needs a filesystem beyond the output
+# directory — so this crate is the half that can cross-compile to
+# Android.
+
+[dependencies]
+turbo-tiles-artifacts.workspace = true
+turbo-tiles-elev.workspace = true
+turbo-tiles-mask.workspace = true
+turbo-tiles-graph.workspace = true
+serde = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
+byteorder.workspace = true
+bytemuck.workspace = true
+zstd.workspace = true
+zip = { version = "2", default-features = false, features = ["deflate"] }
+geo.workspace = true
+quick-xml.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+sha2.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+futures = "0.3"
+
+[dev-dependencies]
+tempfile = "3"

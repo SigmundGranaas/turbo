@@ -178,6 +178,39 @@ enum Command {
         #[arg(long, default_value_t = 1000.0)]
         halo_m: f64,
     },
+
+    /// Build a region's DEM straight from Kartverket's WCS, with no
+    /// database and no national artifacts.
+    ///
+    /// `slice-pack` cuts a region out of the 209 MB national artifacts,
+    /// which means someone has to have built those first — and building
+    /// them needs PostGIS, GDAL and a multi-gigabyte ingest. This does
+    /// not: it fetches the coverage for one bbox and writes the same
+    /// `norway.dem` the server pipeline writes.
+    ///
+    /// Both paths go through `turbo-tiles-elev`, so the outputs are
+    /// comparable by construction. That is the point of it — a device
+    /// build is only trustworthy if it can be diffed against a server
+    /// build of the same ground.
+    BuildRegion {
+        /// Destination directory for the artifacts.
+        #[arg(long)]
+        dst: std::path::PathBuf,
+        /// WGS84 rectangle, `min_lon,min_lat,max_lon,max_lat`.
+        #[arg(long)]
+        bbox: String,
+        /// Terrain kept beyond the bbox, matching `slice-pack`'s default
+        /// so the two cut the same ground.
+        #[arg(long, default_value_t = 1000.0)]
+        halo_m: f64,
+        /// Concurrent WCS requests. Small on purpose: this is a public
+        /// service shared by the whole country.
+        #[arg(long, default_value_t = 4)]
+        concurrency: usize,
+        /// Override the WCS endpoint (testing, or a mirror).
+        #[arg(long, default_value = turbo_pack_build::wcs::DEFAULT_ENDPOINT)]
+        wcs_endpoint: String,
+    },
 }
 
 /// One entry in the shared ingestion catalog (`infra/k8s/base/ingest/catalog.toml`),
@@ -300,7 +333,62 @@ async fn main() -> Result<()> {
             slice_pack::run(&src, &dst, &region, halo_m)
                 .map_err(|e| anyhow::anyhow!("slice-pack failed: {e}"))
         }
+        Command::BuildRegion {
+            dst,
+            bbox,
+            halo_m,
+            concurrency,
+            wcs_endpoint,
+        } => build_region(&dst, &bbox, halo_m, concurrency, &wcs_endpoint).await,
     }
+}
+
+async fn build_region(
+    dst: &std::path::Path,
+    bbox: &str,
+    halo_m: f64,
+    concurrency: usize,
+    endpoint: &str,
+) -> anyhow::Result<()> {
+    let v: Result<Vec<f64>, _> = bbox.split(',').map(|p| p.trim().parse::<f64>()).collect();
+    let v = v.map_err(|e| anyhow::anyhow!("--bbox: {e}"))?;
+    let v: [f64; 4] = v.try_into().map_err(|v: Vec<f64>| {
+        anyhow::anyhow!(
+            "--bbox needs 4 comma-separated numbers \
+             (min_lon,min_lat,max_lon,max_lat), got {}",
+            v.len()
+        )
+    })?;
+
+    let region = turbo_pack_build::region_box(v[0], v[1], v[2], v[3], halo_m);
+    let plan = turbo_pack_build::wcs::plan(region);
+    println!(
+        "region {:.0} x {:.0} km in EPSG:25833, {} WCS requests",
+        region.width() / 1000.0,
+        region.height() / 1000.0,
+        plan.len()
+    );
+
+    let http = turbo_pack_build::default_client()?;
+
+    let report =
+        turbo_pack_build::build_dem(&http, endpoint, region, dst, concurrency, |done, total| {
+            if done % 5 == 0 || done == total {
+                println!("  {done}/{total} coverages");
+            }
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("build-region failed: {e}"))?;
+
+    println!(
+        "wrote {} — {} tiles ({} empty), {:.1} MB in {:.1}s",
+        report.dem_path.display(),
+        report.dem_tiles,
+        report.dem_tiles_all_nodata,
+        report.dem_bytes as f64 / 1e6,
+        report.seconds
+    );
+    Ok(())
 }
 
 fn init_tracing() {
