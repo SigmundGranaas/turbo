@@ -141,13 +141,25 @@ pub struct PackBuildResult {
 /// They are required, and the build refuses a list that does not cover
 /// the region rather than writing a pack with an empty water mask and
 /// no roads — which looks entirely healthy and routes through lakes.
+/// The region to cut, as one value.
+///
+/// Named fields rather than four positional `f64`s. Across the FFI the
+/// caller writes them out in order, and lon/lat transposition is both
+/// the easiest mistake to make here and one of the hardest to see: a
+/// transposed bbox is still a valid rectangle, just somewhere else, so
+/// the build succeeds and produces a pack of the wrong place.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct BuildBounds {
+    pub min_lon: f64,
+    pub min_lat: f64,
+    pub max_lon: f64,
+    pub max_lat: f64,
+}
+
 #[uniffi::export]
 pub fn build_pack(
     out_dir: String,
-    min_lon: f64,
-    min_lat: f64,
-    max_lon: f64,
-    max_lat: f64,
+    bounds: BuildBounds,
     halo_m: f64,
     kommuner: Vec<String>,
     http: Arc<dyn PackHttp>,
@@ -175,7 +187,12 @@ pub fn build_pack(
         turbo_pack_build::region::build_pack(
             &fetch,
             &out,
-            [min_lon, min_lat, max_lon, max_lat],
+            [
+                bounds.min_lon,
+                bounds.min_lat,
+                bounds.max_lon,
+                bounds.max_lat,
+            ],
             halo_m,
             &parsed,
             turbo_pack_build::wcs::DEFAULT_ENDPOINT,
@@ -258,10 +275,12 @@ mod tests {
     fn refuses_a_build_with_no_kommune() {
         let e = build_pack(
             "/tmp/never".into(),
-            15.0,
-            67.0,
-            15.1,
-            67.1,
+            BuildBounds {
+                min_lon: 15.0,
+                min_lat: 67.0,
+                max_lon: 15.1,
+                max_lat: 67.1,
+            },
             0.0,
             vec![],
             Arc::new(NoHttp),
@@ -276,10 +295,12 @@ mod tests {
     fn refuses_a_malformed_kommune_before_touching_the_network() {
         let e = build_pack(
             "/tmp/never2".into(),
-            15.0,
-            67.0,
-            15.1,
-            67.1,
+            BuildBounds {
+                min_lon: 15.0,
+                min_lat: 67.0,
+                max_lon: 15.1,
+                max_lat: 67.1,
+            },
             0.0,
             vec!["Sørfold".into()],
             Arc::new(NoHttp),

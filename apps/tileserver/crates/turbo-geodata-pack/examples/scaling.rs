@@ -497,12 +497,20 @@ fn synth_graph(dir: &Path, nodes: usize, edges: usize) -> Result<(), Box<dyn std
     let edge_at = |e: usize| {
         let (from, to) = if e < IN_EDGES {
             let f = e / 2;
-            let n = if e % 2 == 0 { f + 1 } else { f + IN_COLS };
+            let n = if e.is_multiple_of(2) {
+                f + 1
+            } else {
+                f + IN_COLS
+            };
             (f, if n < IN_NODES { n } else { f })
         } else {
             let k = (e - IN_EDGES) % (nodes - IN_NODES);
             let f = IN_NODES + k;
-            let n = if e % 2 == 0 { f + 1 } else { f + out_side };
+            let n = if e.is_multiple_of(2) {
+                f + 1
+            } else {
+                f + out_side
+            };
             (f, if n < nodes { n } else { f })
         };
         EdgeRecord {

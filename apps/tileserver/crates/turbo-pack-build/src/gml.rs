@@ -49,7 +49,7 @@ fn parse_pos_list(text: &str, dims: usize) -> Vec<Coord<f64>> {
         .split_ascii_whitespace()
         .filter_map(|t| t.parse::<f64>().ok())
         .collect();
-    let step = if dims >= 3 && nums.len() % 3 == 0 {
+    let step = if dims >= 3 && nums.len().is_multiple_of(3) {
         3
     } else {
         2
