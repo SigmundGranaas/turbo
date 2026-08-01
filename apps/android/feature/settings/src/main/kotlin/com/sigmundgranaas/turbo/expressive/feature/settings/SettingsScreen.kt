@@ -292,6 +292,35 @@ fun SettingsScreen(
                     selected = settings.routeEngine,
                     onSelect = { haptics.toggle(true); viewModel.setRouteEngine(it) },
                 )
+                // The pack the APK carries. Offered rather than installed:
+                // it is tens of megabytes of someone else's storage, spent
+                // on one region most users will never walk.
+                val bundled by viewModel.bundledPackState.collectAsStateWithLifecycle()
+                bundled?.let { p ->
+                    HorizontalDivider(color = cs.outlineVariant)
+                    ListRowItem(
+                        Icons.Rounded.Hiking,
+                        stringResource(R.string.settings_routing_bundled),
+                        subtitle = "${p.description} · ${formatSize(p.sizeBytes)}",
+                        trailing = {
+                            TextButton(
+                                onClick = viewModel::installBundledPack,
+                                enabled = !p.busy,
+                                modifier = Modifier.testTag("bundledPackAction"),
+                            ) {
+                                Text(
+                                    stringResource(
+                                        when {
+                                            p.busy -> R.string.settings_routing_bundled_working
+                                            p.installed -> R.string.settings_routing_bundled_remove
+                                            else -> R.string.settings_routing_bundled_install
+                                        },
+                                    ),
+                                )
+                            }
+                        },
+                    )
+                }
                 val solves by viewModel.routeSolves.collectAsStateWithLifecycle()
                 if (solves.isNotEmpty()) {
                     HorizontalDivider(color = cs.outlineVariant)
@@ -374,6 +403,9 @@ private fun GestureSlider(
  * to compare a device time against, and a two-state control could not
  * express it.
  */
+/** Megabytes, one decimal. The pack is tens of MB; finer is noise. */
+private fun formatSize(bytes: Long): String = "%.0f MB".format(bytes / 1_000_000.0)
+
 @Composable
 private fun RouteEnginePicker(
     selected: RouteEngine,

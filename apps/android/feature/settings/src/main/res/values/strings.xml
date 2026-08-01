@@ -58,4 +58,8 @@
     <string name="settings_routing_device">Phone</string>
     <string name="settings_routing_server">Server</string>
     <string name="settings_routing_clear">Clear</string>
+    <string name="settings_routing_bundled">Built-in region</string>
+    <string name="settings_routing_bundled_install">Install</string>
+    <string name="settings_routing_bundled_remove">Remove</string>
+    <string name="settings_routing_bundled_working">Working…</string>
 </resources>

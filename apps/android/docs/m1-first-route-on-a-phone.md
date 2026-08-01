@@ -11,37 +11,40 @@ This is the procedure for closing that, using the release APK from a
 GitHub Release rather than a debug build. The distinction is the whole
 point — see "Why not a debug build" below.
 
-## Prerequisite: the tileserver must serve packs
+## No server required
 
-The phone downloads its routing pack from
-`https://kart-api.sandring.no/v1/packs`. That endpoint ships in this
-same branch (P2/P3), so **the tileserver has to be deployed before the
-APK is useful.** If it is not, the symptom is quiet and easy to
-misread: the pack request 404s, `PackDownloader` returns
-`Outcome.Unsupported`, the region downloads as a map with no pack, and
-forcing the phone then reports *"No downloaded map covers this route."*
-That is a deployment state, not a routing defect.
+The pack normally arrives from the tileserver at
+`https://kart-api.sandring.no/v1/packs`. **That is not needed for this
+test.** The APK carries one real region in its assets, so the whole
+procedure runs with the radio off.
 
-Check it before installing anything:
+The bundled pack is `z12_2219_1001_2232_1014` — Sjunkhatten,
+53 × 53 km, cut from the production artifacts with `tileserver
+slice-pack`. Real terrain (552 DEM tiles) and a real trail graph
+(4 293 nodes, 9 712 directed edges), not a fixture: the solver's cost
+is a function of the graph it walks, so a toy graph would make the
+phone look fast for a reason that would not generalise.
 
-```
-curl -sI https://kart-api.sandring.no/v1/packs/z12_2218_1006_2221_1009/pack.toml
-```
+It is the region the artifacts cover, not the region you happen to be
+in. That is fine — planning a route does not require standing in it,
+and what is being measured is the engine.
 
-`200` (or `202`, meaning "building, come back") is ready. `404` means
-the deployed tileserver predates the pack endpoint.
+It is **not installed automatically**: 55 MB of storage spent on one
+region most users will never walk should be an explicit choice.
 
 ## The procedure
 
-1. **Install** the `arm64-v8a` APK from the release. It is signed with
-   the committed sideload key, so it reinstalls over an earlier build
-   without a signature conflict.
+1. **Install** the `arm64-v8a` APK from the release (~69 MB, of which
+   55 MB is the pack). It is signed with the committed sideload key, so
+   it reinstalls over an earlier build without a signature conflict.
 
-2. **Download a region containing trails.** Map → layers sheet →
-   "Download this area". The dialog says either *"Includes trail
-   routing"* or *"Too large for offline routing"* — you need the first,
-   so zoom in until you see it. Regions over 5 500 km² get a map and no
-   pack, by design.
+2. **Install the built-in region.** Settings → Routing engine →
+   *Built-in region · Sjunkhatten · 53 × 53 km* → **Install**. That
+   unpacks it into the same pack store a download would have written
+   to, so everything downstream takes the identical path.
+
+   Aeroplane mode is a good idea here: it proves the route is not
+   quietly coming from the network.
 
 3. **Force the phone.** Settings → Routing engine → **Phone**. This
    exists precisely because the default (Auto) is server-first: on a
@@ -51,7 +54,11 @@ the deployed tileserver predates the pack endpoint.
    cannot answer, you see a failure instead of a server route quietly
    standing in for it.
 
-4. **Plan a route** inside the downloaded region.
+4. **Plan a route** inside the region — anywhere around
+   **15.03–16.26°E, 66.83–67.31°N**. Search for *Sjunkhatten* or pan
+   there; the trail network is densest near its western edge, around
+   15.04°E 67.07°N. The region's diagonal is ~75 km, so all three
+   distance buckets are reachable.
 
 5. **Read the numbers.** Settings → Routing engine, below the picker:
    one row per solve, newest first —
@@ -86,12 +93,21 @@ likely causes are specific:
 |---|---|
 | `libturbo_route_ffi.so` / `UnsatisfiedLinkError` | the native library is missing for this ABI, or R8 stripped the bindings |
 | `capacity` / `FieldOrder` / a JNA reflection error | R8 renamed the JNA struct fields — the `-keep` rules regressed |
-| "No downloaded map covers this route" | no pack for these points; step 2 did not produce one (see the prerequisite) |
+| "No downloaded map covers this route" | the waypoints are outside the bundled region, or step 2 was skipped |
 
 The first two should be impossible: `tools/verify-release-apk.py` runs
-in the release workflow and fails the publish if the `.so` is absent or
-the uniffi classes were stripped or renamed. If one appears anyway, the
-guard has a gap worth fixing before anything else.
+in the release workflow and fails the publish if the `.so` is absent,
+the uniffi classes were stripped or renamed, or the bundled pack is
+missing its manifest. If one appears anyway, the guard has a gap worth
+fixing before anything else.
+
+## When the tileserver comes back
+
+Nothing here changes. The downloaded-pack path is untouched and still
+the default route to a pack; the bundled region is an addition, and a
+downloaded pack for another region sits beside it in the same store.
+Remove the built-in one from the same settings row to get the 55 MB
+back.
 
 ## Why not a debug build
 

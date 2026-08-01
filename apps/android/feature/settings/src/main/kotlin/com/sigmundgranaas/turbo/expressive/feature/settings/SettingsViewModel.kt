@@ -9,7 +9,9 @@ import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
 import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
 import com.sigmundgranaas.turbo.expressive.domain.UserSettings
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -26,6 +28,7 @@ class SettingsViewModel @Inject constructor(
     // them to the wrong argument.
     private val routeDiagnostics: com.sigmundgranaas.turbo.expressive.core.data.RouteDiagnostics =
         com.sigmundgranaas.turbo.expressive.core.data.RouteDiagnostics(),
+    private val bundledPack: com.sigmundgranaas.turbo.expressive.core.data.BundledRoutingPack? = null,
 ) : ViewModel() {
 
     val state: StateFlow<UserSettings> = repository.settings.stateIn(
@@ -64,6 +67,30 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { repository.setRouteEngine(engine) }
 
     fun clearRouteSolves() = routeDiagnostics.clear()
+
+    /** The APK's own pack: what it is, how big, and whether it is unpacked. */
+    data class BundledPackState(
+        val description: String,
+        val sizeBytes: Long,
+        val installed: Boolean,
+        val busy: Boolean = false,
+    )
+
+    private val _bundledPack = MutableStateFlow(bundledPack?.let {
+        BundledPackState(it.description, it.sizeBytes, it.isInstalled())
+    })
+    val bundledPackState: StateFlow<BundledPackState?> = _bundledPack.asStateFlow()
+
+    fun installBundledPack() {
+        val pack = bundledPack ?: return
+        val current = _bundledPack.value ?: return
+        if (current.busy) return
+        _bundledPack.value = current.copy(busy = true)
+        viewModelScope.launch {
+            if (current.installed) pack.uninstall() else pack.install()
+            _bundledPack.value = current.copy(installed = pack.isInstalled(), busy = false)
+        }
+    }
 
     fun setExperimentalTrails(enabled: Boolean) = viewModelScope.launch { repository.setExperimentalTrails(enabled) }
     fun setExperimentalClouds(enabled: Boolean) = viewModelScope.launch { repository.setExperimentalClouds(enabled) }

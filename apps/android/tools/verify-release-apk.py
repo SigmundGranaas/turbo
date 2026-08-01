@@ -8,7 +8,7 @@ desktop or an emulator, and all of them produce an APK that installs,
 launches, browses maps, and then fails the moment someone asks for a
 route in a downloaded region.
 
-Three things are checked, in the order they would bite:
+Four things are checked, in the order they would bite:
 
 1. **The engine is in the APK.** `:core:routing-android` and
    `:core:turbomap-android` keep separate ABI lists, and the release
@@ -23,6 +23,11 @@ Three things are checked, in the order they would bite:
    *strings*, resolved by reflection at runtime. Renaming the fields
    leaves the strings untouched and the failure is invisible until Rust
    is called.
+
+4. **The bundled pack is complete.** The APK carries one real region so
+   the phone can route with no server. `PackStore` finds a pack by its
+   `pack.toml`, so a pack missing that file installs and is then
+   invisible — which reads as a routing defect and is a packaging one.
 
 Exit code is 0 when the APK is fit to publish, 1 otherwise, with the
 reason on stderr.
@@ -44,6 +49,14 @@ REQUIRED_LIBS = ["libturbo_route_ffi.so", "libjnidispatch.so"]
 # The uniffi structs JNA reflects over, and the field names its
 # @Structure.FieldOrder annotations look up by string.
 REQUIRED_FIELD_NAMES = ["capacity", "len", "data", "code", "error_buf"]
+
+# The pack that rides in the APK so the phone can route with no server
+# at all. Its manifest is what `PackStore` scans for; without that file
+# the other 53 MB are dead weight and every forced-device route reports
+# "no downloaded map covers this route" — which reads as a routing
+# defect and is actually a packaging one.
+BUNDLED_PACK_PREFIX = "assets/bundled-pack/"
+BUNDLED_PACK_MANIFEST = "pack.toml"
 
 # Enough of the generated surface that a partial strip is still caught.
 REQUIRED_CLASSES = [
@@ -80,6 +93,25 @@ def main() -> int:
                     f"        against the release `splits` block in app/build.gradle.kts.\n"
                     f"        Shipped: {shipped or '(no .so at all)'}"
                 )
+
+        # 1b. The bundled pack, if this build ships one.
+        pack_files = [n for n in names if n.startswith(BUNDLED_PACK_PREFIX)]
+        if not pack_files:
+            problems.append(
+                f"no bundled pack under {BUNDLED_PACK_PREFIX}. Without it the phone\n"
+                f"        cannot route until the tileserver is reachable, which is the\n"
+                f"        situation this pack exists for."
+            )
+        else:
+            keys = {n[len(BUNDLED_PACK_PREFIX):].split("/")[0] for n in pack_files}
+            for key in sorted(keys):
+                manifest = f"{BUNDLED_PACK_PREFIX}{key}/{BUNDLED_PACK_MANIFEST}"
+                if manifest not in names:
+                    problems.append(
+                        f"bundled pack '{key}' has no {BUNDLED_PACK_MANIFEST}. PackStore\n"
+                        f"        scans for that file, so the pack would install and then\n"
+                        f"        be invisible."
+                    )
 
         # 2 + 3. The Kotlin half, read straight out of the DEX. Class
         # names and annotation strings both live in the string pool, so
@@ -126,7 +158,14 @@ def main() -> int:
             fail(p)
         return 1
 
-    print(f"{args.apk}: routing engine present ({args.abi}), bindings intact.")
+    with zipfile.ZipFile(args.apk) as z:
+        packed = sum(
+            i.file_size for i in z.infolist() if i.filename.startswith(BUNDLED_PACK_PREFIX)
+        )
+    print(
+        f"{args.apk}: routing engine present ({args.abi}), bindings intact, "
+        f"bundled pack {packed / 1e6:.0f} MB."
+    )
     return 0
 
 

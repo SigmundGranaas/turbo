@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.core.routing
 
 import android.content.Context
+import com.sigmundgranaas.turbo.expressive.core.data.BundledRoutingPack
 import com.sigmundgranaas.turbo.expressive.core.data.RouteDiagnostics
 import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
@@ -32,6 +33,20 @@ object RoutingModule {
     @Singleton
     fun providePackStore(@ApplicationContext context: Context): PackStore =
         PackStore(File(context.filesDir, RoutingPack.DIR))
+
+    /**
+     * The pack that rides in the APK, so the phone can route with no
+     * server at all. Shares the pack store's root, so once installed it
+     * is indistinguishable from a downloaded one.
+     */
+    @Provides
+    @Singleton
+    fun provideBundledRoutingPack(
+        @ApplicationContext context: Context,
+    ): BundledRoutingPack = AssetBundledPack(
+        assets = PackAssets.of(context.assets),
+        root = File(context.filesDir, RoutingPack.DIR),
+    )
 
     @Provides
     @Singleton

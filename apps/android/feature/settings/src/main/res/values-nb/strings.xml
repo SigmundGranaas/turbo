@@ -39,4 +39,8 @@
     <string name="settings_routing_device">Telefon</string>
     <string name="settings_routing_server">Server</string>
     <string name="settings_routing_clear">T\u00f8m</string>
+    <string name="settings_routing_bundled">Innebygd omr\u00e5de</string>
+    <string name="settings_routing_bundled_install">Installer</string>
+    <string name="settings_routing_bundled_remove">Fjern</string>
+    <string name="settings_routing_bundled_working">Jobber…</string>
 </resources>
