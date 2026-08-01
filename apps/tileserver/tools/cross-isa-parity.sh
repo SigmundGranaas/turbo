@@ -30,14 +30,18 @@ if ! command -v cargo-ndk >/dev/null; then
     exit 0
 fi
 
+# `-p` is not optional. Without it cargo resolves features across the
+# whole workspace, so the Android build drags in axum and hyper from the
+# tileserver binary — minutes of compile and gigabytes of target dir for
+# code that cannot even be reached from this bin.
 echo "building host probe..."
-cargo build -q --release --bin route-probe
+cargo build -q --release -p turbo-route-ffi --bin route-probe
 
 echo "building aarch64-android probe (static)..."
 RUSTFLAGS="-C target-feature=+crt-static" \
-    cargo ndk -t arm64-v8a build -q --release --no-default-features --bin route-probe
+    cargo ndk -t arm64-v8a build -q --release -p turbo-route-ffi --no-default-features --bin route-probe
 
-host=$(cargo run -q --release --bin route-probe -- "$PACK")
+host=$(cargo run -q --release -p turbo-route-ffi --bin route-probe -- "$PACK")
 droid=$(qemu-aarch64-static target/aarch64-linux-android/release/route-probe "$PACK")
 
 # `arch` and `os` differ by construction; everything below them must not.

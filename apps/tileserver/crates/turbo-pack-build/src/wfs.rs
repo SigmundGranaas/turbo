@@ -96,25 +96,20 @@ pub struct Trail {
 }
 
 /// Fetch one cell and return its trails, projected.
-pub async fn fetch_cell(
-    http: &reqwest::Client,
+pub fn fetch_cell(
+    http: &dyn crate::fetch::Fetch,
     endpoint: &str,
     cell: BboxWgs84,
 ) -> Result<Vec<Trail>, BuildError> {
-    let resp = http
-        .get(url(endpoint, cell))
-        .send()
-        .await
-        .map_err(|e| BuildError::Fetch(format!("WFS request: {e}")))?;
-    let status = resp.status();
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| BuildError::Fetch(format!("WFS body: {e}")))?;
-    if !status.is_success() {
-        let head: String = body.chars().take(200).collect();
-        return Err(BuildError::Fetch(format!("WFS {status}: {head}")));
+    let resp = http.get(&url(endpoint, cell))?;
+    if !resp.is_success() {
+        return Err(BuildError::Fetch(format!(
+            "WFS {}: {}",
+            resp.status,
+            resp.head(200)
+        )));
     }
+    let body = String::from_utf8_lossy(&resp.body).into_owned();
 
     let (matched, returned) = counts(&body);
     if let (Some(m), Some(r)) = (matched, returned) {

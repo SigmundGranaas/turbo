@@ -120,6 +120,9 @@ dependencies {
     implementation(project(":core:map"))
 
     // JNA for Android (@aar bundles libjnidispatch.so for each ABI).
+    // The pack builder's HTTP, lent from Kotlin. The native library
+    // ships no client of its own — see OkHttpPackHttp.
+    implementation(libs.okhttp)
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
     implementation(libs.kotlinx.coroutines.android)
 

@@ -118,26 +118,21 @@ pub fn url(endpoint: &str, b: BoxUtm) -> String {
 }
 
 /// Fetch and decode one request box.
-pub async fn fetch(
-    http: &reqwest::Client,
+pub fn fetch(
+    http: &dyn crate::fetch::Fetch,
     endpoint: &str,
     b: BoxUtm,
 ) -> Result<crate::geotiff::Raster, BuildError> {
     let u = url(endpoint, b);
-    let resp = http
-        .get(&u)
-        .send()
-        .await
-        .map_err(|e| BuildError::Fetch(format!("WCS request: {e}")))?;
-    let status = resp.status();
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| BuildError::Fetch(format!("WCS body: {e}")))?;
-    if !status.is_success() {
-        let head = String::from_utf8_lossy(&bytes[..bytes.len().min(200)]).to_string();
-        return Err(BuildError::Fetch(format!("WCS {status}: {head}")));
+    let resp = http.get(&u)?;
+    if !resp.is_success() {
+        return Err(BuildError::Fetch(format!(
+            "WCS {}: {}",
+            resp.status,
+            resp.head(200)
+        )));
     }
+    let bytes = resp.body;
     let r = crate::geotiff::decode(&bytes)?;
 
     // The server is free to honour WIDTH/HEIGHT loosely. Check the

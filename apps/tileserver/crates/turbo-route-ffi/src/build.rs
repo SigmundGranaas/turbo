@@ -15,18 +15,84 @@
 //! solver's observer uses inverted: there, a host that wants to stop
 //! simply stops asking; here it must be able to say so mid-fetch.
 //!
-//! # Why a tokio runtime here
+//! # The host does the fetching
 //!
-//! `turbo-pack-build` is async because the fetch is: dozens of coverage
-//! requests, and doing them one at a time triples the wall clock. uniffi
-//! hosts have no runtime, so one is created for the call and dropped
-//! with it. That is the right trade for an operation measured in
-//! minutes and started by hand.
+//! This library carries no HTTP client. [`PackHttp`] is a callback the
+//! host implements — on Android with the OkHttp instance the app
+//! already has, complete with its connection pool, retries, proxy and
+//! certificate handling.
+//!
+//! That is not tidiness, it is size. Linking `reqwest` + `rustls` +
+//! `tokio` in here measured **+3.2 MB per ABI**, roughly tripling the
+//! library, and almost none of it was the GML and GeoTIFF parsers this
+//! crate exists for — it was a second TLS implementation and a second
+//! async runtime sitting next to the ones the app already ships.
+//!
+//! It also means one fewer place for a certificate or proxy policy to
+//! disagree with the rest of the app.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::RouteError;
+
+/// One HTTP response, as the host saw it.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct HttpResponse {
+    /// The status code. Non-2xx is reported, not thrown: the builder's
+    /// diagnostics quote the status *and* the body — a WCS 400 carries
+    /// an XML explanation worth surfacing — so a host that collapsed
+    /// failures into an exception would lose it.
+    pub status: u16,
+    pub body: Vec<u8>,
+}
+
+/// How the library reaches Kartverket, supplied by the host.
+///
+/// Implementations must be safe to call from several threads at once:
+/// the DEM fetch runs a few requests in parallel. They must also apply
+/// a generous timeout — a cold WCS coverage can take minutes, and a
+/// default 30-second client will fail builds that would have worked.
+#[uniffi::export(with_foreign)]
+pub trait PackHttp: Send + Sync {
+    fn get(&self, url: String) -> Result<HttpResponse, RouteError>;
+    /// POST a JSON body. Used only by the N50 order API.
+    fn post_json(&self, url: String, body: String) -> Result<HttpResponse, RouteError>;
+}
+
+/// Adapts the host's callback to the builder's port.
+struct HostFetch(Arc<dyn PackHttp>);
+
+impl turbo_pack_build::fetch::Fetch for HostFetch {
+    fn get(
+        &self,
+        url: &str,
+    ) -> Result<turbo_pack_build::fetch::Response, turbo_pack_build::BuildError> {
+        let r = self
+            .0
+            .get(url.to_string())
+            .map_err(|e| turbo_pack_build::BuildError::Fetch(e.to_string()))?;
+        Ok(turbo_pack_build::fetch::Response {
+            status: r.status,
+            body: r.body,
+        })
+    }
+
+    fn post_json(
+        &self,
+        url: &str,
+        body: &str,
+    ) -> Result<turbo_pack_build::fetch::Response, turbo_pack_build::BuildError> {
+        let r = self
+            .0
+            .post_json(url.to_string(), body.to_string())
+            .map_err(|e| turbo_pack_build::BuildError::Fetch(e.to_string()))?;
+        Ok(turbo_pack_build::fetch::Response {
+            status: r.status,
+            body: r.body,
+        })
+    }
+}
 
 /// Which stage a build is in, for a host that wants to label its bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -84,6 +150,7 @@ pub fn build_pack(
     max_lat: f64,
     halo_m: f64,
     kommuner: Vec<String>,
+    http: Arc<dyn PackHttp>,
     progress: Arc<dyn PackBuildProgress>,
 ) -> Result<PackBuildResult, RouteError> {
     if kommuner.is_empty() {
@@ -102,28 +169,21 @@ pub fn build_pack(
     let cancelled = Arc::new(AtomicBool::new(false));
     let flag = cancelled.clone();
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        // Small on purpose. The work is network-bound against public
-        // services, and a phone spawning a thread per core to hammer
-        // Kartverket is the behaviour that gets an app blocked.
-        .worker_threads(2)
-        .enable_all()
-        .build()
-        .map_err(|e| RouteError::Internal(format!("runtime: {e}")))?;
-
-    let http = turbo_pack_build::default_client()
-        .map_err(|e| RouteError::Internal(format!("http client: {e}")))?;
-
+    let fetch = HostFetch(http);
     let out = std::path::PathBuf::from(&out_dir);
-    let report = runtime.block_on(async {
+    let report = {
         turbo_pack_build::region::build_pack(
-            &http,
+            &fetch,
             &out,
             [min_lon, min_lat, max_lon, max_lat],
             halo_m,
             &parsed,
             turbo_pack_build::wcs::DEFAULT_ENDPOINT,
             turbo_pack_build::wfs::DEFAULT_ENDPOINT,
+            // Two requests in flight. Small on purpose: this is a public
+            // service shared by everyone in the country, and a phone
+            // opening a socket per core is the behaviour that gets an
+            // app blocked.
             2,
             |phase, done, total| {
                 if flag.load(Ordering::Relaxed) {
@@ -141,8 +201,7 @@ pub fn build_pack(
                 }
             },
         )
-        .await
-    });
+    };
 
     if cancelled.load(Ordering::Relaxed) {
         // Leave nothing behind. A half-built pack has a DEM and no
@@ -177,6 +236,21 @@ mod tests {
         }
     }
 
+    /// An HTTP callback that fails the test if it is ever reached.
+    ///
+    /// The point of both tests below is that the argument check happens
+    /// *before* any network work, so a stub that quietly returned an
+    /// empty body would let a regression through silently.
+    struct NoHttp;
+    impl PackHttp for NoHttp {
+        fn get(&self, url: String) -> Result<HttpResponse, RouteError> {
+            panic!("the network must not be touched: GET {url}");
+        }
+        fn post_json(&self, url: String, _: String) -> Result<HttpResponse, RouteError> {
+            panic!("the network must not be touched: POST {url}");
+        }
+    }
+
     /// No kommune means no N50, and N50 is water, glaciers and roads.
     /// Building anyway would write a pack that opens and routes through
     /// lakes, so it is refused at the boundary rather than later.
@@ -190,6 +264,7 @@ mod tests {
             67.1,
             0.0,
             vec![],
+            Arc::new(NoHttp),
             Arc::new(Never),
         )
         .unwrap_err();
@@ -207,6 +282,7 @@ mod tests {
             67.1,
             0.0,
             vec!["Sørfold".into()],
+            Arc::new(NoHttp),
             Arc::new(Never),
         )
         .unwrap_err();

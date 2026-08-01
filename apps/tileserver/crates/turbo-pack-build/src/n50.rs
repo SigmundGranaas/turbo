@@ -88,17 +88,18 @@ pub fn download_url(order: &serde_json::Value) -> Option<String> {
 }
 
 /// Order and download one kommune's N50 GML, returning the zip bytes.
-pub async fn fetch_zip(http: &reqwest::Client, kommune: &Kommune) -> Result<Vec<u8>, BuildError> {
-    let order: serde_json::Value = http
-        .post(format!("{API}/order"))
-        .json(&order_body(N50_UUID, kommune, "GML"))
-        .send()
-        .await
-        .map_err(|e| BuildError::Fetch(format!("N50 order: {e}")))?
-        .error_for_status()
-        .map_err(|e| BuildError::Fetch(format!("N50 order rejected: {e}")))?
-        .json()
-        .await
+pub fn fetch_zip(http: &dyn crate::fetch::Fetch, kommune: &Kommune) -> Result<Vec<u8>, BuildError> {
+    let body = serde_json::to_string(&order_body(N50_UUID, kommune, "GML"))
+        .map_err(|e| BuildError::Logic(format!("N50 order body: {e}")))?;
+    let resp = http.post_json(&format!("{API}/order"), &body)?;
+    if !resp.is_success() {
+        return Err(BuildError::Fetch(format!(
+            "N50 order rejected: {} {}",
+            resp.status,
+            resp.head(200)
+        )));
+    }
+    let order: serde_json::Value = serde_json::from_slice(&resp.body)
         .map_err(|e| BuildError::Decode(format!("N50 order not JSON: {e}")))?;
 
     let url = download_url(&order).ok_or_else(|| {
@@ -109,17 +110,15 @@ pub async fn fetch_zip(http: &reqwest::Client, kommune: &Kommune) -> Result<Vec<
         ))
     })?;
 
-    let bytes = http
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| BuildError::Fetch(format!("N50 download: {e}")))?
-        .error_for_status()
-        .map_err(|e| BuildError::Fetch(format!("N50 download rejected: {e}")))?
-        .bytes()
-        .await
-        .map_err(|e| BuildError::Fetch(format!("N50 body: {e}")))?;
-    Ok(bytes.to_vec())
+    let resp = http.get(&url)?;
+    if !resp.is_success() {
+        return Err(BuildError::Fetch(format!(
+            "N50 download rejected: {} {}",
+            resp.status,
+            resp.head(200)
+        )));
+    }
+    Ok(resp.body)
 }
 
 /// Extract one named layer's GML from an N50 zip.

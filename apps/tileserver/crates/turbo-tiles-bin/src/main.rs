@@ -412,7 +412,6 @@ async fn build_region(
                 }
             },
         )
-        .await
         .map_err(|e| anyhow::anyhow!("build-region failed: {e}"))?;
         println!(
             "wrote {} — {} tiles ({} empty), {:.1} MB in {:.1}s. \
@@ -454,7 +453,6 @@ async fn build_region(
             }
         },
     )
-    .await
     .map_err(|e| anyhow::anyhow!("build-region failed: {e}"))?;
 
     println!(

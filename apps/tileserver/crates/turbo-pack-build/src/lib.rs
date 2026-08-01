@@ -38,6 +38,7 @@
 //! the one place this pipeline fetches more than the region needs.
 
 pub mod dem;
+pub mod fetch;
 pub mod geotiff;
 pub mod gml;
 pub mod graph;
@@ -68,19 +69,14 @@ pub enum BuildError {
     Logic(String),
 }
 
-/// An HTTP client configured for these services.
+/// A [`fetch::Fetch`] backed by `reqwest`, for callers that want one.
 ///
-/// Lives here rather than at the call site so the timeout and the TLS
-/// policy travel with the code that knows what the services need: the
-/// WCS can take minutes on a cold coverage, and the native trust store
-/// matters behind a TLS-intercepting proxy in CI.
-pub fn default_client() -> Result<reqwest::Client, BuildError> {
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .user_agent(concat!("turbo-pack-build/", env!("CARGO_PKG_VERSION")))
-        .tls_built_in_native_certs(true)
-        .build()
-        .map_err(|e| BuildError::Fetch(format!("build http client: {e}")))
+/// Behind the `net` feature: the Android build supplies its own,
+/// backed by the HTTP client the app already ships, and leaves the
+/// whole TLS and runtime stack out of the library.
+#[cfg(feature = "net")]
+pub fn default_client() -> Result<fetch::net::HttpFetch, BuildError> {
+    fetch::net::HttpFetch::new()
 }
 
 /// Kommune numbers whose N50 data a region needs.
@@ -111,39 +107,56 @@ pub struct RegionReport {
 /// changes if the builder ever runs on phones rather than one server:
 /// N clients each pulling a region is different traffic in kind, not
 /// just in volume.
-pub async fn build_dem(
-    http: &reqwest::Client,
+pub fn build_dem(
+    http: &dyn fetch::Fetch,
     endpoint: &str,
     region: wcs::BoxUtm,
     out_dir: &std::path::Path,
     concurrency: usize,
     mut on_progress: impl FnMut(usize, usize),
 ) -> Result<RegionReport, BuildError> {
-    use futures::StreamExt;
-
     let started = std::time::Instant::now();
     let plan = wcs::plan(region);
     let total = plan.len();
     let reserved = dem::expected_tiles(&plan);
     let mut writer = dem::DemWriter::create(out_dir, reserved)?;
 
-    // Fetch concurrently but write in plan order: the tile directory is
-    // an rstar keyed on position, so order does not affect correctness —
-    // it affects whether two builds of the same region produce the same
-    // bytes, which is what makes them comparable.
-    let mut stream = futures::stream::iter(plan.iter().copied().map(|b| {
-        let http = http.clone();
-        let endpoint = endpoint.to_string();
-        async move { (b, wcs::fetch(&http, &endpoint, b).await) }
-    }))
-    .buffered(concurrency.max(1));
-
+    // Fetch a few at a time but write in plan order: the tile directory
+    // is an rstar keyed on position, so order does not affect
+    // correctness — it affects whether two builds of the same region
+    // produce the same bytes, which is what makes them comparable.
+    //
+    // Scoped threads rather than a runtime. `Fetch` is blocking, the
+    // window is a handful of requests, and a chunk at a time keeps the
+    // ordering obvious: everything in a chunk runs together, and the
+    // results are consumed in the order they were planned.
+    let width = concurrency.max(1);
     let mut done = 0usize;
-    while let Some((_, result)) = stream.next().await {
-        let raster = result?;
-        writer.add(&raster)?;
-        done += 1;
-        on_progress(done, total);
+    for chunk in plan.chunks(width) {
+        let results: Vec<Result<crate::geotiff::Raster, BuildError>> =
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = chunk
+                    .iter()
+                    .map(|b| {
+                        let b = *b;
+                        scope.spawn(move || wcs::fetch(http, endpoint, b))
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| {
+                        h.join().unwrap_or_else(|_| {
+                            Err(BuildError::Fetch("WCS worker panicked".into()))
+                        })
+                    })
+                    .collect()
+            });
+        for result in results {
+            let raster = result?;
+            writer.add(&raster)?;
+            done += 1;
+            on_progress(done, total);
+        }
     }
 
     let tiles = writer.tiles_written;

@@ -60,13 +60,48 @@ fn main() {
 
     // The same two points the host round-trip test uses, on the
     // Sjunkhatten network the CI pack was cut from.
-    let from = GeoPoint {
-        lon: 15.04048,
-        lat: 67.065016,
-    };
-    let to = GeoPoint {
-        lon: 15.0555,
-        lat: 67.0685,
+    //
+    // Overridable, but only as all four together: the cross-ISA gate
+    // depends on the default pair, and a probe that silently accepted
+    // two of four would compare different routes on the two
+    // architectures and call them equal.
+    let args: Vec<String> = std::env::args().skip(2).collect();
+    let (from, to) = match args.len() {
+        0 => (
+            GeoPoint {
+                lon: 15.04048,
+                lat: 67.065016,
+            },
+            GeoPoint {
+                lon: 15.0555,
+                lat: 67.0685,
+            },
+        ),
+        4 => {
+            let v: Result<Vec<f64>, _> = args.iter().map(|a| a.parse::<f64>()).collect();
+            let v = match v {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("coordinates must be numbers: {e}");
+                    std::process::exit(64);
+                }
+            };
+            (
+                GeoPoint {
+                    lon: v[0],
+                    lat: v[1],
+                },
+                GeoPoint {
+                    lon: v[2],
+                    lat: v[3],
+                },
+            )
+        }
+        n => {
+            eprintln!("usage: route-probe <pack-dir> [from_lon from_lat to_lon to_lat]");
+            eprintln!("got {n} coordinates, expected 0 or 4");
+            std::process::exit(64);
+        }
     };
 
     let route = match engine.plan(vec![from, to], RouteOptions::default()) {

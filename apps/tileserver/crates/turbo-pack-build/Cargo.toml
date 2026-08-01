@@ -19,6 +19,15 @@ publish.workspace = true
 # directory — so this crate is the half that can cross-compile to
 # Android.
 
+[features]
+# The `reqwest`-backed `Fetch`. On by default so the server and the CLI
+# are unchanged; OFF for Android, where the host fetches through the
+# HTTP client the app already ships. Measured saving: 3.2 MB per ABI,
+# almost all of it `reqwest` + `rustls` + `tokio` — a second TLS stack
+# and a second async runtime next to OkHttp.
+default = ["net"]
+net = ["dep:reqwest"]
+
 [dependencies]
 turbo-tiles-artifacts.workspace = true
 turbo-tiles-elev.workspace = true
@@ -32,14 +41,12 @@ zstd.workspace = true
 zip = { version = "2", default-features = false, features = ["deflate"] }
 geo.workspace = true
 quick-xml.workspace = true
-reqwest.workspace = true
+reqwest = { workspace = true, features = ["blocking"], optional = true }
 serde_json.workspace = true
 chrono.workspace = true
 sha2.workspace = true
 toml = "0.8"
 tracing.workspace = true
-tokio.workspace = true
-futures = "0.3"
 
 [dev-dependencies]
 tempfile = "3"

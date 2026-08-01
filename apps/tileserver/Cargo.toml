@@ -43,7 +43,12 @@ turbo-profile-no = { path = "crates/turbo-profile-no" }
 turbo-route-ffi = { path = "crates/turbo-route-ffi" }
 turbo-geodata-artifacts = { path = "crates/turbo-geodata-artifacts" }
 turbo-geodata-pack = { path = "crates/turbo-geodata-pack" }
-turbo-pack-build = { path = "crates/turbo-pack-build" }
+# `default-features = false` HERE, not at the use site: a member that
+# writes `default-features = false` against an inherited workspace
+# dependency is silently ignored unless the workspace says so too, so
+# the Android build would keep linking reqwest while looking like it
+# had opted out. Consumers that want the HTTP client ask for `net`.
+turbo-pack-build = { path = "crates/turbo-pack-build", default-features = false }
 turbo-tiles-core = { path = "crates/turbo-tiles-core" }
 turbo-tiles-db = { path = "crates/turbo-tiles-db" }
 turbo-tiles-mvt = { path = "crates/turbo-tiles-mvt" }

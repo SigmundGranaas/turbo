@@ -198,31 +198,44 @@ builder makes this testable; it does not make it absent. E1 already
 established the solver is cross-ISA deterministic, so the exposure is in
 the inputs, not the solve.
 
-**APK size — measured, and I was wrong about it.** I guessed this would
-be small because the parsers are small. The parsers *are* small; the
-HTTP stack is not. Measured on `aarch64-linux-android`, release:
+**APK size — measured twice, and wrong the first time.** I guessed this
+would be small because the parsers are small. The parsers *are* small;
+the HTTP stack was not. Measured on `aarch64-linux-android`, release:
 
-| | libturbo_route_ffi.so |
-|---|---|
-| routing only | 1.59 MB |
-| with the pack builder | 4.79 MB |
+| | arm64 | armv7 |
+|---|---|---|
+| routing only | 1.59 MB | — |
+| + pack builder, own HTTP client | 4.79 MB | 3.41 MB |
+| + pack builder, **host fetches** | **2.45 MB** | **1.95 MB** |
 
-**+3.2 MB per ABI**, roughly tripling the library, and almost none of it
-is GML or TIFF — it is `reqwest` + `rustls` + `tokio`, a second TLS
-stack and a second async runtime inside an app that already has OkHttp.
+The middle row was **+3.2 MB per ABI**, roughly tripling the library,
+and almost none of it was GML or TIFF — it was `reqwest` + `rustls` +
+`tokio`, a second TLS implementation and a second async runtime inside
+an app that already ships OkHttp.
 
-That is still far cheaper than the 53 MB bundle it replaces, so it is
-not disqualifying. But the duplication suggests a better shape: have the
-*host* fetch and hand the Rust side bytes, keeping only the decode,
-rasterise, node and write steps in the library. The builder is already
-split that way internally — `geotiff`, `gml`, `mask`, `node`, `graph`
-and `pack` never touch the network; only `wcs`, `wfs` and `n50` do — so
-inverting the fetch is a matter of taking a callback rather than a
-`reqwest::Client`. It would drop most of the 3.2 MB and reuse the
-retry, proxy and certificate handling the app already has.
+So the fetch is inverted. `turbo-pack-build::fetch::Fetch` is a
+blocking two-method port (GET, POST-JSON) and the `net` feature behind
+which the `reqwest` implementation lives is **off** for Android. The
+host passes one in: `OkHttpPackHttp` lends the app's existing client,
+so the builder inherits its connection pool, proxy handling and trust
+configuration instead of having a second opinion about all three.
 
-Not done here, because it is a real refactor and the current shape
-works. Worth doing before this ships to users.
+That took the cost to **+0.86 MB per ABI** — a 73 % reduction, and now
+the increment really is the parsers.
+
+Two things fell out of it worth recording:
+
+- **The async was never load-bearing.** It existed because `reqwest` is
+  async. The concurrency that mattered — a few DEM tiles in flight — is
+  `std::thread::scope` over chunks of the plan, which also makes the
+  write order obviously the plan order, and the plan order is what makes
+  two builds of the same region byte-comparable.
+- **`default-features = false` has to be on the *workspace* dependency.**
+  Writing it at the use site against an inherited workspace dependency
+  is silently ignored — cargo warns, but the build succeeds. The Android
+  library would have gone on linking `reqwest` while the manifest looked
+  like it had opted out, and only `cargo tree -i reqwest` would have
+  said otherwise.
 
 **Time and battery.** Needs a foreground service with progress and
 cancel. The offline download service already exists and is the natural

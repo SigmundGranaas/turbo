@@ -41,8 +41,8 @@ pub struct PackReport {
 
 /// Build a complete pack for `extent` (WGS84 `[w, s, e, n]`).
 #[allow(clippy::too_many_arguments)]
-pub async fn build_pack(
-    http: &reqwest::Client,
+pub fn build_pack(
+    http: &dyn crate::fetch::Fetch,
     out_dir: &Path,
     extent: [f64; 4],
     halo_m: f64,
@@ -61,8 +61,7 @@ pub async fn build_pack(
     // ---- 1. Terrain ----
     let dem_report = crate::build_dem(http, wcs_endpoint, region, out_dir, concurrency, |d, t| {
         on_progress(Phase::Dem, d, t)
-    })
-    .await?;
+    })?;
     report.dem_tiles = dem_report.dem_tiles;
     report.dem_bytes = dem_report.dem_bytes;
     let dem = Dem::open(&dem_report.dem_path)
@@ -77,7 +76,7 @@ pub async fn build_pack(
     let mut ways: Vec<graph::Way> = Vec::new();
 
     for (i, k) in kommuner.iter().enumerate() {
-        let zip = n50::fetch_zip(http, k).await?;
+        let zip = n50::fetch_zip(http, k)?;
         let areal = n50::layer_from_zip(&zip, n50::AREALDEKKE)?;
         // Same clip for surfaces. The scanline fill would reject these
         // anyway, but a kommune holds thousands of lakes the region
@@ -133,7 +132,7 @@ pub async fn build_pack(
         wfs::GRID_DEG,
     );
     for cell in &cells {
-        for t in wfs::fetch_cell(http, wfs_endpoint, *cell).await? {
+        for t in wfs::fetch_cell(http, wfs_endpoint, *cell)? {
             ways.push(graph::Way {
                 coords: t.coords.iter().map(|c| (c.x, c.y)).collect(),
                 fkb_type: wfs::fkb_type_of(&t.kind),
