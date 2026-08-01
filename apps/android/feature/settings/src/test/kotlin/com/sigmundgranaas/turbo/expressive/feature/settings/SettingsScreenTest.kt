@@ -41,6 +41,8 @@ private class FakeSettingsRepository : SettingsRepository {
     override suspend fun setShowHeadingBeam(enabled: Boolean) = state.update { it.copy(showHeadingBeam = enabled) }
     override suspend fun setGestures(gestures: com.sigmundgranaas.turbo.expressive.domain.GestureSettings) = Unit
     override suspend fun setRouteEngine(engine: com.sigmundgranaas.turbo.expressive.domain.RouteEngine) = Unit
+    var packSourceUrl: String? = null
+    override suspend fun setPackSourceUrl(url: String?) { packSourceUrl = url }
     override suspend fun setExperimentalTrails(enabled: Boolean) = Unit
     override suspend fun setExperimentalClouds(enabled: Boolean) = Unit
     override suspend fun setRotationLocked(enabled: Boolean) = Unit

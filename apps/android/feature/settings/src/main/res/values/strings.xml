@@ -58,8 +58,7 @@
     <string name="settings_routing_device">Phone</string>
     <string name="settings_routing_server">Server</string>
     <string name="settings_routing_clear">Clear</string>
-    <string name="settings_routing_bundled">Built-in region</string>
-    <string name="settings_routing_bundled_install">Install</string>
-    <string name="settings_routing_bundled_remove">Remove</string>
-    <string name="settings_routing_bundled_working">Working…</string>
+    <string name="settings_routing_pack_source">Pack source</string>
+    <string name="settings_routing_pack_source_hint">Leave blank for the default. Supports {key} and {file}.</string>
+    <string name="settings_routing_pack_source_save">Save</string>
 </resources>

@@ -74,6 +74,18 @@ data class UserSettings(
      * deliberately measuring — see [RouteEngine].
      */
     val routeEngine: RouteEngine = RouteEngine.Auto,
+    /**
+     * Where routing packs are downloaded from; `null` uses
+     * [RoutingPack.DEFAULT_SOURCE].
+     *
+     * A setting for the same reason [routeEngine] is one. The pack is
+     * the input to the measurement M1 exists to take, and the host that
+     * cuts packs is the one piece of the stack that can be down for a
+     * month at a time. Baking the host in at build time would mean the
+     * published APK — the only build the measurement is valid on — could
+     * not be pointed anywhere else without cutting a new release.
+     */
+    val packSourceUrl: String? = null,
 )
 
 /**

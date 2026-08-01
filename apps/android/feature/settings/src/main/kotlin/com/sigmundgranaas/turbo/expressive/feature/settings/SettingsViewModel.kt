@@ -28,7 +28,6 @@ class SettingsViewModel @Inject constructor(
     // them to the wrong argument.
     private val routeDiagnostics: com.sigmundgranaas.turbo.expressive.core.data.RouteDiagnostics =
         com.sigmundgranaas.turbo.expressive.core.data.RouteDiagnostics(),
-    private val bundledPack: com.sigmundgranaas.turbo.expressive.core.data.BundledRoutingPack? = null,
 ) : ViewModel() {
 
     val state: StateFlow<UserSettings> = repository.settings.stateIn(
@@ -68,28 +67,9 @@ class SettingsViewModel @Inject constructor(
 
     fun clearRouteSolves() = routeDiagnostics.clear()
 
-    /** The APK's own pack: what it is, how big, and whether it is unpacked. */
-    data class BundledPackState(
-        val description: String,
-        val sizeBytes: Long,
-        val installed: Boolean,
-        val busy: Boolean = false,
-    )
-
-    private val _bundledPack = MutableStateFlow(bundledPack?.let {
-        BundledPackState(it.description, it.sizeBytes, it.isInstalled())
-    })
-    val bundledPackState: StateFlow<BundledPackState?> = _bundledPack.asStateFlow()
-
-    fun installBundledPack() {
-        val pack = bundledPack ?: return
-        val current = _bundledPack.value ?: return
-        if (current.busy) return
-        _bundledPack.value = current.copy(busy = true)
-        viewModelScope.launch {
-            if (current.installed) pack.uninstall() else pack.install()
-            _bundledPack.value = current.copy(installed = pack.isInstalled(), busy = false)
-        }
+    /** Point pack downloads elsewhere; blank restores the default host. */
+    fun setPackSourceUrl(url: String) = viewModelScope.launch {
+        repository.setPackSourceUrl(url.ifBlank { null })
     }
 
     fun setExperimentalTrails(enabled: Boolean) = viewModelScope.launch { repository.setExperimentalTrails(enabled) }

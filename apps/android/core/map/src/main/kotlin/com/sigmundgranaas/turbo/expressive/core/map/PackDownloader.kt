@@ -29,7 +29,16 @@ import java.security.MessageDigest
  */
 class PackDownloader(
     private val root: File,
-    private val baseUrl: String,
+    /**
+     * Where to fetch packs from, resolved per download rather than held.
+     *
+     * A function and not a string because the answer can change between
+     * two downloads in one session: it is a setting, and the reason to
+     * change it — the configured host is not serving — is only ever
+     * discovered by a download failing. Reading it once at construction
+     * would mean the fix took a restart to apply.
+     */
+    private val source: suspend () -> String,
     private val fetch: suspend (url: String, into: File) -> FetchResult,
 ) {
 
@@ -131,12 +140,18 @@ class PackDownloader(
         partial.deleteRecursively()
         if (!partial.mkdirs()) return Outcome.Failed("Couldn't create $partial")
 
+        // Read once, not per file. The setting can change while a pack
+        // is in flight, and a pack assembled half from one host and half
+        // from another is a pack whose manifest describes neither.
+        val src = source()
+
         // The manifest first: it is what triggers the server-side build,
         // and it carries the file list this download is driven from. A
         // hard-coded list here would silently skip a file a future pack
         // format adds.
         val manifestFile = File(partial, RoutingPack.MANIFEST)
-        when (val r = fetchWithBuildWait(url(key, RoutingPack.MANIFEST), manifestFile, waitForBuild)) {
+        val manifestUrl = RoutingPack.urlFor(src, key, RoutingPack.MANIFEST)
+        when (val r = fetchWithBuildWait(manifestUrl, manifestFile, waitForBuild)) {
             is FetchResult.Ok -> Unit
             is FetchResult.NotFound -> {
                 partial.deleteRecursively()
@@ -169,7 +184,7 @@ class PackDownloader(
         var soFar = 0L
         for (f in expected) {
             val target = File(partial, f.name)
-            when (val r = fetchWithBuildWait(url(key, f.name), target, waitForBuild)) {
+            when (val r = fetchWithBuildWait(RoutingPack.urlFor(src, key, f.name), target, waitForBuild)) {
                 is FetchResult.Ok -> Unit
                 // The manifest listed this file, so the server does serve
                 // packs and this one is incomplete. A real failure, unlike
@@ -237,8 +252,6 @@ class PackDownloader(
         }
         return result
     }
-
-    private fun url(key: String, file: String) = "$baseUrl/$key/$file"
 
     /**
      * Size and digest, in that order.

@@ -76,6 +76,7 @@ class WgpuOfflineTileManager internal constructor(
     constructor(
         @ApplicationContext context: Context,
         serviceLauncher: OfflineServiceLauncher,
+        packSource: com.sigmundgranaas.turbo.expressive.domain.PackSource,
     ) : this(
         tileStore = TileStore(File(context.cacheDir, TURBOMAP_TILE_DIR)),
         store = OfflineRegionStore(File(context.filesDir, REGION_META_DIR)),
@@ -86,7 +87,7 @@ class WgpuOfflineTileManager internal constructor(
         now = System::currentTimeMillis,
         packs = PackDownloader(
             root = File(context.filesDir, RoutingPack.DIR),
-            baseUrl = PACKS_BASE_URL,
+            source = packSource::current,
             fetch = okHttpPackFetcher(defaultHttp()),
         ),
     )
@@ -440,7 +441,6 @@ class WgpuOfflineTileManager internal constructor(
          * server's version first would need a round trip to learn a
          * string.
          */
-        private const val PACKS_BASE_URL = "https://kart-api.sandring.no/v1/packs"
 
         /** `202`: the region is still being cut. Not a failure. */
         private const val HTTP_ACCEPTED = 202

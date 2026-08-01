@@ -32,6 +32,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.TextButton
 import com.sigmundgranaas.turbo.expressive.domain.RouteEngine
+import com.sigmundgranaas.turbo.expressive.domain.RoutingPack
 import com.sigmundgranaas.turbo.expressive.domain.RouteSolveRecord
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Info
@@ -46,6 +47,7 @@ import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -55,6 +57,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -292,35 +297,34 @@ fun SettingsScreen(
                     selected = settings.routeEngine,
                     onSelect = { haptics.toggle(true); viewModel.setRouteEngine(it) },
                 )
-                // The pack the APK carries. Offered rather than installed:
-                // it is tens of megabytes of someone else's storage, spent
-                // on one region most users will never walk.
-                val bundled by viewModel.bundledPackState.collectAsStateWithLifecycle()
-                bundled?.let { p ->
-                    HorizontalDivider(color = cs.outlineVariant)
-                    ListRowItem(
-                        Icons.Rounded.Hiking,
-                        stringResource(R.string.settings_routing_bundled),
-                        subtitle = "${p.description} · ${formatSize(p.sizeBytes)}",
-                        trailing = {
-                            TextButton(
-                                onClick = viewModel::installBundledPack,
-                                enabled = !p.busy,
-                                modifier = Modifier.testTag("bundledPackAction"),
-                            ) {
-                                Text(
-                                    stringResource(
-                                        when {
-                                            p.busy -> R.string.settings_routing_bundled_working
-                                            p.installed -> R.string.settings_routing_bundled_remove
-                                            else -> R.string.settings_routing_bundled_install
-                                        },
-                                    ),
-                                )
-                            }
-                        },
-                    )
+                // Where packs come from. Editable because the host that
+                // cuts them is the one part of the stack that can be down
+                // for weeks, and the published APK is the only build the
+                // on-device measurement is valid on — so it has to be
+                // re-pointable without cutting a new release.
+                HorizontalDivider(color = cs.outlineVariant)
+                var packSource by remember(settings.packSourceUrl) {
+                    mutableStateOf(settings.packSourceUrl.orEmpty())
                 }
+                OutlinedTextField(
+                    value = packSource,
+                    onValueChange = { packSource = it },
+                    label = { Text(stringResource(R.string.settings_routing_pack_source)) },
+                    placeholder = { Text(RoutingPack.DEFAULT_SOURCE) },
+                    supportingText = { Text(stringResource(R.string.settings_routing_pack_source_hint)) },
+                    singleLine = true,
+                    trailingIcon = {
+                        TextButton(
+                            onClick = { viewModel.setPackSourceUrl(packSource) },
+                            enabled = packSource != settings.packSourceUrl.orEmpty(),
+                            modifier = Modifier.testTag("packSourceSave"),
+                        ) { Text(stringResource(R.string.settings_routing_pack_source_save)) }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("packSourceField"),
+                )
                 val solves by viewModel.routeSolves.collectAsStateWithLifecycle()
                 if (solves.isNotEmpty()) {
                     HorizontalDivider(color = cs.outlineVariant)

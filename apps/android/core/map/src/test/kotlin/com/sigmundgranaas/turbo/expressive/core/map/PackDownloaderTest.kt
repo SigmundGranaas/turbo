@@ -59,7 +59,7 @@ class PackDownloaderTest {
         missing: Set<String> = emptySet(),
     ) = PackDownloader(
         root = tmp.root,
-        baseUrl = "https://example.test/v1/packs",
+        source = { "https://example.test/v1/packs" },
         fetch = { url, into ->
             val name = url.substringAfterLast('/')
             server.requests += name
@@ -243,11 +243,43 @@ class PackDownloaderTest {
         assertTrue("this fixture must be within the cap", RoutingPack.fitsOnePack(small))
         val out = PackDownloader(
             root = tmp.root,
-            baseUrl = "https://example.test/v1/packs",
+            source = { "https://example.test/v1/packs" },
             fetch = { _, _ -> PackDownloader.FetchResult.TooLarge },
         ).download(small)
         assertTrue("expected TooLarge, got $out", out is PackDownloader.Outcome.TooLarge)
         assertNoLeftovers()
+    }
+
+    @Test
+    fun `every file of one pack comes from a single reading of the source`() = runTest {
+        // The setting is user-editable and a download is minutes long, so
+        // the two can overlap. Re-reading per file would let a pack be
+        // assembled half from one host and half from another — a pack
+        // whose manifest describes neither half, verified against digests
+        // it did not come with.
+        val seen = mutableListOf<String>()
+        var reads = 0
+        val server = server()
+        val out = PackDownloader(
+            root = tmp.root,
+            source = { reads++; "https://host$reads.test/{key}-{file}" },
+            fetch = { url, into ->
+                seen += url
+                val name = url.substringAfterLast('-')
+                val body = if (name == RoutingPack.MANIFEST) server.manifest(::sha) else server.files[name]
+                into.writeBytes(body!!)
+                PackDownloader.FetchResult.Ok(body.size.toLong())
+            },
+        ).download(bounds)
+
+        assertTrue("expected Done, got $out", out is PackDownloader.Outcome.Done)
+        assertEquals("the source must be read once per download", 1, reads)
+        val hosts = seen.map { it.substringBefore("/{").substringBefore(".test") }.toSet()
+        assertEquals("all files must come from one host: $seen", 1, hosts.size)
+        // And the flat form really is being used — not silently falling
+        // back to the directory layout, which would pass the check above
+        // while defeating the point of the template.
+        assertTrue("expected flat asset names: $seen", seen.all { "/" !in it.substringAfterLast(".test/") })
     }
 
     private fun assertNoLeftovers() {

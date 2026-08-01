@@ -11,40 +11,59 @@ This is the procedure for closing that, using the release APK from a
 GitHub Release rather than a debug build. The distinction is the whole
 point — see "Why not a debug build" below.
 
-## No server required
+## No tileserver required
 
 The pack normally arrives from the tileserver at
-`https://kart-api.sandring.no/v1/packs`. **That is not needed for this
-test.** The APK carries one real region in its assets, so the whole
-procedure runs with the radio off.
+`https://kart-api.sandring.no/v1/packs`, which cuts regions on demand.
+**That is not needed for this test** — the tileserver *builds* packs, it
+does not own them, and a pack is a handful of static files. So one
+already-cut region is published as a release asset and the app's
+existing downloader fetches it from there.
 
-The bundled pack is `z12_2219_1001_2232_1014` — Sjunkhatten,
-53 × 53 km, cut from the production artifacts with `tileserver
-slice-pack`. Real terrain (552 DEM tiles) and a real trail graph
-(4 293 nodes, 9 712 directed edges), not a fixture: the solver's cost
-is a function of the graph it walks, so a toy graph would make the
-phone look fast for a reason that would not generalise.
+The region is `z12_2219_1001_2232_1014` — Sjunkhatten, 53 × 53 km, cut
+from the production artifacts with `tileserver slice-pack`. Real terrain
+(552 DEM tiles) and a real trail graph (4 293 nodes, 9 712 directed
+edges), not a fixture: the solver's cost is a function of the graph it
+walks, so a toy graph would make the phone look fast for a reason that
+would not generalise.
 
 It is the region the artifacts cover, not the region you happen to be
 in. That is fine — planning a route does not require standing in it,
 and what is being measured is the engine.
 
-It is **not installed automatically**: 55 MB of storage spent on one
-region most users will never walk should be an explicit choice.
+The download path is the real one: manifest first, then each file
+checked against the size and digest the manifest declares, assembled in
+a `.partial` directory and renamed only when complete. Nothing about
+this test bypasses it, which is the point — it is the same code a user
+gets, so the measurement covers it.
+
+### Publishing the pack, once
+
+The five files (`pack.toml`, `norway.dem`, `norway.graph`,
+`norway.graph_geom`, `norway.mask`) go up as release assets under the
+tag `routing-packs`, named `<key>-<file>`, e.g.
+`z12_2219_1001_2232_1014-norway.dem`. Release assets share one flat
+namespace per tag, which is why the key moves into the file name;
+`RoutingPack.DEFAULT_SOURCE` is the matching `{key}-{file}` template.
 
 ## The procedure
 
-1. **Install** the `arm64-v8a` APK from the release (~69 MB, of which
-   55 MB is the pack). It is signed with the committed sideload key, so
-   it reinstalls over an earlier build without a signature conflict.
+1. **Install** the `arm64-v8a` APK from the release. It is signed with
+   the committed sideload key, so it reinstalls over an earlier build
+   without a signature conflict.
 
-2. **Install the built-in region.** Settings → Routing engine →
-   *Built-in region · Sjunkhatten · 53 × 53 km* → **Install**. That
-   unpacks it into the same pack store a download would have written
-   to, so everything downstream takes the identical path.
+2. **Download the region.** Download the Sjunkhatten area the way any
+   offline map is downloaded; the pack rides along in the same flow.
+   Expect ~55 MB, so do it on Wi-Fi.
 
-   Aeroplane mode is a good idea here: it proves the route is not
-   quietly coming from the network.
+   If you need a different host — the tileserver came back, or you are
+   serving the files from a laptop — Settings → Routing engine → **Pack
+   source** takes a URL. Blank restores the default. A plain base URL
+   keeps the tileserver's `<base>/<key>/<file>` layout; add `{key}` and
+   `{file}` for a flat namespace like release assets.
+
+   Once the pack is on disk, turn on aeroplane mode before routing: it
+   proves the route is not quietly coming from the network.
 
 3. **Force the phone.** Settings → Routing engine → **Phone**. This
    exists precisely because the default (Auto) is server-first: on a
@@ -93,18 +112,18 @@ likely causes are specific:
 |---|---|
 | `libturbo_route_ffi.so` / `UnsatisfiedLinkError` | the native library is missing for this ABI, or R8 stripped the bindings |
 | `capacity` / `FieldOrder` / a JNA reflection error | R8 renamed the JNA struct fields — the `-keep` rules regressed |
-| "No downloaded map covers this route" | the waypoints are outside the bundled region, or step 2 was skipped |
+| "No downloaded map covers this route" | the waypoints are outside the downloaded region, or step 2 was skipped |
 
 The first two should be impossible: `tools/verify-release-apk.py` runs
 in the release workflow and fails the publish if the `.so` is absent,
-the uniffi classes were stripped or renamed, or the bundled pack is
+the uniffi classes were stripped or renamed, or the pack is
 missing its manifest. If one appears anyway, the guard has a gap worth
 fixing before anything else.
 
 ## When the tileserver comes back
 
 Nothing here changes. The downloaded-pack path is untouched and still
-the default route to a pack; the bundled region is an addition, and a
+the default route to a pack; the release-hosted region is an addition, and a
 downloaded pack for another region sits beside it in the same store.
 Remove the built-in one from the same settings row to get the 55 MB
 back.

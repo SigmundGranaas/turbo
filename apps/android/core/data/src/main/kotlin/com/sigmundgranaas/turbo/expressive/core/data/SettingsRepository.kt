@@ -57,6 +57,12 @@ interface SettingsRepository {
      */
     suspend fun setRouteEngine(engine: RouteEngine)
 
+    /**
+     * Point pack downloads at a different host; `null` restores
+     * [com.sigmundgranaas.turbo.expressive.domain.RoutingPack.DEFAULT_SOURCE].
+     */
+    suspend fun setPackSourceUrl(url: String?)
+
     suspend fun setExperimentalTrails(enabled: Boolean)
     suspend fun setExperimentalClouds(enabled: Boolean)
 
@@ -94,6 +100,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val GESTURE_ROTATE_GATE_DEG = androidx.datastore.preferences.core.floatPreferencesKey("gesture_rotate_gate_deg")
         val GESTURE_FLING_HALF_LIFE_MS = androidx.datastore.preferences.core.longPreferencesKey("gesture_fling_half_life_ms")
         val ROUTE_ENGINE = stringPreferencesKey("route_engine")
+        val PACK_SOURCE_URL = stringPreferencesKey("pack_source_url")
         val EXPERIMENTAL_TRAILS = booleanPreferencesKey("experimental_trails")
         val EXPERIMENTAL_CLOUDS = booleanPreferencesKey("experimental_clouds")
         val ROTATION_LOCKED = booleanPreferencesKey("rotation_locked")
@@ -128,6 +135,7 @@ class DataStoreSettingsRepository @Inject constructor(
             routeEngine = prefs[Keys.ROUTE_ENGINE]
                 ?.let { runCatching { RouteEngine.valueOf(it) }.getOrNull() }
                 ?: RouteEngine.Auto,
+            packSourceUrl = prefs[Keys.PACK_SOURCE_URL]?.takeIf { it.isNotBlank() },
             experimentalTrails = prefs[Keys.EXPERIMENTAL_TRAILS] ?: false,
             experimentalClouds = prefs[Keys.EXPERIMENTAL_CLOUDS] ?: false,
             rotationLocked = prefs[Keys.ROTATION_LOCKED] ?: false,
@@ -217,6 +225,13 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setRouteEngine(engine: RouteEngine) {
         context.settingsDataStore.edit { it[Keys.ROUTE_ENGINE] = engine.name }
+    }
+
+    override suspend fun setPackSourceUrl(url: String?) {
+        val clean = url?.trim()?.takeIf { it.isNotEmpty() }
+        context.settingsDataStore.edit {
+            if (clean == null) it.remove(Keys.PACK_SOURCE_URL) else it[Keys.PACK_SOURCE_URL] = clean
+        }
     }
 
     override suspend fun setExperimentalTrails(enabled: Boolean) {

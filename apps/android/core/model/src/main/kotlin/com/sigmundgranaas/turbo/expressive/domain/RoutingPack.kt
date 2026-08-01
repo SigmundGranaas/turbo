@@ -24,6 +24,45 @@ object RoutingPack {
     /** Directory under `filesDir` holding one subdirectory per pack. */
     const val DIR: String = "routing-packs"
 
+    /**
+     * Where packs are fetched from, when the user has not said otherwise.
+     *
+     * A pack is a handful of static files, so anything that serves bytes
+     * over HTTP will do — the tileserver builds packs but does not own
+     * them. That is not a hypothetical: the tileserver is the *only*
+     * thing that cuts a new region, so while it is down this default is
+     * the difference between routing on the phone and not.
+     *
+     * The release asset is a region that has already been cut, published
+     * once. It cannot answer for a region nobody has cut yet, which is
+     * exactly the tileserver's job and why this is a default rather than
+     * a replacement.
+     */
+    const val DEFAULT_SOURCE: String =
+        "https://github.com/SigmundGranaas/turbo/releases/download/routing-packs/{key}-{file}"
+
+    /**
+     * The URL for one file of one pack, from a user- or build-supplied
+     * [source].
+     *
+     * Two forms, because the two hosts that matter disagree on whether a
+     * pack may occupy a directory. The tileserver serves
+     * `$base/$key/$file` and always has. GitHub release assets live in
+     * one flat namespace per tag, so the key has to move into the file
+     * name. A plain base URL keeps working — it is the no-placeholder
+     * case — so this is additive to every deployment already out there.
+     */
+    fun urlFor(source: String, key: String, file: String): String {
+        val base = source.trimEnd('/')
+        if (!base.contains(KEY_TOKEN) && !base.contains(FILE_TOKEN)) {
+            return "$base/$key/$file"
+        }
+        return base.replace(KEY_TOKEN, key).replace(FILE_TOKEN, file)
+    }
+
+    private const val KEY_TOKEN = "{key}"
+    private const val FILE_TOKEN = "{file}"
+
     /** The manifest, fetched first: it triggers the server-side build and
      *  carries the sizes and digests the rest of the download needs. */
     const val MANIFEST: String = "pack.toml"
