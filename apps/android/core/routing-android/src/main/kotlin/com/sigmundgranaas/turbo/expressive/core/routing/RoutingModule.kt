@@ -13,6 +13,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
 import java.io.File
 import javax.inject.Singleton
 
@@ -37,6 +38,30 @@ object RoutingModule {
     @Singleton
     fun provideOnDeviceRouteRepository(packs: PackStore): OnDeviceRouteRepository =
         OnDeviceRouteRepository(packs)
+
+    /**
+     * The pack builder writes into the same directory [PackStore] reads
+     * and [com.sigmundgranaas.turbo.expressive.core.map.PackDownloader]
+     * writes, so a pack cut here is found by exactly the same lookup as
+     * one that was downloaded.
+     */
+    @Provides
+    @Singleton
+    fun provideDevicePackBuilder(@ApplicationContext context: Context): DevicePackBuilder =
+        DevicePackBuilder(
+            root = File(context.filesDir, RoutingPack.DIR),
+            // The app's client, not a second one — see OkHttpPackHttp
+            // for what a second one costs.
+            http = OkHttpPackHttp(OkHttpClient()),
+        )
+
+    @Provides
+    @Singleton
+    fun provideDevicePackBuild(
+        builder: DevicePackBuilder,
+        settings: SettingsRepository,
+    ): com.sigmundgranaas.turbo.expressive.core.map.WgpuOfflineTileManager.DevicePackBuild =
+        DevicePackBuild(builder, settings)
 
     @Provides
     @Singleton

@@ -138,9 +138,13 @@ pub struct PackBuildResult {
 /// Build a routing pack for `extent` into `out_dir`.
 ///
 /// `kommuner` are the kommune numbers whose N50 data the region needs.
-/// They are required, and the build refuses a list that does not cover
-/// the region rather than writing a pack with an empty water mask and
-/// no roads — which looks entirely healthy and routes through lakes.
+/// **Pass an empty list** to have them resolved from `bounds`, which is
+/// what a host driving this from a map selection should do.
+///
+/// Supplying them by hand is for callers that already know. Getting the
+/// list wrong does not fail the build: it writes a pack with a water
+/// mask that stops at an invisible line and roads that end there, which
+/// looks entirely healthy and routes through lakes.
 /// The region to cut, as one value.
 ///
 /// Named fields rather than four positional `f64`s. Across the FFI the
@@ -165,13 +169,6 @@ pub fn build_pack(
     http: Arc<dyn PackHttp>,
     progress: Arc<dyn PackBuildProgress>,
 ) -> Result<PackBuildResult, RouteError> {
-    if kommuner.is_empty() {
-        return Err(RouteError::InvalidRequest(
-            "at least one kommune number is required — N50 has no bbox service, so water, \
-             glaciers and roads are ordered per kommune"
-                .into(),
-        ));
-    }
     let parsed: Result<Vec<_>, _> = kommuner
         .iter()
         .map(|k| turbo_pack_build::n50::Kommune::parse(k))
@@ -182,6 +179,30 @@ pub fn build_pack(
     let flag = cancelled.clone();
 
     let fetch = HostFetch(http);
+
+    // An empty list is not an error, it is the normal case. A phone
+    // user drags a box on a map; nobody expects them to know that N50
+    // is ordered per kommune, let alone which of the 357 their box
+    // covers. Resolving it here rather than in the host keeps the one
+    // piece of logic that must not be wrong — too few kommuner is a
+    // pack with a hole in its water mask — in one tested place instead
+    // of one per platform.
+    let parsed = if parsed.is_empty() {
+        progress.on_progress(BuildPhase::Vectors, 0, 1);
+        turbo_pack_build::kommune::resolve(
+            &fetch,
+            [
+                bounds.min_lon,
+                bounds.min_lat,
+                bounds.max_lon,
+                bounds.max_lat,
+            ],
+            turbo_pack_build::kommune::DEFAULT_ENDPOINT,
+        )
+        .map_err(|e| RouteError::Pack(e.to_string()))?
+    } else {
+        parsed
+    };
     let out = std::path::PathBuf::from(&out_dir);
     let report = {
         turbo_pack_build::region::build_pack(
@@ -253,26 +274,36 @@ mod tests {
         }
     }
 
-    /// An HTTP callback that fails the test if it is ever reached.
+    /// An HTTP callback that records what it was asked for and refuses.
     ///
-    /// The point of both tests below is that the argument check happens
-    /// *before* any network work, so a stub that quietly returned an
-    /// empty body would let a regression through silently.
-    struct NoHttp;
-    impl PackHttp for NoHttp {
+    /// Refusing rather than answering keeps these tests off the network
+    /// while still letting them assert *whether* it would have been
+    /// reached, and for what.
+    #[derive(Default)]
+    struct SpyHttp {
+        urls: std::sync::Mutex<Vec<String>>,
+    }
+    impl PackHttp for SpyHttp {
         fn get(&self, url: String) -> Result<HttpResponse, RouteError> {
-            panic!("the network must not be touched: GET {url}");
+            self.urls.lock().unwrap().push(url);
+            Err(RouteError::Pack("offline".into()))
         }
         fn post_json(&self, url: String, _: String) -> Result<HttpResponse, RouteError> {
-            panic!("the network must not be touched: POST {url}");
+            self.urls.lock().unwrap().push(url);
+            Err(RouteError::Pack("offline".into()))
         }
     }
 
-    /// No kommune means no N50, and N50 is water, glaciers and roads.
-    /// Building anyway would write a pack that opens and routes through
-    /// lakes, so it is refused at the boundary rather than later.
+    /// An empty list is the instruction to resolve the kommuner from
+    /// the bounds — the normal case for a host driving this from a map
+    /// selection, where nobody knows N50 is ordered per kommune.
+    ///
+    /// Asserted through the URL it reaches for, because the alternative
+    /// reading — "empty means no N50" — also produces no pack, just
+    /// silently and for the wrong reason.
     #[test]
-    fn refuses_a_build_with_no_kommune() {
+    fn an_empty_kommune_list_resolves_from_the_bounds() {
+        let http = Arc::new(SpyHttp::default());
         let e = build_pack(
             "/tmp/never".into(),
             BuildBounds {
@@ -283,11 +314,17 @@ mod tests {
             },
             0.0,
             vec![],
-            Arc::new(NoHttp),
+            http.clone(),
             Arc::new(Never),
         )
         .unwrap_err();
-        assert!(matches!(e, RouteError::InvalidRequest(_)), "{e:?}");
+        // The resolver ran and the offline stub stopped it there.
+        assert!(matches!(e, RouteError::Pack(_)), "{e:?}");
+        let urls = http.urls.lock().unwrap();
+        assert!(
+            urls.iter().any(|u| u.contains("kommuneinfo")),
+            "expected a kommune lookup, got {urls:?}"
+        );
         assert!(!std::path::Path::new("/tmp/never").exists());
     }
 
@@ -303,7 +340,7 @@ mod tests {
             },
             0.0,
             vec!["Sørfold".into()],
-            Arc::new(NoHttp),
+            Arc::new(SpyHttp::default()),
             Arc::new(Never),
         )
         .unwrap_err();

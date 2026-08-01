@@ -42,6 +42,7 @@ pub mod fetch;
 pub mod geotiff;
 pub mod gml;
 pub mod graph;
+pub mod kommune;
 pub mod mask;
 pub mod n50;
 pub mod node;

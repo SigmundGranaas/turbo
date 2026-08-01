@@ -198,6 +198,68 @@ builder makes this testable; it does not make it absent. E1 already
 established the solver is cross-ISA deterministic, so the exposure is in
 the inputs, not the solve.
 
+## Which kommuner? The phone cannot ask the user
+
+N50 has no bbox service: water, glaciers and roads are ordered per
+kommune. On the CLI a human types `--kommune 1845`. On a phone the user
+drags a box and has no idea Norway has 357 of them.
+
+Getting the list wrong does not fail the build — it writes a pack whose
+water mask stops at an invisible line, and the router plans straight
+across the lakes past it. So `kommune::resolve` is deliberately
+conservative, and would rather fetch one kommune too many (25 MB
+wasted) than one too few.
+
+Kartverket's Kommuneinfo API has no "kommuner in this box" call, so it
+composes the calls that exist: seed from a 4x4 grid of `/punkt`
+lookups, grow breadth-first through `/nabokommuner` keeping anything
+whose *bounding box* meets the region, then narrow the survivors
+against their real outline via `/omrade`. Seeding and growing can only
+over-collect; narrowing removes what provably does not touch the
+region. Narrowing before growing would be wrong — it would prune the
+path to a kommune reachable only through one that does not itself
+qualify.
+
+Two details that are not obvious:
+
+- **`/punkt` snaps.** A point at sea returns the nearest kommune, which
+  can be an island 100 km away. Harmless, because the bounding-box test
+  discards it — but it is why seeds cannot be the answer on their own.
+- **Containment is not intersection.** The ordinary case on a phone is
+  a small box wholly inside one kommune, crossing no boundary at all. A
+  plain segment-intersection test returns false for exactly that case.
+
+Measured against the live API: Sørfold resolves in 6.6 s, Sjunkhatten in
+6.2 s. Sjunkhatten comes back as **1804 + 1840** (Bodø and Saltdal) —
+not the 1845 I had assumed when hand-testing, which is precisely the
+mistake the resolver exists to stop a user making.
+
+`--kommune auto` on the CLI takes the same path, so it is testable from
+a terminal rather than only from a phone.
+
+## Reaching it from the app
+
+`buildPack` had no caller for a while: a complete, tested library
+nothing could invoke. It is now wired to the one case the downloader
+cannot serve — `PackDownloader.Outcome.Unsupported`, a server with no
+pack endpoint.
+
+It is **off by default** (`UserSettings.buildPacksOnDevice`), and that
+default is the honest one: a device build is minutes of work and tens
+of megabytes from Kartverket's public services, which is not something
+to start because a map download happened to meet a server without
+packs. What turning it on buys is a region nobody has prepared.
+
+The seam is a lambda rather than a type, because `:core:routing-android`
+depends on `:core:map` and not the other way round — inverting it would
+drag the FFI, JNA and the native library into every build that draws a
+map. `DevicePackBuilder` writes into `filesDir/routing-packs/<key>/`
+under the same key the downloader uses, so `PackStore` finds a built
+pack by exactly the same lookup as a downloaded one, and builds into
+`<key>.partial` before renaming for the same reason the downloader
+does: a pack with a DEM and no graph opens, claims coverage, and routes
+cross-country.
+
 **APK size — measured twice, and wrong the first time.** I guessed this
 would be small because the parsers are small. The parsers *are* small;
 the HTTP stack was not. Measured on `aarch64-linux-android`, release:

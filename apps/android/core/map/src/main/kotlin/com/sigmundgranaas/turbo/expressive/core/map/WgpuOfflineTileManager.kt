@@ -70,13 +70,33 @@ class WgpuOfflineTileManager internal constructor(
      * without the routing module still browses maps.
      */
     private val packs: PackDownloader? = null,
+    /**
+     * Cut the pack here when the server has none. `null` — the default —
+     * means a region without a server-side pack simply completes
+     * without offline routing, which is the behaviour that shipped.
+     *
+     * A lambda and not a type because the implementation lives in
+     * `:core:routing-android`, which depends on this module. Inverting
+     * that would put the FFI, JNA and the whole native library into the
+     * dependencies of every build that draws a map.
+     */
+    private val deviceBuild: (suspend (DownloadSpec, (Float) -> Unit) -> DeviceBuildResult)? = null,
 ) : OfflineTileManager {
+
+    /** What a device-side build came back with. */
+    sealed interface DeviceBuildResult {
+        data class Done(val bytes: Long) : DeviceBuildResult
+        /** Not attempted — the user has not turned device builds on. */
+        data object Disabled : DeviceBuildResult
+        data class Failed(val reason: String) : DeviceBuildResult
+    }
 
     @Inject
     constructor(
         @ApplicationContext context: Context,
         serviceLauncher: OfflineServiceLauncher,
         packSource: com.sigmundgranaas.turbo.expressive.domain.PackSource,
+        devicePacks: DevicePackBuild,
     ) : this(
         tileStore = TileStore(File(context.cacheDir, TURBOMAP_TILE_DIR)),
         store = OfflineRegionStore(File(context.filesDir, REGION_META_DIR)),
@@ -90,7 +110,42 @@ class WgpuOfflineTileManager internal constructor(
             source = packSource::current,
             fetch = okHttpPackFetcher(defaultHttp()),
         ),
+        deviceBuild = devicePacks::build,
     )
+
+    /**
+     * The device-build seam, as an injectable type.
+     *
+     * `:core:routing-android` provides the real one. A build without
+     * that module gets [DevicePackBuild.Disabled], so the map still
+     * downloads — the routing library is optional and this keeps it so.
+     */
+    interface DevicePackBuild {
+        suspend fun build(spec: DownloadSpec, onProgress: (Float) -> Unit): DeviceBuildResult
+
+        /** No device builds; regions complete without offline routing. */
+        object Disabled : DevicePackBuild {
+            override suspend fun build(
+                spec: DownloadSpec,
+                onProgress: (Float) -> Unit,
+            ): DeviceBuildResult = DeviceBuildResult.Disabled
+        }
+    }
+
+    /**
+     * Run the device build, if one is configured, reporting into the
+     * same slice of the progress bar the download would have used.
+     */
+    private suspend fun buildOnDevice(
+        id: Long,
+        spec: DownloadSpec,
+        packShare: Double,
+    ): DeviceBuildResult {
+        val build = deviceBuild ?: return DeviceBuildResult.Disabled
+        return build(spec) { f ->
+            update(id) { it.copy(progress = (f * packShare).toFloat()) }
+        }
+    }
 
     /** One source's tile pyramid: a cache-key layer id + URL template + native max zoom. */
     data class Lane(val layer: String, val urlTemplate: String, val maxZoom: Int)
@@ -267,7 +322,27 @@ class WgpuOfflineTileManager internal constructor(
                 // offline downloads — which work today — for everyone in
                 // that window. The region completes without routing data;
                 // the next download after the server ships gets it.
-                PackDownloader.Outcome.Unsupported -> Unit
+                //
+                // Unless the phone can cut one itself. That is off by
+                // default and stays off unless the user asked for it:
+                // it is minutes of work and tens of megabytes from
+                // Kartverket, which is not a thing to start because a
+                // map download found a server without a pack endpoint.
+                PackDownloader.Outcome.Unsupported -> {
+                    when (val b = buildOnDevice(id, spec, packShare)) {
+                        is DeviceBuildResult.Done -> packBytes = b.bytes
+                        DeviceBuildResult.Disabled -> Unit
+                        // A build the user explicitly asked for and did
+                        // not get is worth failing the region over —
+                        // unlike the server having no packs, this is not
+                        // a deployment window, it is the thing they
+                        // turned on not working.
+                        is DeviceBuildResult.Failed -> {
+                            markFailed(id, b.reason)
+                            return
+                        }
+                    }
+                }
                 // Too big for one pack, but not too big for tiles — the
                 // two caps are different sizes because a tile pyramid
                 // degrades as it grows and a pack does not. The dialog

@@ -212,6 +212,9 @@ enum Command {
         wcs_endpoint: String,
         /// Kommune numbers whose N50 data the region needs, comma
         /// separated. Required for the mask and the road network:
+        /// `auto` resolves them from the bbox via Kartverket's
+        /// Kommuneinfo API — the same path the phone takes.
+        ///
         /// N50 has no WFS, so the smallest unit on offer is a kommune.
         /// Omit to build the DEM alone.
         #[arg(long)]
@@ -399,6 +402,40 @@ async fn build_region(
     // No kommune means no N50, and N50 is where water, glaciers and
     // roads come from. Build the DEM alone rather than a pack that is
     // quietly missing three of its four artifacts.
+    //
+    // `--kommune auto` resolves them from the region instead, which is
+    // what the phone does — no user can be expected to know which four
+    // of Norway's 357 kommuner are under the box they just drew.
+    let kommune = match kommune {
+        Some("auto") => {
+            print!("resolving kommuner... ");
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            let found = turbo_pack_build::kommune::resolve(
+                &http,
+                v,
+                turbo_pack_build::kommune::DEFAULT_ENDPOINT,
+            )
+            .map_err(|e| anyhow::anyhow!("--kommune auto: {e}"))?;
+            println!(
+                "{}",
+                found
+                    .iter()
+                    .map(|k| k.0.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+            Some(
+                found
+                    .iter()
+                    .map(|k| k.0.clone())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            )
+        }
+        _ => kommune.map(str::to_string),
+    };
+
     let Some(kommune) = kommune else {
         let report = turbo_pack_build::build_dem(
             &http,

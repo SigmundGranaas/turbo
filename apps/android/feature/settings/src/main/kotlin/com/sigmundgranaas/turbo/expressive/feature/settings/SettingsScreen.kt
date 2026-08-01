@@ -338,6 +338,17 @@ fun SettingsScreen(
                         )
                     },
                 )
+                ListRowItem(
+                    Icons.Rounded.Info, stringResource(R.string.settings_routing_device_build),
+                    subtitle = stringResource(R.string.settings_routing_device_build_sub),
+                    trailing = {
+                        Switch(
+                            settings.buildPacksOnDevice,
+                            { haptics.toggle(it); viewModel.setBuildPacksOnDevice(it) },
+                            modifier = Modifier.testTag("buildPacksOnDevice"),
+                        )
+                    },
+                )
                 val solves by viewModel.routeSolves.collectAsStateWithLifecycle()
                 if (solves.isNotEmpty()) {
                     HorizontalDivider(color = cs.outlineVariant)

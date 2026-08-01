@@ -69,6 +69,12 @@ interface SettingsRepository {
      */
     suspend fun setRouteShadowCompare(enabled: Boolean)
 
+    /**
+     * Allow cutting packs on the phone — minutes and tens of megabytes.
+     * See [UserSettings.buildPacksOnDevice].
+     */
+    suspend fun setBuildPacksOnDevice(enabled: Boolean)
+
     suspend fun setExperimentalTrails(enabled: Boolean)
     suspend fun setExperimentalClouds(enabled: Boolean)
 
@@ -108,6 +114,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val ROUTE_ENGINE = stringPreferencesKey("route_engine")
         val PACK_SOURCE_URL = stringPreferencesKey("pack_source_url")
         val ROUTE_SHADOW_COMPARE = booleanPreferencesKey("route_shadow_compare")
+        val BUILD_PACKS_ON_DEVICE = booleanPreferencesKey("build_packs_on_device")
         val EXPERIMENTAL_TRAILS = booleanPreferencesKey("experimental_trails")
         val EXPERIMENTAL_CLOUDS = booleanPreferencesKey("experimental_clouds")
         val ROTATION_LOCKED = booleanPreferencesKey("rotation_locked")
@@ -144,6 +151,7 @@ class DataStoreSettingsRepository @Inject constructor(
                 ?: RouteEngine.Auto,
             packSourceUrl = prefs[Keys.PACK_SOURCE_URL]?.takeIf { it.isNotBlank() },
             routeShadowCompare = prefs[Keys.ROUTE_SHADOW_COMPARE] ?: false,
+            buildPacksOnDevice = prefs[Keys.BUILD_PACKS_ON_DEVICE] ?: false,
             experimentalTrails = prefs[Keys.EXPERIMENTAL_TRAILS] ?: false,
             experimentalClouds = prefs[Keys.EXPERIMENTAL_CLOUDS] ?: false,
             rotationLocked = prefs[Keys.ROTATION_LOCKED] ?: false,
@@ -244,6 +252,10 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setRouteShadowCompare(enabled: Boolean) {
         context.settingsDataStore.edit { it[Keys.ROUTE_SHADOW_COMPARE] = enabled }
+    }
+
+    override suspend fun setBuildPacksOnDevice(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.BUILD_PACKS_ON_DEVICE] = enabled }
     }
 
     override suspend fun setExperimentalTrails(enabled: Boolean) {

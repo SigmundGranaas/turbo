@@ -93,6 +93,7 @@ private class FakeSettings : SettingsRepository {
     var packSourceUrl: String? = null
     override suspend fun setPackSourceUrl(url: String?) { packSourceUrl = url }
     override suspend fun setRouteShadowCompare(enabled: Boolean) = Unit
+    override suspend fun setBuildPacksOnDevice(enabled: Boolean) = Unit
     override suspend fun setExperimentalTrails(enabled: Boolean) = Unit
     override suspend fun setExperimentalClouds(enabled: Boolean) = Unit
     override suspend fun setRotationLocked(enabled: Boolean) = Unit

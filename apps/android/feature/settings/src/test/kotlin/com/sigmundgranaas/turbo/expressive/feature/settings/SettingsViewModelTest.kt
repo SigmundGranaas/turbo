@@ -37,6 +37,7 @@ private class MutableSettingsRepository : SettingsRepository {
     var packSourceUrl: String? = null
     override suspend fun setPackSourceUrl(url: String?) { packSourceUrl = url }
     override suspend fun setRouteShadowCompare(enabled: Boolean) = state.update { it.copy(routeShadowCompare = enabled) }
+    override suspend fun setBuildPacksOnDevice(enabled: Boolean) = state.update { it.copy(buildPacksOnDevice = enabled) }
     override suspend fun setExperimentalTrails(enabled: Boolean) = state.update { it.copy(experimentalTrails = enabled) }
     override suspend fun setExperimentalClouds(enabled: Boolean) = state.update { it.copy(experimentalClouds = enabled) }
     override suspend fun setRotationLocked(enabled: Boolean) = state.update { it.copy(rotationLocked = enabled) }

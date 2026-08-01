@@ -100,6 +100,21 @@ data class UserSettings(
      * turning it on costs battery, not latency.
      */
     val routeShadowCompare: Boolean = false,
+
+    /**
+     * Cut a routing pack on the phone when the server has none.
+     *
+     * Off by default, and that default is the honest one. A device
+     * build is minutes of work and tens of megabytes fetched straight
+     * from Kartverket's public services — not something to start
+     * because a map download happened to find a server without a pack
+     * endpoint. Turning it on is a deliberate choice to spend that.
+     *
+     * What it buys is a region nobody has prepared: with it off, a
+     * server that serves no packs means no offline routing there,
+     * ever.
+     */
+    val buildPacksOnDevice: Boolean = false,
 )
 
 /**
