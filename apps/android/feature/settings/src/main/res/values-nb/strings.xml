@@ -33,4 +33,10 @@
     <string name="settings_cloud_sync_sub">Sikkerhetskopier spor, markører og samlinger til kontoen din</string>
     <string name="settings_wifi_only">Last bare ned over Wi-Fi</string>
     <string name="settings_wifi_only_sub">Sett nedlasting av frakoblede kart på pause på mobildata</string>
+    <string name="settings_routing">Ruteberegning</string>
+    <string name="settings_routing_sub">Hvem som beregner rutene dine. La st\u00e5 p\u00e5 Auto med mindre du m\u00e5ler motoren p\u00e5 telefonen — de to andre hopper over reservel\u00f8sningen, s\u00e5 en feil vises i stedet for \u00e5 skjules.</string>
+    <string name="settings_routing_auto">Auto</string>
+    <string name="settings_routing_device">Telefon</string>
+    <string name="settings_routing_server">Server</string>
+    <string name="settings_routing_clear">T\u00f8m</string>
 </resources>

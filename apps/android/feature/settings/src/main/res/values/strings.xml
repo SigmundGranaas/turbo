@@ -52,4 +52,10 @@
     <string name="settings_location_marker_sub">Colour of the my-position dot</string>
     <string name="settings_heading_beam">Heading beam</string>
     <string name="settings_heading_beam_sub">Show your direction of travel on the dot</string>
+    <string name="settings_routing">Routing engine</string>
+    <string name="settings_routing_sub">Which router plans your routes. Leave on Auto unless you are measuring the on-device engine — the other two skip the fallback, so a failure shows instead of being covered up.</string>
+    <string name="settings_routing_auto">Auto</string>
+    <string name="settings_routing_device">Phone</string>
+    <string name="settings_routing_server">Server</string>
+    <string name="settings_routing_clear">Clear</string>
 </resources>

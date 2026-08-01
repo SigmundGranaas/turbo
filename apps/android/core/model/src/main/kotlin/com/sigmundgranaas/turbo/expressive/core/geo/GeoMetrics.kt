@@ -50,17 +50,21 @@ object GeoMetrics {
         for (e in elevations) {
             val cur = e ?: continue
             val r = ref
+            // The first real fix seeds the reference and contributes
+            // nothing; every later one is measured against it. Nested
+            // rather than an early `continue` purely so this loop has a
+            // single exit — same arithmetic, same results.
             if (r == null) {
                 ref = cur
-                continue
-            }
-            val delta = cur - r
-            if (delta >= ELEVATION_HYSTERESIS_M) {
-                asc += delta
-                ref = cur
-            } else if (delta <= -ELEVATION_HYSTERESIS_M) {
-                desc += -delta
-                ref = cur
+            } else {
+                val delta = cur - r
+                if (delta >= ELEVATION_HYSTERESIS_M) {
+                    asc += delta
+                    ref = cur
+                } else if (delta <= -ELEVATION_HYSTERESIS_M) {
+                    desc += -delta
+                    ref = cur
+                }
             }
         }
         return asc to desc

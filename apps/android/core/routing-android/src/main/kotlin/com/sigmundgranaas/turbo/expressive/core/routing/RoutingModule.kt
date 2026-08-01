@@ -1,7 +1,9 @@
 package com.sigmundgranaas.turbo.expressive.core.routing
 
 import android.content.Context
+import com.sigmundgranaas.turbo.expressive.core.data.RouteDiagnostics
 import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
+import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
 import com.sigmundgranaas.turbo.expressive.core.data.di.Remote
 import com.sigmundgranaas.turbo.expressive.core.map.NetworkMonitor
 import com.sigmundgranaas.turbo.expressive.domain.RoutingPack
@@ -10,6 +12,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Singleton
 
@@ -47,6 +50,8 @@ object RoutingModule {
         @Remote server: RouteRepository,
         device: OnDeviceRouteRepository,
         network: NetworkMonitor,
+        settings: SettingsRepository,
+        diagnostics: RouteDiagnostics,
     ): RouteRepository = FallbackRouteRepository(
         server = server,
         device = device,
@@ -56,5 +61,22 @@ object RoutingModule {
         // asking about.
         isOnline = { network.state.value.connected },
         deviceCanAnswer = device::canPlanOffline,
+        // Mirrored into a plain field so the routing path stays
+        // synchronous. Collecting a Flow per request to read one enum
+        // would put a suspension point in front of every route for a
+        // value that changes when someone taps a radio button.
+        engineChoice = { engineOverride },
+        diagnostics = diagnostics,
+    ).also {
+        scope.launch { settings.settings.collect { engineOverride = it.routeEngine } }
+    }
+
+    /** Latest persisted engine choice; see [provideRouteRepository]. */
+    @Volatile
+    private var engineOverride: com.sigmundgranaas.turbo.expressive.domain.RouteEngine =
+        com.sigmundgranaas.turbo.expressive.domain.RouteEngine.Auto
+
+    private val scope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
     )
 }

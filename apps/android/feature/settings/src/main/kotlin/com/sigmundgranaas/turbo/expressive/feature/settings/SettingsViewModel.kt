@@ -21,6 +21,11 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val repository: SettingsRepository,
     auth: AuthRepository,
+    // Appended, not inserted. Existing call sites pass these positionally,
+    // and a new parameter in the middle silently re-binds every one of
+    // them to the wrong argument.
+    private val routeDiagnostics: com.sigmundgranaas.turbo.expressive.core.data.RouteDiagnostics =
+        com.sigmundgranaas.turbo.expressive.core.data.RouteDiagnostics(),
 ) : ViewModel() {
 
     val state: StateFlow<UserSettings> = repository.settings.stateIn(
@@ -49,6 +54,17 @@ class SettingsViewModel @Inject constructor(
     fun setShowHeadingBeam(enabled: Boolean) = viewModelScope.launch { repository.setShowHeadingBeam(enabled) }
     fun setGestures(gestures: com.sigmundgranaas.turbo.expressive.domain.GestureSettings) =
         viewModelScope.launch { repository.setGestures(gestures) }
+    /**
+     * The last few solves, for the routing section. Read-only and in
+     * memory — see `RouteDiagnostics`.
+     */
+    val routeSolves = routeDiagnostics.records
+
+    fun setRouteEngine(engine: com.sigmundgranaas.turbo.expressive.domain.RouteEngine) =
+        viewModelScope.launch { repository.setRouteEngine(engine) }
+
+    fun clearRouteSolves() = routeDiagnostics.clear()
+
     fun setExperimentalTrails(enabled: Boolean) = viewModelScope.launch { repository.setExperimentalTrails(enabled) }
     fun setExperimentalClouds(enabled: Boolean) = viewModelScope.launch { repository.setExperimentalClouds(enabled) }
     fun setRotationLocked(enabled: Boolean) = viewModelScope.launch { repository.setRotationLocked(enabled) }

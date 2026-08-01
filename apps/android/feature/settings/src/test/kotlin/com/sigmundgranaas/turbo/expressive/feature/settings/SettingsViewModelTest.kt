@@ -33,6 +33,7 @@ private class MutableSettingsRepository : SettingsRepository {
     override suspend fun setLocationDotColor(colorHex: String?) = state.update { it.copy(locationDotColorHex = colorHex) }
     override suspend fun setShowHeadingBeam(enabled: Boolean) = state.update { it.copy(showHeadingBeam = enabled) }
     override suspend fun setGestures(gestures: com.sigmundgranaas.turbo.expressive.domain.GestureSettings) = state.update { it.copy(gestures = gestures) }
+    override suspend fun setRouteEngine(engine: com.sigmundgranaas.turbo.expressive.domain.RouteEngine) = Unit
     override suspend fun setExperimentalTrails(enabled: Boolean) = state.update { it.copy(experimentalTrails = enabled) }
     override suspend fun setExperimentalClouds(enabled: Boolean) = state.update { it.copy(experimentalClouds = enabled) }
     override suspend fun setRotationLocked(enabled: Boolean) = state.update { it.copy(rotationLocked = enabled) }

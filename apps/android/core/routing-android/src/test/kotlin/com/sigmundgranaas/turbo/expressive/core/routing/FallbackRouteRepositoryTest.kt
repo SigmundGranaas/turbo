@@ -1,6 +1,9 @@
 package com.sigmundgranaas.turbo.expressive.core.routing
 
+import com.sigmundgranaas.turbo.expressive.core.data.RouteDiagnostics
 import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
+import com.sigmundgranaas.turbo.expressive.domain.RouteEngine
+import com.sigmundgranaas.turbo.expressive.domain.RouteSolveRecord
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.RoutePlan
 import com.sigmundgranaas.turbo.expressive.domain.RoutePreset
@@ -72,12 +75,16 @@ class FallbackRouteRepositoryTest {
         online: Boolean,
         hasPack: Boolean,
         timeoutMs: Long = 500,
+        engine: RouteEngine = RouteEngine.Auto,
+        diagnostics: RouteDiagnostics? = null,
     ) = FallbackRouteRepository(
         server = server,
         device = device,
         isOnline = { online },
         deviceCanAnswer = { hasPack },
         serverTimeoutMs = timeoutMs,
+        engineChoice = { engine },
+        diagnostics = diagnostics,
     )
 
     private suspend fun collect(r: RouteRepository): List<RouteStreamEvent> =
@@ -173,5 +180,102 @@ class FallbackRouteRepositoryTest {
             events.none { it is RouteStreamEvent.Progress },
         )
         assertEquals(2000.0, (events.single() as RouteStreamEvent.Result).plan.distanceM, 0.0)
+    }
+
+    // ── The overrides M1 is measured through ──────────────────────────
+
+    @Test
+    fun `forcing the phone asks only the phone, even with a good server`() = runTest {
+        // The reason the override exists. Under Auto a healthy server
+        // answers first every time, so a tester on a working connection
+        // could run routes all day and never once exercise the engine
+        // they are trying to measure.
+        val server = answering(1000.0)
+        val device = answering(2000.0)
+        val events = collect(
+            repo(server, device, online = true, hasPack = true, engine = RouteEngine.Device),
+        )
+        assertEquals("the server must not be consulted", 0, server.calls)
+        assertEquals(1, device.calls)
+        assertEquals(2000.0, (events.last() as RouteStreamEvent.Result).plan.distanceM, 0.001)
+    }
+
+    @Test
+    fun `forcing the phone does NOT fall back when the phone fails`() = runTest {
+        // The whole value of the override. A silent fallback would turn
+        // "the device engine is broken in this APK" into "routing works",
+        // which is the exact wrong answer to the only question being
+        // asked.
+        val server = answering(1000.0)
+        val device = broken()
+        val events = collect(
+            repo(server, device, online = true, hasPack = true, engine = RouteEngine.Device),
+        )
+        assertEquals("a failure must stay visible", 0, server.calls)
+        assertTrue("expected a Failure, got $events", events.last() is RouteStreamEvent.Failure)
+    }
+
+    @Test
+    fun `forcing the server skips the phone even offline with a pack`() = runTest {
+        val server = answering(1000.0)
+        val device = answering(2000.0)
+        collect(repo(server, device, online = false, hasPack = true, engine = RouteEngine.Server))
+        assertEquals(1, server.calls)
+        assertEquals("the control case must be a clean control", 0, device.calls)
+    }
+
+    // ── What gets recorded ────────────────────────────────────────────
+
+    @Test
+    fun `a solve is recorded against the engine that actually answered`() = runTest {
+        // Not the engine that was asked first. Under Auto with a dead
+        // server the phone answers, and charging that solve to the
+        // server would corrupt the one number this exists to produce.
+        val d = RouteDiagnostics()
+        collect(
+            repo(broken(), answering(2000.0), online = true, hasPack = true, diagnostics = d),
+        )
+        val r = d.records.value.single()
+        assertEquals(RouteEngine.Device, r.engine)
+        assertEquals(RouteSolveRecord.Outcome.Ok, r.outcome)
+        assertEquals(2, r.waypoints)
+        assertTrue("span should be a real distance, got ${r.spanKm}", r.spanKm > 0.0)
+    }
+
+    @Test
+    fun `a native failure is recorded as Failed, with its message`() = runTest {
+        // The release-APK case this readout exists for. A stripped .so
+        // throws UnsatisfiedLinkError — an Error, not an Exception — so
+        // a `catch (Exception)` would let it escape as a crash with no
+        // attribution. It has to land here, legibly.
+        val d = RouteDiagnostics()
+        val device = Fake { throw UnsatisfiedLinkError("libturbo_route_ffi.so not found") }
+        val events = collect(
+            repo(answering(1.0), device, online = true, hasPack = true,
+                engine = RouteEngine.Device, diagnostics = d),
+        )
+        val r = d.records.value.single()
+        assertEquals(RouteSolveRecord.Outcome.Failed, r.outcome)
+        assertTrue("the message must survive: ${r.detail}", r.detail!!.contains("libturbo_route_ffi"))
+        assertTrue(events.last() is RouteStreamEvent.Failure)
+    }
+
+    @Test
+    fun `a device solve is not charged for the server's timeout`() = runTest {
+        // Under Auto the phone only runs after the server has burned the
+        // whole window. Folding that into the device's duration would
+        // make the phone look slower the worse the network is — exactly
+        // backwards, and it would poison the p95 release 2 rests on.
+        val d = RouteDiagnostics()
+        collect(
+            repo(hanging(), answering(2000.0), online = true, hasPack = true,
+                timeoutMs = 300, diagnostics = d),
+        )
+        val r = d.records.value.single()
+        assertEquals(RouteEngine.Device, r.engine)
+        assertTrue(
+            "device duration ${r.durationMs} ms must exclude the 300 ms server window",
+            r.durationMs < 300,
+        )
     }
 }

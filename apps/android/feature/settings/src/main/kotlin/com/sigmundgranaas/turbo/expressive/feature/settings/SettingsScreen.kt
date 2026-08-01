@@ -26,6 +26,13 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Hiking
+import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.TextButton
+import com.sigmundgranaas.turbo.expressive.domain.RouteEngine
+import com.sigmundgranaas.turbo.expressive.domain.RouteSolveRecord
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MyLocation
@@ -266,6 +273,31 @@ fun SettingsScreen(
                     trailing = { Switch(settings.experimentalClouds, { haptics.toggle(it); viewModel.setExperimentalClouds(it) }, modifier = Modifier.testTag("experimentalClouds")) },
                 )
             }
+            // Routing engine + the last few solves.
+            //
+            // In the shipped build, not behind a debug flag, because the
+            // question it answers can only be answered here: whether the
+            // phone can route is a property of the RELEASE APK on real
+            // silicon — R8 has run, the ABI split has happened, the .so
+            // is the one that was published — and a debug build proves
+            // none of it. Left in Settings, under a plain warning, at the
+            // bottom, where a curious user finding it costs them a slower
+            // route and nothing else.
+            SettingsGroup {
+                ListRowItem(
+                    Icons.Rounded.Route, stringResource(R.string.settings_routing),
+                    subtitle = stringResource(R.string.settings_routing_sub),
+                )
+                RouteEnginePicker(
+                    selected = settings.routeEngine,
+                    onSelect = { haptics.toggle(true); viewModel.setRouteEngine(it) },
+                )
+                val solves by viewModel.routeSolves.collectAsStateWithLifecycle()
+                if (solves.isNotEmpty()) {
+                    HorizontalDivider(color = cs.outlineVariant)
+                    RouteSolveList(solves, onClear = viewModel::clearRouteSolves)
+                }
+            }
             SettingsGroup {
                 ListRowItem(
                     Icons.Rounded.Info, stringResource(R.string.settings_about),
@@ -331,6 +363,106 @@ private fun GestureSlider(
             valueRange = range,
             modifier = Modifier.testTag(testTag),
         )
+    }
+}
+
+/**
+ * Which engine answers, as three exclusive choices.
+ *
+ * A segmented row rather than a switch because the third state is not
+ * "off": forcing the SERVER is how a tester gets a control measurement
+ * to compare a device time against, and a two-state control could not
+ * express it.
+ */
+@Composable
+private fun RouteEnginePicker(
+    selected: RouteEngine,
+    onSelect: (RouteEngine) -> Unit,
+) {
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        RouteEngine.entries.forEachIndexed { index, engine ->
+            SegmentedButton(
+                selected = selected == engine,
+                onClick = { onSelect(engine) },
+                shape = SegmentedButtonDefaults.itemShape(index, RouteEngine.entries.size),
+                modifier = Modifier.testTag("routeEngine_${engine.name}"),
+            ) {
+                Text(
+                    stringResource(
+                        when (engine) {
+                            RouteEngine.Auto -> R.string.settings_routing_auto
+                            RouteEngine.Device -> R.string.settings_routing_device
+                            RouteEngine.Server -> R.string.settings_routing_server
+                        },
+                    ),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The last few solves, newest first.
+ *
+ * Dense on purpose — this is a readout to copy down, not a dashboard.
+ * Engine, wall time, span and outcome are exactly the columns M1 needs
+ * and nothing else is shown, because every extra field is one more
+ * thing to keep true.
+ */
+@Composable
+private fun RouteSolveList(
+    solves: List<RouteSolveRecord>,
+    onClear: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).testTag("routeSolves")) {
+        solves.forEach { r ->
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    r.engine.name.lowercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = cs.primary,
+                    modifier = Modifier.width(56.dp),
+                )
+                Text(
+                    "%,d ms".format(r.durationMs),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.width(76.dp),
+                )
+                Text(
+                    "%.1f km · %d".format(r.spanKm, r.waypoints),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    when (r.outcome) {
+                        RouteSolveRecord.Outcome.Ok -> "ok"
+                        RouteSolveRecord.Outcome.NoRoute -> "no route"
+                        RouteSolveRecord.Outcome.Failed -> "failed"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (r.outcome == RouteSolveRecord.Outcome.Failed) cs.error else cs.onSurfaceVariant,
+                )
+            }
+            // The message is the whole value of a failed row: on a
+            // release APK this is where a stripped .so or a JNA
+            // reflection failure actually becomes readable.
+            if (r.outcome == RouteSolveRecord.Outcome.Failed && r.detail != null) {
+                Text(
+                    r.detail!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.error,
+                    modifier = Modifier.padding(start = 56.dp, bottom = 4.dp),
+                )
+            }
+        }
+        TextButton(onClick = onClear, modifier = Modifier.testTag("clearRouteSolves")) {
+            Text(stringResource(R.string.settings_routing_clear))
+        }
     }
 }
 
