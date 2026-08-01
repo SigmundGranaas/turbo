@@ -58,7 +58,11 @@ pub fn run(
     // slice phases would leave the biggest number off the report.
     println!(
         "  {:<14} {:>8}    {:>6}   {:>7.2} s   {} points",
-        "verify", "", "", r.verify_elapsed.as_secs_f64(), r.verified_points
+        "verify",
+        "",
+        "",
+        r.verify_elapsed.as_secs_f64(),
+        r.verified_points
     );
     println!(
         "  {:<14} {:>8}    {:>6}   {:>7.2} s   sha256 over the output",

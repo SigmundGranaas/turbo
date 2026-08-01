@@ -12,6 +12,7 @@ import com.sigmundgranaas.turbo.expressive.core.data.SyntheticTideRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SyntheticTrailSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.TideRepository
 import com.sigmundgranaas.turbo.expressive.core.data.TrailSearchRepository
+import com.sigmundgranaas.turbo.expressive.core.data.di.Remote
 import com.sigmundgranaas.turbo.expressive.core.data.di.RemoteRepositoriesModule
 import dagger.Module
 import dagger.Provides
@@ -40,7 +41,24 @@ object FakeRemoteRepositoriesModule {
     @Provides @Singleton
     fun reverseGeocode(impl: SyntheticReverseGeocodeRepository): ReverseGeocodeRepository = impl
 
+    /**
+     * The **server** half, not the whole binding.
+     *
+     * `@Remote` matters and dropping it is what broke this graph once.
+     * `:core:routing-android` binds the plain `RouteRepository` to
+     * `FallbackRouteRepository`, which asks for `@Remote` as its server
+     * side. Providing the synthetic unqualified made two modules claim
+     * the same key — a duplicate binding — while leaving the qualified
+     * one nobody satisfied.
+     *
+     * Qualified, the fallback wiring stays in the test graph and the
+     * synthetic stands in for the network, which is what these tests
+     * actually want. No pack is installed under test, so
+     * `deviceCanAnswer` is false and every request goes straight here:
+     * same behaviour as before, one more layer genuinely covered.
+     */
     @Provides @Singleton
+    @Remote
     fun route(impl: SyntheticRouteRepository): RouteRepository = impl
 
     @Provides @Singleton

@@ -392,7 +392,13 @@ mod tests {
         let svc = PackService::new(PathBuf::from("/nonexistent"), PathBuf::from("/tmp"), 1);
         // 30 x 30 cells at 58degN: ~24 000 km², comfortably past the cap.
         let one = PackKey::covering(15.0, 58.0, 15.0, 58.0, turbo_geodata_pack::PACK_GRID_Z);
-        let big = PackKey { z: one.z, x0: one.x0, y0: one.y0, x1: one.x0 + 29, y1: one.y0 + 29 };
+        let big = PackKey {
+            z: one.z,
+            x0: one.x0,
+            y0: one.y0,
+            x1: one.x0 + 29,
+            y1: one.y0 + 29,
+        };
         match svc.parse_key(&big.to_string()) {
             Err(PackError::TooLarge { area_sq_km }) => {
                 assert!(area_sq_km > MAX_AREA_SQ_KM, "got {area_sq_km:.0} km²");

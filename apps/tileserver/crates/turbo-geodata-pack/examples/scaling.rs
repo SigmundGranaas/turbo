@@ -115,7 +115,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let e = e?;
                 let n = e.metadata()?.len();
                 total += n;
-                println!("  {:<20} {:>8.0} MB", e.file_name().to_string_lossy(), n as f64 / 1e6);
+                println!(
+                    "  {:<20} {:>8.0} MB",
+                    e.file_name().to_string_lossy(),
+                    n as f64 / 1e6
+                );
             }
             println!("  {:<20} {:>8.0} MB total", "", total as f64 / 1e6);
             return Ok(());
@@ -461,8 +465,10 @@ fn synth_graph(dir: &Path, nodes: usize, edges: usize) -> Result<(), Box<dyn std
     };
 
     let t = Instant::now();
-    let mut out =
-        std::io::BufWriter::with_capacity(1 << 22, std::fs::File::create(dir.join("norway.graph"))?);
+    let mut out = std::io::BufWriter::with_capacity(
+        1 << 22,
+        std::fs::File::create(dir.join("norway.graph"))?,
+    );
     write_header(
         &mut out,
         &Header {
