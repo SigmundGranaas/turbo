@@ -210,6 +210,15 @@ enum Command {
         /// Override the WCS endpoint (testing, or a mirror).
         #[arg(long, default_value = turbo_pack_build::wcs::DEFAULT_ENDPOINT)]
         wcs_endpoint: String,
+        /// Kommune numbers whose N50 data the region needs, comma
+        /// separated. Required for the mask and the road network:
+        /// N50 has no WFS, so the smallest unit on offer is a kommune.
+        /// Omit to build the DEM alone.
+        #[arg(long)]
+        kommune: Option<String>,
+        /// Override the trail WFS endpoint.
+        #[arg(long, default_value = turbo_pack_build::wfs::DEFAULT_ENDPOINT)]
+        wfs_endpoint: String,
     },
 }
 
@@ -339,16 +348,32 @@ async fn main() -> Result<()> {
             halo_m,
             concurrency,
             wcs_endpoint,
-        } => build_region(&dst, &bbox, halo_m, concurrency, &wcs_endpoint).await,
+            kommune,
+            wfs_endpoint,
+        } => {
+            build_region(
+                &dst,
+                &bbox,
+                halo_m,
+                concurrency,
+                &wcs_endpoint,
+                &wfs_endpoint,
+                kommune.as_deref(),
+            )
+            .await
+        }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn build_region(
     dst: &std::path::Path,
     bbox: &str,
     halo_m: f64,
     concurrency: usize,
-    endpoint: &str,
+    wcs_endpoint: &str,
+    wfs_endpoint: &str,
+    kommune: Option<&str>,
 ) -> anyhow::Result<()> {
     let v: Result<Vec<f64>, _> = bbox.split(',').map(|p| p.trim().parse::<f64>()).collect();
     let v = v.map_err(|e| anyhow::anyhow!("--bbox: {e}"))?;
@@ -371,23 +396,92 @@ async fn build_region(
 
     let http = turbo_pack_build::default_client()?;
 
-    let report =
-        turbo_pack_build::build_dem(&http, endpoint, region, dst, concurrency, |done, total| {
-            if done % 5 == 0 || done == total {
-                println!("  {done}/{total} coverages");
-            }
-        })
+    // No kommune means no N50, and N50 is where water, glaciers and
+    // roads come from. Build the DEM alone rather than a pack that is
+    // quietly missing three of its four artifacts.
+    let Some(kommune) = kommune else {
+        let report = turbo_pack_build::build_dem(
+            &http,
+            wcs_endpoint,
+            region,
+            dst,
+            concurrency,
+            |done, total| {
+                if done % 5 == 0 || done == total {
+                    println!("  dem {done}/{total}");
+                }
+            },
+        )
         .await
         .map_err(|e| anyhow::anyhow!("build-region failed: {e}"))?;
+        println!(
+            "wrote {} — {} tiles ({} empty), {:.1} MB in {:.1}s. \
+             No --kommune, so no mask, graph or manifest.",
+            report.dem_path.display(),
+            report.dem_tiles,
+            report.dem_tiles_all_nodata,
+            report.dem_bytes as f64 / 1e6,
+            report.seconds
+        );
+        return Ok(());
+    };
+
+    let kommuner: Result<Vec<_>, _> = kommune
+        .split(',')
+        .map(turbo_pack_build::n50::Kommune::parse)
+        .collect();
+    let kommuner = kommuner.map_err(|e| anyhow::anyhow!("--kommune: {e}"))?;
+
+    let report = turbo_pack_build::region::build_pack(
+        &http,
+        dst,
+        v,
+        halo_m,
+        &kommuner,
+        wcs_endpoint,
+        wfs_endpoint,
+        concurrency,
+        |phase, done, total| {
+            let label = match phase {
+                turbo_pack_build::region::Phase::Dem => "dem",
+                turbo_pack_build::region::Phase::Vector => "vector",
+                turbo_pack_build::region::Phase::Mask => "mask",
+                turbo_pack_build::region::Phase::Graph => "graph",
+                turbo_pack_build::region::Phase::Manifest => "manifest",
+            };
+            if done == total || done % 5 == 0 {
+                println!("  {label} {done}/{total}");
+            }
+        },
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("build-region failed: {e}"))?;
 
     println!(
-        "wrote {} — {} tiles ({} empty), {:.1} MB in {:.1}s",
-        report.dem_path.display(),
-        report.dem_tiles,
-        report.dem_tiles_all_nodata,
-        report.dem_bytes as f64 / 1e6,
-        report.seconds
+        "wrote {} in {:.1}s — {:.1} MB total",
+        dst.display(),
+        report.seconds,
+        report.total_bytes as f64 / 1e6
     );
+    println!(
+        "  dem     {} tiles, {:.1} MB",
+        report.dem_tiles,
+        report.dem_bytes as f64 / 1e6
+    );
+    println!(
+        "  mask    {} water + {} glacier polygons, {}/{} cells refused",
+        report.water_polygons, report.glacier_polygons, report.refused_cells, report.total_cells
+    );
+    println!(
+        "  graph   {} nodes, {} directed edges from {} trails + {} roads",
+        report.nodes, report.edges_directed, report.trails, report.roads
+    );
+    if report.edges_without_terrain > 0 {
+        println!(
+            "  note    {} edges had no terrain under them — cost fell back to distance",
+            report.edges_without_terrain
+        );
+    }
     Ok(())
 }
 

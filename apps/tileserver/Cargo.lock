@@ -3798,6 +3798,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
+ "toml 0.8.23",
  "tracing",
  "turbo-tiles-artifacts",
  "turbo-tiles-elev",
@@ -4116,6 +4117,7 @@ name = "turbo-tiles-mask"
 version = "0.1.0"
 dependencies = [
  "byteorder",
+ "geo",
  "memmap2",
  "serde",
  "tempfile",

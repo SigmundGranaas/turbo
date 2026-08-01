@@ -31,6 +31,9 @@ use memmap2::Mmap;
 use thiserror::Error;
 use turbo_tiles_artifacts::{check_header, read_header, ArtifactError, ArtifactKind, HEADER_BYTES};
 
+pub mod cost;
+pub use cost::{encode_fkb_type, encode_marking, encode_surface, profile_cost, surface_multiplier};
+
 pub const GRAPH_FORMAT_VERSION: u32 = 1;
 pub const GRAPH_GEOM_FORMAT_VERSION: u32 = 1;
 

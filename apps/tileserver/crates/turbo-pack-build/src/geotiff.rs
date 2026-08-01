@@ -258,6 +258,16 @@ pub fn decode(data: &[u8]) -> Result<Raster, BuildError> {
             return Err(err("tile offset/bytecount length mismatch"));
         }
         for (i, (&off, &cnt)) in offs.iter().zip(cnts.iter()).enumerate() {
+            // A zero-length tile is TIFF's sparse convention for "no
+            // data stored here", and Kartverket's WCS uses it: a 159 x
+            // 1024 coverage came back with tiles 1 and 3 at offset 0,
+            // count 0. Leaving those samples untouched keeps them NaN,
+            // which the DEM writer turns into the nodata sentinel. Any
+            // other reading — zeros, or an error — would put sea level
+            // or a failure where the answer is simply "unknown".
+            if cnt == 0 || off == 0 {
+                continue;
+            }
             let b = need(data, off as usize, cnt as usize)?;
             let tx = (i % across) * tw;
             let ty = (i / across) * th;
@@ -275,7 +285,13 @@ pub fn decode(data: &[u8]) -> Result<Raster, BuildError> {
                     }
                     let at = (r * tw + c) * 4;
                     if at + 4 > b.len() {
-                        return Err(err("tile shorter than its declared size"));
+                        return Err(err(format!(
+                            "tile {i} of {} is {} bytes, but a {tw}x{th} float32 tile needs {}; \
+                             image is {width}x{height}",
+                            offs.len(),
+                            b.len(),
+                            tw * th * 4
+                        )));
                     }
                     values[y * width + x] = order.f32(&b[at..]);
                 }
@@ -294,6 +310,10 @@ pub fn decode(data: &[u8]) -> Result<Raster, BuildError> {
             return Err(err("strip offset/bytecount length mismatch"));
         }
         for (i, (&off, &cnt)) in offs.iter().zip(cnts.iter()).enumerate() {
+            // Sparse strips, same convention as sparse tiles above.
+            if cnt == 0 || off == 0 {
+                continue;
+            }
             let b = need(data, off as usize, cnt as usize)?;
             for r in 0..rps {
                 let y = i * rps + r;
@@ -425,6 +445,49 @@ mod tests {
     }
 
     /// The failure that matters: an HTML error page served with a 200.
+    /// Kartverket's WCS returns sparse tiles — offset 0, count 0 — for
+    /// ground it has no data for. Observed on a real 159 x 1024
+    /// coverage, tiles 1 and 3. Those samples must come back as NaN so
+    /// the DEM writer records nodata; decoding them as zeros would put
+    /// sea level on a mountainside and the router would walk it.
+    #[test]
+    fn a_sparse_tile_leaves_its_samples_unknown() {
+        let mut bytes = synth(256, 256, 128, |_, _| 500.0);
+        let ifd = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+        let n = u16::from_le_bytes(bytes[ifd..ifd + 2].try_into().unwrap()) as usize;
+        let (mut offs_at, mut cnts_at) = (0usize, 0usize);
+        for i in 0..n {
+            let at = ifd + 2 + i * 12;
+            match u16::from_le_bytes(bytes[at..at + 2].try_into().unwrap()) {
+                T_TILE_OFFSETS => {
+                    offs_at =
+                        u32::from_le_bytes(bytes[at + 8..at + 12].try_into().unwrap()) as usize
+                }
+                T_TILE_BYTE_COUNTS => {
+                    cnts_at =
+                        u32::from_le_bytes(bytes[at + 8..at + 12].try_into().unwrap()) as usize
+                }
+                _ => {}
+            }
+        }
+        // Blank tile 1 (the north-east quadrant).
+        bytes[offs_at + 4..offs_at + 8].copy_from_slice(&0u32.to_le_bytes());
+        bytes[cnts_at + 4..cnts_at + 8].copy_from_slice(&0u32.to_le_bytes());
+
+        let r = decode(&bytes).expect("a sparse tile must not be an error");
+        assert_eq!(r.values[0], 500.0, "present tile lost its data");
+        assert!(
+            r.values[200].is_nan(),
+            "sparse tile decoded as {}",
+            r.values[200]
+        );
+        assert_eq!(
+            r.values[130 * 256],
+            500.0,
+            "tile below the hole lost its data"
+        );
+    }
+
     #[test]
     fn an_html_error_page_is_not_silently_decoded() {
         let e = decode(b"<html><head><title>ArcGIS Server Error</title>").unwrap_err();

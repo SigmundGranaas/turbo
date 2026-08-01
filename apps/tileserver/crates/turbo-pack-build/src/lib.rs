@@ -39,7 +39,15 @@
 
 pub mod dem;
 pub mod geotiff;
+pub mod gml;
+pub mod graph;
+pub mod mask;
+pub mod n50;
+pub mod node;
+pub mod pack;
+pub mod region;
 pub mod wcs;
+pub mod wfs;
 
 use std::path::PathBuf;
 
@@ -74,6 +82,15 @@ pub fn default_client() -> Result<reqwest::Client, BuildError> {
         .build()
         .map_err(|e| BuildError::Fetch(format!("build http client: {e}")))
 }
+
+/// Kommune numbers whose N50 data a region needs.
+///
+/// The caller supplies these because deriving them means a
+/// point-in-polygon test against the administrative boundaries, which is
+/// another dataset to fetch and another thing to be wrong about. A
+/// region spanning two kommuner needs both, and passing one silently
+/// yields a mask missing half its lakes.
+pub type Kommuner = Vec<n50::Kommune>;
 
 /// What a region build produced.
 #[derive(Debug, Clone)]

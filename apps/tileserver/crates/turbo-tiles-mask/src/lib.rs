@@ -9,6 +9,9 @@ use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
 
+pub mod raster;
+pub use raster::scanline_fill;
+
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use memmap2::Mmap;
 use thiserror::Error;

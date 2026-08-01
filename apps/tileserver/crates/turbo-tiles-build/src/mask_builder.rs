@@ -35,7 +35,8 @@ use tracing::info;
 use turbo_tiles_artifacts::{write_header, ArtifactKind, Header};
 use turbo_tiles_db::DbPool;
 use turbo_tiles_mask::{
-    packed_bytes, write_meta, MaskMeta, RefusalKind, DEFAULT_RESOLUTION_M, MASK_FORMAT_VERSION,
+    packed_bytes, scanline_fill, write_meta, MaskMeta, RefusalKind, DEFAULT_RESOLUTION_M,
+    MASK_FORMAT_VERSION,
 };
 
 use crate::BuildError;
@@ -695,86 +696,8 @@ fn parse_wkb_polygon(wkb: &[u8]) -> Option<Polygon<f64>> {
     Some(Polygon::new(exterior, interiors))
 }
 
-/// Scanline-fill polygon `poly` into the `cells` buffer using value
-/// `v`. Even-odd rule over horizontal scanlines aligned with the
-/// output grid. Last-write-wins: glacier overlay on top of water is
-/// naturally handled by calling order.
-#[allow(clippy::too_many_arguments)]
-fn scanline_fill(
-    poly: &Polygon<f64>,
-    v: u8,
-    cells: &mut [u8],
-    cells_x: u32,
-    cells_y: u32,
-    min_x: f64,
-    max_y: f64,
-    res: f64,
-) {
-    // Polygon bbox in cell coords.
-    let mut p_min_x = f64::INFINITY;
-    let mut p_max_x = f64::NEG_INFINITY;
-    let mut p_min_y = f64::INFINITY;
-    let mut p_max_y = f64::NEG_INFINITY;
-    for c in poly.exterior().0.iter() {
-        if c.x < p_min_x {
-            p_min_x = c.x;
-        }
-        if c.x > p_max_x {
-            p_max_x = c.x;
-        }
-        if c.y < p_min_y {
-            p_min_y = c.y;
-        }
-        if c.y > p_max_y {
-            p_max_y = c.y;
-        }
-    }
-    let col_min = (((p_min_x - min_x) / res).floor() as i64).max(0);
-    let col_max = (((p_max_x - min_x) / res).ceil() as i64).min(cells_x as i64 - 1);
-    let row_min = (((max_y - p_max_y) / res).floor() as i64).max(0);
-    let row_max = (((max_y - p_min_y) / res).ceil() as i64).min(cells_y as i64 - 1);
-    if col_min > col_max || row_min > row_max {
-        return;
-    }
-    // Collect all rings (exterior + interiors). Even-odd rule
-    // naturally handles holes when we count all crossings together.
-    let mut all_segments: Vec<(Coord<f64>, Coord<f64>)> = Vec::new();
-    for ls in std::iter::once(poly.exterior()).chain(poly.interiors().iter()) {
-        let coords = &ls.0;
-        for w in coords.windows(2) {
-            all_segments.push((w[0], w[1]));
-        }
-    }
-    for row in row_min..=row_max {
-        // Scanline y = world y of cell-row centre. Cells span
-        // [max_y - (row+1)*res, max_y - row*res] in world Y.
-        let y = max_y - (row as f64 + 0.5) * res;
-        let mut crossings: Vec<f64> = Vec::new();
-        for &(a, b) in &all_segments {
-            // Skip horizontal edges (would yield infinite crossings
-            // and contribute zero crossings on the even-odd rule).
-            if (a.y > y) == (b.y > y) {
-                continue;
-            }
-            // Compute X of intersection between edge and scanline.
-            let t = (y - a.y) / (b.y - a.y);
-            let x = a.x + t * (b.x - a.x);
-            crossings.push(x);
-        }
-        crossings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let mut i = 0;
-        while i + 1 < crossings.len() {
-            let x0 = crossings[i];
-            let x1 = crossings[i + 1];
-            let c0 = (((x0 - min_x) / res).floor() as i64).max(col_min);
-            let c1 = (((x1 - min_x) / res).ceil() as i64).min(col_max);
-            if c0 <= c1 {
-                let base = row as usize * cells_x as usize;
-                for c in c0..=c1 {
-                    cells[base + c as usize] = v;
-                }
-            }
-            i += 2;
-        }
-    }
-}
+// The scanline fill moved to `turbo_tiles_mask::scanline_fill`, so this
+// builder and the GML-sourced one in `turbo-pack-build` fill identically
+// by construction rather than by two people keeping two copies in step.
+// Last-write-wins across layers is still a property of calling order:
+// glacier is rasterised after water.
