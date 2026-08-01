@@ -1,11 +1,24 @@
 # Building routing packs on the device
 
-A proposal. Nothing here is implemented.
+Started as a proposal; now implemented. `turbo-pack-build` is the crate,
+`tileserver build-region --bbox ... --kommune ...` the entry point, and
+`turbo_route_ffi::build::build_pack` the FFI the phone calls.
 
-The question: can a phone build its own routing pack from Kartverket,
+The question was: can a phone build its own routing pack from Kartverket,
 rather than downloading one the tileserver cut? The obvious objection is
 that pack building needs PostGIS. That objection is wrong, and this
 document is mostly about why.
+
+**What it does now.** A 12 x 12 km region takes 14.5 s and 5.3 MB: 25
+DEM tiles, 453 of 14 637 mask cells refused, 959 nodes and 1 502 directed
+edges from 674 trails and 78 roads. Opened through `RouteEngine::open` —
+the same entry point the Android app uses — it returns a 528-point,
+8 741 m route with 394 m of ascent. No database, no GDAL, no national
+artifacts.
+
+Where this document was wrong, it now says so rather than being quietly
+edited: see §3 on the refactor that proved unnecessary, and §5 on the
+APK cost I guessed low.
 
 ## 1. PostGIS is a staging store, not a compute engine
 
@@ -93,12 +106,20 @@ turbo-pack-source-pg        today's SQL, behaviour unchanged
 turbo-pack-source-ogc       WCS 1.0.0 + WFS 2.0.0 clients
 ```
 
-The builders move into `turbo-pack-build` essentially as they are; what
-changes is where their rows come from. The value of this shape is not
-tidiness — it is that **the server and the device run the same builder**,
-so "does a device-built pack match a server-built one" becomes a test
-you can actually write, in the style of E10's slice-fidelity test,
-rather than a hope.
+**This part was unnecessary, and the implementation skipped it.** The
+seam already existed: `turbo-tiles-elev`, `-mask` and `-graph` carry no
+sqlx, so the format layer was always database-free. A new crate writing
+through them coexists with `turbo-tiles-build` rather than refactoring
+it, which leaves the server's working pipeline untouched and still lets
+the two be diffed.
+
+What *did* move, and for exactly the reason this section gives, are the
+two pieces of shared *logic*: the mask's scanline fill into
+`turbo-tiles-mask`, and the cost model and attribute encoders into
+`turbo-tiles-graph`. Both builders call the same code now. That is the
+whole fidelity argument — two builders that rasterise or cost nearly the
+same produce artifacts differing along every shoreline or route, and
+neither difference announces itself.
 
 Five components sit on top:
 
@@ -160,13 +181,15 @@ treat device build as fallback and opt-in, with caching and honest
 backoff. This is a decision to make deliberately, not to discover from
 an angry email.
 
-**Water and glacier polygons are the one unverified input.** I confirmed
-elevation and trails. `terrain.water_polygon` and `terrain.glacier_polygon`
-come from N50 Vann and IsogBre via the Nedlasting API, which is
-area-keyed (kommune/fylke) rather than bbox. If there is no bbox WFS for
-them, that half needs either a different service or a larger download
-than the rest. **Check this before committing to the plan** — it is the
-one thing that could change the shape.
+**Water and glacier polygons — checked, and there is no bbox service.**
+The Geonorge catalogue lists N50 only as `GEONORGE:DOWNLOAD`;
+`wfs.geonorge.no/skwms1/wfs.n50` answers *"UKJENT APPLIKASJON"*. So the
+vector half is ordered per kommune: 25.6 MB zipped for Sørfold, holding
+95 MB of Arealdekke with `Innsjø` (6 657), `ElvBekk` (7 936), `Havflate`
+(86), `Elv` (85), `InnsjøRegulert` (11) and `SnøIsbre` (52), plus
+`Veglenke` (1 341) in Samferdsel. Trails stay on the bbox-scoped FKB sti
+WFS. This is the one place the pipeline fetches more than the region
+needs, and the shape survived it.
 
 **Correctness drift.** WCS resampling, feature-version skew between a
 phone fetching today and the server's last national pull, and float
@@ -175,10 +198,31 @@ builder makes this testable; it does not make it absent. E1 already
 established the solver is cross-ISA deterministic, so the exposure is in
 the inputs, not the solve.
 
-**APK size.** Adds a GML parser and a TIFF decoder to the Android
-library. `quick_xml` is already a dependency and a minimal tiled-float32
-TIFF reader is small — the probe above is 20 lines of Python. zstd
-already ships, since the DEM is zstd.
+**APK size — measured, and I was wrong about it.** I guessed this would
+be small because the parsers are small. The parsers *are* small; the
+HTTP stack is not. Measured on `aarch64-linux-android`, release:
+
+| | libturbo_route_ffi.so |
+|---|---|
+| routing only | 1.59 MB |
+| with the pack builder | 4.79 MB |
+
+**+3.2 MB per ABI**, roughly tripling the library, and almost none of it
+is GML or TIFF — it is `reqwest` + `rustls` + `tokio`, a second TLS
+stack and a second async runtime inside an app that already has OkHttp.
+
+That is still far cheaper than the 53 MB bundle it replaces, so it is
+not disqualifying. But the duplication suggests a better shape: have the
+*host* fetch and hand the Rust side bytes, keeping only the decode,
+rasterise, node and write steps in the library. The builder is already
+split that way internally — `geotiff`, `gml`, `mask`, `node`, `graph`
+and `pack` never touch the network; only `wcs`, `wfs` and `n50` do — so
+inverting the fetch is a matter of taking a callback rather than a
+`reqwest::Client`. It would drop most of the 3.2 MB and reuse the
+retry, proxy and certificate handling the app already has.
+
+Not done here, because it is a real refactor and the current shape
+works. Worth doing before this ships to users.
 
 **Time and battery.** Needs a foreground service with progress and
 cancel. The offline download service already exists and is the natural

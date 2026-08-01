@@ -47,6 +47,8 @@ use turbo_tiles_pathfind::{Pathfinder, Point, Prefs};
 
 uniffi::setup_scaffolding!();
 
+pub mod build;
+
 // ---- value types ----------------------------------------------------
 
 /// A WGS84 coordinate — what a phone's location API produces.

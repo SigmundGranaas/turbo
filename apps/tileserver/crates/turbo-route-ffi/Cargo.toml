@@ -38,6 +38,8 @@ turbo-tiles-mask.workspace = true
 # The pack manifest's shape + version constant, shared with the tool that
 # writes it so the two cannot drift.
 turbo-tiles-artifacts.workspace = true
+turbo-pack-build.workspace = true
+tokio = { workspace = true }
 toml = "0.8"
 uniffi = { version = "0.29", features = ["cli"] }
 thiserror.workspace = true
