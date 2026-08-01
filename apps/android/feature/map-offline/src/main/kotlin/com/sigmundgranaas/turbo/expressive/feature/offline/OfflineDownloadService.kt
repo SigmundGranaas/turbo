@@ -56,7 +56,9 @@ class OfflineDownloadService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_PAUSE -> manager.regions.value.filter { it.status == OfflineStatus.Downloading }.forEach { manager.pause(it.id) }
+            ACTION_PAUSE -> manager.regions.value
+                .filter { it.status == OfflineStatus.Downloading || it.status == OfflineStatus.Building }
+                .forEach { manager.pause(it.id) }
             ACTION_RESUME -> manager.regions.value.filter { it.status == OfflineStatus.Paused }.forEach { manager.resume(it.id) }
             else -> Unit
         }
@@ -123,9 +125,15 @@ class OfflineDownloadService : Service() {
     }
 
     private fun buildNotification(regions: List<OfflineRegionInfo>): Notification {
-        val pending = regions.filter { it.status == OfflineStatus.Downloading || it.status == OfflineStatus.Paused }
+        val pending = regions.filter {
+            it.status == OfflineStatus.Downloading ||
+                it.status == OfflineStatus.Building ||
+                it.status == OfflineStatus.Paused
+        }
         val pct = if (pending.isEmpty()) 0 else (pending.map { it.progress }.average() * 100).toInt().coerceIn(0, 100)
-        val anyActive = pending.any { it.status == OfflineStatus.Downloading }
+        val anyActive = pending.any {
+            it.status == OfflineStatus.Downloading || it.status == OfflineStatus.Building
+        }
         val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(getString(R.string.offline_notif_title))

@@ -224,7 +224,13 @@ class WgpuOfflineTileManager internal constructor(
 
     /** Network lost: pause everything still in flight (keep tiles). */
     private fun pauseActiveForNetwork() {
-        _regions.value.filter { it.status == OfflineStatus.Downloading }.forEach {
+        _regions.value.filter {
+            // Building counts. It is the phase that fetches the most on
+            // someone else's data plan, so leaving it out would mean
+            // "Wi-Fi only" silently did not apply to the longest and
+            // heaviest part of a download.
+            it.status == OfflineStatus.Downloading || it.status == OfflineStatus.Building
+        }.forEach {
             jobs.remove(it.id)?.cancel()
             markPaused(it.id)
         }

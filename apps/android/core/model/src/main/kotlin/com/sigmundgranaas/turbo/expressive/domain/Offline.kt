@@ -13,6 +13,18 @@ enum class OfflineStatus {
     /** Tiles are actively downloading (or queued). */
     Downloading,
 
+    /**
+     * Cutting the routing pack on this device.
+     *
+     * Distinct from [Downloading] because it behaves nothing like it:
+     * minutes rather than seconds, against Kartverket rather than the
+     * tile server, and with a progress bar that moves in jumps as whole
+     * phases finish. Folding it into [Downloading] would show a user a
+     * download that appears to stall for several minutes — the state
+     * most likely to be read as a hang and force-quit.
+     */
+    Building,
+
     /** All required tiles are present. */
     Complete,
 

@@ -3,6 +3,8 @@ package com.sigmundgranaas.turbo.expressive.core.routing
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.RoutingPack
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,6 +13,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import uniffi.turbo_route_ffi.BuildBounds
+import uniffi.turbo_route_ffi.BuildPhase
 import uniffi.turbo_route_ffi.HttpResponse
 import uniffi.turbo_route_ffi.PackBuildProgress
 import uniffi.turbo_route_ffi.PackBuildResult
@@ -154,7 +157,7 @@ class DevicePackBuilderTest {
                 File(dir).mkdirs()
                 // The host says stop by returning false; the Rust side
                 // then unwinds as an error, which is what arrives here.
-                progress.onProgress(uniffi.turbo_route_ffi.BuildPhase.TERRAIN, 3u, 24u)
+                progress.onProgress(BuildPhase.TERRAIN, 3u, 24u)
                 throw RouteException.Internal("cancelled")
             },
         )
@@ -184,6 +187,39 @@ class DevicePackBuilderTest {
 
         assertTrue(out is DevicePackBuilder.Outcome.Done)
         assertFalse("must not rebuild", built)
+    }
+
+    /**
+     * Cancelling the coroutine must stop the build.
+     *
+     * `buildPack` is a blocking native call, so cancellation cannot
+     * interrupt it — the only lever is returning false from the progress
+     * callback. Without that wiring a paused download keeps fetching
+     * from Kartverket for minutes, on whatever connection the user is
+     * on, after they explicitly said stop.
+     */
+    @Test
+    fun a_cancelled_coroutine_stops_the_build() = runTest {
+        var keptGoing: Boolean? = null
+        var job: Job? = null
+        val b = DevicePackBuilder(
+            root = tmp.newFolder(),
+            http = NoHttp,
+            io = StandardTestDispatcher(testScheduler),
+            build = { dir, _, _, _, progress ->
+                File(dir).mkdirs()
+                // Cancel mid-build, exactly as pause() does: it cancels
+                // the job while the native call is already running.
+                job!!.cancel()
+                keptGoing = progress.onProgress(BuildPhase.TERRAIN, 1u, 24u)
+                throw RouteException.Internal("cancelled")
+            },
+        )
+
+        job = launch { b.build(bounds) }
+        testScheduler.advanceUntilIdle()
+
+        assertEquals("the callback must say stop", false, keptGoing)
     }
 
     /**

@@ -18,6 +18,7 @@
     <string name="offline_download_too_large">This area is too large (about %1$s). Zoom in and try again.</string>
     <string name="offline_downloaded">Downloaded · %1$s</string>
     <string name="offline_downloading">Downloading… %1$d%%</string>
+    <string name="offline_building">Building routing data on this phone… %1$d%%</string>
     <string name="offline_empty_body">Open the layers sheet on the map and tap “Download this area” to save it for offline use.</string>
     <string name="offline_empty_title">No offline maps yet</string>
     <string name="offline_failed">Download failed</string>

@@ -5,6 +5,7 @@ import com.sigmundgranaas.turbo.expressive.domain.RoutingPack
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import uniffi.turbo_route_ffi.BuildBounds
 import uniffi.turbo_route_ffi.BuildPhase
 import uniffi.turbo_route_ffi.PackBuildProgress
@@ -90,6 +91,17 @@ class DevicePackBuilder(
         onProgress: (BuildPhase, Float) -> Unit = { _, _ -> },
         isCancelled: () -> Boolean = { false },
     ): Outcome = withContext(io) {
+        // Cancelling the coroutine is not enough on its own. `buildPack`
+        // is a blocking call into native code: cancellation cannot
+        // interrupt it, it only takes effect when the call returns. A
+        // build left to run would keep fetching from Kartverket for
+        // minutes after the user hit pause — on mobile data, if that is
+        // what they are on, and after they explicitly said stop.
+        //
+        // So the coroutine's liveness is folded into the same signal the
+        // host already had: returning false from the progress callback.
+        val job = coroutineContext[kotlinx.coroutines.Job]
+        val stop = { job?.isActive == false || isCancelled() }
         val key = RoutingPack.keyFor(bounds)
         val done = File(root, key)
         if (File(done, RoutingPack.MANIFEST).isFile) {
@@ -105,7 +117,7 @@ class DevicePackBuilder(
 
         val progress = object : PackBuildProgress {
             override fun onProgress(phase: BuildPhase, done: UInt, total: UInt): Boolean {
-                if (isCancelled()) return false
+                if (stop()) return false
                 // `total` is 0 at the start of a phase whose size is not
                 // known yet. Reporting 0/0 as a fraction is a division
                 // by zero; reporting it as "no movement" is honest.
@@ -141,7 +153,7 @@ class DevicePackBuilder(
             // build has no other way to report that it stopped early —
             // so it is separated back out here rather than shown to the
             // user as a failure they might retry.
-            return@withContext if (isCancelled()) {
+            return@withContext if (stop()) {
                 Outcome.Cancelled
             } else {
                 Outcome.Failed(e.message ?: e::class.java.simpleName)
