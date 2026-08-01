@@ -68,6 +68,10 @@ class SettingsViewModel @Inject constructor(
     fun clearRouteSolves() = routeDiagnostics.clear()
 
     /** Point pack downloads elsewhere; blank restores the default host. */
+    fun setRouteShadowCompare(enabled: Boolean) = viewModelScope.launch {
+        repository.setRouteShadowCompare(enabled)
+    }
+
     fun setPackSourceUrl(url: String) = viewModelScope.launch {
         repository.setPackSourceUrl(url.ifBlank { null })
     }

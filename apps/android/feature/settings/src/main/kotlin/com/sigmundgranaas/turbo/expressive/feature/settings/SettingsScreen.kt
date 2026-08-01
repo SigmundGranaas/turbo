@@ -34,6 +34,8 @@ import androidx.compose.material3.TextButton
 import com.sigmundgranaas.turbo.expressive.domain.RouteEngine
 import com.sigmundgranaas.turbo.expressive.domain.RoutingPack
 import com.sigmundgranaas.turbo.expressive.domain.RouteSolveRecord
+import com.sigmundgranaas.turbo.expressive.domain.RouteSolveStats
+import com.sigmundgranaas.turbo.expressive.domain.DistanceBucket
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MyLocation
@@ -325,8 +327,21 @@ fun SettingsScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .testTag("packSourceField"),
                 )
+                ListRowItem(
+                    Icons.Rounded.Info, stringResource(R.string.settings_routing_shadow),
+                    subtitle = stringResource(R.string.settings_routing_shadow_sub),
+                    trailing = {
+                        Switch(
+                            settings.routeShadowCompare,
+                            { haptics.toggle(it); viewModel.setRouteShadowCompare(it) },
+                            modifier = Modifier.testTag("routeShadowCompare"),
+                        )
+                    },
+                )
                 val solves by viewModel.routeSolves.collectAsStateWithLifecycle()
                 if (solves.isNotEmpty()) {
+                    HorizontalDivider(color = cs.outlineVariant)
+                    RouteSolveSummary(RouteSolveStats.from(solves))
                     HorizontalDivider(color = cs.outlineVariant)
                     RouteSolveList(solves, onClear = viewModel::clearRouteSolves)
                 }
@@ -510,4 +525,65 @@ private fun SettingsGroup(content: @Composable () -> Unit) {
             .clip(RoundedCornerShape(TurboRadius.xl)).background(cs.surfaceContainerHigh)
             .padding(horizontal = 18.dp, vertical = 4.dp),
     ) { content() }
+}
+
+/**
+ * The aggregate, above the raw rows.
+ *
+ * The list below it is the evidence; this is the conclusion. Both are
+ * shown because a rate over twenty solves is easy to misread — 50 %
+ * fallback sounds alarming until you see it is one solve out of two —
+ * so every rate carries its denominator rather than just a percentage.
+ */
+@Composable
+private fun RouteSolveSummary(stats: RouteSolveStats) {
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp).testTag("routeSolveSummary")) {
+        DistanceBucket.entries.forEach { bucket ->
+            val d = stats.devicePercentiles[bucket]
+            val s = stats.serverPercentiles[bucket]
+            if (d == null && s == null) return@forEach
+            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Text(
+                    bucket.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = cs.onSurfaceVariant,
+                    modifier = Modifier.width(72.dp),
+                )
+                Text(
+                    d?.let { "phone p95 %,d ms (n=%d)".format(it.p95Ms, it.n) } ?: "phone —",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    s?.let { "server %,d (n=%d)".format(it.p95Ms, it.n) } ?: "server —",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant,
+                )
+            }
+        }
+        Text(
+            "fallback %d/%d · coverage misses %.0f%% · failures %.0f%%".format(
+                (stats.fallbackRate * stats.fallbackEligible).toInt(),
+                stats.fallbackEligible,
+                stats.coverageMissRate * 100,
+                stats.failureRate * 100,
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = cs.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        if (stats.divergences.isNotEmpty()) {
+            Text(
+                "divergence worst %.0f m · %d over %.0f m (n=%d)".format(
+                    stats.worstDivergenceM,
+                    stats.significantDivergences,
+                    com.sigmundgranaas.turbo.expressive.domain.RouteDivergence.SIGNIFICANT_M,
+                    stats.divergences.size,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (stats.significantDivergences > 0) cs.error else cs.onSurfaceVariant,
+            )
+        }
+    }
 }

@@ -67,9 +67,19 @@ object RoutingModule {
         // value that changes when someone taps a radio button.
         engineChoice = { engineOverride },
         diagnostics = diagnostics,
+        shadowCompare = { shadowCompare },
     ).also {
-        scope.launch { settings.settings.collect { engineOverride = it.routeEngine } }
+        scope.launch {
+            settings.settings.collect {
+                engineOverride = it.routeEngine
+                shadowCompare = it.routeShadowCompare
+            }
+        }
     }
+
+    /** Latest persisted shadow-comparison choice; see [provideRouteRepository]. */
+    @Volatile
+    private var shadowCompare: Boolean = false
 
     /** Latest persisted engine choice; see [provideRouteRepository]. */
     @Volatile

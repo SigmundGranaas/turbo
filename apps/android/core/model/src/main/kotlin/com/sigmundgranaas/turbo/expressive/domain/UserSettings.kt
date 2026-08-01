@@ -86,6 +86,20 @@ data class UserSettings(
      * not be pointed anywhere else without cutting a new release.
      */
     val packSourceUrl: String? = null,
+    /**
+     * Run both routers on every request and record how far apart their
+     * answers were.
+     *
+     * Off by default and it should stay that way for ordinary users: it
+     * doubles the work of every route. It exists because "do the two
+     * engines agree" is one of the four numbers release 2 rests on, and
+     * under [RouteEngine.Auto] the two paths never both run — so without
+     * this the question cannot be asked on real hardware at all.
+     *
+     * The shadow solve happens after the real answer is on screen, so
+     * turning it on costs battery, not latency.
+     */
+    val routeShadowCompare: Boolean = false,
 )
 
 /**

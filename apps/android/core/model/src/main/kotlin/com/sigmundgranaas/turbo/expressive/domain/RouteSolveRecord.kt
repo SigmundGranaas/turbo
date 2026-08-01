@@ -36,9 +36,29 @@ data class RouteSolveRecord(
      * failure as well as a success.
      */
     val spanKm: Double,
+    /**
+     * Why this engine ran, not just which one did.
+     *
+     * Deliberately has **no default**. Every rate in [RouteSolveStats]
+     * is derived from this field and nothing else, and the only
+     * defensible default — [SolveLane.Forced] — is excluded from every
+     * one of those rates. So a call site that forgot to set it would
+     * not fail; it would quietly shrink the denominators and skew the
+     * numbers that release 2 rests on, with nothing to show for it.
+     * Requiring it means the compiler names every site instead.
+     */
+    val lane: SolveLane,
     val outcome: Outcome,
     /** Failure text, when [outcome] is [Outcome.Failed]. */
     val detail: String? = null,
+    /**
+     * How far the other engine's answer was, when both ran.
+     *
+     * Null in the normal case: shadow comparison is off by default,
+     * because it doubles the work of every route to answer a question
+     * that only matters while release 2 is being decided.
+     */
+    val divergence: RouteDivergence? = null,
 ) {
     enum class Outcome {
         /** A route came back. */

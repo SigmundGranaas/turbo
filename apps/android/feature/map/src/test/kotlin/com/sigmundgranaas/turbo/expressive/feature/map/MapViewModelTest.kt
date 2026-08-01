@@ -92,6 +92,7 @@ private class FakeSettings : SettingsRepository {
     override suspend fun setRouteEngine(engine: com.sigmundgranaas.turbo.expressive.domain.RouteEngine) = Unit
     var packSourceUrl: String? = null
     override suspend fun setPackSourceUrl(url: String?) { packSourceUrl = url }
+    override suspend fun setRouteShadowCompare(enabled: Boolean) = Unit
     override suspend fun setExperimentalTrails(enabled: Boolean) = Unit
     override suspend fun setExperimentalClouds(enabled: Boolean) = Unit
     override suspend fun setRotationLocked(enabled: Boolean) = Unit

@@ -8,6 +8,7 @@ import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.RoutePlan
 import com.sigmundgranaas.turbo.expressive.domain.RoutePreset
 import com.sigmundgranaas.turbo.expressive.domain.RouteStreamEvent
+import com.sigmundgranaas.turbo.expressive.domain.SolveLane
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -77,6 +78,7 @@ class FallbackRouteRepositoryTest {
         timeoutMs: Long = 500,
         engine: RouteEngine = RouteEngine.Auto,
         diagnostics: RouteDiagnostics? = null,
+        shadow: Boolean = false,
     ) = FallbackRouteRepository(
         server = server,
         device = device,
@@ -85,6 +87,7 @@ class FallbackRouteRepositoryTest {
         serverTimeoutMs = timeoutMs,
         engineChoice = { engine },
         diagnostics = diagnostics,
+        shadowCompare = { shadow },
     )
 
     private suspend fun collect(r: RouteRepository): List<RouteStreamEvent> =
@@ -277,5 +280,185 @@ class FallbackRouteRepositoryTest {
             "device duration ${r.durationMs} ms must exclude the 300 ms server window",
             r.durationMs < 300,
         )
+    }
+
+    // ---- lanes -------------------------------------------------------
+    //
+    // The lane is WHY an engine ran, and every rate in RouteSolveStats is
+    // derived from it. A wrong lane does not fail anything — it silently
+    // moves a solve into or out of a denominator, so each branch of the
+    // policy gets its own assertion here.
+
+    @Test
+    fun `a server answer inside the window is lane ServerAnswered`() = runTest {
+        val d = RouteDiagnostics()
+        collect(repo(answering(1000.0), answering(2.0), online = true, hasPack = true, diagnostics = d))
+        assertEquals(SolveLane.ServerAnswered, d.records.value.single().lane)
+    }
+
+    @Test
+    fun `a timeout that wakes the phone is lane ServerTimedOut`() = runTest {
+        val d = RouteDiagnostics()
+        collect(
+            repo(hanging(), answering(2000.0), online = true, hasPack = true,
+                timeoutMs = 200, diagnostics = d),
+        )
+        val r = d.records.value.single()
+        assertEquals(RouteEngine.Device, r.engine)
+        assertEquals(SolveLane.ServerTimedOut, r.lane)
+        assertTrue(r.lane.isFallback)
+    }
+
+    /**
+     * A transport error is a DIFFERENT lane from a timeout, even though
+     * both end up on the phone. Tuning the timeout fixes one and not the
+     * other, so a metric that merged them would point at the wrong knob.
+     */
+    @Test
+    fun `a broken server is lane ServerErrored not ServerTimedOut`() = runTest {
+        val d = RouteDiagnostics()
+        collect(repo(broken(), answering(2000.0), online = true, hasPack = true, diagnostics = d))
+        val r = d.records.value.single()
+        assertEquals(RouteEngine.Device, r.engine)
+        assertEquals(SolveLane.ServerErrored, r.lane)
+        assertTrue(r.lane.isFallback)
+    }
+
+    @Test
+    fun `offline with a pack is lane Offline and never a fallback`() = runTest {
+        val d = RouteDiagnostics()
+        collect(repo(answering(1.0), answering(2000.0), online = false, hasPack = true, diagnostics = d))
+        val r = d.records.value.single()
+        assertEquals(SolveLane.Offline, r.lane)
+        assertTrue("no server was tried, so nothing was rescued", !r.lane.isFallback)
+    }
+
+    /** The coverage-miss signal: routed somewhere no pack covers. */
+    @Test
+    fun `no pack is lane NoPack`() = runTest {
+        val d = RouteDiagnostics()
+        collect(repo(answering(1000.0), answering(2.0), online = true, hasPack = false, diagnostics = d))
+        val r = d.records.value.single()
+        assertEquals(RouteEngine.Server, r.engine)
+        assertEquals(SolveLane.NoPack, r.lane)
+    }
+
+    @Test
+    fun `an override is lane Forced on either engine`() = runTest {
+        val dev = RouteDiagnostics()
+        collect(
+            repo(answering(1.0), answering(2.0), online = true, hasPack = true,
+                engine = RouteEngine.Device, diagnostics = dev),
+        )
+        assertEquals(SolveLane.Forced, dev.records.value.single().lane)
+
+        val srv = RouteDiagnostics()
+        collect(
+            repo(answering(1.0), answering(2.0), online = true, hasPack = true,
+                engine = RouteEngine.Server, diagnostics = srv),
+        )
+        assertEquals(SolveLane.Forced, srv.records.value.single().lane)
+    }
+
+    /**
+     * A failed solve must still carry its lane.
+     *
+     * The failure path builds its own record, so it is the one place a
+     * lane can be dropped without any other test noticing.
+     */
+    @Test
+    fun `a failure keeps the lane it failed in`() = runTest {
+        val d = RouteDiagnostics()
+        val device = Fake { throw UnsatisfiedLinkError("stripped") }
+        collect(
+            repo(hanging(), device, online = true, hasPack = true,
+                timeoutMs = 100, diagnostics = d),
+        )
+        val r = d.records.value.single()
+        assertEquals(RouteSolveRecord.Outcome.Failed, r.outcome)
+        assertEquals(SolveLane.ServerTimedOut, r.lane)
+    }
+
+    // ---- shadow comparison -------------------------------------------
+
+    /** Off by default: the second engine must not be woken. */
+    @Test
+    fun `shadow comparison is off unless asked for`() = runTest {
+        val d = RouteDiagnostics()
+        val device = answering(2000.0)
+        collect(repo(answering(1000.0), device, online = true, hasPack = true, diagnostics = d))
+        assertEquals("the phone must not run for a metric nobody asked for", 0, device.calls)
+        assertEquals(null, d.records.value.single().divergence)
+    }
+
+    /** With it on, both run and the gap is recorded. */
+    @Test
+    fun `shadow comparison records how far apart the engines were`() = runTest {
+        val d = RouteDiagnostics()
+        val device = answering(2000.0)
+        collect(
+            repo(answering(1000.0), device, online = true, hasPack = true,
+                diagnostics = d, shadow = true),
+        )
+        assertEquals(1, device.calls)
+        val div = d.records.value.single().divergence
+        assertTrue("a divergence should have been recorded", div != null)
+        // Both fakes return the same geometry, so the lines agree even
+        // though the reported distances differ — which is the point of
+        // comparing geometry rather than trusting the plan's number.
+        assertEquals(0.0, div!!.frechetM, 1e-6)
+    }
+
+    /**
+     * The shadow solve must not delay the route.
+     *
+     * If the comparison ran before the answer was emitted, a slow second
+     * engine would hold up a route the user could already have had —
+     * turning a diagnostic into a regression.
+     */
+    @Test
+    fun `the real answer is emitted before the shadow engine runs`() = runTest {
+        val order = mutableListOf<String>()
+        val device = Fake {
+            order += "shadow"
+            emit(RouteStreamEvent.Result(plan(2000.0)))
+        }
+        val r = repo(answering(1000.0), device, online = true, hasPack = true, shadow = true)
+        r.planStream(points, RoutePreset.Balanced, "foot", false).collect {
+            if (it is RouteStreamEvent.Result) order += "answer"
+        }
+        assertEquals(listOf("answer", "shadow"), order)
+    }
+
+    /**
+     * A broken shadow engine must not break the route.
+     *
+     * A diagnostic that can fail a solve is worse than no diagnostic.
+     */
+    @Test
+    fun `a failing shadow engine leaves the route intact`() = runTest {
+        val d = RouteDiagnostics()
+        val device = Fake { throw java.io.IOException("shadow exploded") }
+        val events = collect(
+            repo(answering(1000.0), device, online = true, hasPack = true,
+                diagnostics = d, shadow = true),
+        )
+        assertTrue("the route must survive", events.any { it is RouteStreamEvent.Result })
+        val r = d.records.value.single()
+        assertEquals(RouteSolveRecord.Outcome.Ok, r.outcome)
+        assertEquals("no comparison rather than a fake one", null, r.divergence)
+    }
+
+    /** No pack means the device could not have answered — nothing to compare. */
+    @Test
+    fun `shadow comparison is skipped when the device has no pack`() = runTest {
+        val d = RouteDiagnostics()
+        val device = answering(2000.0)
+        collect(
+            repo(answering(1000.0), device, online = true, hasPack = false,
+                diagnostics = d, shadow = true),
+        )
+        assertEquals(0, device.calls)
+        assertEquals(null, d.records.value.single().divergence)
     }
 }

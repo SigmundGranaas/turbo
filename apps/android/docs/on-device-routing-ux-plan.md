@@ -267,6 +267,28 @@ no jargon, no exclamation marks. None of the new copy says "cache",
 Instrumentation, because "it feels fine on my phone in a city" is not
 evidence about a valley.
 
+**Implemented.** `SolveLane` records *why* each engine ran,
+`RouteSolveStats` derives the rates, and Settings shows both the
+aggregate and the raw rows. Everything stays on the phone — in memory,
+capped at 20 solves, no upload and no session — so it is a readout to
+copy down rather than telemetry. Three things worth knowing:
+
+- **The lane is the whole design.** `engine` alone cannot produce any of
+  these numbers: "device" covers a tester forcing it, a walker with no
+  signal, and the server timing out, and only the third is a fallback.
+  So `lane` has no default value — the compiler names every call site,
+  because the failure mode of a forgotten lane is not a crash but a
+  silently wrong denominator quoted in a decision months later.
+- **Rates are derived, never counted.** Running counters drift: a new
+  branch stops incrementing one and nothing says so. `RouteSolveStats`
+  is a pure function of the records, so the only way to under-count is
+  to fail to record at all — one place to check instead of six.
+- **Divergence needed a shadow mode to exist at all.** Under `Auto` the
+  two engines never both run, so "do they agree" was unanswerable. It is
+  now a setting, off by default, and the second solve happens *after*
+  the real answer is emitted — costing battery, not latency, which a
+  test pins by asserting the event order.
+
 - **Which engine answered, and how long it took.** Per solve: source
   (server/device), lane, distance bucket, duration, outcome. The single
   most useful number is device p95 by distance bucket — it is what
@@ -281,6 +303,14 @@ evidence about a valley.
   requirement is equivalence, not bit-identity, so the metric is route
   length and Fréchet distance, not a hash. A divergence that users would
   notice is a calibration drift between the app build and the server.
+
+  Fréchet rather than a per-point comparison for a concrete reason: the
+  two engines densify geometry differently, so the *same* route comes
+  back with different point counts, and an index-wise check would cry
+  wolf on every single route. It is also why length alone is not
+  enough — a detour around the other side of a lake can return the same
+  distance while being the most visible possible disagreement. Both
+  cases are tests.
 
 ## Sequencing
 

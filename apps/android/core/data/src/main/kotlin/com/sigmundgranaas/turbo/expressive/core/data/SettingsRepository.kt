@@ -63,6 +63,12 @@ interface SettingsRepository {
      */
     suspend fun setPackSourceUrl(url: String?)
 
+    /**
+     * Run both routers per request and record how far apart they were.
+     * Costs battery, not latency — see [UserSettings.routeShadowCompare].
+     */
+    suspend fun setRouteShadowCompare(enabled: Boolean)
+
     suspend fun setExperimentalTrails(enabled: Boolean)
     suspend fun setExperimentalClouds(enabled: Boolean)
 
@@ -101,6 +107,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val GESTURE_FLING_HALF_LIFE_MS = androidx.datastore.preferences.core.longPreferencesKey("gesture_fling_half_life_ms")
         val ROUTE_ENGINE = stringPreferencesKey("route_engine")
         val PACK_SOURCE_URL = stringPreferencesKey("pack_source_url")
+        val ROUTE_SHADOW_COMPARE = booleanPreferencesKey("route_shadow_compare")
         val EXPERIMENTAL_TRAILS = booleanPreferencesKey("experimental_trails")
         val EXPERIMENTAL_CLOUDS = booleanPreferencesKey("experimental_clouds")
         val ROTATION_LOCKED = booleanPreferencesKey("rotation_locked")
@@ -136,6 +143,7 @@ class DataStoreSettingsRepository @Inject constructor(
                 ?.let { runCatching { RouteEngine.valueOf(it) }.getOrNull() }
                 ?: RouteEngine.Auto,
             packSourceUrl = prefs[Keys.PACK_SOURCE_URL]?.takeIf { it.isNotBlank() },
+            routeShadowCompare = prefs[Keys.ROUTE_SHADOW_COMPARE] ?: false,
             experimentalTrails = prefs[Keys.EXPERIMENTAL_TRAILS] ?: false,
             experimentalClouds = prefs[Keys.EXPERIMENTAL_CLOUDS] ?: false,
             rotationLocked = prefs[Keys.ROTATION_LOCKED] ?: false,
@@ -232,6 +240,10 @@ class DataStoreSettingsRepository @Inject constructor(
         context.settingsDataStore.edit {
             if (clean == null) it.remove(Keys.PACK_SOURCE_URL) else it[Keys.PACK_SOURCE_URL] = clean
         }
+    }
+
+    override suspend fun setRouteShadowCompare(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.ROUTE_SHADOW_COMPARE] = enabled }
     }
 
     override suspend fun setExperimentalTrails(enabled: Boolean) {

@@ -58,6 +58,8 @@
     <string name="settings_routing_device">Phone</string>
     <string name="settings_routing_server">Server</string>
     <string name="settings_routing_clear">Clear</string>
+    <string name="settings_routing_shadow">Compare both routers</string>
+    <string name="settings_routing_shadow_sub">Plans every route twice and records how far apart the answers are. Uses more battery. The extra work happens after your route appears, so it does not slow anything down.</string>
     <string name="settings_routing_pack_source">Pack source</string>
     <string name="settings_routing_pack_source_hint">Leave blank for the default. Supports {key} and {file}.</string>
     <string name="settings_routing_pack_source_save">Save</string>
