@@ -18,6 +18,11 @@
     <string name="units_metric">Metric · km, m</string>
     <string name="units_imperial">Imperial · mi, ft</string>
 
+    <string name="settings_section_map">Map</string>
+    <string name="settings_section_general">General</string>
+    <string name="settings_section_offline">Offline maps</string>
+    <string name="settings_advanced">Advanced</string>
+    <string name="settings_advanced_sub">Gesture tuning, experimental layers, routing engine</string>
     <string name="settings_about">About</string>
     <string name="settings_about_sub">Version, data sources, licenses</string>
 
