@@ -28,6 +28,19 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
+ * Work the service exists to hold the process open for. Paused counts:
+ * the notification's Resume button is the only way back from it.
+ */
+val OfflineStatus.isPendingWork: Boolean
+    get() = this == OfflineStatus.Downloading ||
+        this == OfflineStatus.Building ||
+        this == OfflineStatus.Paused
+
+/** Of that, the part actually moving — what Pause acts on. */
+val OfflineStatus.isActiveWork: Boolean
+    get() = this == OfflineStatus.Downloading || this == OfflineStatus.Building
+
+/**
  * Foreground service that keeps offline map downloads running while the app is
  * backgrounded, surfaces aggregate progress as an ongoing notification, and gates
  * downloads on the connectivity policy (auto-pausing on metered/no network when
@@ -57,7 +70,7 @@ class OfflineDownloadService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_PAUSE -> manager.regions.value
-                .filter { it.status == OfflineStatus.Downloading || it.status == OfflineStatus.Building }
+                .filter { it.status.isActiveWork }
                 .forEach { manager.pause(it.id) }
             ACTION_RESUME -> manager.regions.value.filter { it.status == OfflineStatus.Paused }.forEach { manager.resume(it.id) }
             else -> Unit
@@ -82,9 +95,16 @@ class OfflineDownloadService : Service() {
 
         // Re-post the notification on progress; tear down once work that we've actually
         // seen is finished. Don't tear down before any work appears (warm-up gap).
+        //
+        // A device pack build has to count as work here. It runs *before*
+        // the first tile — the pack lane is first in `runDownload` — so a
+        // predicate that only knew about Downloading would see nothing for
+        // the several minutes a build takes, never set `sawWork`, and let
+        // the 15-second grace timer stop the foreground service out from
+        // under the build.
         notifyJob = scope.launch {
             manager.regions.collect { regions ->
-                val pending = regions.any { it.status == OfflineStatus.Downloading || it.status == OfflineStatus.Paused }
+                val pending = regions.any { it.status.isPendingWork }
                 when {
                     pending -> { sawWork = true; notificationManager().notify(NOTIF_ID, buildNotification(regions)) }
                     sawWork -> teardown()
@@ -125,15 +145,9 @@ class OfflineDownloadService : Service() {
     }
 
     private fun buildNotification(regions: List<OfflineRegionInfo>): Notification {
-        val pending = regions.filter {
-            it.status == OfflineStatus.Downloading ||
-                it.status == OfflineStatus.Building ||
-                it.status == OfflineStatus.Paused
-        }
+        val pending = regions.filter { it.status.isPendingWork }
         val pct = if (pending.isEmpty()) 0 else (pending.map { it.progress }.average() * 100).toInt().coerceIn(0, 100)
-        val anyActive = pending.any {
-            it.status == OfflineStatus.Downloading || it.status == OfflineStatus.Building
-        }
+        val anyActive = pending.any { it.status.isActiveWork }
         val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(getString(R.string.offline_notif_title))

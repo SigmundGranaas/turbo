@@ -148,7 +148,9 @@ internal fun MapScreenModals(
     ui.pendingDownloadArea?.let { area ->
         // Cache the overlays toggled on now, so the estimate and the download agree.
         val overlays = ui.activeOverlays
+        val buildsOnDevice by offlineViewModel.buildsPacksOnDevice.collectAsStateWithLifecycle()
         DownloadAreaDialog(
+            buildsOnDevice = buildsOnDevice,
             estimateFor = { detail -> offlineViewModel.estimate(baseLayer, area.bounds, area.zoom, overlays, detail) },
             onConfirm = { detail ->
                 offlineViewModel.download(area.centre, baseLayer, area.bounds, area.zoom, overlays, detail)

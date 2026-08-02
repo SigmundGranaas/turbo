@@ -41,6 +41,16 @@ fun DownloadAreaDialog(
     estimateFor: (DetailLevel) -> OfflineEstimate,
     onConfirm: (DetailLevel) -> Unit,
     onDismiss: () -> Unit,
+    /**
+     * The user has allowed this phone to cut packs itself.
+     *
+     * Changes what "Download" costs, not what it produces: if no server
+     * has a pack for this area, the phone builds one, and that is
+     * minutes of network rather than the seconds the size estimate
+     * implies. Nothing else in the dialog can show the difference — the
+     * megabytes are the same either way.
+     */
+    buildsOnDevice: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
     var detail by remember { mutableStateOf(DetailLevel.Standard) }
@@ -109,6 +119,21 @@ fun DownloadAreaDialog(
                         color = cs.onSurfaceVariant,
                         modifier = Modifier.testTag("routingIncluded"),
                     )
+                    // The one thing the size estimate cannot express. With
+                    // device builds allowed, an area no server has prepared
+                    // is not a slower download — it is a different piece of
+                    // work, minutes long, that starts before the first tile.
+                    // Saying it here is the difference between a user who
+                    // waits and a user who thinks the download has hung.
+                    if (buildsOnDevice) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            stringResource(R.string.offline_download_may_build),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = cs.onSurfaceVariant,
+                            modifier = Modifier.testTag("mayBuildOnDevice"),
+                        )
+                    }
                 } else if (ok && estimate.routingOmittedForSize) {
                     Spacer(Modifier.height(6.dp))
                     Text(

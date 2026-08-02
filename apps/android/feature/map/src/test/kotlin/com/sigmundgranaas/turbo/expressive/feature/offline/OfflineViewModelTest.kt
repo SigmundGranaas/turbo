@@ -68,14 +68,14 @@ class OfflineViewModelTest {
     @Test
     fun `init refreshes the region list`() {
         val manager = FakeOfflineTileManager()
-        OfflineViewModel(manager, FakeReverseGeocode("Tromsø"))
+        OfflineViewModel(manager, FakeReverseGeocode("Tromsø"), FakeOfflineSettings())
         assertEquals(1, manager.refreshCount)
     }
 
     @Test
     fun `download names the region by the reverse-geocoded place and spans zooms`() = runTest(mainRule.dispatcher) {
         val manager = FakeOfflineTileManager()
-        OfflineViewModel(manager, FakeReverseGeocode("Storfjellet")).download(centre, BaseLayer.Norgeskart, bounds, fromZoom = 10.4)
+        OfflineViewModel(manager, FakeReverseGeocode("Storfjellet"), FakeOfflineSettings()).download(centre, BaseLayer.Norgeskart, bounds, fromZoom = 10.4)
         advanceUntilIdle()
 
         val d = manager.lastDownload!!
@@ -88,7 +88,7 @@ class OfflineViewModelTest {
     @Test
     fun `download falls back to coordinates when reverse-geocode has no name`() = runTest(mainRule.dispatcher) {
         val manager = FakeOfflineTileManager()
-        OfflineViewModel(manager, FakeReverseGeocode(null)).download(centre, BaseLayer.Norgeskart, bounds, fromZoom = 10.0)
+        OfflineViewModel(manager, FakeReverseGeocode(null), FakeOfflineSettings()).download(centre, BaseLayer.Norgeskart, bounds, fromZoom = 10.0)
         advanceUntilIdle()
         // Coordinate fallback contains the cardinal markers from formatCoords.
         assertTrue("expected a coordinate name, got ${manager.lastDownload?.name}", manager.lastDownload!!.name.contains("N"))
@@ -97,7 +97,7 @@ class OfflineViewModelTest {
     @Test
     fun `download clamps the zoom span to the max level`() = runTest(mainRule.dispatcher) {
         val manager = FakeOfflineTileManager()
-        OfflineViewModel(manager, FakeReverseGeocode("X")).download(centre, BaseLayer.Osm, bounds, fromZoom = 15.0)
+        OfflineViewModel(manager, FakeReverseGeocode("X"), FakeOfflineSettings()).download(centre, BaseLayer.Osm, bounds, fromZoom = 15.0)
         advanceUntilIdle()
         val d = manager.lastDownload!!
         assertEquals(15.0, d.minZoom, 1e-9)
@@ -109,7 +109,7 @@ class OfflineViewModelTest {
         val manager = FakeOfflineTileManager(
             listOf(OfflineRegionInfo(id = 7, name = "A", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 1_000)),
         )
-        val vm = OfflineViewModel(manager, FakeReverseGeocode("A"))
+        val vm = OfflineViewModel(manager, FakeReverseGeocode("A"), FakeOfflineSettings())
         vm.delete(7)
         advanceUntilIdle()
         assertTrue(manager.deleted.contains(7))
@@ -120,7 +120,7 @@ class OfflineViewModelTest {
     fun `staged delete hides the region then auto-commits after the undo window`() = runTest(mainRule.dispatcher) {
         val region = OfflineRegionInfo(id = 7, name = "A", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 1_000)
         val manager = FakeOfflineTileManager(listOf(region))
-        val vm = OfflineViewModel(manager, FakeReverseGeocode("A"))
+        val vm = OfflineViewModel(manager, FakeReverseGeocode("A"), FakeOfflineSettings())
         runCurrent()
 
         vm.stageDelete(7)
@@ -137,7 +137,7 @@ class OfflineViewModelTest {
     fun `undo within the window cancels the delete and restores the region`() = runTest(mainRule.dispatcher) {
         val region = OfflineRegionInfo(id = 7, name = "A", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 1_000)
         val manager = FakeOfflineTileManager(listOf(region))
-        val vm = OfflineViewModel(manager, FakeReverseGeocode("A"))
+        val vm = OfflineViewModel(manager, FakeReverseGeocode("A"), FakeOfflineSettings())
         runCurrent()
 
         vm.stageDelete(7)

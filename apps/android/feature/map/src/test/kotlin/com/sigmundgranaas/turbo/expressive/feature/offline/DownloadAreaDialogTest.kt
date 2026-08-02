@@ -89,6 +89,43 @@ class DownloadAreaDialogTest {
         composeRule.onNodeWithTag("routingIncluded").assertDoesNotExist()
     }
 
+    /**
+     * With device builds allowed, "Download" may mean several minutes of
+     * Kartverket before the first tile — and the size estimate is
+     * identical either way, so this line is the only thing that can warn
+     * them. Without it the build reads as a hung download.
+     */
+    @Test
+    fun `with device builds on, the dialog warns the phone may build the routing data`() {
+        composeRule.setContent {
+            DownloadAreaDialog(estimateFor = { withRouting }, onConfirm = {}, onDismiss = {}, buildsOnDevice = true)
+        }
+        composeRule.onNodeWithTag("routingIncluded").assertExists()
+        composeRule.onNodeWithTag("mayBuildOnDevice").assertExists()
+    }
+
+    @Test
+    fun `with device builds off, no build warning is shown`() {
+        composeRule.setContent {
+            DownloadAreaDialog(estimateFor = { withRouting }, onConfirm = {}, onDismiss = {})
+        }
+        composeRule.onNodeWithTag("mayBuildOnDevice").assertDoesNotExist()
+    }
+
+    /**
+     * Past the pack cap the device builder refuses too, on the same
+     * guard. Promising a build that cannot happen would be worse than
+     * the silence.
+     */
+    @Test
+    fun `an area past the pack cap gets no build warning even with builds on`() {
+        composeRule.setContent {
+            DownloadAreaDialog(estimateFor = { mapOnly }, onConfirm = {}, onDismiss = {}, buildsOnDevice = true)
+        }
+        composeRule.onNodeWithTag("routingExcluded").assertExists()
+        composeRule.onNodeWithTag("mayBuildOnDevice").assertDoesNotExist()
+    }
+
     @Test
     fun `an over-limit area disables download and explains why`() {
         composeRule.setContent {
