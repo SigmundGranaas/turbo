@@ -9,12 +9,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.sigmundgranaas.turbo.expressive.core.auth.Account
 import com.sigmundgranaas.turbo.expressive.core.auth.AuthState
-import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
 import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
-import com.sigmundgranaas.turbo.expressive.domain.UserSettings
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.update
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,35 +17,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-private class FakeSettingsRepository : SettingsRepository {
-    private val state = MutableStateFlow(UserSettings())
-    override val settings: Flow<UserSettings> = state
-    override suspend fun setCompassOrientation(enabled: Boolean) = state.update { it.copy(compassOrientation = enabled) }
-    override suspend fun setFollowLocation(enabled: Boolean) = state.update { it.copy(followLocation = enabled) }
-    override suspend fun setMetricUnits(metric: Boolean) = state.update { it.copy(metricUnits = metric) }
-    override suspend fun setThemeMode(mode: ThemeMode) = state.update { it.copy(themeMode = mode) }
-    override suspend fun setCloudSyncEnabled(enabled: Boolean) = state.update { it.copy(cloudSyncEnabled = enabled) }
-    override suspend fun setDownloadOverWifiOnly(enabled: Boolean) = state.update { it.copy(downloadOverWifiOnly = enabled) }
-    override suspend fun setBaseLayer(layer: com.sigmundgranaas.turbo.expressive.domain.BaseLayer) = state.update { it.copy(baseLayer = layer) }
-    override suspend fun addCustomTileSource(source: com.sigmundgranaas.turbo.expressive.domain.CustomTileSource) =
-        state.update { it.copy(customTileSources = it.customTileSources + source, selectedCustomSourceId = source.id) }
-    override suspend fun removeCustomTileSource(id: String) =
-        state.update { it.copy(customTileSources = it.customTileSources.filterNot { s -> s.id == id }) }
-    override suspend fun selectCustomTileSource(id: String?) = state.update { it.copy(selectedCustomSourceId = id) }
-    override suspend fun setLocationDotColor(colorHex: String?) = state.update { it.copy(locationDotColorHex = colorHex) }
-    override suspend fun setShowHeadingBeam(enabled: Boolean) = state.update { it.copy(showHeadingBeam = enabled) }
-    override suspend fun setGestures(gestures: com.sigmundgranaas.turbo.expressive.domain.GestureSettings) = Unit
-    override suspend fun setRouteEngine(engine: com.sigmundgranaas.turbo.expressive.domain.RouteEngine) = Unit
-    var packSourceUrl: String? = null
-    override suspend fun setPackSourceUrl(url: String?) { packSourceUrl = url }
-    override suspend fun setRouteShadowCompare(enabled: Boolean) = state.update { it.copy(routeShadowCompare = enabled) }
-    override suspend fun setBuildPacksOnDevice(enabled: Boolean) = state.update { it.copy(buildPacksOnDevice = enabled) }
-    override suspend fun setExperimentalTrails(enabled: Boolean) = Unit
-    override suspend fun setExperimentalClouds(enabled: Boolean) = Unit
-    override suspend fun setRotationLocked(enabled: Boolean) = Unit
-    override suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double) =
-        state.update { it.copy(lastCameraLat = lat, lastCameraLng = lng, lastCameraZoom = zoom) }
-}
 
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -118,5 +84,64 @@ class SettingsScreenTest {
             composeRule.onAllNodesWithText("Dark theme").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText("Dark theme").assertExists()
+    }
+
+    /**
+     * The advanced controls are gone from here, not duplicated.
+     *
+     * This is the half of the move that is easy to skip: if they still
+     * render on the main screen too, the list is exactly as long as it
+     * was and the split bought nothing.
+     */
+    @Test
+    fun `advanced controls are behind the Advanced door, not on this screen`() {
+        composeRule.setContent {
+            SettingsScreen(onBack = {}, viewModel = SettingsViewModel(FakeSettingsRepository(), FakeAuthRepository()))
+        }
+        composeRule.onNodeWithTag("openAdvanced").performScrollTo().assertExists()
+        composeRule.onNodeWithTag("gestureLongPress").assertDoesNotExist()
+        composeRule.onNodeWithTag("experimentalTrails").assertDoesNotExist()
+        composeRule.onNodeWithTag("packSourceField").assertDoesNotExist()
+        composeRule.onNodeWithTag("routeEngine_Auto").assertDoesNotExist()
+    }
+
+    /** Tapping it navigates rather than expanding in place. */
+    @Test
+    fun `the Advanced row opens the advanced screen`() {
+        var opened = false
+        composeRule.setContent {
+            SettingsScreen(
+                onBack = {},
+                onOpenAdvanced = { opened = true },
+                viewModel = SettingsViewModel(FakeSettingsRepository(), FakeAuthRepository()),
+            )
+        }
+        composeRule.onNodeWithTag("openAdvanced").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        org.junit.Assert.assertTrue("Advanced must navigate", opened)
+    }
+
+    /**
+     * Building packs on the phone stays in front of the user. It is not a
+     * measurement knob — it changes what tapping Download does, by minutes.
+     */
+    @Test
+    fun `building packs on device stays on the main screen`() {
+        composeRule.setContent {
+            SettingsScreen(onBack = {}, viewModel = SettingsViewModel(FakeSettingsRepository(), FakeAuthRepository()))
+        }
+        composeRule.onNodeWithTag("buildPacksOnDevice").performScrollTo().assertExists()
+    }
+
+    /** Every group is named — the fix for "one long undifferentiated list". */
+    @Test
+    fun `the sections carry headings`() {
+        composeRule.setContent {
+            SettingsScreen(onBack = {}, viewModel = SettingsViewModel(FakeSettingsRepository(), FakeAuthRepository()))
+        }
+        composeRule.onNodeWithText("Appearance").assertExists()
+        composeRule.onNodeWithText("Map").assertExists()
+        composeRule.onNodeWithText("General").assertExists()
+        composeRule.onNodeWithText("Offline maps").performScrollTo().assertExists()
     }
 }
