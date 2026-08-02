@@ -18,74 +18,128 @@ docstrings into the checksum).
 
 # How
 
-uniffi emits its metadata as `UNIFFI_META_*` statics in `.rodata`. Those
-bytes are the whole contract — names, signatures, docstrings, everything
-the checksums are computed over. Comparing them directly needs no
-disassembly and so is identical across ABIs, which the checksum
-accessors (`mov w0` / `movw r0` / `mov eax`) are not.
+uniffi emits its metadata as `UNIFFI_META_*` statics. Those bytes are the
+whole contract — names, signatures, docstrings, everything the checksums
+are computed over. Comparing them directly needs no disassembly, so one
+implementation covers all three ABIs; the checksum accessors would need
+three, being `mov w0` / `movw r0` / `mov eax`.
+
+The ELF reading is done here rather than shelled out to `llvm-readelf` or
+`objdump`. Those are not on a stock CI runner — the first version of this
+script assumed one was, and the build it was meant to protect failed on
+the missing tool instead. A build guard that depends on something the
+build does not already require is a guard that fails for the wrong
+reason.
 """
 
 from __future__ import annotations
 
-import subprocess
+import struct
 import sys
 from pathlib import Path
 
 
-def meta_blobs(lib: Path) -> dict[str, bytes]:
-    """Every `UNIFFI_META_*` static in `lib`, by name, as raw bytes."""
-    out = subprocess.run(
-        ["llvm-readelf", "--symbols", "--wide", str(lib)],
-        capture_output=True, text=True, check=True,
-    ).stdout
+class NotElf(Exception):
+    """Not an ELF file — a macOS/Windows host cdylib, most likely."""
 
-    # Value Size ... Name — we want the address and length of each blob.
-    wanted: dict[str, tuple[int, int]] = {}
-    for line in out.splitlines():
-        parts = line.split()
-        if len(parts) < 8 or not parts[-1].startswith("UNIFFI_META_"):
-            continue
-        try:
-            addr, size = int(parts[1], 16), int(parts[2], 0)
-        except ValueError:
-            continue
-        if size:
-            wanted[parts[-1]] = (addr, size)
-    if not wanted:
-        sys.exit(f"{lib}: no UNIFFI_META_* symbols — is this the right library?")
 
-    # One pass over the file. Section headers give us the vaddr->offset map.
+def _elf_meta_blobs(data: bytes) -> dict[str, bytes]:
+    """Every `UNIFFI_META_*` static in an ELF image, by name, as raw bytes.
+
+    Reads the symbol table directly. Release libraries are built with
+    `strip = "symbols"`, so `.symtab` is usually gone — but these symbols
+    are exported, so `.dynsym` still carries them.
+    """
+    if data[:4] != b"\x7fELF":
+        raise NotElf
+    is64 = data[4] == 2
+    end = "<" if data[5] == 1 else ">"
+
+    # Section header table: offset, entry size, count, and the index of
+    # the section holding section *names*.
+    if is64:
+        e_shoff, = struct.unpack_from(end + "Q", data, 0x28)
+        e_shentsize, e_shnum, e_shstrndx = struct.unpack_from(end + "HHH", data, 0x3A)
+    else:
+        e_shoff, = struct.unpack_from(end + "I", data, 0x20)
+        e_shentsize, e_shnum, e_shstrndx = struct.unpack_from(end + "HHH", data, 0x2E)
+
     sections = []
-    for line in subprocess.run(
-        ["llvm-readelf", "--section-headers", "--wide", str(lib)],
-        capture_output=True, text=True, check=True,
-    ).stdout.splitlines():
-        parts = line.split()
-        # [Nr] Name Type Address Off Size ...
-        if len(parts) >= 7 and parts[0].startswith("[") and parts[2] == "PROGBITS":
-            try:
-                sections.append((int(parts[3], 16), int(parts[4], 16), int(parts[5], 16)))
-            except ValueError:
-                continue
-
-    data = lib.read_bytes()
-    blobs: dict[str, bytes] = {}
-    for name, (addr, size) in wanted.items():
-        for vaddr, off, sz in sections:
-            if vaddr <= addr < vaddr + sz:
-                start = off + (addr - vaddr)
-                blobs[name] = data[start:start + size]
-                break
+    for i in range(e_shnum):
+        off = e_shoff + i * e_shentsize
+        if is64:
+            sh_name, sh_type, _flags, sh_addr, sh_offset, sh_size, sh_link, _info, _align, sh_entsize = \
+                struct.unpack_from(end + "IIQQQQIIQQ", data, off)
         else:
-            sys.exit(f"{lib}: {name} at {addr:#x} is in no PROGBITS section")
+            sh_name, sh_type, _flags, sh_addr, sh_offset, sh_size, sh_link, _info, _align, sh_entsize = \
+                struct.unpack_from(end + "IIIIIIIIII", data, off)
+        sections.append(dict(
+            name=sh_name, type=sh_type, addr=sh_addr, offset=sh_offset,
+            size=sh_size, link=sh_link, entsize=sh_entsize,
+        ))
+
+    def cstr(base: int, at: int) -> str:
+        stop = data.index(b"\0", base + at)
+        return data[base + at:stop].decode("utf-8", "replace")
+
+    # A virtual address only tells us where the loader puts the bytes;
+    # to read them out of the file we need the section that contains it.
+    def vaddr_to_offset(vaddr: int) -> int | None:
+        for s in sections:
+            if s["type"] != 8 and s["addr"] and s["addr"] <= vaddr < s["addr"] + s["size"]:
+                return s["offset"] + (vaddr - s["addr"])
+        return None
+
+    blobs: dict[str, bytes] = {}
+    SHT_SYMTAB, SHT_DYNSYM = 2, 11
+    for s in sections:
+        if s["type"] not in (SHT_SYMTAB, SHT_DYNSYM) or not s["entsize"]:
+            continue
+        strtab = sections[s["link"]]["offset"]
+        for i in range(s["size"] // s["entsize"]):
+            off = s["offset"] + i * s["entsize"]
+            if is64:
+                st_name, _info, _other, _shndx, st_value, st_size = \
+                    struct.unpack_from(end + "IBBHQQ", data, off)
+            else:
+                st_name, st_value, st_size, _info, _other, _shndx = \
+                    struct.unpack_from(end + "IIIBBH", data, off)
+            if not st_name or not st_size:
+                continue
+            name = cstr(strtab, st_name)
+            if not name.startswith("UNIFFI_META_") or name in blobs:
+                continue
+            start = vaddr_to_offset(st_value)
+            if start is not None:
+                blobs[name] = data[start:start + st_size]
+    return blobs
+
+
+def meta_blobs(lib: Path) -> dict[str, bytes]:
+    blobs = _elf_meta_blobs(lib.read_bytes())
+    if not blobs:
+        sys.exit(f"{lib}: no UNIFFI_META_* symbols — is this the right library?")
     return blobs
 
 
 def main() -> int:
     if len(sys.argv) < 3:
-        return int(bool(sys.exit(f"usage: {sys.argv[0]} <host-lib> <android-lib>...")))
+        print(f"usage: {sys.argv[0]} <host-lib> <android-lib>...", file=sys.stderr)
+        return 2
     host, *targets = (Path(p) for p in sys.argv[1:])
-    reference = meta_blobs(host)
+
+    try:
+        reference = meta_blobs(host)
+    except NotElf:
+        # The Android libraries are always ELF; the host cdylib is a
+        # Mach-O dylib on macOS and a PE DLL on Windows. Rather than ship
+        # an untested reader for formats this cannot be tested against,
+        # say plainly that the check did not run. CI is Linux, so the
+        # gate that blocks a merge is never the one being skipped here.
+        print(f"verify-ffi-abi: {host.name} is not ELF — skipping on this host.")
+        print("verify-ffi-abi: the Linux CI run is what enforces this; a mismatch")
+        print("verify-ffi-abi: introduced here will be caught there, not now.")
+        return 0
 
     failed = False
     for lib in targets:
@@ -101,9 +155,24 @@ def main() -> int:
             elif b is None:
                 print(f"{lib}: is missing {name}, which the bindings expect")
             else:
-                print(f"{lib}: {name} differs from the bindings' copy")
-                print(f"    bindings: {a[:96].hex()}")
-                print(f"    shipped : {b[:96].hex()}")
+                # Window on the first difference, not on the start of the
+                # blob. These begin with the module path and function
+                # name, which are identical in every interesting case —
+                # a fixed prefix would print the same bytes twice and
+                # hide the divergence somewhere off the right edge.
+                at = next(
+                    (i for i in range(min(len(a), len(b))) if a[i] != b[i]),
+                    min(len(a), len(b)),
+                )
+                lo = max(0, at - 8)
+                print(f"{lib}: {name} differs from the bindings' copy, at byte {at}")
+                print(f"    bindings: …{a[lo:at + 40].hex()}")
+                print(f"    shipped : …{b[lo:at + 40].hex()}")
+                # The readable half: these blobs are mostly UTF-8 (names,
+                # docstrings), and the text is usually the whole answer.
+                for label, blob in (("bindings", a), ("shipped ", b)):
+                    txt = "".join(chr(c) if 32 <= c < 127 else "." for c in blob[lo:at + 40])
+                    print(f"    {label}: {txt}")
 
     if failed:
         print()
