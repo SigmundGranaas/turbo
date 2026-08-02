@@ -17,6 +17,8 @@
     <string name="offline_download_no_routing">Too large for offline routing \u2014 the map still downloads. Zoom in to include trail routing.</string>
     <string name="offline_download_title">Download this area?</string>
     <string name="offline_download_too_large">This area is too large (about %1$s). Zoom in and try again.</string>
+    <string name="offline_incomplete">%1$s — tap to fill the gaps.</string>
+    <string name="offline_fill_gaps">Fill gaps</string>
     <string name="offline_downloaded">Downloaded · %1$s</string>
     <string name="offline_downloading">Downloading… %1$d%%</string>
     <string name="offline_building">Building routing data on this phone… %1$d%%</string>

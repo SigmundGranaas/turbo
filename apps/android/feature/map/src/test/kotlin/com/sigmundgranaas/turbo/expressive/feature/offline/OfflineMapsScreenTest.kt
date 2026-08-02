@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
@@ -104,6 +105,38 @@ class OfflineMapsScreenTest {
         composeRule.onNodeWithContentDescription("Pause Junkerdal").performClick()
         composeRule.waitForIdle()
         assertTrue(manager.paused.contains(8L))
+    }
+
+    /**
+     * A region that downloaded with gaps is Complete — the area works —
+     * but it must admit to the gaps and offer the one-tap fix. Silence
+     * here means the user meets the missing tiles as a blank square,
+     * offline, with no idea it is fixable.
+     */
+    @Test
+    fun `a complete region with gaps says so and can be topped up`() {
+        val region = OfflineRegionInfo(
+            id = 11, name = "Hasvik", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 40_000_000,
+            errorReason = "137 of 2133 tiles are missing",
+        )
+        val manager = StubOfflineTileManager(listOf(region))
+        composeRule.setContent {
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo, FakeOfflineSettings()))
+        }
+        composeRule.onNodeWithText("137 of 2133 tiles are missing", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Fill gaps").performClick()
+        composeRule.waitForIdle()
+        assertTrue(manager.retried.contains(11L))
+    }
+
+    /** The gap line is conditional — a clean region must not show it. */
+    @Test
+    fun `a clean complete region shows no gap note`() {
+        val region = OfflineRegionInfo(id = 12, name = "Lofoten", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 12_000_000)
+        composeRule.setContent {
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(StubOfflineTileManager(listOf(region)), stubGeo, FakeOfflineSettings()))
+        }
+        composeRule.onNodeWithTag("incompleteNote").assertDoesNotExist()
     }
 
     @Test

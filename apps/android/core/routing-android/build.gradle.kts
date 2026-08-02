@@ -19,6 +19,13 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
  * bindings and cdylib are generated independently, and the uniffi contract
  * checksums are profile-independent.
  *
+ * They are **not** target-independent, which is the part that bit. Generating
+ * from the host and shipping a cross-compiled library assumes the FFI surface
+ * is the same under both `cfg`s, and nothing enforced that; an `#[uniffi::export]`
+ * defined twice under opposite `cfg(target_os)` shipped an app that threw
+ * "UniFFI API checksum mismatch" on the user's first route. `verifyRouteFfiAbi`
+ * now diffs the uniffi metadata between the two and fails the build instead.
+ *
  * `armeabi-v7a` is in the ABI list. The app's release `splits` block produces an
  * `armeabi-v7a` APK, so omitting it here would ship a 32-bit APK with no routing
  * library and crash on the first route.
@@ -96,6 +103,28 @@ val buildRouteFfiAndroid = tasks.register<Exec>("buildRouteFfiAndroid") {
     outputs.upToDateWhen { false }
 }
 
+/**
+ * The bindings and the shipped library are built independently — the
+ * first from the host cdylib, the second cross-compiled — and nothing
+ * used to check that they agree. When they disagreed the app built,
+ * installed and then threw "UniFFI API checksum mismatch" at the user on
+ * the first FFI call. Compare the uniffi metadata blobs directly and
+ * fail here instead, where it costs a build rather than a release.
+ */
+val verifyRouteFfiAbi = tasks.register<Exec>("verifyRouteFfiAbi") {
+    group = "routing"
+    description = "Fail if the shipped .so exposes a different uniffi contract than the bindings."
+    dependsOn(generateRouteFfiBindings, buildRouteFfiAndroid)
+    workingDir = tileserverDir
+    commandLine(
+        listOf(
+            "python3", "tools/verify-ffi-abi.py",
+            tileserverDir.resolve("target/debug/$hostLibFile").absolutePath,
+        ) + androidAbis.map { ffiJniLibsDir.resolve("$it/libturbo_route_ffi.so").absolutePath },
+    )
+    outputs.upToDateWhen { false }
+}
+
 // The committed CI pack, staged as a test asset so the on-device suite
 // needs no server and no download — it runs on a phone in aeroplane mode.
 // Copied rather than referenced: AGP packages `assets/`, and the pack
@@ -108,7 +137,9 @@ val stageRoutingPack = tasks.register<Copy>("stageRoutingPack") {
 }
 
 tasks.withType<KotlinCompile>().configureEach { dependsOn(generateRouteFfiBindings) }
-tasks.named("preBuild") { dependsOn(generateRouteFfiBindings, buildRouteFfiAndroid, stageRoutingPack) }
+tasks.named("preBuild") {
+    dependsOn(generateRouteFfiBindings, buildRouteFfiAndroid, verifyRouteFfiAbi, stageRoutingPack)
+}
 
 dependencies {
     // LatLng, RoutePlan, RoutePreset, RouteStreamEvent — the app's own vocabulary.
