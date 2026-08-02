@@ -634,14 +634,27 @@ fn ascent_along(pf: &Pathfinder, geom: &[Point]) -> f64 {
 /// a shared library. The export stays either way: the bindings are
 /// generated once, and a host should not have to know how this build was
 /// configured to know whether the function is there.
-#[cfg(all(target_os = "android", feature = "logcat"))]
+///
+/// # The `cfg` is inside the body, and has to stay there
+///
+/// This was two `#[uniffi::export]`s under opposite `cfg`s, and it
+/// shipped a broken app. uniffi hashes the *docstring* into the metadata
+/// buffer it checksums (`uniffi_macros`, `fnsig.rs`: the metadata expr
+/// ends `.concat_long_str(#docstring)`), so two definitions that differ
+/// only in having a doc comment get two different checksums. Bindings
+/// are generated from the host cdylib and the shipped library is built
+/// for Android — different `cfg`, different branch, different checksum —
+/// and every FFI call died at load with "UniFFI API checksum mismatch"
+/// in front of the user.
+///
+/// One export, one docstring, one checksum on every target. Anything
+/// `cfg`-dependent belongs in the body, where it cannot reach the
+/// metadata. `verifyRouteFfiAbi` in `:core:routing-android` fails the
+/// build if this rule is ever broken again.
 #[uniffi::export]
 pub fn init_logging() {
+    #[cfg(all(target_os = "android", feature = "logcat"))]
     android_logger::init_once(
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 }
-
-#[cfg(not(all(target_os = "android", feature = "logcat")))]
-#[uniffi::export]
-pub fn init_logging() {}

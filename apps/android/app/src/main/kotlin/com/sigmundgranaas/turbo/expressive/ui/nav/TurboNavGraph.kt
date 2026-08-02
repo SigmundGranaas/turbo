@@ -27,6 +27,7 @@ import com.sigmundgranaas.turbo.expressive.feature.recording.PathDetailScreen
 import com.sigmundgranaas.turbo.expressive.feature.recording.PathsListScreen
 import com.sigmundgranaas.turbo.expressive.feature.search.SearchScreen
 import com.sigmundgranaas.turbo.expressive.feature.settings.AboutScreen
+import com.sigmundgranaas.turbo.expressive.feature.settings.AdvancedSettingsScreen
 import com.sigmundgranaas.turbo.expressive.feature.settings.SettingsScreen
 
 private object Routes {
@@ -37,6 +38,7 @@ private object Routes {
     const val OFFLINE = "offline"
     const val COLLECTIONS = "collections"
     const val ABOUT = "about"
+    const val ADVANCED_SETTINGS = "settings/advanced"
     const val ACCOUNT = "account"
     const val SHARING = "sharing"
     const val PATH_DETAIL = "path/{pathId}"
@@ -104,10 +106,12 @@ fun TurboNavGraph(
             SettingsScreen(
                 onBack = { nav.popBackStack() },
                 onOpenAbout = { nav.navigate(Routes.ABOUT) },
+                onOpenAdvanced = { nav.navigate(Routes.ADVANCED_SETTINGS) },
                 onOpenAccount = { nav.navigate(Routes.ACCOUNT) },
             )
         }
         composable(Routes.ABOUT) { AboutScreen(onBack = { nav.popBackStack() }) }
+        composable(Routes.ADVANCED_SETTINGS) { AdvancedSettingsScreen(onBack = { nav.popBackStack() }) }
         composable(Routes.ACCOUNT) {
             AuthScreen(
                 onBack = { nav.popBackStack() },

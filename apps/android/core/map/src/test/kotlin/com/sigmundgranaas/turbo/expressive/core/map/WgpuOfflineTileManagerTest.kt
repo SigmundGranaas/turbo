@@ -69,7 +69,7 @@ class WgpuOfflineTileManagerTest {
     }
 
     @Test
-    fun `a tile that errors marks the region failed`() = runTest(UnconfinedTestDispatcher()) {
+    fun `a region where every tile errors is a failed region`() = runTest(UnconfinedTestDispatcher()) {
         val cache = tmp.newFolder("cache")
         val meta = tmp.newFolder("meta")
         val mgr = manager(this, cache, meta, fetcher = { FetchOutcome.Error })
@@ -78,6 +78,73 @@ class WgpuOfflineTileManagerTest {
         advanceUntilIdle()
 
         assertEquals(OfflineStatus.Failed, mgr.regions.value.single().status)
+    }
+
+    /** The tile pyramid for [wide], and the URLs the manager will ask for. */
+    private val wide = GeoBounds(south = 67.20, west = 15.00, north = 67.40, east = 15.40)
+    private fun wideUrls(): List<String> =
+        TileMath.tilesFor(wide, 10.0, 14.0).map { "https://example/${it.z}/${it.x}/${it.y}.png" }
+
+    /**
+     * A handful of tiles lost to a busy server is not a failed download.
+     *
+     * This is the one that shipped wrong: a single errored tile failed the
+     * whole region, so a 2000-tile area over a rate-limiting public WMTS
+     * got to ninety-odd percent and then presented every tile it *had*
+     * fetched as a failure. The tiles are on disk and the area is usable.
+     */
+    @Test
+    fun `a few failed tiles still complete the region, with a note`() = runTest(UnconfinedTestDispatcher()) {
+        val cache = tmp.newFolder("cache")
+        val meta = tmp.newFolder("meta")
+        val urls = wideUrls()
+        assertTrue("need a pyramid big enough for 2% to be >0 tiles", urls.size >= 100)
+        val doomed = urls.take(urls.size / 50).toSet() // 2%, under the 5% bar
+        assertTrue(doomed.isNotEmpty())
+        val mgr = manager(this, cache, meta, fetcher = { url ->
+            if (url in doomed) FetchOutcome.Error else FetchOutcome.Data(ByteArray(64) { 7 })
+        })
+
+        mgr.download(spec(b = wide, min = 10.0, max = 14.0))
+        advanceUntilIdle()
+
+        val r = mgr.regions.value.single()
+        assertEquals(OfflineStatus.Complete, r.status)
+        assertEquals(1f, r.progress)
+        assertEquals((urls.size - doomed.size).toLong(), r.tileCount)
+        // Complete, but it must not pretend to be whole — the note is what
+        // the screen turns into "tap to fill the gaps".
+        assertTrue("says what is missing: ${r.errorReason}", r.errorReason!!.contains("${doomed.size} of"))
+    }
+
+    /** Past the bar it is a failure again — an area this patchy is not covered. */
+    @Test
+    fun `losing a large share of the tiles still fails the region`() = runTest(UnconfinedTestDispatcher()) {
+        val cache = tmp.newFolder("cache")
+        val meta = tmp.newFolder("meta")
+        val urls = wideUrls()
+        val doomed = urls.take(urls.size / 5).toSet() // 20%, well past the bar
+        val mgr = manager(this, cache, meta, fetcher = { url ->
+            if (url in doomed) FetchOutcome.Error else FetchOutcome.Data(ByteArray(64) { 7 })
+        })
+
+        mgr.download(spec(b = wide, min = 10.0, max = 14.0))
+        advanceUntilIdle()
+
+        assertEquals(OfflineStatus.Failed, mgr.regions.value.single().status)
+    }
+
+    /** A clean download carries no note — the gap line must not always show. */
+    @Test
+    fun `a complete region has no missing-tile note`() = runTest(UnconfinedTestDispatcher()) {
+        val cache = tmp.newFolder("cache")
+        val meta = tmp.newFolder("meta")
+        val mgr = manager(this, cache, meta)
+
+        mgr.download(spec())
+        advanceUntilIdle()
+
+        assertEquals(null, mgr.regions.value.single().errorReason)
     }
 
     @Test

@@ -211,14 +211,35 @@ private fun RegionCard(
                 )
                 Spacer(Modifier.height(6.dp))
                 when (region.status) {
-                    OfflineStatus.Complete -> StatusLine(
-                        icon = Icons.Rounded.DownloadDone,
-                        tint = cs.primary,
-                        text = stringResource(R.string.offline_downloaded, formatSize(region.sizeBytes)) +
-                            region.createdAtEpochMs.takeIf { it > 0 }
-                                ?.let { " · " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it)) }
-                                .orEmpty(),
-                    )
+                    OfflineStatus.Complete -> {
+                        StatusLine(
+                            icon = Icons.Rounded.DownloadDone,
+                            tint = cs.primary,
+                            text = stringResource(R.string.offline_downloaded, formatSize(region.sizeBytes)) +
+                                region.createdAtEpochMs.takeIf { it > 0 }
+                                    ?.let { " · " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it)) }
+                                    .orEmpty(),
+                        )
+                        // Downloaded, with gaps. The area is usable — that is
+                        // why it is Complete and not Failed — but a few tiles
+                        // lost to a busy server would otherwise be a blank
+                        // square discovered offline, with nothing on this
+                        // screen admitting to it or offering the one-tap fix.
+                        region.errorReason?.let { missing ->
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                stringResource(R.string.offline_incomplete, missing),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = cs.onSurfaceVariant,
+                                modifier = Modifier.testTag("incompleteNote"),
+                            )
+                            TextButton(onClick = onRetry, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                                Icon(Icons.Rounded.Refresh, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.size(6.dp))
+                                Text(stringResource(R.string.offline_fill_gaps))
+                            }
+                        }
+                    }
                     OfflineStatus.Paused -> StatusLine(
                         icon = Icons.Rounded.PauseCircle,
                         tint = cs.onSurfaceVariant,
