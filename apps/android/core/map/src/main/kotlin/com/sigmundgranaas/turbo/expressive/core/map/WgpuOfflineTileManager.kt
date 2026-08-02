@@ -37,6 +37,7 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
+import kotlin.random.Random
 
 /**
  * Non-MapLibre offline downloader. Pre-populates the SAME on-disk [TileStore] the
@@ -417,15 +418,33 @@ class WgpuOfflineTileManager internal constructor(
                 }
             }
         }
-        if (failed > 0) {
-            markFailed(id, "$failed of $total tiles could not be downloaded")
-        } else {
-            update(id) {
+        // A few tiles short is not a failed download.
+        //
+        // This used to fail the region if a single tile errored, which in
+        // practice meant a 2000-tile area over a rate-limiting public WMTS
+        // reached 90-odd percent and then threw all of it away — the tiles
+        // were on disk and usable, and the screen said "Download failed".
+        // A missing tile degrades to a gap in one corner of one zoom level;
+        // it is not remotely the same event as a download that did not
+        // happen, and conflating them trained the user to distrust a
+        // feature that was mostly working.
+        //
+        // So: fail only when enough failed that the area genuinely is not
+        // covered. Short of that, the region completes and carries a note
+        // saying what is missing. Retry re-runs it, and because stored
+        // tiles are skipped it costs only the gaps.
+        val ratio = if (total > 0) failed.toDouble() / total else 0.0
+        when {
+            ratio > MAX_MISSING_RATIO ->
+                markFailed(id, "$failed of $total tiles could not be downloaded")
+
+            else -> update(id) {
                 it.copy(
                     status = OfflineStatus.Complete,
                     progress = 1f,
                     tileCount = stored.toLong(),
                     sizeBytes = bytes + packBytes,
+                    errorReason = if (failed > 0) "$failed of $total tiles are missing" else null,
                 )
             }
         }
@@ -445,7 +464,15 @@ class WgpuOfflineTileManager internal constructor(
             }
             when (outcome) {
                 is FetchOutcome.Data, FetchOutcome.Absent -> return outcome
-                FetchOutcome.Error -> if (attempt < FETCH_RETRIES - 1) delay(RETRY_BACKOFF_MS)
+                // Exponential, and jittered. A fixed delay put all six
+                // workers back on the wire at the same instant, so three
+                // attempts were really one attempt against a server that
+                // was still shedding load — which is how a download loses
+                // a hundred tiles to a burst that lasted two seconds.
+                FetchOutcome.Error -> if (attempt < FETCH_RETRIES - 1) {
+                    val backoff = RETRY_BACKOFF_MS shl attempt
+                    delay(backoff + Random.nextLong(backoff / 2))
+                }
             }
         }
         return FetchOutcome.Error
@@ -509,8 +536,18 @@ class WgpuOfflineTileManager internal constructor(
         private const val REGION_META_DIR = "offline-regions"
         private const val PARALLELISM = 6
         private const val PROGRESS_EVERY = 16
-        private const val FETCH_RETRIES = 3
+        /** Five tries with exponential backoff spans ~12s — long enough to
+         *  outlast the load bursts that were costing whole downloads. */
+        private const val FETCH_RETRIES = 5
         private const val RETRY_BACKOFF_MS = 400L
+
+        /**
+         * How much of a region may be missing and still count as
+         * downloaded. Five percent of a tile pyramid is a gap the user has
+         * to hunt for; the alternative on offer was discarding the other
+         * ninety-five.
+         */
+        private const val MAX_MISSING_RATIO = 0.05
         private const val MAX_TILE_BYTES = 8L * 1024 * 1024
         private const val TIMEOUT_MS = 10_000L
         private const val USER_AGENT = "turbo-android-wgpu"
