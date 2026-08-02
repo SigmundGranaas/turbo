@@ -10,6 +10,7 @@ publish.workspace = true
 # Resolution 100 m (RAM-tight default; 50 m for higher-RAM boxes).
 
 [dependencies]
+geo.workspace = true
 turbo-tiles-artifacts.workspace = true
 turbo-tiles-core.workspace = true
 serde = { workspace = true, features = ["derive"] }

@@ -47,6 +47,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -248,11 +249,31 @@ private fun RegionCard(
                             color = cs.onSurfaceVariant,
                         )
                     }
+                    // Same bar, different sentence. A build moves in
+                    // jumps as whole phases finish and takes minutes, so
+                    // a line that says "downloading" would read as a
+                    // stall — and the honest fix is to say what is
+                    // actually happening, not to fake smoother progress.
+                    OfflineStatus.Building -> {
+                        LinearWavyProgressIndicator(
+                            progress = { region.progress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            stringResource(R.string.offline_building, (region.progress * 100).toInt()),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = cs.onSurfaceVariant,
+                            modifier = Modifier.testTag("buildingStatus"),
+                        )
+                    }
                 }
             }
             Spacer(Modifier.size(8.dp))
             when (region.status) {
-                OfflineStatus.Downloading -> IconButton(onClick = onPause) {
+                // A build is interruptible for the same reason a
+                // download is: it is long, and it is the user's data.
+                OfflineStatus.Downloading, OfflineStatus.Building -> IconButton(onClick = onPause) {
                     Icon(Icons.Rounded.Pause, stringResource(R.string.offline_pause, region.name), tint = cs.onSurfaceVariant)
                 }
                 OfflineStatus.Paused -> IconButton(onClick = onResume) {

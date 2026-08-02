@@ -2,10 +2,10 @@
 
 use std::time::Instant;
 
+use crate::v1::frame::artifact_xy as wgs84_to_utm33n_xy;
 use axum::extract::State;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use turbo_tiles_elev::wgs84_to_utm33n;
 use turbo_tiles_mask::{MaskCoverage, RefusalKind};
 
 use crate::error::ApiError;
@@ -34,7 +34,7 @@ pub async fn sample(
         .mask
         .as_ref()
         .ok_or(ApiError::PrimitiveUnavailable("mask"))?;
-    let p = wgs84_to_utm33n(req.lon, req.lat);
+    let p = wgs84_to_utm33n_xy(req.lon, req.lat);
     let start = Instant::now();
     // "Outside the mask extent" means the artifact has no opinion
     // about this point — semantically equivalent to "no refusal".

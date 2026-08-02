@@ -52,4 +52,17 @@
     <string name="settings_location_marker_sub">Colour of the my-position dot</string>
     <string name="settings_heading_beam">Heading beam</string>
     <string name="settings_heading_beam_sub">Show your direction of travel on the dot</string>
+    <string name="settings_routing">Routing engine</string>
+    <string name="settings_routing_sub">Which router plans your routes. Leave on Auto unless you are measuring the on-device engine — the other two skip the fallback, so a failure shows instead of being covered up.</string>
+    <string name="settings_routing_auto">Auto</string>
+    <string name="settings_routing_device">Phone</string>
+    <string name="settings_routing_server">Server</string>
+    <string name="settings_routing_clear">Clear</string>
+    <string name="settings_routing_shadow">Compare both routers</string>
+    <string name="settings_routing_shadow_sub">Plans every route twice and records how far apart the answers are. Uses more battery. The extra work happens after your route appears, so it does not slow anything down.</string>
+    <string name="settings_routing_device_build">Build packs on this phone</string>
+    <string name="settings_routing_device_build_sub">When no server has a pack for a region, cut one here from Kartverket. Minutes of work and tens of megabytes.</string>
+    <string name="settings_routing_pack_source">Pack source</string>
+    <string name="settings_routing_pack_source_hint">Leave blank for the default. Supports {key} and {file}.</string>
+    <string name="settings_routing_pack_source_save">Save</string>
 </resources>

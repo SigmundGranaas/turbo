@@ -10,6 +10,7 @@ publish.workspace = true
 # stitches this together with the elev/mask/graph primitives.
 
 [dependencies]
+turbo-route-model.workspace = true
 serde = { workspace = true, features = ["derive"] }
 turbo-tiles-elev.workspace = true
 turbo-tiles-mask.workspace = true
@@ -27,6 +28,15 @@ tokio = { workspace = true, default-features = false, features = ["sync"] }
 tracing.workspace = true
 
 [dev-dependencies]
+turbo-tiles-mask.workspace = true
+turbo-tiles-elev.workspace = true
+# Tests are a composition root: they name the profile explicitly.
+turbo-profile-no.workspace = true
+turbo-geo-frame.workspace = true
+# Adapting the real artifact to the port, so the engine's own tests
+# drive it exactly as production does. A *dev*-dependency only: the
+# engine must never depend on an adapter at build time.
+turbo-geodata-artifacts.workspace = true
 tempfile = "3"
 byteorder.workspace = true
 bytemuck.workspace = true

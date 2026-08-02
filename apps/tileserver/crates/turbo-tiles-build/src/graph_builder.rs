@@ -20,9 +20,10 @@ use turbo_tiles_artifacts::{write_header, ArtifactKind, Header};
 use turbo_tiles_db::DbPool;
 use turbo_tiles_elev::{Dem, PointXY};
 use turbo_tiles_graph::{
-    write_graph_geom_meta, write_meta, EdgeRecord, GraphGeomIndexEntry, GraphGeomMeta, GraphMeta,
-    NodePos, EDGE_RECORD_BYTES, GRAPH_FORMAT_VERSION, GRAPH_GEOM_FORMAT_VERSION,
-    GRAPH_GEOM_INDEX_BYTES, PROFILE_COUNT,
+    encode_fkb_type, encode_marking, encode_surface, profile_cost, write_graph_geom_meta,
+    write_meta, EdgeRecord, GraphGeomIndexEntry, GraphGeomMeta, GraphMeta, NodePos,
+    EDGE_RECORD_BYTES, GRAPH_FORMAT_VERSION, GRAPH_GEOM_FORMAT_VERSION, GRAPH_GEOM_INDEX_BYTES,
+    PROFILE_COUNT,
 };
 
 use crate::BuildError;
@@ -425,6 +426,7 @@ pub async fn build(pool: &DbPool, out_dir: &Path) -> Result<GraphBuildReport, Bu
     for e in &health.errors {
         tracing::error!(code = %e.code, "{}", e.message);
     }
+    crate::health::gate(&health)?;
     let written_at = chrono::Utc::now().timestamp();
     // Persist the health report alongside the artifact so
     // `verify-artifacts` and CI checks can diff against a baseline
@@ -446,65 +448,6 @@ pub async fn build(pool: &DbPool, out_dir: &Path) -> Result<GraphBuildReport, Bu
         seconds: started.elapsed().as_secs_f64(),
         health,
     })
-}
-
-/// Per-profile cost in "effective metres of forward travel". Naismith
-/// distance + uphill gain, times a per-surface multiplier so that
-/// `foot` Dijkstra prefers real trails (`sti`) over roads (`vei`),
-/// `bicycle` does the opposite, and `ski` favours groomed tracks
-/// (`skiloype`). The N50 + Turrutebasen data the builder reads
-/// produces only three `fkb_type` values today:
-///   1 = sti       (Turrutebasen hiking trails)
-///   2 = vei       (N50 roads — paved + gravel + forest + farm)
-///   3 = skiloype  (prepared cross-country ski tracks)
-/// Anything else encodes to 0 → treated as a road-like default.
-fn profile_cost(e: &EdgeRecord, profile_id: u32) -> f32 {
-    let gain = e.gain_m.max(0.0);
-    let base = match profile_id {
-        // Foot — Naismith: every 600 m of vertical = +1 h compared
-        // to flat at 5 km/h, i.e. +8 × gain in equivalent distance.
-        0 => e.length_m + 8.0 * gain,
-        // Bicycle — slightly faster on the flat, much slower uphill.
-        1 => e.length_m * 0.6 + 20.0 * gain,
-        // Ski — ungroomed default; surface mult favours groomed.
-        2 => e.length_m * 1.2 + 6.0 * gain,
-        _ => e.length_m,
-    };
-    base * surface_multiplier(e.fkb_type, profile_id)
-}
-
-/// Per (profile, fkb_type) traversal multiplier. Applied on top of
-/// the Naismith base cost so that, for example, a foot user routing
-/// through 1 km of N50 road sees an effective 1.6 km cost — making
-/// Dijkstra naturally prefer a slightly longer trail-based route.
-///
-/// Values are conservative defaults intended for hiking, cycling,
-/// and cross-country skiing. The trait-based `CostLayer` system lets
-/// callers reweight or veto edges per-request without rebuilding
-/// the artifact (see `PreferredEdgeLayer` / `MarkingLayer`).
-fn surface_multiplier(fkb_type: u8, profile_id: u32) -> f32 {
-    match (profile_id, fkb_type) {
-        // FOOT — strongly prefer real trails; tolerate roads but
-        // tax them so a 6 km trail beats a 60 km road detour.
-        (0, 1) => 1.0, // sti (hiking trail — ideal)
-        (0, 2) => 1.6, // vei (road — possible, but punishing on foot)
-        (0, 3) => 1.2, // skiloype (open ground in summer)
-        (0, _) => 1.4, // unknown — assume road-like
-
-        // BICYCLE — prefer roads, penalise trails + ski tracks.
-        (1, 1) => 1.5, // sti (rough for bikes)
-        (1, 2) => 1.0, // vei (ideal)
-        (1, 3) => 2.0, // skiloype (not really bikeable)
-        (1, _) => 1.0,
-
-        // SKI — prepared tracks first, then trails, then roads.
-        (2, 1) => 1.2, // sti (skiable but slow)
-        (2, 2) => 1.4, // vei (plowed, fast but unrewarding)
-        (2, 3) => 1.0, // skiloype (ideal!)
-        (2, _) => 1.3,
-
-        _ => 1.0,
-    }
 }
 
 /// Maps `paths.edge.fkb_type` text to a stable 1-byte code. Values
@@ -575,40 +518,6 @@ fn parse_wkb_linestring(wkb: &[u8]) -> Option<Vec<NodePos>> {
     Some(out)
 }
 
-fn encode_fkb_type(s: Option<&str>) -> u8 {
-    match s.unwrap_or("") {
-        "sti" => 1,
-        "vei" => 2,
-        "skiloype" | "skiløype_preparert" | "lysløype" => 3,
-        // Legacy / future surface kinds — map to "trail-ish" by
-        // default so they aren't accidentally treated as roads.
-        "sti_terreng" => 1,
-        "traktorvei" | "skogsvei" | "sykkelvei" => 2,
-        // Defensive aliases for the legacy "veg" spellings, in case any
-        // pre-normalisation FKB rows survive in the DB. Ingest now emits the
-        // "vei" forms (fkb_wfs::normalize_fkb_type), so these should be rare.
-        "traktorveg" | "skogsbilveg" | "skogsveg" | "sykkelveg" => 2,
-        _ => 0,
-    }
-}
-fn encode_marking(s: Option<&str>) -> u8 {
-    match s.unwrap_or("") {
-        "red_t" => 1,
-        "cairn" => 2,
-        "blue_paint" => 3,
-        "unmarked" => 4,
-        _ => 0,
-    }
-}
-fn encode_surface(s: Option<&str>) -> u8 {
-    match s.unwrap_or("") {
-        "natural" => 1,
-        "gravel" => 2,
-        "asphalt" => 3,
-        "boardwalk" => 4,
-        _ => 0,
-    }
-}
 fn encode_source(s: Option<&str>) -> u8 {
     match s.unwrap_or("") {
         "fkb" => 1,

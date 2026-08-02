@@ -31,10 +31,11 @@ private class StubOfflineTileManager(initial: List<OfflineRegionInfo>) : Offline
     override val regions: StateFlow<List<OfflineRegionInfo>> = flow
     val deleted = mutableListOf<Long>()
     val retried = mutableListOf<Long>()
+    val paused = mutableListOf<Long>()
     override fun refresh() = Unit
     override fun download(spec: DownloadSpec) = Unit
     override fun retry(id: Long) { retried += id }
-    override fun pause(id: Long) = Unit
+    override fun pause(id: Long) { paused += id }
     override fun resume(id: Long) = Unit
     override fun setNetworkAllowed(allowed: Boolean) = Unit
     override fun rename(id: Long, name: String) { renamed += id to name }
@@ -62,7 +63,7 @@ class OfflineMapsScreenTest {
     @Test
     fun `empty state explains how to download`() {
         composeRule.setContent {
-            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(StubOfflineTileManager(emptyList()), stubGeo))
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(StubOfflineTileManager(emptyList()), stubGeo, FakeOfflineSettings()))
         }
         composeRule.onNodeWithText("No offline maps yet").assertIsDisplayed()
     }
@@ -71,10 +72,38 @@ class OfflineMapsScreenTest {
     fun `a downloading region shows its name and progress`() {
         val region = OfflineRegionInfo(id = 1, name = "Tromsø", status = OfflineStatus.Downloading, progress = 0.42f, sizeBytes = 5_000_000)
         composeRule.setContent {
-            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(StubOfflineTileManager(listOf(region)), stubGeo))
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(StubOfflineTileManager(listOf(region)), stubGeo, FakeOfflineSettings()))
         }
         composeRule.onNodeWithText("Tromsø").assertIsDisplayed()
         composeRule.onNodeWithText("Downloading… 42%").assertIsDisplayed()
+    }
+
+    /**
+     * A build is not a download and must not claim to be one. It runs
+     * before the first tile, moves in jumps as whole phases land, and
+     * takes minutes — a line reading "Downloading…" against a bar that
+     * sits still for a minute is indistinguishable from a stall.
+     */
+    @Test
+    fun `a region building its routing data says so, not downloading`() {
+        val region = OfflineRegionInfo(id = 7, name = "Sulitjelma", status = OfflineStatus.Building, progress = 0.30f, sizeBytes = 0)
+        composeRule.setContent {
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(StubOfflineTileManager(listOf(region)), stubGeo, FakeOfflineSettings()))
+        }
+        composeRule.onNodeWithText("Building routing data on this phone… 30%").assertIsDisplayed()
+    }
+
+    /** Minutes of Kartverket over the user's connection has to be stoppable. */
+    @Test
+    fun `a building region can be paused`() {
+        val region = OfflineRegionInfo(id = 8, name = "Junkerdal", status = OfflineStatus.Building, progress = 0.1f, sizeBytes = 0)
+        val manager = StubOfflineTileManager(listOf(region))
+        composeRule.setContent {
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo, FakeOfflineSettings()))
+        }
+        composeRule.onNodeWithContentDescription("Pause Junkerdal").performClick()
+        composeRule.waitForIdle()
+        assertTrue(manager.paused.contains(8L))
     }
 
     @Test
@@ -85,7 +114,7 @@ class OfflineMapsScreenTest {
         )
         val manager = StubOfflineTileManager(listOf(region))
         composeRule.setContent {
-            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo))
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo, FakeOfflineSettings()))
         }
         composeRule.onNodeWithText("Retry").performClick()
         composeRule.waitForIdle()
@@ -97,7 +126,7 @@ class OfflineMapsScreenTest {
         val region = OfflineRegionInfo(id = 9, name = "Lofoten", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 12_000_000)
         val manager = StubOfflineTileManager(listOf(region))
         composeRule.setContent {
-            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo))
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo, FakeOfflineSettings()))
         }
         composeRule.onNodeWithContentDescription("Delete Lofoten").performClick()
         composeRule.waitForIdle()
@@ -116,7 +145,7 @@ class OfflineMapsScreenTest {
         val region = OfflineRegionInfo(id = 4, name = "Tromsø", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 1_000_000)
         val manager = StubOfflineTileManager(listOf(region))
         composeRule.setContent {
-            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo))
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo, FakeOfflineSettings()))
         }
         composeRule.onNodeWithText("Tromsø").performClick()
         composeRule.onNode(hasSetTextAction()).performTextReplacement("Kvaløya")

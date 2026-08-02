@@ -40,6 +40,11 @@ private class FakeSettingsRepository : SettingsRepository {
     override suspend fun setLocationDotColor(colorHex: String?) = state.update { it.copy(locationDotColorHex = colorHex) }
     override suspend fun setShowHeadingBeam(enabled: Boolean) = state.update { it.copy(showHeadingBeam = enabled) }
     override suspend fun setGestures(gestures: com.sigmundgranaas.turbo.expressive.domain.GestureSettings) = Unit
+    override suspend fun setRouteEngine(engine: com.sigmundgranaas.turbo.expressive.domain.RouteEngine) = Unit
+    var packSourceUrl: String? = null
+    override suspend fun setPackSourceUrl(url: String?) { packSourceUrl = url }
+    override suspend fun setRouteShadowCompare(enabled: Boolean) = state.update { it.copy(routeShadowCompare = enabled) }
+    override suspend fun setBuildPacksOnDevice(enabled: Boolean) = state.update { it.copy(buildPacksOnDevice = enabled) }
     override suspend fun setExperimentalTrails(enabled: Boolean) = Unit
     override suspend fun setExperimentalClouds(enabled: Boolean) = Unit
     override suspend fun setRotationLocked(enabled: Boolean) = Unit

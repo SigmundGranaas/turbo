@@ -4,9 +4,9 @@
 //! generic `turbo-tiles-fmm` solver. Phase 3 surface:
 //!
 //!   - `DemElevation` — implements `fmm::Elevation` against a
-//!     project `Arc<Dem>`, translating grid `(i, j)` cell indices
-//!     into UTM33N `PointXY` for the DEM sampler.
-//!   - `solve_fmm_corridor` — given `(from, to)` in UTM33N + a
+//!     project `Arc<dyn Heightfield>`, translating grid `(i, j)` cell indices
+//!     into planar `Point` for the heightfield sampler.
+//!   - `solve_fmm_corridor` — given planar `(from, to)` + a
 //!     contributor list, sizes a corridor bbox around the from-to
 //!     centerline, allocates the FMM grid, bakes the cost field
 //!     (Tobler + per-cell vetoes from the contributors), and runs
@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use turbo_tiles_elev::{Dem, PointXY};
+use turbo_route_model::Point;
 use turbo_tiles_fmm::{
     bake_aniso_corridor, bake_metric_2d, chaikin_smooth_cost_aware, extract_path_discrete,
     solve_2d_anisotropic, solve_2d_isotropic, CellForm, Elevation, FmmGrid, GridShape, PathPoint,
@@ -23,13 +23,14 @@ use turbo_tiles_fmm::{
 };
 
 use crate::contributor::{CostContributor, EdgeContext, EdgeKind};
+use turbo_route_model::Heightfield;
 
-/// Implements `fmm::Elevation` against the project's `Arc<Dem>`.
-/// Each cell sample goes through `Dem::sample(PointXY)`, which the
+/// Implements `fmm::Elevation` against the project's `Arc<dyn Heightfield>`.
+/// Each cell sample goes through `Dem::sample(Point)`, which the
 /// DEM crate's tile cache hot-paths efficiently. The adapter holds
 /// the `Arc` so it can outlive the corridor solve.
 pub struct DemElevation {
-    pub dem: Arc<Dem>,
+    pub dem: Arc<dyn Heightfield>,
     /// Per-cell elevation memo (m), sized `nx*ny` lazily on first use.
     /// `+∞` = not yet sampled, `NaN` = sampled-but-nodata, else the
     /// value. The grade-limited lifted solver queries each cell's
@@ -42,7 +43,7 @@ pub struct DemElevation {
 }
 
 impl DemElevation {
-    pub fn new(dem: Arc<Dem>) -> Self {
+    pub fn new(dem: Arc<dyn Heightfield>) -> Self {
         Self {
             dem,
             memo: std::sync::Mutex::new(Vec::new()),
@@ -65,7 +66,7 @@ impl Elevation for DemElevation {
             }
         }
         let (x, y) = shape.cell_centre(i, j);
-        let v = self.dem.sample(PointXY { x, y }).ok().flatten();
+        let v = self.dem.height_at(Point { x, y });
         self.memo.lock().unwrap()[idx] = v.unwrap_or(f32::NAN);
         v
     }
@@ -94,10 +95,10 @@ pub(crate) fn with_off_trail(
 /// so the phase 6 dispatch swap is a near-drop-in.
 #[derive(Debug, Clone)]
 pub struct FmmSolveInputs {
-    /// Start point in UTM33N (metres).
-    pub from: PointXY,
-    /// Goal point in UTM33N (metres).
-    pub to: PointXY,
+    /// Start point, planar metres.
+    pub from: Point,
+    /// Goal point, planar metres.
+    pub to: Point,
     /// Cell size for the FMM grid. 10 m matches the native DEM
     /// resolution; smaller values blow up memory + solve time
     /// faster than they improve accuracy.
@@ -134,8 +135,8 @@ pub struct FmmSolveInputs {
 impl Default for FmmSolveInputs {
     fn default() -> Self {
         Self {
-            from: PointXY { x: 0.0, y: 0.0 },
-            to: PointXY { x: 0.0, y: 0.0 },
+            from: Point { x: 0.0, y: 0.0 },
+            to: Point { x: 0.0, y: 0.0 },
             cell_m: 10.0,
             base_pace_s_per_m: 0.714,
             refuse_above_deg: 45.0,
@@ -192,7 +193,7 @@ pub enum FmmAdapterError {
 
 /// Compute the corridor bbox for a from→to solve.
 ///
-/// The corridor is an *axis-aligned* (UTM-grid-aligned) rectangle
+/// The corridor is an *axis-aligned* rectangle
 /// that fully contains the oriented `from→to` centerline rectangle
 /// of half-width `corridor_half_width_m + pad`. We do not rotate
 /// the grid — keeping it axis-aligned lets neighbour indexing stay
@@ -205,11 +206,11 @@ pub enum FmmAdapterError {
 ///   `half_width = max(800 m, 0.20 · ‖to − from‖)`
 /// Corridor extent in the *along-direction*: `‖to − from‖ + 2·pad`.
 /// Corridor extent in the *cross-direction*: `2·(half_width + pad)`.
-/// We project both bounding box corners onto UTM-aligned coords by
+/// We project both bounding box corners onto axis-aligned coords by
 /// taking the AABB of the rotated rectangle's corners.
 pub fn compute_corridor_shape(
-    from: PointXY,
-    to: PointXY,
+    from: Point,
+    to: Point,
     cell_m: f64,
 ) -> Result<GridShape, FmmAdapterError> {
     let dx = to.x - from.x;
@@ -304,6 +305,7 @@ fn bake_contributor_pace(
     cost: &mut FmmGrid<f32>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
     base_pace_s_per_m: f32,
 ) {
     let cell_m = shape.cell_m;
@@ -325,6 +327,7 @@ fn bake_contributor_pace(
                 profile,
                 kind: EdgeKind::Mesh,
                 elev_probe: None,
+                tuning,
             };
             // Sum walk-seconds contributions; skip Inf (vetoes). Also
             // accumulate the multiplicative pace factors (off-trail
@@ -358,6 +361,7 @@ fn bake_vetoes(
     cost: &mut FmmGrid<f32>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
 ) -> (u32, Vec<String>) {
     use std::collections::BTreeSet;
     let mut refused = 0u32;
@@ -379,6 +383,7 @@ fn bake_vetoes(
                 profile,
                 kind: EdgeKind::Mesh,
                 elev_probe: None,
+                tuning,
             };
             for c in contributors {
                 if let Some(label) = c.veto(&ctx) {
@@ -408,6 +413,7 @@ fn apply_contributor_factors_aniso(
     forms: &mut FmmGrid<CellForm>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
     base_pace_s_per_m: f32,
 ) {
     let cell_m = shape.cell_m;
@@ -428,6 +434,7 @@ fn apply_contributor_factors_aniso(
                 profile,
                 kind: EdgeKind::Mesh,
                 elev_probe: None,
+                tuning,
             };
             let mut extra_s: f64 = 0.0;
             let mut factor: f64 = 1.0;
@@ -465,6 +472,7 @@ fn bake_vetoes_aniso(
     forms: &mut FmmGrid<CellForm>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
 ) -> (u32, Vec<String>) {
     use std::collections::BTreeSet;
     let mut refused = 0u32;
@@ -482,6 +490,7 @@ fn bake_vetoes_aniso(
                 profile,
                 kind: EdgeKind::Mesh,
                 elev_probe: None,
+                tuning,
             };
             for c in contributors {
                 if let Some(label) = c.veto(&ctx) {
@@ -506,9 +515,10 @@ fn bake_vetoes_aniso(
 /// following geodesics instead of "shortest distance over peaks".
 fn solve_fmm_corridor_aniso(
     inputs: &FmmSolveInputs,
-    dem: Arc<Dem>,
+    dem: Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
 ) -> Result<FmmSolveOutput, FmmAdapterError> {
     let shape = compute_corridor_shape(inputs.from, inputs.to, inputs.cell_m)?;
     let start_cell = shape
@@ -532,9 +542,11 @@ fn solve_fmm_corridor_aniso(
         &mut forms,
         contributors,
         profile,
+        tuning,
         inputs.base_pace_s_per_m * inputs.off_trail_factor,
     );
-    let (vetoed_cells, refused_by) = bake_vetoes_aniso(shape, &mut forms, contributors, profile);
+    let (vetoed_cells, refused_by) =
+        bake_vetoes_aniso(shape, &mut forms, contributors, profile, tuning);
 
     let t0 = std::time::Instant::now();
     let result = solve_2d_anisotropic(
@@ -584,12 +596,13 @@ fn solve_fmm_corridor_aniso(
 /// Phase-3 entry point. Path extraction comes in phase 4.
 pub fn solve_fmm_corridor(
     inputs: FmmSolveInputs,
-    dem: Arc<Dem>,
+    dem: Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
 ) -> Result<FmmSolveOutput, FmmAdapterError> {
     if inputs.use_anisotropic {
-        return solve_fmm_corridor_aniso(&inputs, dem, contributors, profile);
+        return solve_fmm_corridor_aniso(&inputs, dem, contributors, profile, tuning);
     }
     let shape = compute_corridor_shape(inputs.from, inputs.to, inputs.cell_m)?;
     let start_cell = shape
@@ -631,12 +644,13 @@ pub fn solve_fmm_corridor(
         &mut cost,
         &augmented,
         profile,
+        tuning,
         inputs.base_pace_s_per_m,
     );
 
     // 3) Bake hard refusals on top — water/ocean/glacier/building
     //    polygons. Sets `cost = +∞` for vetoed cells.
-    let (vetoed_cells, refused_by) = bake_vetoes(shape, &mut cost, &augmented, profile);
+    let (vetoed_cells, refused_by) = bake_vetoes(shape, &mut cost, &augmented, profile, tuning);
 
     // 3) Solve.
     let t0 = std::time::Instant::now();
@@ -674,13 +688,13 @@ pub fn solve_fmm_corridor(
 /// gradient-descent extract + cost-aware Chaikin smooth.
 ///
 /// This is the function Phase 6 dispatch wires into the off-trail
-/// strategy of `Pathfinder`. The returned `polyline` is in UTM33N
+/// strategy of `Pathfinder`. The returned `polyline` is in planar
 /// metres, ordered start → goal. `cost_seconds` is the arrival
 /// time at the goal cell, which (because the Tobler metric returns
 /// pace in s/m) is directly comparable to walk-seconds used by
 /// the other Pathfinder strategies.
 pub struct FmmPathOutput {
-    /// Smoothed polyline, start → goal, in EPSG:25833 metres.
+    /// Smoothed polyline, start → goal, planar metres.
     pub polyline: Vec<PathPoint>,
     /// Total walk-time cost from FMM (= arrival at goal cell).
     pub cost_seconds: f64,
@@ -693,17 +707,18 @@ pub struct FmmPathOutput {
 
 pub fn solve_fmm_path(
     inputs: FmmSolveInputs,
-    dem: Arc<Dem>,
+    dem: Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
 ) -> Result<FmmPathOutput, FmmAdapterError> {
     if inputs.use_grade_limited {
-        return solve_grade_limited_path(inputs, dem, contributors, profile);
+        return solve_grade_limited_path(inputs, dem, contributors, profile, tuning);
     }
     let from = inputs.from;
     let to = inputs.to;
     let use_aniso = inputs.use_anisotropic;
-    let solve = solve_fmm_corridor(inputs, dem, contributors, profile)?;
+    let solve = solve_fmm_corridor(inputs, dem, contributors, profile, tuning)?;
     let start_pp = PathPoint {
         x: from.x,
         y: from.y,
@@ -752,9 +767,10 @@ pub fn solve_fmm_path(
 /// lattice; backtracks the parent tree; Chaikin-smooths.
 fn solve_grade_limited_path(
     inputs: FmmSolveInputs,
-    dem: Arc<Dem>,
+    dem: Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
+    tuning: &crate::config::CostConfig,
 ) -> Result<FmmPathOutput, FmmAdapterError> {
     use turbo_tiles_fmm::{
         extract_path_lifted, solve_lifted_grade_limited, GradeLimitedCost, N_HEADINGS,
@@ -792,6 +808,7 @@ fn solve_grade_limited_path(
         inputs.base_pace_s_per_m,
         profile,
         &augmented,
+        tuning,
     );
 
     let cost = GradeLimitedCost {
@@ -863,8 +880,9 @@ fn solve_grade_limited_path(
     };
     let start_cell = snap_cell(start_cell);
     let goal_cell = snap_cell(goal_cell);
-    if std::env::var("FMM_DEBUG").is_ok() {
-        eprintln!(
+    // See the note in `unified.rs`: the engine emits, the host routes.
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        tracing::debug!(
             "FMM_DEBUG GL: shape {}x{} cell={} start={:?} goal={:?} start_refused={} goal_refused={}",
             shape2d.nx,
             shape2d.ny,
@@ -878,8 +896,9 @@ fn solve_grade_limited_path(
     let t0 = std::time::Instant::now();
     let result = solve_lifted_grade_limited(shape3d, &cost, start_cell, goal_cell, Some(&mut emit));
     let solve_ms = t0.elapsed().as_millis() as u32;
-    if std::env::var("FMM_DEBUG").is_ok() {
-        eprintln!(
+    // See the note in `unified.rs`: the engine emits, the host routes.
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        tracing::debug!(
             "FMM_DEBUG GL: cells_accepted={} goal_reached={} refused_labels={:?}",
             result.cells_accepted,
             result.goal_state.is_some(),
@@ -976,8 +995,8 @@ mod tests {
     /// rather than allocating a huge grid.
     #[test]
     fn degenerate_corridor_errors() {
-        let from = PointXY { x: 100.0, y: 200.0 };
-        let to = PointXY { x: 100.5, y: 200.5 };
+        let from = Point { x: 100.0, y: 200.0 };
+        let to = Point { x: 100.5, y: 200.5 };
         assert!(matches!(
             compute_corridor_shape(from, to, 10.0),
             Err(FmmAdapterError::DegenerateCorridor(_))
@@ -990,8 +1009,8 @@ mod tests {
     /// ~160-170, ny is ~220+ at 10 m cells.
     #[test]
     fn one_km_corridor_sized_sanely() {
-        let from = PointXY { x: 0.0, y: 0.0 };
-        let to = PointXY { x: 1000.0, y: 0.0 };
+        let from = Point { x: 0.0, y: 0.0 };
+        let to = Point { x: 1000.0, y: 0.0 };
         let shape = compute_corridor_shape(from, to, 10.0).expect("should compute");
         // x extent: 1000 + 2·pad where pad = max(40, 300) = 300; → 1600 m
         assert!(
@@ -1014,9 +1033,9 @@ mod tests {
     /// rotated-rectangle approach inflates both axes equally.
     #[test]
     fn rotated_corridor_inflates_aabb() {
-        let from = PointXY { x: 0.0, y: 0.0 };
+        let from = Point { x: 0.0, y: 0.0 };
         let d = 1000.0_f64;
-        let to = PointXY {
+        let to = Point {
             x: d / 2.0_f64.sqrt(),
             y: d / 2.0_f64.sqrt(),
         };

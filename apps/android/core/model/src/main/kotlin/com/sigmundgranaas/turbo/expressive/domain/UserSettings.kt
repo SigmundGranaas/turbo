@@ -3,6 +3,34 @@ package com.sigmundgranaas.turbo.expressive.domain
 /** How the app picks light vs dark colours. */
 enum class ThemeMode { System, Light, Dark }
 
+/**
+ * Which router answers a route request.
+ *
+ * [Auto] is the shipped behaviour and the only one an ordinary user
+ * should ever be on: server first, phone behind it. The two overrides
+ * exist because "does on-device routing work on real hardware" cannot
+ * be answered by a router that decides for itself which engine to use —
+ * under [Auto] the device path only runs when the server is absent or
+ * slow, so a tester on a good connection would never reach it, and a
+ * tester on a bad one could not tell whether they had.
+ *
+ * They are deliberately settings and not build flags: the first
+ * measurement has to happen on the published release APK, on a real
+ * phone, over a real network. A debug build would answer a different
+ * question — one where R8 has not run and the ABI split has not
+ * happened.
+ */
+enum class RouteEngine {
+    /** Server first, device behind it. The shipped default. */
+    Auto,
+
+    /** Always the phone. Fails rather than falling back, so a failure is visible. */
+    Device,
+
+    /** Always the server, even with a pack downloaded. The control case. */
+    Server,
+}
+
 /** Persisted user preferences (DataStore-backed). */
 data class UserSettings(
     val compassOrientation: Boolean = true,
@@ -41,6 +69,52 @@ data class UserSettings(
      *  Trails and Clouds map layers only appear in the layers sheet when enabled. */
     val experimentalTrails: Boolean = false,
     val experimentalClouds: Boolean = false,
+    /**
+     * Which router answers. [RouteEngine.Auto] unless someone is
+     * deliberately measuring — see [RouteEngine].
+     */
+    val routeEngine: RouteEngine = RouteEngine.Auto,
+    /**
+     * Where routing packs are downloaded from; `null` uses
+     * [RoutingPack.DEFAULT_SOURCE].
+     *
+     * A setting for the same reason [routeEngine] is one. The pack is
+     * the input to the measurement M1 exists to take, and the host that
+     * cuts packs is the one piece of the stack that can be down for a
+     * month at a time. Baking the host in at build time would mean the
+     * published APK — the only build the measurement is valid on — could
+     * not be pointed anywhere else without cutting a new release.
+     */
+    val packSourceUrl: String? = null,
+    /**
+     * Run both routers on every request and record how far apart their
+     * answers were.
+     *
+     * Off by default and it should stay that way for ordinary users: it
+     * doubles the work of every route. It exists because "do the two
+     * engines agree" is one of the four numbers release 2 rests on, and
+     * under [RouteEngine.Auto] the two paths never both run — so without
+     * this the question cannot be asked on real hardware at all.
+     *
+     * The shadow solve happens after the real answer is on screen, so
+     * turning it on costs battery, not latency.
+     */
+    val routeShadowCompare: Boolean = false,
+
+    /**
+     * Cut a routing pack on the phone when the server has none.
+     *
+     * Off by default, and that default is the honest one. A device
+     * build is minutes of work and tens of megabytes fetched straight
+     * from Kartverket's public services — not something to start
+     * because a map download happened to find a server without a pack
+     * endpoint. Turning it on is a deliberate choice to spend that.
+     *
+     * What it buys is a region nobody has prepared: with it off, a
+     * server that serves no packs means no offline routing there,
+     * ever.
+     */
+    val buildPacksOnDevice: Boolean = false,
 )
 
 /**

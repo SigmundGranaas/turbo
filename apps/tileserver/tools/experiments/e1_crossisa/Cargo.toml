@@ -1,0 +1,20 @@
+[package]
+name = "e1_crossisa"
+version = "0.0.0"
+edition = "2021"
+
+[[bin]]
+name = "e1"
+path = "src/main.rs"
+
+[dependencies]
+turbo-tiles-pathfind = { path = "../../../crates/turbo-tiles-pathfind" }
+turbo-tiles-elev = { path = "../../../crates/turbo-tiles-elev" }
+turbo-tiles-graph = { path = "../../../crates/turbo-tiles-graph" }
+turbo-tiles-mask = { path = "../../../crates/turbo-tiles-mask" }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+
+[workspace]

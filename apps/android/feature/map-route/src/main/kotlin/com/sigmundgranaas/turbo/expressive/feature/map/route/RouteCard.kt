@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
@@ -52,6 +53,8 @@ fun RouteCard(
     waypointCount: Int = 2,
     onRemoveStop: (Int) -> Unit = {},
     onDownloadOffline: (() -> Unit)? = null,
+    /** Offered next to a coverage failure — see [RouteUiState.Error.offerDownload]. */
+    onDownloadArea: (() -> Unit)? = null,
     conditions: @Composable () -> Unit = {},
 ) {
     if (state is RouteUiState.Idle) return
@@ -75,6 +78,17 @@ fun RouteCard(
                 }
                 is RouteUiState.Error -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(state.message, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
+                    // A dead end becomes an offer. Only when a download
+                    // would actually help — the ViewModel decides that, so
+                    // this button cannot appear next to "no route through
+                    // this terrain".
+                    if (state.offerDownload && onDownloadArea != null) {
+                        FilledTonalButton(
+                            onClick = onDownloadArea,
+                            modifier = Modifier.testTag("downloadAreaOffer"),
+                        ) { Text(stringResource(R.string.route_download_area)) }
+                        Spacer(Modifier.width(8.dp))
+                    }
                     TextButton(onClick = onClear) { Text(stringResource(R.string.route_dismiss)) }
                 }
                 is RouteUiState.Done -> {

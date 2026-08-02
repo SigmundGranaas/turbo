@@ -12,10 +12,14 @@
     <string name="offline_download_cancel">Cancel</string>
     <string name="offline_download_confirm">Download</string>
     <string name="offline_download_estimate">About %1$s · %2$d tiles will be saved for offline use.</string>
+    <string name="offline_download_includes_routing">Includes trail routing, so you can plan routes here without signal.</string>
+    <string name="offline_download_may_build">If no routing data is ready for this area, your phone builds it first — several minutes, and it needs a connection throughout.</string>
+    <string name="offline_download_no_routing">Too large for offline routing \u2014 the map still downloads. Zoom in to include trail routing.</string>
     <string name="offline_download_title">Download this area?</string>
     <string name="offline_download_too_large">This area is too large (about %1$s). Zoom in and try again.</string>
     <string name="offline_downloaded">Downloaded · %1$s</string>
     <string name="offline_downloading">Downloading… %1$d%%</string>
+    <string name="offline_building">Building routing data on this phone… %1$d%%</string>
     <string name="offline_empty_body">Open the layers sheet on the map and tap “Download this area” to save it for offline use.</string>
     <string name="offline_empty_title">No offline maps yet</string>
     <string name="offline_failed">Download failed</string>

@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/turbo-route-model",
+    "crates/turbo-geo-frame",
+    "crates/turbo-profile-no",
+    "crates/turbo-route-ffi",
+    "crates/turbo-geodata-artifacts",
+    "crates/turbo-geodata-pack",
     "crates/turbo-tiles-core",
     "crates/turbo-tiles-db",
     "crates/turbo-tiles-mvt",
@@ -15,6 +21,7 @@ members = [
     "crates/turbo-tiles-graph",
     "crates/turbo-tiles-search",
     "crates/turbo-tiles-build",
+    "crates/turbo-pack-build",
     "crates/turbo-tiles-ingest",
     "crates/turbo-tiles-auth",
     "crates/turbo-tiles-api",
@@ -29,6 +36,19 @@ license = "AGPL-3.0-only"
 publish = false
 
 [workspace.dependencies]
+# L1 model + L3 adapters (routing-engine modularisation, Phase C).
+turbo-route-model = { path = "crates/turbo-route-model" }
+turbo-geo-frame = { path = "crates/turbo-geo-frame" }
+turbo-profile-no = { path = "crates/turbo-profile-no" }
+turbo-route-ffi = { path = "crates/turbo-route-ffi" }
+turbo-geodata-artifacts = { path = "crates/turbo-geodata-artifacts" }
+turbo-geodata-pack = { path = "crates/turbo-geodata-pack" }
+# `default-features = false` HERE, not at the use site: a member that
+# writes `default-features = false` against an inherited workspace
+# dependency is silently ignored unless the workspace says so too, so
+# the Android build would keep linking reqwest while looking like it
+# had opted out. Consumers that want the HTTP client ask for `net`.
+turbo-pack-build = { path = "crates/turbo-pack-build", default-features = false }
 turbo-tiles-core = { path = "crates/turbo-tiles-core" }
 turbo-tiles-db = { path = "crates/turbo-tiles-db" }
 turbo-tiles-mvt = { path = "crates/turbo-tiles-mvt" }
@@ -81,7 +101,7 @@ geo = "0.28"
 geozero = { version = "0.13", features = ["with-postgis-sqlx", "with-wkb"] }
 gpx = "0.10"
 quick-xml = { version = "0.36", features = ["serialize"] }
-sha2 = "0.10"
+sha2 = { version = "0.10" }
 hex = "0.4"
 bytes = "1"
 http = "1"

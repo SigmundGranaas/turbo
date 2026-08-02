@@ -11,6 +11,7 @@ import com.sigmundgranaas.turbo.expressive.core.tracking.LiveStats
 import com.sigmundgranaas.turbo.expressive.core.tracking.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.tracking.LocationSample
 import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
+import com.sigmundgranaas.turbo.expressive.core.data.OfflineRoutingCoverage
 import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
 import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
@@ -117,7 +118,7 @@ class RouteViewModelTest {
 
     @Test
     fun `planRoute seeds a straight line before solving`() = runTest(mainRule.dispatcher) {
-        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b)
         // Synchronous seed, before the stream is collected.
         val s = vm.state.value as RouteUiState.Solving
@@ -136,6 +137,7 @@ class RouteViewModelTest {
             FakePathRepository(),
             FakeOfflineTileManager(),
             follow(backgroundScope),
+            OfflineRoutingCoverage.NONE,
         )
         vm.planRoute(a, b)
         advanceUntilIdle()
@@ -147,7 +149,7 @@ class RouteViewModelTest {
 
     @Test
     fun `failure event becomes Error`() = runTest(mainRule.dispatcher) {
-        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Failure("no route"))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Failure("no route"))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b)
         advanceUntilIdle()
         assertEquals("no route", (vm.state.value as RouteUiState.Error).message)
@@ -156,7 +158,7 @@ class RouteViewModelTest {
     @Test
     fun `saveAsTrack persists the route as a Route GeoPath`() = runTest(mainRule.dispatcher) {
         val paths = FakePathRepository()
-        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), paths, FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), paths, FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b)
         advanceUntilIdle()
         vm.saveAsTrack("Trip")
@@ -171,7 +173,7 @@ class RouteViewModelTest {
 
     @Test
     fun `clear resets to Idle`() = runTest(mainRule.dispatcher) {
-        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b)
         advanceUntilIdle()
         vm.clear()
@@ -181,7 +183,7 @@ class RouteViewModelTest {
     @Test
     fun `selectPreset re-plans the same trip with the new style`() = runTest(mainRule.dispatcher) {
         val repo = FakeRouteRepository(listOf(RouteStreamEvent.Result(plan)))
-        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b)
         advanceUntilIdle()
         assertEquals(1, repo.calls)
@@ -197,7 +199,7 @@ class RouteViewModelTest {
 
     @Test
     fun `follow moves a solved route into Following with the same geometry`() = runTest(mainRule.dispatcher) {
-        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b)
         advanceUntilIdle()
         vm.follow()
@@ -210,7 +212,7 @@ class RouteViewModelTest {
     @Test
     fun `reroute re-solves from the new origin and stays in Following`() = runTest(mainRule.dispatcher) {
         val repo = FakeRouteRepository(listOf(RouteStreamEvent.Result(plan)))
-        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b)
         advanceUntilIdle()
         vm.follow()
@@ -235,7 +237,7 @@ class RouteViewModelTest {
                     return if (calls == 1) flowOf(RouteStreamEvent.Result(plan)) else gate
                 }
             }
-            val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+            val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
             vm.planRoute(a, b); advanceUntilIdle(); vm.follow()
             assertTrue(vm.state.value is RouteUiState.Following)
 
@@ -268,7 +270,7 @@ class RouteViewModelTest {
                 return if (calls == 1) flowOf(RouteStreamEvent.Result(plan)) else gate
             }
         }
-        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b); advanceUntilIdle(); vm.follow()
 
         vm.reroute(LatLng(69.5, 18.5)); runCurrent()
@@ -284,7 +286,7 @@ class RouteViewModelTest {
     @Test
     fun `reroute is ignored when not following`() = runTest(mainRule.dispatcher) {
         val repo = FakeRouteRepository(listOf(RouteStreamEvent.Result(plan)))
-        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b)
         advanceUntilIdle() // Done, not Following
         vm.reroute(LatLng(69.5, 18.5))
@@ -295,7 +297,7 @@ class RouteViewModelTest {
     @Test
     fun `addStop inserts a least-detour waypoint and re-solves`() = runTest(mainRule.dispatcher) {
         val repo = FakeRouteRepository(listOf(RouteStreamEvent.Result(plan)))
-        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b)
         advanceUntilIdle()
         assertEquals(2, vm.waypoints.value.size)
@@ -310,7 +312,7 @@ class RouteViewModelTest {
 
     @Test
     fun `moveWaypointTo repositions a stop and re-solves`() = runTest(mainRule.dispatcher) {
-        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b); advanceUntilIdle()
         val moved = LatLng(69.02, 18.02)
         vm.moveWaypointTo(0, moved); advanceUntilIdle()
@@ -320,7 +322,7 @@ class RouteViewModelTest {
 
     @Test
     fun `moving several waypoints in sequence holds each, none snaps back (US-7)`() = runTest(mainRule.dispatcher) {
-        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b); advanceUntilIdle()
         vm.appendWaypoint(LatLng(69.02, 18.02)); advanceUntilIdle() // 3 waypoints now
         // Tap-to-place / drag each waypoint, in sequence — every one must land and hold across
@@ -332,7 +334,7 @@ class RouteViewModelTest {
 
     @Test
     fun `re-solving keeps the previously solved line until the new result lands`() = runTest(mainRule.dispatcher) {
-        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b); advanceUntilIdle()
         assertEquals(plan.geometry, vm.state.value.polyline)
 
@@ -346,7 +348,7 @@ class RouteViewModelTest {
 
     @Test
     fun `removeWaypoint drops a stop and undo restores it`() = runTest(mainRule.dispatcher) {
-        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b); advanceUntilIdle()
         val stop = LatLng(69.005, 18.005)
         vm.addStop(stop); advanceUntilIdle()
@@ -362,7 +364,7 @@ class RouteViewModelTest {
     @Test
     fun `addStop is a no-op before a route exists`() = runTest(mainRule.dispatcher) {
         val repo = FakeRouteRepository(listOf(RouteStreamEvent.Result(plan)))
-        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.addStop(LatLng(69.005, 18.005))
         advanceUntilIdle()
         assertEquals(0, repo.calls)
@@ -372,7 +374,7 @@ class RouteViewModelTest {
     @Test
     fun `downloadAlongRoute queues a corridor download for a solved route`() = runTest(mainRule.dispatcher) {
         val offline = FakeOfflineTileManager()
-        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), offline, follow(backgroundScope))
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), offline, follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b); advanceUntilIdle()
 
         vm.downloadAlongRoute(BaseLayer.Norgeskart)
@@ -384,7 +386,7 @@ class RouteViewModelTest {
     @Test
     fun `downloadAlongRoute is a no-op without a solved route`() = runTest(mainRule.dispatcher) {
         val offline = FakeOfflineTileManager()
-        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), offline, follow(backgroundScope))
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), offline, follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.downloadAlongRoute(BaseLayer.Norgeskart)
         assertEquals(0, offline.downloads)
     }
@@ -403,7 +405,7 @@ class RouteViewModelTest {
 
     @Test
     fun `appendWaypoint extends the route at the end in tap order`() = runTest(mainRule.dispatcher) {
-        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b); advanceUntilIdle()
         val c = LatLng(69.02, 18.02)
         vm.appendWaypoint(c); advanceUntilIdle()
@@ -413,7 +415,7 @@ class RouteViewModelTest {
 
     @Test
     fun `appendWaypoint is a no-op before a route exists`() = runTest(mainRule.dispatcher) {
-        val vm = RouteViewModel(FakeRouteRepository(emptyList()), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(FakeRouteRepository(emptyList()), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.appendWaypoint(a); advanceUntilIdle()
         assertEquals(emptyList<LatLng>(), vm.waypoints.value)
     }
@@ -423,7 +425,7 @@ class RouteViewModelTest {
     @Test
     fun `moveWaypoint reorders the stops and re-solves once`() = runTest(mainRule.dispatcher) {
         val repo = FakeRouteRepository(listOf(RouteStreamEvent.Result(plan)))
-        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b); advanceUntilIdle()
         val c = LatLng(69.02, 18.02)
         vm.appendWaypoint(c); advanceUntilIdle() // order: a, b, c
@@ -436,7 +438,7 @@ class RouteViewModelTest {
 
     @Test
     fun `a stop keeps its palette colour across a reorder and re-solve`() = runTest(mainRule.dispatcher) {
-        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b); advanceUntilIdle()
         val via1 = LatLng(69.02, 18.02)
         val via2 = LatLng(69.03, 18.05)
@@ -469,7 +471,7 @@ class RouteViewModelTest {
                 return flowOf(RouteStreamEvent.Result(plan.copy(geometry = geo)))
             }
         }
-        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope), OfflineRoutingCoverage.NONE)
         vm.planRoute(a, b); advanceUntilIdle()
         // Out-and-back: ends at the destination, not the origin.
         assertEquals(b, vm.state.value.polyline.last())
@@ -491,7 +493,7 @@ class RouteViewModelTest {
         // follow path the emulator couldn't reach — exercised headlessly via a fake GPS walk.
         val loc = EmittingLocation()
         val follow = FollowController(loc, FakePathRepository(), backgroundScope)
-        val vm = RouteViewModel(FakeRouteRepository(emptyList()), FakePathRepository(), FakeOfflineTileManager(), follow)
+        val vm = RouteViewModel(FakeRouteRepository(emptyList()), FakePathRepository(), FakeOfflineTileManager(), follow, OfflineRoutingCoverage.NONE)
         val track = listOf(LatLng(69.00, 18.0), LatLng(69.05, 18.0)) // ~5.5 km straight north
 
         vm.followTrack(track, distanceM = 5_500.0, ascentM = 120.0, durationS = 4_200.0, name = "Skåla Loop")

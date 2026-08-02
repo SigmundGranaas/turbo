@@ -1,0 +1,65 @@
+[package]
+name = "turbo-route-ffi"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# L6 — the foreign-language façade. Kotlin and Swift hosts talk to this.
+#
+# This crate deliberately COMBINES the engine (L4) and composition (L5),
+# and that is the one place in the stack where combining layers is
+# correct. A phone host wants "open this pack, plan this route" — not
+# "construct a Terrain, wire a CostModel, pick a SolverSet, then plan".
+# Exposing the internal seams across FFI would make every future
+# refactor a breaking change for two mobile apps, which is Fowler's
+# First Law of Distributed Object Design applied literally.
+#
+# The seams stay clean *inside* Rust; the façade is coarse on purpose.
+
+[lib]
+name = "turbo_route_ffi"
+# cdylib for the foreign bindings and library-mode bindgen; plain lib so
+# Rust tests can exercise the exact same exported surface.
+crate-type = ["lib", "cdylib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[dependencies]
+turbo-tiles-pathfind.workspace = true
+turbo-tiles-graph.workspace = true
+turbo-geodata-artifacts.workspace = true
+turbo-geo-frame.workspace = true
+turbo-profile-no.workspace = true
+turbo-tiles-elev.workspace = true
+turbo-tiles-mask.workspace = true
+# The pack manifest's shape + version constant, shared with the tool that
+# writes it so the two cannot drift.
+turbo-tiles-artifacts.workspace = true
+# No `net` feature, so no reqwest, rustls or tokio. The host fetches
+# instead — see `build::PackHttp`.
+turbo-pack-build.workspace = true
+toml = "0.8"
+uniffi = { version = "0.29", features = ["cli"] }
+thiserror.workspace = true
+
+[features]
+# Route Rust logs to logcat. On by default — a real Android build wants
+# it — but optional because `liblog` ships only as a shared library, so
+# anything statically linked (the cross-ISA parity harness, which runs
+# under qemu-user with no Android loader to resolve it) cannot have it.
+default = ["logcat"]
+logcat = ["dep:android_logger", "dep:log"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = { version = "0.14", optional = true }
+# `log::LevelFilter`, for `init_logging`. Its absence went unnoticed for
+# as long as nobody had an Android target installed: the code is behind
+# `cfg(target_os = "android")`, so `cargo check` on a workstation never
+# looked at it. The first cross-compile found it immediately.
+log = { version = "0.4", optional = true }
+
+[dev-dependencies]
+tempfile = "3"

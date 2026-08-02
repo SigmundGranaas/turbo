@@ -6,6 +6,7 @@ use tracing_subscriber::EnvFilter;
 
 mod eval_terrain;
 mod routing_setup;
+mod slice_pack;
 
 // Heap profiler (opt-in via `--features dhat-heap`). The global
 // allocator shim records every allocation; the `Profiler` guard created
@@ -145,6 +146,83 @@ enum Command {
         #[arg(long)]
         override_json: Option<String>,
     },
+    /// Cut a small, self-contained routing pack out of a large artifact
+    /// set, so the routing gate can run in CI instead of only where
+    /// someone has provisioned 209 MB of data by hand.
+    ///
+    /// The result keeps its OWN baseline. DEM parity is now exact (D8
+    /// fixed), but slicing still drops trail edges at the boundary, so
+    /// parity is a property of a generous halo rather than a guarantee
+    /// of the format. See `slice_pack`.
+    SlicePack {
+        /// Source artifacts directory (norway.*).
+        #[arg(long, env = "TILESERVER_ARTIFACT_DIR")]
+        src: std::path::PathBuf,
+        /// Destination directory for the sliced pack.
+        #[arg(long)]
+        dst: std::path::PathBuf,
+        /// Corpus whose hikes the pack must cover. Mutually exclusive
+        /// with `--bbox`; exactly one is required.
+        #[arg(long, conflicts_with = "bbox")]
+        corpus: Option<std::path::PathBuf>,
+        /// WGS84 rectangle the pack must cover, as
+        /// `min_lon,min_lat,max_lon,max_lat`. What an app asks for: it
+        /// has a viewport, not a corpus, and the point of downloading a
+        /// region is to route somewhere nobody has walked yet.
+        #[arg(long)]
+        bbox: Option<String>,
+        /// Terrain kept beyond the corpus bbox. E10 measured 500 m as
+        /// sufficient; 1000 m is the default because the cost of the
+        /// extra ring is small and the cost of finding out it was too
+        /// tight is a mysteriously-moving baseline.
+        #[arg(long, default_value_t = 1000.0)]
+        halo_m: f64,
+    },
+
+    /// Build a region's DEM straight from Kartverket's WCS, with no
+    /// database and no national artifacts.
+    ///
+    /// `slice-pack` cuts a region out of the 209 MB national artifacts,
+    /// which means someone has to have built those first — and building
+    /// them needs PostGIS, GDAL and a multi-gigabyte ingest. This does
+    /// not: it fetches the coverage for one bbox and writes the same
+    /// `norway.dem` the server pipeline writes.
+    ///
+    /// Both paths go through `turbo-tiles-elev`, so the outputs are
+    /// comparable by construction. That is the point of it — a device
+    /// build is only trustworthy if it can be diffed against a server
+    /// build of the same ground.
+    BuildRegion {
+        /// Destination directory for the artifacts.
+        #[arg(long)]
+        dst: std::path::PathBuf,
+        /// WGS84 rectangle, `min_lon,min_lat,max_lon,max_lat`.
+        #[arg(long)]
+        bbox: String,
+        /// Terrain kept beyond the bbox, matching `slice-pack`'s default
+        /// so the two cut the same ground.
+        #[arg(long, default_value_t = 1000.0)]
+        halo_m: f64,
+        /// Concurrent WCS requests. Small on purpose: this is a public
+        /// service shared by the whole country.
+        #[arg(long, default_value_t = 4)]
+        concurrency: usize,
+        /// Override the WCS endpoint (testing, or a mirror).
+        #[arg(long, default_value = turbo_pack_build::wcs::DEFAULT_ENDPOINT)]
+        wcs_endpoint: String,
+        /// Kommune numbers whose N50 data the region needs, comma
+        /// separated. Required for the mask and the road network:
+        /// `auto` resolves them from the bbox via Kartverket's
+        /// Kommuneinfo API — the same path the phone takes.
+        ///
+        /// N50 has no WFS, so the smallest unit on offer is a kommune.
+        /// Omit to build the DEM alone.
+        #[arg(long)]
+        kommune: Option<String>,
+        /// Override the trail WFS endpoint.
+        #[arg(long, default_value = turbo_pack_build::wfs::DEFAULT_ENDPOINT)]
+        wfs_endpoint: String,
+    },
 }
 
 /// One entry in the shared ingestion catalog (`infra/k8s/base/ingest/catalog.toml`),
@@ -240,7 +318,206 @@ async fn main() -> Result<()> {
             mode,
             override_json,
         ),
+        Command::SlicePack {
+            src,
+            dst,
+            corpus,
+            bbox,
+            halo_m,
+        } => {
+            let region = match (corpus, bbox) {
+                (Some(c), None) => slice_pack::Region::Corpus(c),
+                (None, Some(b)) => {
+                    let v: Result<Vec<f64>, _> =
+                        b.split(',').map(|p| p.trim().parse::<f64>()).collect();
+                    let v = v.map_err(|e| anyhow::anyhow!("--bbox: {e}"))?;
+                    let v: [f64; 4] = v.try_into().map_err(|v: Vec<f64>| {
+                        anyhow::anyhow!(
+                            "--bbox needs 4 comma-separated numbers \
+                             (min_lon,min_lat,max_lon,max_lat), got {}",
+                            v.len()
+                        )
+                    })?;
+                    slice_pack::Region::Bbox(v)
+                }
+                _ => anyhow::bail!("pass exactly one of --corpus or --bbox"),
+            };
+            slice_pack::run(&src, &dst, &region, halo_m)
+                .map_err(|e| anyhow::anyhow!("slice-pack failed: {e}"))
+        }
+        Command::BuildRegion {
+            dst,
+            bbox,
+            halo_m,
+            concurrency,
+            wcs_endpoint,
+            kommune,
+            wfs_endpoint,
+        } => {
+            build_region(
+                &dst,
+                &bbox,
+                halo_m,
+                concurrency,
+                &wcs_endpoint,
+                &wfs_endpoint,
+                kommune.as_deref(),
+            )
+            .await
+        }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn build_region(
+    dst: &std::path::Path,
+    bbox: &str,
+    halo_m: f64,
+    concurrency: usize,
+    wcs_endpoint: &str,
+    wfs_endpoint: &str,
+    kommune: Option<&str>,
+) -> anyhow::Result<()> {
+    let v: Result<Vec<f64>, _> = bbox.split(',').map(|p| p.trim().parse::<f64>()).collect();
+    let v = v.map_err(|e| anyhow::anyhow!("--bbox: {e}"))?;
+    let v: [f64; 4] = v.try_into().map_err(|v: Vec<f64>| {
+        anyhow::anyhow!(
+            "--bbox needs 4 comma-separated numbers \
+             (min_lon,min_lat,max_lon,max_lat), got {}",
+            v.len()
+        )
+    })?;
+
+    let region = turbo_pack_build::region_box(v[0], v[1], v[2], v[3], halo_m);
+    let plan = turbo_pack_build::wcs::plan(region);
+    println!(
+        "region {:.0} x {:.0} km in EPSG:25833, {} WCS requests",
+        region.width() / 1000.0,
+        region.height() / 1000.0,
+        plan.len()
+    );
+
+    let http = turbo_pack_build::default_client()?;
+
+    // No kommune means no N50, and N50 is where water, glaciers and
+    // roads come from. Build the DEM alone rather than a pack that is
+    // quietly missing three of its four artifacts.
+    //
+    // `--kommune auto` resolves them from the region instead, which is
+    // what the phone does — no user can be expected to know which four
+    // of Norway's 357 kommuner are under the box they just drew.
+    let kommune = match kommune {
+        Some("auto") => {
+            print!("resolving kommuner... ");
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            let found = turbo_pack_build::kommune::resolve(
+                &http,
+                v,
+                turbo_pack_build::kommune::DEFAULT_ENDPOINT,
+            )
+            .map_err(|e| anyhow::anyhow!("--kommune auto: {e}"))?;
+            println!(
+                "{}",
+                found
+                    .iter()
+                    .map(|k| k.0.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+            Some(
+                found
+                    .iter()
+                    .map(|k| k.0.clone())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            )
+        }
+        _ => kommune.map(str::to_string),
+    };
+
+    let Some(kommune) = kommune else {
+        let report = turbo_pack_build::build_dem(
+            &http,
+            wcs_endpoint,
+            region,
+            dst,
+            concurrency,
+            |done, total| {
+                if done % 5 == 0 || done == total {
+                    println!("  dem {done}/{total}");
+                }
+            },
+        )
+        .map_err(|e| anyhow::anyhow!("build-region failed: {e}"))?;
+        println!(
+            "wrote {} — {} tiles ({} empty), {:.1} MB in {:.1}s. \
+             No --kommune, so no mask, graph or manifest.",
+            report.dem_path.display(),
+            report.dem_tiles,
+            report.dem_tiles_all_nodata,
+            report.dem_bytes as f64 / 1e6,
+            report.seconds
+        );
+        return Ok(());
+    };
+
+    let kommuner: Result<Vec<_>, _> = kommune
+        .split(',')
+        .map(turbo_pack_build::n50::Kommune::parse)
+        .collect();
+    let kommuner = kommuner.map_err(|e| anyhow::anyhow!("--kommune: {e}"))?;
+
+    let report = turbo_pack_build::region::build_pack(
+        &http,
+        dst,
+        v,
+        halo_m,
+        &kommuner,
+        wcs_endpoint,
+        wfs_endpoint,
+        concurrency,
+        |phase, done, total| {
+            let label = match phase {
+                turbo_pack_build::region::Phase::Dem => "dem",
+                turbo_pack_build::region::Phase::Vector => "vector",
+                turbo_pack_build::region::Phase::Mask => "mask",
+                turbo_pack_build::region::Phase::Graph => "graph",
+                turbo_pack_build::region::Phase::Manifest => "manifest",
+            };
+            if done == total || done % 5 == 0 {
+                println!("  {label} {done}/{total}");
+            }
+        },
+    )
+    .map_err(|e| anyhow::anyhow!("build-region failed: {e}"))?;
+
+    println!(
+        "wrote {} in {:.1}s — {:.1} MB total",
+        dst.display(),
+        report.seconds,
+        report.total_bytes as f64 / 1e6
+    );
+    println!(
+        "  dem     {} tiles, {:.1} MB",
+        report.dem_tiles,
+        report.dem_bytes as f64 / 1e6
+    );
+    println!(
+        "  mask    {} water + {} glacier polygons, {}/{} cells refused",
+        report.water_polygons, report.glacier_polygons, report.refused_cells, report.total_cells
+    );
+    println!(
+        "  graph   {} nodes, {} directed edges from {} trails + {} roads",
+        report.nodes, report.edges_directed, report.trails, report.roads
+    );
+    if report.edges_without_terrain > 0 {
+        println!(
+            "  note    {} edges had no terrain under them — cost fell back to distance",
+            report.edges_without_terrain
+        );
+    }
+    Ok(())
 }
 
 fn init_tracing() {
@@ -315,6 +592,46 @@ async fn serve(
     // autonomous evaluation loop routes through the IDENTICAL layer
     // stack the server serves.
     let mut api_state = ApiState::new(db.clone(), auth, public_base_url.clone());
+
+    // Region packs for on-device routing. Built by slicing the same
+    // artifacts this process already serves from, so the endpoint needs
+    // only a place to cache the results.
+    //
+    // `TILESERVER_PACK_CACHE_DIR` should be its OWN volume, not a
+    // subdirectory of the artifacts. The artifacts are what the router
+    // mmaps to answer every route; a pack cache that filled the disk
+    // they sit on would take routing down to serve downloads.
+    if let Some(src) = artifacts_dir.as_deref() {
+        let cache = std::env::var("TILESERVER_PACK_CACHE_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| src.join("packs"));
+        let builders = std::env::var("TILESERVER_PACK_BUILD_CONCURRENCY")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(2);
+        match std::fs::create_dir_all(&cache) {
+            Ok(()) => {
+                tracing::info!(
+                    src = %src.display(),
+                    cache = %cache.display(),
+                    builders,
+                    "region packs enabled"
+                );
+                api_state.packs = Some(std::sync::Arc::new(
+                    turbo_tiles_api::packs::PackService::new(src.to_path_buf(), cache, builders),
+                ));
+            }
+            // Degraded, not fatal: every other artifact-backed surface
+            // here reports itself unavailable rather than refusing to
+            // boot, and routing does not depend on this one.
+            Err(e) => tracing::warn!(
+                cache = %cache.display(),
+                error = %e,
+                "pack cache unusable; /v1/packs will report unavailable"
+            ),
+        }
+    }
     let art = routing_setup::load_routing_artifacts(artifacts_dir.as_deref());
     api_state.dem = art.dem.clone();
     api_state.mask = art.mask.clone();

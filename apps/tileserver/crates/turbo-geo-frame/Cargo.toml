@@ -1,0 +1,20 @@
+[package]
+name = "turbo-geo-frame"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# L5 — geographic ⇄ planar conversion.
+#
+# Deliberately NOT an engine port. The routing engine works in one
+# planar metric frame and never learns which one, so a `Projection`
+# trait inside it would be a port with exactly one implementation and a
+# permanent invitation to reintroduce CRS awareness. This crate sits at
+# the composition layer, where requests arrive in WGS84 and answers
+# leave in WGS84, and nothing below it knows a CRS exists.
+#
+# See docs/architecture/2026-07-routing-engine-module-design.md §7.3.
+
+[dependencies]
+turbo-route-model.workspace = true

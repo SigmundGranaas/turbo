@@ -13,6 +13,18 @@ enum class OfflineStatus {
     /** Tiles are actively downloading (or queued). */
     Downloading,
 
+    /**
+     * Cutting the routing pack on this device.
+     *
+     * Distinct from [Downloading] because it behaves nothing like it:
+     * minutes rather than seconds, against Kartverket rather than the
+     * tile server, and with a progress bar that moves in jumps as whole
+     * phases finish. Folding it into [Downloading] would show a user a
+     * download that appears to stall for several minutes — the state
+     * most likely to be read as a hang and force-quit.
+     */
+    Building,
+
     /** All required tiles are present. */
     Complete,
 
@@ -62,6 +74,17 @@ data class DownloadSpec(
     val minZoom: Double,
     val maxZoom: Double,
     val overlays: Set<OverlayId> = emptySet(),
+    /**
+     * Also download the routing pack for this region, so routes can be
+     * planned here without signal.
+     *
+     * Default on. The pack is a fraction of the tiles it rides with —
+     * measured at 2.6 MB against roughly 6 MB of raster for the same
+     * 13 x 13 km — and a checkbox would ask the user to trade that for a
+     * capability they cannot evaluate in the abstract. One region, one
+     * download, one size.
+     */
+    val includeRouting: Boolean = true,
 )
 
 /**
@@ -76,7 +99,21 @@ enum class DetailLevel(val zoomSpan: Double) {
 /** A pre-download estimate of how big a [DownloadSpec] will be. */
 data class OfflineEstimate(
     val tiles: Long,
+    /** Total download size: map tiles plus the routing pack. */
     val bytes: Long,
+    /** The routing pack's share of [bytes]. 0 when routing is excluded. */
+    val packBytes: Long = 0L,
     /** False when the area is too large to download (tile limit / span guard). */
     val withinLimits: Boolean = true,
+    /**
+     * True when routing was asked for and the region is past the pack
+     * cap — downloadable as a map, but with no offline routing.
+     *
+     * Explicit rather than inferred from `packBytes == 0`, because that
+     * is also what a caller who never wanted routing gets, and telling
+     * them their area is too large for a thing they did not ask for is
+     * a worse answer than saying nothing. The two zeroes mean different
+     * things and the dialog shows different text for them.
+     */
+    val routingOmittedForSize: Boolean = false,
 )

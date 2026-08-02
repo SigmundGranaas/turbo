@@ -30,6 +30,11 @@ const CACHEABLE = [
   /^\/v1\/[a-z-]+\/tiles\/\d+\/\d+\/\d+\.mvt$/, // curated resources
   /^\/fonts\/[^/]+\/[0-9-]+\.pbf$/,
   /^\/sprite[^/]*\.(json|png)$/,
+  // Region packs for on-device routing: immutable per key, and the
+  // objects that most need this tier — megabytes each, from a
+  // single-node origin. Safe to add ONLY because the write-through
+  // below streams; buffering one of these would OOM the Worker.
+  /^\/v1\/packs\/z\d+_\d+_\d+_\d+_\d+\/[\w.-]+$/,
 ];
 
 export function isCacheable(method, pathname) {
@@ -71,31 +76,49 @@ export async function handle(request, env, ctx, deps) {
     return withHeader(resp, "x-tiles-cache", "r2");
   }
 
-  // Origin. Only successful, non-empty responses are cached — errors and
-  // blank tiles must not poison either tier.
+  // Origin. Only successful responses are cached — errors and blank
+  // tiles must not poison either tier.
   const upstream = await deps.fetch(origin + url.pathname, {
     method: "GET",
     headers: { "user-agent": "turbo-tiles-worker" },
   });
-  if (!upstream.ok) {
+  if (!upstream.ok || !upstream.body) {
     return upstream;
   }
-  const body = await upstream.arrayBuffer();
-  const resp = new Response(body, {
-    status: 200,
-    headers: pickHeaders(upstream.headers),
-  });
-  if (body.byteLength > 0) {
-    ctx.waitUntil(
-      env.TILES.put(key, body, {
-        httpMetadata: {
-          contentType: upstream.headers.get("content-type") ?? "application/octet-stream",
-          cacheControl: upstream.headers.get("cache-control") ?? undefined,
-        },
-      }),
-    );
-    ctx.waitUntil(deps.cache.put(request, resp.clone()));
-  }
+
+  // Write through by STREAMING, not buffering.
+  //
+  // This used to `await upstream.arrayBuffer()` — the whole response in
+  // memory before the R2 put. Fine while every cacheable object was a
+  // kilobyte-scale tile; a latent OOM the moment one is not. A routing
+  // pack's DEM is tens of megabytes, and a Worker has 128 MB for
+  // everything it is doing at once, so a handful of concurrent pack
+  // downloads would take the tile host down with them.
+  //
+  // `tee()` splits the body into two independent streams: one to the
+  // client, one to R2. Neither is held in memory, and the client is not
+  // waiting on the cache write.
+  const [toClient, toR2] = upstream.body.tee();
+  const headers = pickHeaders(upstream.headers);
+  const resp = new Response(toClient, { status: 200, headers });
+
+  // A streamed R2 put needs a known length; the origin sets
+  // content-length on every pack file and tile. If it ever does not, the
+  // put rejects, `waitUntil` swallows it, and the object is simply not
+  // cached — a miss on the next request, not a truncated object. That is
+  // the right way for this to fail.
+  ctx.waitUntil(
+    env.TILES.put(key, toR2, {
+      httpMetadata: {
+        contentType: upstream.headers.get("content-type") ?? "application/octet-stream",
+        cacheControl: upstream.headers.get("cache-control") ?? undefined,
+      },
+    }).catch(() => {}),
+  );
+  // NOT `cache.put(resp.clone())`: cloning a streaming Response buffers
+  // it to keep both branches readable, which is the allocation this
+  // change exists to remove. The edge tier fills from the R2 hit on the
+  // next request instead — one extra R2 read, once per PoP.
   return withHeader(resp, "x-tiles-cache", "miss");
 }
 

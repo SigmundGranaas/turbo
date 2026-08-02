@@ -31,6 +31,9 @@ use memmap2::Mmap;
 use thiserror::Error;
 use turbo_tiles_artifacts::{check_header, read_header, ArtifactError, ArtifactKind, HEADER_BYTES};
 
+pub mod cost;
+pub use cost::{encode_fkb_type, encode_marking, encode_surface, profile_cost, surface_multiplier};
+
 pub const GRAPH_FORMAT_VERSION: u32 = 1;
 pub const GRAPH_GEOM_FORMAT_VERSION: u32 = 1;
 
@@ -448,6 +451,20 @@ impl Graph {
     /// Polyline (vertex sequence) for a directed edge. Returns the
     /// straight `[from_node, to_node]` 2-point line when no
     /// `graph_geom` artifact is attached.
+    /// Build-time per-profile cost for one edge, in "effective metres".
+    /// `+inf` means the profile forbids the edge.
+    ///
+    /// Exposed for artifact tooling (`tileserver slice-pack`), which has
+    /// to copy this table through verbatim. Routing does not read it
+    /// this way — the pathfinder composes honest per-metre walk-seconds
+    /// along the real polyline and consults the baked value only for
+    /// the forbidden flag.
+    pub fn edge_cost(&self, edge_id: EdgeId, profile_idx: usize) -> f32 {
+        let pc = self.meta.profile_count as usize;
+        let idx = edge_id as usize * pc + profile_idx;
+        self.costs.get(idx).copied().unwrap_or(f32::INFINITY)
+    }
+
     pub fn edge_polyline(&self, edge_id: EdgeId) -> Vec<NodePos> {
         if let Some(g) = self.geom.as_ref() {
             let idx = edge_id as usize;

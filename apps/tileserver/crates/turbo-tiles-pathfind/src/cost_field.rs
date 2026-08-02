@@ -19,10 +19,11 @@
 
 use std::sync::Arc;
 
-use turbo_tiles_elev::{Dem, PointXY};
+use turbo_route_model::Point;
 use turbo_tiles_fmm::GridShape;
 
 use crate::contributor::{CostContributor, EdgeContext, EdgeElevProbe, EdgeKind};
+use turbo_route_model::Heightfield;
 
 /// Lazily-evaluated per-cell cost field over a corridor grid.
 ///
@@ -30,10 +31,12 @@ use crate::contributor::{CostContributor, EdgeContext, EdgeElevProbe, EdgeKind};
 /// refused. Elevation memo: `+∞` = unsampled, `NaN` = nodata.
 pub(crate) struct LazyCostField<'a> {
     shape: GridShape,
-    dem: Arc<Dem>,
+    dem: Arc<dyn Heightfield>,
     base_pace: f32,
     profile: turbo_tiles_graph::Profile,
     contributors: &'a [Arc<dyn CostContributor>],
+    /// Resolved per-request tuning, handed to every contributor.
+    tuning: &'a crate::config::CostConfig,
     state: std::cell::RefCell<Vec<u8>>,
     mul: std::cell::RefCell<Vec<f32>>,
     /// Per-cell cell-centre elevation memo. The mesh solvers query each
@@ -54,10 +57,11 @@ pub(crate) struct LazyCostField<'a> {
 impl<'a> LazyCostField<'a> {
     pub(crate) fn new(
         shape: GridShape,
-        dem: Arc<Dem>,
+        dem: Arc<dyn Heightfield>,
         base_pace: f32,
         profile: turbo_tiles_graph::Profile,
         contributors: &'a [Arc<dyn CostContributor>],
+        tuning: &'a crate::config::CostConfig,
     ) -> Self {
         let n = (shape.nx as usize) * (shape.ny as usize);
         Self {
@@ -66,6 +70,7 @@ impl<'a> LazyCostField<'a> {
             base_pace,
             profile,
             contributors,
+            tuning,
             state: std::cell::RefCell::new(vec![0u8; n]),
             mul: std::cell::RefCell::new(vec![1.0f32; n]),
             elev: std::cell::RefCell::new(Vec::new()),
@@ -89,7 +94,7 @@ impl<'a> LazyCostField<'a> {
         // ONE shared elevation probe for the whole contributor stack:
         // the slope-family contributors all sample the same points
         // along this synthetic cell edge.
-        let probe = EdgeElevProbe::new(&self.dem, cx - 0.5 * cell_m, cy, cx + 0.5 * cell_m, cy);
+        let probe = EdgeElevProbe::new(&*self.dem, cx - 0.5 * cell_m, cy, cx + 0.5 * cell_m, cy);
         let ctx = EdgeContext {
             fx: cx - 0.5 * cell_m,
             fy: cy,
@@ -99,6 +104,7 @@ impl<'a> LazyCostField<'a> {
             profile: self.profile,
             kind: EdgeKind::Mesh,
             elev_probe: Some(&probe),
+            tuning: self.tuning,
         };
         for c in self.contributors {
             if let Some(label) = c.veto(&ctx) {
@@ -165,7 +171,7 @@ impl<'a> LazyCostField<'a> {
             return if cached.is_nan() { None } else { Some(cached) };
         }
         let (cx, cy) = self.shape.cell_centre(i, j);
-        let v = self.dem.sample(PointXY { x: cx, y: cy }).ok().flatten();
+        let v = self.dem.height_at(Point { x: cx, y: cy });
         self.elev.borrow_mut()[idx] = v.unwrap_or(f32::NAN);
         v
     }

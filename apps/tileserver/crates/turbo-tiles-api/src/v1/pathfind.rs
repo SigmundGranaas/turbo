@@ -16,6 +16,7 @@ use turbo_tiles_pathfind::{Inspect, InspectPoint, Path, PathfindError, Prefs};
 use crate::crash_dump::{run_or_dump, CaughtPanic};
 use crate::error::ApiError;
 use crate::state::ApiState;
+use crate::v1::frame;
 
 #[derive(Debug, Deserialize)]
 pub struct PathfindReq {
@@ -110,9 +111,59 @@ impl PathfindReq {
     }
 }
 
+/// Wire shape of a solved route.
+///
+/// The engine's `Path` was serialised straight to the client, which
+/// made an internal type the HTTP contract. C4 turned the engine
+/// planar, and without this DTO the change would have silently swapped
+/// `geometry` from lon/lat degrees to metres — the JSON keeps its shape
+/// and its types, so nothing would have complained until a map drew the
+/// route somewhere off the coast of Africa.
+///
+/// Every field is listed explicitly rather than flattened. That is the
+/// point: the external contract should be readable in one place and
+/// should not change because an engine-internal struct grew a field.
+#[derive(Debug, Serialize)]
+pub struct PathView {
+    pub strategy: turbo_tiles_pathfind::PathStrategy,
+    /// WGS84 `[lon, lat]`, projected here from the engine's planar frame.
+    pub geometry: Vec<[f64; 2]>,
+    pub distances_m: Vec<f64>,
+    pub length_m: f64,
+    pub cost: f64,
+    pub on_trail_pct: f32,
+    pub fkb_breakdown: std::collections::BTreeMap<String, f64>,
+    pub legs: Vec<turbo_tiles_pathfind::PathLeg>,
+    pub waypoint_legs: Vec<turbo_tiles_pathfind::WaypointLeg>,
+    pub refused_by: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debug: Option<turbo_tiles_pathfind::TraceSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recording: Option<turbo_tiles_pathfind::SolverRecording>,
+}
+
+impl From<Path> for PathView {
+    fn from(p: Path) -> Self {
+        Self {
+            strategy: p.strategy,
+            geometry: frame::lonlat_all(&p.geometry),
+            distances_m: p.distances_m,
+            length_m: p.length_m,
+            cost: p.cost,
+            on_trail_pct: p.on_trail_pct,
+            fkb_breakdown: p.fkb_breakdown,
+            legs: p.legs,
+            waypoint_legs: p.waypoint_legs,
+            refused_by: p.refused_by,
+            debug: p.debug,
+            recording: p.recording.map(project_recording),
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct PathfindResp {
-    pub path: Path,
+    pub path: PathView,
     pub took_us: u64,
     /// Layers that contributed to this request — useful for the
     /// admin UI to display "with marking=0.0 disabled" etc.
@@ -141,7 +192,7 @@ pub async fn pathfind(
         "points": points,
         "prefs": serde_json::to_value(PrefsEcho::from(&prefs)).unwrap_or_default(),
     });
-    let points_for_solve = points.clone();
+    let points_for_solve = frame::planar_all(&points);
     // Concurrency-gated + off the async worker: the solve holds MBs of
     // corridor/trail scratch for seconds, so it runs on the blocking
     // pool under a routing permit (excess requests queue, not allocate).
@@ -164,7 +215,7 @@ pub async fn pathfind(
         .as_ref()
         .ok_or(ApiError::PrimitiveUnavailable("pathfind"))?;
     Ok(Json(PathfindResp {
-        path,
+        path: path.into(),
         took_us: start.elapsed().as_micros() as u64,
         layers: pf2.layer_names(),
     }))
@@ -282,7 +333,7 @@ pub async fn cost_breakdown(
         .ok_or(ApiError::PrimitiveUnavailable("pathfind"))?;
     let profile = req.profile.unwrap_or(turbo_tiles_graph::Profile::Foot);
     let start = Instant::now();
-    let cost = pf.cost_breakdown(req.from, req.to, profile);
+    let cost = pf.cost_breakdown(frame::planar(req.from), frame::planar(req.to), profile);
     Ok(Json(CostBreakdownResp {
         cost,
         took_us: start.elapsed().as_micros() as u64,
@@ -389,7 +440,7 @@ pub async fn pathfind_stream(
             event_tx.clone(),
         ));
         let result = turbo_tiles_pathfind::solver_trace::with_installed(recorder, || {
-            pf.solve_route(&points, prefs)
+            pf.solve_route(&frame::planar_all(&points), prefs)
         });
         let terminal = match result {
             Ok(path) => TerminalFrame::Done(Box::new(path)),
@@ -436,13 +487,35 @@ enum TerminalFrame {
     Error(String),
 }
 
-/// Project one SolverEvent's coordinates from UTM33N to WGS84.
-/// The recorder stores everything in UTM at record time to keep
-/// the hot loop cheap; we project once per event on the way out.
+/// Project one `SolverEvent` from the engine's planar frame to WGS84.
+///
+/// The recorder stores planar metres at record time to keep the hot
+/// loop cheap, and the engine has no CRS to convert with (C4), so this
+/// is where it happens — for both the live SSE stream and the recorded
+/// `Path::recording` (see [`project_recording`]).
+/// Project every event in a completed recording.
+///
+/// C4 moved this out of the engine, where `serialise_recording` used to
+/// do it. Missing this is the kind of change that type-checks and then
+/// silently ships planar metres to a client expecting lon/lat, so it is
+/// pinned by `recording_is_projected_to_wgs84` below.
+pub(crate) fn project_recording(
+    mut rec: turbo_tiles_pathfind::SolverRecording,
+) -> turbo_tiles_pathfind::SolverRecording {
+    for phase in &mut rec.phases {
+        phase.events = std::mem::take(&mut phase.events)
+            .into_iter()
+            .map(project_solver_event)
+            .collect();
+    }
+    rec
+}
+
 fn project_solver_event(
     ev: turbo_tiles_pathfind::SolverEvent,
 ) -> turbo_tiles_pathfind::SolverEvent {
-    use turbo_tiles_pathfind::{utm33n_to_wgs84, SolverEvent};
+    use turbo_geo_frame::utm33n_to_wgs84;
+    use turbo_tiles_pathfind::SolverEvent;
     let proj = |x: f32, y: f32| -> [f32; 2] {
         let (lon, lat) = utm33n_to_wgs84(x as f64, y as f64);
         [lon as f32, lat as f32]
@@ -571,9 +644,57 @@ pub struct InspectReq {
     pub prefs: Option<Prefs>,
 }
 
+/// Wire shape of an inspect result.
+///
+/// The engine's `Inspect` used to be serialised straight to the client,
+/// which made an internal type the HTTP contract — so C4 turning the
+/// engine planar would have silently changed the JSON's units. These
+/// DTOs project at the boundary and pin the field names the admin SPA
+/// actually reads (`apps/admin/src/api/v1.ts`).
+#[derive(Debug, Serialize)]
+pub struct InspectView {
+    pub mesh_cell_m: f64,
+    pub cells: Vec<InspectCellView>,
+    pub refused_polygons: Vec<Vec<[f64; 2]>>,
+    pub refused_by: Vec<String>,
+    pub nearest_graph_node_from: Option<[f64; 2]>,
+    pub nearest_graph_node_to: Option<[f64; 2]>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct InspectCellView {
+    pub lon: f64,
+    pub lat: f64,
+    pub cost_mul: f32,
+}
+
+impl From<Inspect> for InspectView {
+    fn from(i: Inspect) -> Self {
+        Self {
+            mesh_cell_m: i.mesh_cell_m,
+            cells: i
+                .cells
+                .into_iter()
+                .map(|c| {
+                    let [lon, lat] = frame::lonlat(c.at);
+                    InspectCellView {
+                        lon,
+                        lat,
+                        cost_mul: c.cost_mul,
+                    }
+                })
+                .collect(),
+            refused_polygons: frame::lonlat_rings(&i.refused_polygons),
+            refused_by: i.refused_by,
+            nearest_graph_node_from: i.nearest_graph_node_from.map(frame::lonlat),
+            nearest_graph_node_to: i.nearest_graph_node_to.map(frame::lonlat),
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct InspectResp {
-    pub inspect: Inspect,
+    pub inspect: InspectView,
     pub took_us: u64,
 }
 
@@ -585,9 +706,38 @@ pub struct CellInspectReq {
     pub profile: Option<turbo_tiles_graph::Profile>,
 }
 
+/// Wire shape of a cell inspection. `x_25833` / `y_25833` are named
+/// here, at the boundary that actually knows the projection — the
+/// engine no longer does (C4). The SPA reads both.
+#[derive(Debug, Serialize)]
+pub struct InspectPointView {
+    pub lon: f64,
+    pub lat: f64,
+    pub x_25833: f64,
+    pub y_25833: f64,
+    pub composed_multiplier: f32,
+    pub refused_by: Option<String>,
+    pub layers: Vec<turbo_tiles_pathfind::InspectLayer>,
+}
+
+impl From<InspectPoint> for InspectPointView {
+    fn from(p: InspectPoint) -> Self {
+        let [lon, lat] = frame::lonlat(p.at);
+        Self {
+            lon,
+            lat,
+            x_25833: p.at.x,
+            y_25833: p.at.y,
+            composed_multiplier: p.composed_multiplier,
+            refused_by: p.refused_by,
+            layers: p.layers,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct CellInspectResp {
-    pub point: InspectPoint,
+    pub point: InspectPointView,
     pub took_us: u64,
 }
 
@@ -607,9 +757,9 @@ pub async fn cell_inspect(
         .ok_or(ApiError::PrimitiveUnavailable("pathfind"))?;
     let profile = req.profile.unwrap_or(turbo_tiles_graph::Profile::Foot);
     let start = Instant::now();
-    let point = pf.inspect_point(req.lon, req.lat, profile);
+    let point = pf.inspect_point(frame::planar([req.lon, req.lat]), profile);
     Ok(Json(CellInspectResp {
-        point,
+        point: point.into(),
         took_us: start.elapsed().as_micros() as u64,
     }))
 }
@@ -624,9 +774,9 @@ pub async fn inspect(
         .ok_or(ApiError::PrimitiveUnavailable("pathfind"))?;
     let prefs = req.prefs.unwrap_or_default();
     let start = Instant::now();
-    let inspect = pf.inspect(req.from, req.to, &prefs);
+    let inspect = pf.inspect(frame::planar(req.from), frame::planar(req.to), &prefs);
     Ok(Json(InspectResp {
-        inspect,
+        inspect: inspect.into(),
         took_us: start.elapsed().as_micros() as u64,
     }))
 }
@@ -713,7 +863,6 @@ pub(crate) fn map_pathfind_err(state: &ApiState, e: PathfindError) -> ApiError {
             }),
         },
         Graph(g) => ApiError::Internal(g.to_string()),
-        Dem(d) => ApiError::Internal(d.to_string()),
         Internal(msg) => ApiError::Internal(msg),
         SegmentFailed {
             leg_index,
@@ -748,7 +897,55 @@ pub(crate) fn map_pathfind_err(state: &ApiState, e: PathfindError) -> ApiError {
 /// hint — the SPA only needs ~100 m accuracy to flyTo. Full inverse
 /// projection lives in `turbo_tiles_pathfind::pathfinder::utm33n_to_wgs84`.
 fn utm_bbox_to_wgs84(min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> [f64; 4] {
-    let (w, s) = turbo_tiles_pathfind::utm33n_to_wgs84(min_x, min_y);
-    let (e, n) = turbo_tiles_pathfind::utm33n_to_wgs84(max_x, max_y);
+    let (w, s) = turbo_geo_frame::utm33n_to_wgs84(min_x, min_y);
+    let (e, n) = turbo_geo_frame::utm33n_to_wgs84(max_x, max_y);
     [w, s, e, n]
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::*;
+    use turbo_tiles_pathfind::{PhaseFrame, SolverEvent, SolverRecording};
+
+    /// C4 guard on the projector itself.
+    ///
+    /// The engine used to project the recording; that moved here when
+    /// the engine became planar-only. Both the type and the field name
+    /// survive the move unchanged, so a projection that silently ships
+    /// planar metres to a client plotting lon/lat would type-check.
+    ///
+    /// Scope, stated honestly: this pins what `project_recording` does,
+    /// not that the handler calls it — verifying the wiring needs a
+    /// full `ApiState` and a live solve. The unit check is the cheap
+    /// half; the expensive half is the corpus gate.
+    #[test]
+    fn recording_is_projected_out_of_the_planar_frame() {
+        // A Sjunkhatten-area planar point, in the corpus region.
+        let (px, py) = (525_000.0f32, 7_450_000.0f32);
+        let rec = SolverRecording {
+            phases: vec![PhaseFrame {
+                name: "test".into(),
+                started_at_us: 0,
+                events: vec![SolverEvent::NodePopped {
+                    x: px,
+                    y: py,
+                    g: 1.0,
+                    h: 2.0,
+                }],
+            }],
+            decimated: false,
+            events_observed: 1,
+            events_retained: 1,
+        };
+
+        let out = project_recording(rec);
+        let SolverEvent::NodePopped { x, y, .. } = out.phases[0].events[0] else {
+            panic!("event kind must survive projection");
+        };
+        assert!(
+            (5.0..30.0).contains(&x) && (55.0..75.0).contains(&y),
+            "recording coordinates must leave as lon/lat degrees, not planar \
+             metres; got ({x}, {y})"
+        );
+    }
 }

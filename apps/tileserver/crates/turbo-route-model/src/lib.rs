@@ -1,0 +1,217 @@
+//! **L1 — the routing engine's model.** The shapes it reasons *about*,
+//! not the sources it reads *from*.
+//!
+//! See `docs/architecture/2026-07-routing-engine-module-design.md` §3.
+//!
+//! The engine's cost model and solvers used to hold `Arc<Dem>` — the
+//! concrete mmap'd Norwegian artifact type. That made "swap the DEM
+//! source or resolution" mean editing `turbo-tiles-elev`, the crate
+//! every contributor imports, and it is what blocked region packs,
+//! in-memory fixtures, and any non-Norwegian terrain.
+//!
+//! # The invariant
+//!
+//! This crate has **zero dependencies**. That is not tidiness, it is the
+//! enforcement mechanism: a port that cannot name a file cannot acquire
+//! one. Everything about acquisition, decoding, projection, config and
+//! source selection lives above, in the composition layer (L5) and the
+//! adapters (L3) — `turbo-geodata-artifacts`, `-pack`, `-memory`.
+//!
+//! # Shapes, not sources
+//!
+//! The names are deliberate. "Source" implies acquisition; "field" names
+//! a queryable shape. A game engine's terrain chunk **is** a heightfield;
+//! it is not a source of one. That distinction is the whole point — it is
+//! what makes porting this engine to a game, a simulator, or a different
+//! country a matter of writing one `impl`, not editing the engine.
+//!
+//! # Why `dyn`, not generics
+//!
+//! The design originally required "generics in the hot loop, `dyn` at the
+//! edges", with monomorphisation as the mitigation for dispatch cost —
+//! called out as the largest technical bet in the rationale. Experiment
+//! E2 measured it against the real DEM: `sample` costs **135 ns** and
+//! `slope_aspect` **225 ns**, both dominated by the tile lookup, while
+//! concrete / `dyn` / monomorphised-generic land within half a nanosecond
+//! of each other and disagree in sign. Derived solve-level penalty was
+//! −0.014% to −0.059% against a 2% budget.
+//!
+//! The rule is dropped. `Arc<dyn Trait>` throughout, no generic
+//! parameters threaded through the engine, one fewer invariant to
+//! enforce forever.
+
+#![forbid(unsafe_code)]
+
+/// A point in the engine's planar frame. **Metres, always.**
+///
+/// There is deliberately no `GeoPoint` and no `Projection` anywhere in
+/// the model: the engine works in one planar frame and never learns
+/// which one. Geographic conversion is a composition-layer concern
+/// (`turbo-geo-frame`, L5). That is what lets the game-engine case need
+/// no projection at all, rather than an identity stub.
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+impl Point {
+    #[inline]
+    pub const fn new(x: f64, y: f64) -> Self {
+        Self { x, y }
+    }
+}
+
+/// Local terrain orientation: slope from horizontal, aspect clockwise
+/// from north.
+///
+/// The engine consumes this; how the field derives it (finite
+/// differences over a tile, an analytic surface, a game's precomputed
+/// normal map) is entirely the implementation's business.
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub struct SlopeAspect {
+    pub slope_deg: f32,
+    pub aspect_deg: f32,
+}
+
+/// A continuous scalar field of terrain height over the plane.
+///
+/// Nothing here mentions files, tiles, formats, compression, or
+/// resolution *sources*. Anything that can answer "how high is it here"
+/// can drive the engine.
+///
+/// # Two queries, not one
+///
+/// [`covers`](Heightfield::covers) and [`height_at`](Heightfield::height_at)
+/// are separate on purpose. The artifact API they replaced returned
+/// `Result<Option<f32>>`, and callers used its two failure modes to mean
+/// different things — `is_ok()` for "inside the extent, even if nodata"
+/// and `ok().flatten()` for "has a value here". Conflating them is what
+/// made the coverage defect (audit finding D1) easy to write: an
+/// advisory landcover mask extending past the DEM granted *routing*
+/// coverage at points with no elevation at all, and the solver then
+/// built a uniform-cost mesh and returned a straight line — which the
+/// code itself calls "semantically a lie".
+///
+/// So the port splits them: `covers` answers **authority**, `height_at`
+/// answers **value**.
+pub trait Heightfield: Send + Sync {
+    /// Height in metres, or `None` for no data at this point — whether
+    /// because the point is outside the field or because the field has a
+    /// hole there. Use [`Self::covers`] to distinguish.
+    fn height_at(&self, p: Point) -> Option<f32>;
+
+    /// Is this point inside the field's authoritative extent?
+    ///
+    /// `true` for a nodata hole *inside* coverage: the field is
+    /// authoritative that it does not know. `false` only outside the
+    /// extent entirely. This is the distinction routing feasibility
+    /// depends on.
+    fn covers(&self, p: Point) -> bool;
+
+    /// Local slope and aspect, or `None` where undefined.
+    fn slope_aspect_at(&self, p: Point) -> Option<SlopeAspect>;
+}
+
+/// Whether a cost contributor is load-bearing for routing feasibility.
+///
+/// The distinction is not decoration — it is the fix for audit finding
+/// D1. Routing coverage is the **intersection of `Required`**
+/// contributors, never the union of everything that happens to be able
+/// to answer a question at a point. A landcover mask that extends past
+/// the elevation data can tell you there is forest there; it cannot tell
+/// you the terrain is routable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Requirement {
+    /// Without this contributor's data the point is not routable.
+    Required,
+    /// Refines cost where present; silent where absent.
+    Advisory,
+}
+
+/// An index into a network's precomputed per-mode cost table.
+///
+/// Deliberately *not* an enum. The engine needs an index; it does not
+/// need to know that index 0 means walking. Naming modes is a profile
+/// concern (`turbo-profile-no`) — baking `Foot | Bicycle | Ski` into the
+/// model would leak the hiking use case into a general engine and fail
+/// the game-engine test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ModeId(pub u8);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The portability conformance check, in miniature: a "game engine"
+    /// driving a `Heightfield` with nothing but an array in memory.
+    ///
+    /// If this ever needs a file, a config string, or a projection, the
+    /// boundary has leaked. It is a compiling test, not a claim.
+    struct ChunkHeights {
+        cells: Vec<f32>,
+        w: u32,
+        h: u32,
+        cell_m: f32,
+    }
+
+    impl Heightfield for ChunkHeights {
+        fn height_at(&self, p: Point) -> Option<f32> {
+            let (i, j) = self.index(p)?;
+            Some(self.cells[j * self.w as usize + i])
+        }
+        fn covers(&self, p: Point) -> bool {
+            self.index(p).is_some()
+        }
+        fn slope_aspect_at(&self, _p: Point) -> Option<SlopeAspect> {
+            Some(SlopeAspect::default())
+        }
+    }
+
+    impl ChunkHeights {
+        fn index(&self, p: Point) -> Option<(usize, usize)> {
+            if p.x < 0.0 || p.y < 0.0 {
+                return None;
+            }
+            let i = (p.x / self.cell_m as f64) as usize;
+            let j = (p.y / self.cell_m as f64) as usize;
+            (i < self.w as usize && j < self.h as usize).then_some((i, j))
+        }
+    }
+
+    #[test]
+    fn an_in_memory_array_is_a_heightfield() {
+        let f: std::sync::Arc<dyn Heightfield> = std::sync::Arc::new(ChunkHeights {
+            cells: (0..64).map(|i| i as f32).collect(),
+            w: 8,
+            h: 8,
+            cell_m: 10.0,
+        });
+        assert_eq!(f.height_at(Point::new(5.0, 5.0)), Some(0.0));
+        assert_eq!(f.height_at(Point::new(15.0, 5.0)), Some(1.0));
+        assert!(f.covers(Point::new(79.0, 79.0)));
+        assert!(!f.covers(Point::new(81.0, 5.0)));
+        assert_eq!(f.height_at(Point::new(81.0, 5.0)), None);
+    }
+
+    /// `covers` is authority, `height_at` is value: a hole *inside* the
+    /// field is covered but valueless. Collapsing these two is D1.
+    #[test]
+    fn coverage_and_value_are_independent() {
+        struct Holed;
+        impl Heightfield for Holed {
+            fn height_at(&self, p: Point) -> Option<f32> {
+                (p.x != 5.0).then_some(1.0)
+            }
+            fn covers(&self, _p: Point) -> bool {
+                true
+            }
+            fn slope_aspect_at(&self, _p: Point) -> Option<SlopeAspect> {
+                None
+            }
+        }
+        let hole = Point::new(5.0, 0.0);
+        assert!(Holed.covers(hole), "the field is authoritative here");
+        assert_eq!(Holed.height_at(hole), None, "...and it has no value here");
+    }
+}

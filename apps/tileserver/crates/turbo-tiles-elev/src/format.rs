@@ -31,7 +31,7 @@
 //!
 //! Coordinate system: EPSG:25833 (UTM33N). All geometry inputs are in
 //! meters under that projection; conversion from WGS84 happens at the
-//! API boundary (see `crate::wgs84_to_utm33n`).
+//! API boundary (projection lives in `turbo-geo-frame`, L5).
 //!
 //! Row-major across tiles, row-major within tiles. Y grows _south_ to
 //! _north_, so `row = (max_y - y) / resolution` flips the axis to

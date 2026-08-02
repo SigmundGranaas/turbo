@@ -41,6 +41,16 @@ fun DownloadAreaDialog(
     estimateFor: (DetailLevel) -> OfflineEstimate,
     onConfirm: (DetailLevel) -> Unit,
     onDismiss: () -> Unit,
+    /**
+     * The user has allowed this phone to cut packs itself.
+     *
+     * Changes what "Download" costs, not what it produces: if no server
+     * has a pack for this area, the phone builds one, and that is
+     * minutes of network rather than the seconds the size estimate
+     * implies. Nothing else in the dialog can show the difference — the
+     * megabytes are the same either way.
+     */
+    buildsOnDevice: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
     var detail by remember { mutableStateOf(DetailLevel.Standard) }
@@ -88,6 +98,51 @@ fun DownloadAreaDialog(
                     style = MaterialTheme.typography.bodyMedium,
                     color = cs.onSurfaceVariant,
                 )
+                // Said once, plainly, and only when it is true. The size
+                // above already includes the pack; this is the sentence
+                // that explains why the number grew and what it buys —
+                // the alternative being a user who notices the megabytes
+                // and not the capability.
+                //
+                // And when it is NOT true, said just as plainly. A
+                // region can be small enough to download and too big for
+                // one routing pack — the two caps bound different things
+                // — and the difference is invisible until the user is
+                // standing in it without signal. An absent line would
+                // read as an oversight; this one is the answer to "why
+                // did routing work in the other area I saved".
+                if (ok && estimate.packBytes > 0L) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        stringResource(R.string.offline_download_includes_routing),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = cs.onSurfaceVariant,
+                        modifier = Modifier.testTag("routingIncluded"),
+                    )
+                    // The one thing the size estimate cannot express. With
+                    // device builds allowed, an area no server has prepared
+                    // is not a slower download — it is a different piece of
+                    // work, minutes long, that starts before the first tile.
+                    // Saying it here is the difference between a user who
+                    // waits and a user who thinks the download has hung.
+                    if (buildsOnDevice) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            stringResource(R.string.offline_download_may_build),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = cs.onSurfaceVariant,
+                            modifier = Modifier.testTag("mayBuildOnDevice"),
+                        )
+                    }
+                } else if (ok && estimate.routingOmittedForSize) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        stringResource(R.string.offline_download_no_routing),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = cs.error,
+                        modifier = Modifier.testTag("routingExcluded"),
+                    )
+                }
             }
         },
         confirmButton = {

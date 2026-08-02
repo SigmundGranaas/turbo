@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.core.map
 import com.sigmundgranaas.turbo.expressive.domain.DownloadSpec
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.OfflineEstimate
+import com.sigmundgranaas.turbo.expressive.domain.RoutingPack
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.asinh
@@ -92,10 +93,31 @@ object TileMath {
             abs(spec.bounds.north - spec.bounds.south),
             abs(spec.bounds.east - spec.bounds.west),
         )
+        // The routing pack rides with the tiles, so it belongs in the
+        // number the user is shown and in the guard that number feeds. An
+        // estimate that omitted it would under-promise the download and
+        // compute `withinLimits` against the wrong size.
+        //
+        // `fitsOnePack` is the second condition, and it is not the same
+        // as `withinLimits`. The tile guard and the pack cap bound
+        // different things: a tile pyramid just gets slower as it grows,
+        // while a pack is one file set cut in one server request and has
+        // a hard ceiling well below the tile one. A region between the
+        // two caps is legitimate — it downloads, it browses, and it has
+        // no offline routing — and the estimate has to say so, because
+        // it is what the dialog's "includes routing" line reads.
+        val packFits = RoutingPack.fitsOnePack(spec.bounds)
+        val packBytes = if (spec.includeRouting && packFits) {
+            RoutingPack.estimatedBytes(spec.bounds)
+        } else {
+            0L
+        }
         return OfflineEstimate(
             tiles = tiles,
-            bytes = tiles * AVG_RASTER_TILE_BYTES,
+            bytes = tiles * AVG_RASTER_TILE_BYTES + packBytes,
+            packBytes = packBytes,
             withinLimits = span <= MAX_SPAN_DEGREES && tiles <= MAX_TILES,
+            routingOmittedForSize = spec.includeRouting && !packFits,
         )
     }
 

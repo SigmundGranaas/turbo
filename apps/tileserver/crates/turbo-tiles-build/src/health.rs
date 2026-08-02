@@ -502,6 +502,32 @@ pub fn audit_vector_layer(name: &str, feature_count: u32, total_vertices: u32) -
     }
     issues
 }
+/// Refuse to ship an artifact whose health report carries errors (D6).
+///
+/// The report already had an `errors` channel; every builder logged it
+/// and carried on. An error channel that only logs is a lie — and every
+/// condition that raises one means the artifact is broken in a way that
+/// produces silent nonsense rather than a visible failure. Routing on an
+/// empty graph returns "no route"; a DEM with no tiles makes terrain
+/// look flat. Both are indistinguishable from a hard day in the
+/// mountains, which is exactly why they must not ship.
+///
+/// `TURBO_ALLOW_UNHEALTHY_ARTIFACTS=1` overrides, for a curator who
+/// knowingly wants a partial artifact. Deliberate and visible in shell
+/// history, rather than silent by default.
+pub fn gate(health: &HealthReport) -> Result<(), crate::BuildError> {
+    if health.errors.is_empty() || std::env::var("TURBO_ALLOW_UNHEALTHY_ARTIFACTS").is_ok() {
+        return Ok(());
+    }
+    Err(crate::BuildError::Unhealthy {
+        codes: health
+            .errors
+            .iter()
+            .map(|e| e.code.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
+    })
+}
 
 #[cfg(test)]
 mod tests {
@@ -613,5 +639,38 @@ mod tests {
         assert_eq!(diff.drifted.len(), 1);
         assert_eq!(diff.drifted[0].key, "edges_kind_1");
         assert!((diff.drifted[0].pct - 50.0).abs() < 1e-3);
+    }
+
+    /// D6: the gate must actually gate.
+    ///
+    /// The bug it fixes is subtle in exactly this way — the `errors`
+    /// channel existed, was populated correctly, was logged, and had no
+    /// effect. A gate that never fires reproduces that, so this checks
+    /// both directions.
+    #[test]
+    fn the_health_gate_refuses_errors_and_permits_warnings() {
+        let clean = HealthReport::default();
+        assert!(gate(&clean).is_ok(), "a clean report must pass");
+
+        let mut warned = HealthReport::default();
+        warned.warn("some_warning", "advisory".into(), None);
+        assert!(
+            gate(&warned).is_ok(),
+            "warnings are advisory — gating on them would make every \
+             fragmented regional build unbuildable"
+        );
+
+        let mut broken = HealthReport::default();
+        broken.error("empty_graph", "no nodes".into(), None);
+        let err = gate(&broken).expect_err("an error must fail the build");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("empty_graph"),
+            "the failure must name the offending check, not just say no: {msg}"
+        );
+        assert!(
+            msg.contains("TURBO_ALLOW_UNHEALTHY_ARTIFACTS"),
+            "the failure must say how to override deliberately: {msg}"
+        );
     }
 }

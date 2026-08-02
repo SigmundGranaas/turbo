@@ -31,4 +31,5 @@
     <string name="wp_remove">Remove stop</string>
     <string name="wp_start">Start</string>
     <string name="wp_stop">Stop %1$d</string>
+    <string name="route_download_area">Download</string>
 </resources>

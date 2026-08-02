@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# The routing refactor gate.
+#
+# Runs a corpus on BOTH solver lanes and compares geometry hashes + DEM
+# lookup counts against a committed baseline. This is the acceptance
+# check for every structural step in the routing engine plan
+# (docs/architecture/2026-07-routing-engine-implementation-plan.md §2).
+#
+# Why hashes and not timing: run-to-run wall clock varies 16-19% on a
+# shared host, while the geometry hash and lookup count are exactly
+# stable. Never gate a refactor on timing; measure timing separately.
+#
+# ── Two profiles ──────────────────────────────────────────────────────
+#
+#   ci    (default)  25 hikes against tools/ci-pack — 4.6 MB, committed,
+#                    so this runs anywhere the repo is checked out.
+#   full             90 hikes across the whole Sjunkhatten region. Needs
+#                    the 209 MB artifacts AND a regenerated corpus (see
+#                    below) — neither is committed, both are derived.
+#
+# Each profile keeps its own baseline. Since D8 was fixed the sliced
+# pack reports exactly the same terrain as its source, and the CI pack
+# currently reproduces the full artifacts' hashes on both lanes — but
+# that is a property of a generous halo (slicing still drops trail edges
+# at the boundary), not a guarantee. Treat each profile as a
+# self-consistent gate against its own history and do not assume the
+# numbers stay equal.
+#
+# Run `full` before landing anything that moves geometry on purpose
+# (Phase E calibration); `ci` is enough for structural work, which is
+# what it is checked in for.
+#
+#   ./tools/routing_gate.sh                  # ci profile, check
+#   ./tools/routing_gate.sh --update         # ci profile, rebaseline
+#   ./tools/routing_gate.sh full             # full profile, check
+#   ./tools/routing_gate.sh full --update    # full profile, rebaseline
+#
+# Env:
+#   TILESERVER_ARTIFACT_DIR   overrides the artifacts dir (full profile)
+#
+# Exit: 0 pass, 1 regress, 2 harness error.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+PROFILE=ci
+UPDATE=0
+for arg in "$@"; do
+  case "$arg" in
+    ci|full) PROFILE="$arg" ;;
+    --update) UPDATE=1 ;;
+    *) echo "usage: $0 [ci|full] [--update]"; exit 2 ;;
+  esac
+done
+
+case "$PROFILE" in
+  ci)
+    ART="tools/ci-pack"
+    CORPUS="tools/sjunkhatten-ci-corpus.toml"
+    BASELINE="tools/sjunkhatten-ci-baseline.json"
+    ;;
+  full)
+    # The 90-hike corpus is DERIVED DATA and is not committed — 9 300
+    # lines of TOML polylines regenerable from the database in one
+    # command. Anyone who has the 209 MB artifacts this profile needs
+    # also has the database that built them.
+    ART="${TILESERVER_ARTIFACT_DIR:-/home/user/turbo/.data/artifacts}"
+    CORPUS="tools/sjunkhatten-corpus.toml"
+    BASELINE="tools/sjunkhatten-baseline.json"
+    ;;
+esac
+
+BIN="target/release/tileserver"
+OUT="${TMPDIR:-/tmp}/routing-gate-$PROFILE"
+
+[[ -x "$BIN" ]] || { echo "no $BIN — cargo build --release -p turbo-tiles-bin --bin tileserver"; exit 2; }
+[[ -d "$ART" ]] || {
+  echo "no artifacts at $ART"
+  [[ "$PROFILE" == full ]] && echo "  (the full profile needs the 209 MB Sjunkhatten set; try: $0 ci)"
+  exit 2
+}
+[[ -f "$CORPUS" ]] || {
+  echo "no corpus at $CORPUS"
+  [[ "$PROFILE" == full ]] && cat <<'HINT'
+  The 90-hike corpus is derived data and is not committed. Regenerate it
+  against the database that built your artifacts:
+
+      python3 tools/sample_sjunkhatten_corpus.py
+      ./tools/routing_gate.sh full --update    # mint its baseline
+
+  Use it for calibration work, where 90 hikes across 86 x 101 km say
+  more than 25 in one 14 km window. For structural work the `ci`
+  profile is enough, and it needs nothing.
+HINT
+  exit 2
+}
+
+echo "profile: $PROFILE   artifacts: $ART   corpus: $CORPUS"
+rm -rf "$OUT"; mkdir -p "$OUT"
+declare -A GOT
+for lane in off-trail unified; do
+  TILESERVER_ARTIFACT_DIR="$ART" timeout 2400 "$BIN" eval-terrain \
+      --corpus="$CORPUS" --artifacts-dir="$ART" --mode="$lane" \
+      --out="$OUT/$lane" > "$OUT/$lane.log" 2>&1 \
+    || { echo "eval-terrain failed on $lane; see $OUT/$lane.log"; exit 2; }
+  GOT[$lane]=$(python3 -c "
+import json;d=json.load(open('$OUT/$lane/_summary.json'))
+print(json.dumps({'hash':d['corpus_geometry_hash'],'lookups':d['dem_cache_lookups'],'ok':d['ok'],'total':d['total']}))")
+done
+
+if [[ $UPDATE -eq 1 ]]; then
+  python3 - "$BASELINE" "${GOT[off-trail]}" "${GOT[unified]}" <<'PY'
+import json, sys
+out = {"off-trail": json.loads(sys.argv[2]), "unified": json.loads(sys.argv[3])}
+open(sys.argv[1], "w").write(json.dumps(out, indent=2) + "\n")
+print(f"baseline updated: {sys.argv[1]}")
+for k, v in out.items():
+    print(f"  {k:<10} {v['hash']}  lookups={v['lookups']}  ok={v['ok']}/{v['total']}")
+PY
+  exit 0
+fi
+
+[[ -f "$BASELINE" ]] || { echo "no baseline — run with --update first"; exit 2; }
+python3 - "$BASELINE" "${GOT[off-trail]}" "${GOT[unified]}" <<'PY'
+import json, sys
+base = json.load(open(sys.argv[1]))
+got = {"off-trail": json.loads(sys.argv[2]), "unified": json.loads(sys.argv[3])}
+bad = False
+for lane in ("off-trail", "unified"):
+    b, g = base[lane], got[lane]
+    for field in ("hash", "lookups", "ok"):
+        if b[field] != g[field]:
+            print(f"REGRESS {lane}.{field}: {b[field]} -> {g[field]}")
+            bad = True
+    if not bad:
+        print(f"ok      {lane:<10} {g['hash']}  lookups={g['lookups']}  ok={g['ok']}/{g['total']}")
+sys.exit(1 if bad else 0)
+PY

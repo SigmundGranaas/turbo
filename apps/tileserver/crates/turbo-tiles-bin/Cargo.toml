@@ -10,6 +10,13 @@ name = "tileserver"
 path = "src/main.rs"
 
 [dependencies]
+turbo-profile-no.workspace = true
+bytemuck.workspace = true
+byteorder.workspace = true
+turbo-tiles-artifacts.workspace = true
+turbo-geo-frame.workspace = true
+turbo-geodata-artifacts.workspace = true
+turbo-geodata-pack.workspace = true
 turbo-tiles-core.workspace = true
 turbo-tiles-db.workspace = true
 sqlx.workspace = true
@@ -19,6 +26,7 @@ turbo-tiles-api.workspace = true
 turbo-tiles-admin.workspace = true
 turbo-tiles-ingest.workspace = true
 turbo-tiles-build.workspace = true
+turbo-pack-build = { workspace = true, features = ["net"] }
 turbo-tiles-elev.workspace = true
 turbo-tiles-mask.workspace = true
 turbo-tiles-graph.workspace = true

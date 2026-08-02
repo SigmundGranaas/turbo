@@ -1,0 +1,52 @@
+[package]
+name = "turbo-pack-build"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Builds a routing pack for one region straight from Kartverket's public
+# services, with no database anywhere in the path.
+#
+# `turbo-tiles-build` does the same job from PostGIS staging, and both
+# write through the same format crates (`turbo-tiles-elev`, `-mask`,
+# `-graph`). That shared seam is the point: the two builders can be
+# pointed at the same region and their output compared, which is the
+# only way "does a device-built pack match a server-built one" is a
+# question with an answer.
+#
+# No sqlx, and nothing here needs a filesystem beyond the output
+# directory — so this crate is the half that can cross-compile to
+# Android.
+
+[features]
+# The `reqwest`-backed `Fetch`. On by default so the server and the CLI
+# are unchanged; OFF for Android, where the host fetches through the
+# HTTP client the app already ships. Measured saving: 3.2 MB per ABI,
+# almost all of it `reqwest` + `rustls` + `tokio` — a second TLS stack
+# and a second async runtime next to OkHttp.
+default = ["net"]
+net = ["dep:reqwest"]
+
+[dependencies]
+turbo-tiles-artifacts.workspace = true
+turbo-tiles-elev.workspace = true
+turbo-tiles-mask.workspace = true
+turbo-tiles-graph.workspace = true
+serde = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
+byteorder.workspace = true
+bytemuck.workspace = true
+zstd.workspace = true
+zip = { version = "2", default-features = false, features = ["deflate"] }
+geo.workspace = true
+quick-xml.workspace = true
+reqwest = { workspace = true, features = ["blocking"], optional = true }
+serde_json.workspace = true
+chrono.workspace = true
+sha2.workspace = true
+toml = "0.8"
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

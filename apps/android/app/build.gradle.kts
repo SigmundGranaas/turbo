@@ -82,6 +82,9 @@ dependencies {
     // App is the composition root: design system + feature modules + nav.
     implementation(project(":core:model"))
     implementation(project(":core:data"))
+    // Binds RouteRepository to the on-device fallback, and packages the
+    // routing engine's per-ABI .so into the APK.
+    implementation(project(":core:routing-android"))
     implementation(project(":core:auth"))
     implementation(project(":core:sync"))
     implementation(project(":core:designsystem"))

@@ -12,3 +12,6 @@ publish.workspace = true
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 byteorder.workspace = true
+# Parsing the pack manifest. Text, not I/O — this crate still opens no
+# files; callers hand it the bytes.
+toml = "0.8"

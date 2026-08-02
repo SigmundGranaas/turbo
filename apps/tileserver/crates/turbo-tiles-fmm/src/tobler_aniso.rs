@@ -337,4 +337,83 @@ mod tests {
             "u_east={u_east}, u_north={u_north}, u_ne={u_ne}, expected_ne={expected_ne}"
         );
     }
+
+    /// **The off-trail metric is direction-symmetric by construction,
+    /// and cannot be otherwise without changing solvers.**
+    ///
+    /// The routing plan listed "unify the pace curve" as a Phase E
+    /// calibration item, on the strength of E7: the mesh model is
+    /// symmetric (descent costs what the equal ascent costs) while the
+    /// contributor's is real Tobler, whose minimum sits at a 2.9 degree
+    /// *descent* — a constant 41.9% disagreement on all downhill.
+    ///
+    /// It is not a calibration item. This metric is **Riemannian**: the
+    /// per-cell cost is a symmetric quadratic form, so `G(v) == G(-v)`
+    /// identically, for every v, at every cell. Uphill and downhill along
+    /// one axis are the same number because a symmetric matrix cannot
+    /// represent two. The pace function is fed `grad_mag`, a magnitude
+    /// (`sqrt(dz_dx^2 + dz_dy^2)`) — the sign is gone one line before the
+    /// call, so making `tobler_pace` signed would change nothing.
+    ///
+    /// Asymmetric descent needs a **Finsler** metric (an asymmetric
+    /// norm), which the crate header names as future work. That is a
+    /// solver change with its own correctness burden, not a knob.
+    ///
+    /// This test exists so the claim is checked rather than believed:
+    /// if someone later makes the tensor asymmetric, it fails and points
+    /// at the plan item it unblocks.
+    #[test]
+    fn the_metric_cannot_distinguish_uphill_from_downhill() {
+        // The pace function is blind to sign because it is handed a
+        // magnitude; feeding it a signed argument makes that explicit.
+        for g in [0.05f32, 0.1, 0.3, 0.6, 1.0] {
+            assert_eq!(
+                super::tobler_pace(g),
+                super::tobler_pace(-g),
+                "tobler_pace is fed |grad|; a signed argument must not matter"
+            );
+        }
+
+        // And the real tensor, on a real 30 degree ramp whose gradient
+        // points due east. Cost along +x (straight uphill) must equal
+        // cost along -x (straight downhill), because `G(v) = vᵀ G v` is
+        // even in v for any symmetric G. Built through `metric_at`, so
+        // this exercises the code rather than restating the algebra.
+        let n = 21;
+        let shape = GridShape::new_2d(n, n, 0.0, 0.0, 10.0);
+        let m = ToblerAnisotropic {
+            elev: ramp_dem(n, 30.0),
+            refuse_above_deg: 60.0,
+            base_pace_s_per_m: 0.714_285_7,
+            off_trail_factor: 2.3,
+            gain_factor_k: 0.0,
+        };
+        let g = m
+            .metric_at(&shape, n / 2, n / 2)
+            .expect("a 30 degree ramp cell must have a metric");
+
+        // `metric_at` returns G*, the DUAL metric — its eigenvalues are
+        // reciprocal paces squared, i.e. speeds squared. So a large value
+        // means fast, not expensive.
+        let speed2 = |vx: f64, vy: f64| g.a * vx * vx + 2.0 * g.b * vx * vy + g.c * vy * vy;
+        for (vx, vy) in [(1.0, 0.0), (0.0, 1.0), (0.6, 0.8), (-0.3, 0.95)] {
+            assert_eq!(
+                speed2(vx, vy),
+                speed2(-vx, -vy),
+                "uphill and downhill along ({vx}, {vy}) price identically — a \
+                 symmetric form cannot represent two values. Asymmetric descent \
+                 needs a Finsler metric, not a calibration change."
+            );
+        }
+        // Sanity: the metric IS strongly anisotropic, so the equality
+        // above is not passing because everything is equal. Travel along
+        // the contour (north) must be much faster than up the fall line
+        // (east) on a 30 degree ramp.
+        assert!(
+            speed2(0.0, 1.0) > speed2(1.0, 0.0) * 2.0,
+            "the ramp metric must be strongly anisotropic; got along={} perp={}",
+            speed2(1.0, 0.0),
+            speed2(0.0, 1.0)
+        );
+    }
 }

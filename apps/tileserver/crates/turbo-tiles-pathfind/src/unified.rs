@@ -26,12 +26,13 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 
-use turbo_tiles_elev::{Dem, PointXY};
+use turbo_route_model::Point;
 use turbo_tiles_fmm::GridShape;
 use turbo_tiles_graph::{Graph, Profile};
 
 use crate::contributor::{compose_edge_walk_seconds, CostContributor, EdgeContext, EdgeKind};
 use crate::native_contributors::OffTrailRoughnessContributor;
+use turbo_route_model::Heightfield;
 
 // Steep-terrain shaping for off-trail mesh edges (own copy — see module
 // docs on independence; these are physical constants, not shared code).
@@ -106,7 +107,7 @@ fn tobler_pace(grad_mag: f32) -> f32 {
 /// capped so the cell count grows O(d), not O(d²). Returns the
 /// CANONICAL [`GridShape`] (the same cell↔world mapping the FMM solver
 /// uses) — `None` if the endpoints are closer than half a cell.
-fn corridor_shape(from: PointXY, to: PointXY, cell_m: f64) -> Option<GridShape> {
+fn corridor_shape(from: Point, to: Point, cell_m: f64) -> Option<GridShape> {
     let dx = to.x - from.x;
     let dy = to.y - from.y;
     let d = (dx * dx + dy * dy).sqrt();
@@ -158,10 +159,10 @@ fn corridor_shape(from: PointXY, to: PointXY, cell_m: f64) -> Option<GridShape> 
     Some(GridShape::new_2d(nx, ny, origin_x, origin_y, cell_m))
 }
 
-/// Result of a unified solve: geometry in EPSG:25833 + a per-segment
+/// Result of a unified solve: planar geometry + a per-segment
 /// on-trail flag (for leg colouring / surface breakdown) + walk-seconds cost.
 pub(crate) struct UnifiedRoute {
-    pub geometry_utm: Vec<(f64, f64)>,
+    pub geometry_planar: Vec<(f64, f64)>,
     /// `seg_on_trail[k]` = true if segment `geometry[k]→geometry[k+1]` is
     /// a trail (graph) segment, false if off-trail mesh.
     pub seg_on_trail: Vec<bool>,
@@ -200,11 +201,12 @@ impl Ord for HeapItem {
 /// goal is unreachable (caller maps that to an honest no-route error).
 pub(crate) fn solve_unified(
     graph: &Graph,
-    dem: &Arc<Dem>,
+    dem: &Arc<dyn Heightfield>,
     contributors: &[Arc<dyn CostContributor>],
+    tuning: &crate::config::CostConfig,
     profile: Profile,
-    from: PointXY,
-    to: PointXY,
+    from: Point,
+    to: Point,
     cell_m: f64,
     base_pace_s_per_m: f32,
     off_trail_factor: f32,
@@ -249,6 +251,7 @@ pub(crate) fn solve_unified(
         base_pace_s_per_m,
         profile,
         &mesh_contribs,
+        tuning,
     );
 
     // ---- Splice the trail network over a GENEROUS region ----
@@ -308,6 +311,7 @@ pub(crate) fn solve_unified(
             profile,
             kind: EdgeKind::Graph(er),
             elev_probe: None,
+            tuning,
         };
         let cost = compose_edge_walk_seconds(contributors, &ctx);
         if !cost.total_walk_seconds.is_finite() {
@@ -389,11 +393,17 @@ pub(crate) fn solve_unified(
     }
 
     let n_total = nm + nt;
-    if std::env::var("UNIFIED_DEBUG").is_ok() {
+    // Was `if env::var("UNIFIED_DEBUG")`. The engine does not read the
+    // environment (D3) — it emits, and the host decides where the
+    // output goes and at what level. `RUST_LOG=turbo_tiles_pathfind=debug`
+    // still works, configured by the host's subscriber, and an embedded
+    // or FFI caller now gets the same diagnostics instead of a channel
+    // that only opens for a process launched from a shell.
+    if tracing::enabled!(tracing::Level::DEBUG) {
         let adj: usize = trail_adj.iter().map(|v| v.len()).sum();
         let start_has = cell_trails.get(&start).map(|v| v.len()).unwrap_or(0);
         let goal_has = cell_trails.get(&goal).map(|v| v.len()).unwrap_or(0);
-        eprintln!(
+        tracing::debug!(
             "UNIFIED: corr {nx}x{ny} cell_m={:.0}; eids={} trail_nodes={nt} adj_edges={adj} \
              cells_with_trail={} start_cell_trails={start_has} goal_cell_trails={goal_has}",
             corr.cell_m,
@@ -672,13 +682,13 @@ pub(crate) fn solve_unified(
     }
 
     // Smooth off-trail runs (trail runs stay exact).
-    let (geometry_utm, seg_on_trail, seg_fkb) =
+    let (geometry_planar, seg_on_trail, seg_fkb) =
         smooth_off_trail(&geom, &on_trail, &on_fkb, &corr, &overlay);
 
     // Final snapshot: the exact answer, so the live preview snaps into
     // place when the solve completes.
     crate::solver_trace::record(|| crate::solver_trace::SolverEvent::BestPathSnapshot {
-        coords: geometry_utm
+        coords: geometry_planar
             .iter()
             .map(|&(x, y)| [x as f32, y as f32])
             .collect(),
@@ -687,7 +697,7 @@ pub(crate) fn solve_unified(
     // refused_by is empty by construction: `mesh_step` never steps onto a
     // refused cell and trails bridge water legitimately.
     Some(UnifiedRoute {
-        geometry_utm,
+        geometry_planar,
         seg_on_trail,
         seg_fkb,
         cost_s: g[goal] as f64,

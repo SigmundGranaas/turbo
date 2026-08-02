@@ -55,6 +55,26 @@ jobs:
       - name: Test
         run: cargo test --workspace --release
 
+      # Architectural fitness function. The routing-engine layering
+      # invariants (docs/architecture/2026-07-routing-engine-module-design.md
+      # §12) are checked mechanically rather than by review, because the
+      # whole reason that refactor exists is that `Arc<Dem>` reached
+      # twelve places inside the engine without anyone deciding it should.
+      - name: Routing boundary invariants
+        run: ./tools/boundary_check.sh
+
+      # The routing regression gate: 25 corpus hikes on both solver lanes,
+      # geometry hashes + DEM lookup counts against a committed baseline.
+      # Runs against tools/ci-pack (4.6 MB, checked in), so it needs no
+      # data provisioning — which is the point. ~9 s.
+      #
+      # A failure here means routing OUTPUT changed. If that was
+      # intentional (a calibration change), rebaseline deliberately with
+      # `./tools/routing_gate.sh ci --update` and say so in the commit;
+      # do not "fix" it by rerunning.
+      - name: Routing regression gate
+        run: ./tools/routing_gate.sh ci
+
   # Publish the tileserver image to GHCR on pushes to main. The Dockerfile
   # bundles the admin SPA, so the build context is the repo root. The prod
   # GitOps overlay pulls ghcr.io/<owner>/turbo-tileserver:latest.

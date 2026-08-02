@@ -19,7 +19,8 @@ use turbo_tiles_artifacts::{write_header as write_art_header, ArtifactKind, Head
 use turbo_tiles_graph::{
     write_meta as write_graph_meta, EdgeRecord, Graph, GraphMeta, NodePos, GRAPH_FORMAT_VERSION,
 };
-use turbo_tiles_pathfind::{utm33n_to_wgs84, Path, Pathfinder, Prefs};
+use turbo_tiles_pathfind::Point;
+use turbo_tiles_pathfind::{Path, Pathfinder, Prefs};
 
 // ---------------------------------------------------------------------
 // Fixtures
@@ -248,8 +249,12 @@ impl Scene {
         Self::build(local_nodes, edge_pairs, Some(alpha_deg))
     }
 
-    fn build(local_nodes: &[(f64, f64)], edge_pairs: &[(u32, u32)], slope_deg: Option<f64>) -> Self {
-        let anchor = turbo_tiles_elev::wgs84_to_utm33n(10.7522, 59.9139);
+    fn build(
+        local_nodes: &[(f64, f64)],
+        edge_pairs: &[(u32, u32)],
+        slope_deg: Option<f64>,
+    ) -> Self {
+        let anchor = turbo_geo_frame::wgs84_to_utm33n(10.7522, 59.9139);
         let (ox, oy) = (anchor.x, anchor.y);
         let nodes: Vec<NodePos> = local_nodes
             .iter()
@@ -269,7 +274,12 @@ impl Scene {
             Some(a) => ramp_dem_around(ox, oy, a),
             None => flat_dem_around(ox, oy),
         };
-        let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
+        let pf = Pathfinder::with_defaults(
+            Some(turbo_geodata_artifacts::heightfield(dem.clone())),
+            None,
+            Some(Arc::new(g)),
+            cfg(),
+        );
         Self {
             ox,
             oy,
@@ -280,24 +290,28 @@ impl Scene {
     }
 
     /// Local metres → request `[lon, lat]`.
-    fn ll(&self, dx: f64, dy: f64) -> [f64; 2] {
-        let (lon, lat) = utm33n_to_wgs84(self.ox + dx, self.oy + dy);
-        [lon, lat]
+    /// Local metres → the engine's planar frame.
+    ///
+    /// This used to round-trip through WGS84 because the engine's API
+    /// was geographic. C4 made it planar, so the projection is gone:
+    /// the scene and the engine now speak the same units.
+    fn ll(&self, dx: f64, dy: f64) -> Point {
+        Point {
+            x: self.ox + dx,
+            y: self.oy + dy,
+        }
     }
 
-    /// A local polyline → an avoid polyline in `[lon, lat]`.
-    fn avoid_line(&self, pts: &[(f64, f64)]) -> Vec<[f64; 2]> {
+    /// A local polyline → a planar avoid polyline.
+    fn avoid_line(&self, pts: &[(f64, f64)]) -> Vec<Point> {
         pts.iter().map(|&(dx, dy)| self.ll(dx, dy)).collect()
     }
 
-    /// Route geometry projected back to LOCAL metres `(dx, dy)`.
+    /// Route geometry expressed in LOCAL metres `(dx, dy)`.
     fn local_geom(&self, path: &Path) -> Vec<(f64, f64)> {
         path.geometry
             .iter()
-            .map(|p| {
-                let u = turbo_tiles_elev::wgs84_to_utm33n(p[0], p[1]);
-                (u.x - self.ox, u.y - self.oy)
-            })
+            .map(|p| (p.x - self.ox, p.y - self.oy))
             .collect()
     }
 }
@@ -620,8 +634,11 @@ fn sloped_default_prefs_detours_onto_alternative_trail() {
         .pf
         .solve(scene.ll(0.0, 0.0), scene.ll(0.0, 1000.0), Prefs::default())
         .unwrap();
-    let direct_overlap =
-        overlap_fraction(&scene.local_geom(&direct), &[(0.0, 0.0), (0.0, 1000.0)], 30.0);
+    let direct_overlap = overlap_fraction(
+        &scene.local_geom(&direct),
+        &[(0.0, 0.0), (0.0, 1000.0)],
+        30.0,
+    );
     assert!(
         direct_overlap > 0.8,
         "sanity: un-avoided route hugs the direct corridor (overlap {direct_overlap:.2})"
@@ -716,4 +733,11 @@ fn sloped_vs_flat_off_trail_characterization() {
         "slope must not make shadow-walking WORSE than flat \
          (flat {flat:.0} m, sloped {sloped:.0} m)"
     );
+}
+
+/// The calibrated Norwegian config. Tests are a composition root, so
+/// they name the profile explicitly — the engine no longer supplies one
+/// (D3).
+fn cfg() -> turbo_tiles_pathfind::CostConfig {
+    turbo_profile_no::cost_config().expect("the calibrated config must parse")
 }

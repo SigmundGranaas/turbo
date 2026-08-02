@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.CustomTileSource
+import com.sigmundgranaas.turbo.expressive.domain.RouteEngine
 import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
 import com.sigmundgranaas.turbo.expressive.domain.UserSettings
 import kotlinx.serialization.Serializable
@@ -50,6 +51,30 @@ interface SettingsRepository {
     suspend fun setGestures(gestures: com.sigmundgranaas.turbo.expressive.domain.GestureSettings)
 
     /** Toggle an experimental map layer's availability (Trails / Clouds). */
+    /**
+     * Force one routing engine, or [RouteEngine.Auto] to let the app
+     * decide. Only [RouteEngine.Auto] is a normal state — see the enum.
+     */
+    suspend fun setRouteEngine(engine: RouteEngine)
+
+    /**
+     * Point pack downloads at a different host; `null` restores
+     * [com.sigmundgranaas.turbo.expressive.domain.RoutingPack.DEFAULT_SOURCE].
+     */
+    suspend fun setPackSourceUrl(url: String?)
+
+    /**
+     * Run both routers per request and record how far apart they were.
+     * Costs battery, not latency — see [UserSettings.routeShadowCompare].
+     */
+    suspend fun setRouteShadowCompare(enabled: Boolean)
+
+    /**
+     * Allow cutting packs on the phone — minutes and tens of megabytes.
+     * See [UserSettings.buildPacksOnDevice].
+     */
+    suspend fun setBuildPacksOnDevice(enabled: Boolean)
+
     suspend fun setExperimentalTrails(enabled: Boolean)
     suspend fun setExperimentalClouds(enabled: Boolean)
 
@@ -86,6 +111,10 @@ class DataStoreSettingsRepository @Inject constructor(
         val GESTURE_MOVE_GUARD_DP = androidx.datastore.preferences.core.floatPreferencesKey("gesture_move_guard_dp")
         val GESTURE_ROTATE_GATE_DEG = androidx.datastore.preferences.core.floatPreferencesKey("gesture_rotate_gate_deg")
         val GESTURE_FLING_HALF_LIFE_MS = androidx.datastore.preferences.core.longPreferencesKey("gesture_fling_half_life_ms")
+        val ROUTE_ENGINE = stringPreferencesKey("route_engine")
+        val PACK_SOURCE_URL = stringPreferencesKey("pack_source_url")
+        val ROUTE_SHADOW_COMPARE = booleanPreferencesKey("route_shadow_compare")
+        val BUILD_PACKS_ON_DEVICE = booleanPreferencesKey("build_packs_on_device")
         val EXPERIMENTAL_TRAILS = booleanPreferencesKey("experimental_trails")
         val EXPERIMENTAL_CLOUDS = booleanPreferencesKey("experimental_clouds")
         val ROTATION_LOCKED = booleanPreferencesKey("rotation_locked")
@@ -117,6 +146,12 @@ class DataStoreSettingsRepository @Inject constructor(
                 rotationGateDeg = prefs[Keys.GESTURE_ROTATE_GATE_DEG] ?: 10f,
                 flingHalfLifeMs = prefs[Keys.GESTURE_FLING_HALF_LIFE_MS] ?: 300L,
             ),
+            routeEngine = prefs[Keys.ROUTE_ENGINE]
+                ?.let { runCatching { RouteEngine.valueOf(it) }.getOrNull() }
+                ?: RouteEngine.Auto,
+            packSourceUrl = prefs[Keys.PACK_SOURCE_URL]?.takeIf { it.isNotBlank() },
+            routeShadowCompare = prefs[Keys.ROUTE_SHADOW_COMPARE] ?: false,
+            buildPacksOnDevice = prefs[Keys.BUILD_PACKS_ON_DEVICE] ?: false,
             experimentalTrails = prefs[Keys.EXPERIMENTAL_TRAILS] ?: false,
             experimentalClouds = prefs[Keys.EXPERIMENTAL_CLOUDS] ?: false,
             rotationLocked = prefs[Keys.ROTATION_LOCKED] ?: false,
@@ -202,6 +237,25 @@ class DataStoreSettingsRepository @Inject constructor(
             it[Keys.GESTURE_ROTATE_GATE_DEG] = gestures.rotationGateDeg
             it[Keys.GESTURE_FLING_HALF_LIFE_MS] = gestures.flingHalfLifeMs
         }
+    }
+
+    override suspend fun setRouteEngine(engine: RouteEngine) {
+        context.settingsDataStore.edit { it[Keys.ROUTE_ENGINE] = engine.name }
+    }
+
+    override suspend fun setPackSourceUrl(url: String?) {
+        val clean = url?.trim()?.takeIf { it.isNotEmpty() }
+        context.settingsDataStore.edit {
+            if (clean == null) it.remove(Keys.PACK_SOURCE_URL) else it[Keys.PACK_SOURCE_URL] = clean
+        }
+    }
+
+    override suspend fun setRouteShadowCompare(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.ROUTE_SHADOW_COMPARE] = enabled }
+    }
+
+    override suspend fun setBuildPacksOnDevice(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.BUILD_PACKS_ON_DEVICE] = enabled }
     }
 
     override suspend fun setExperimentalTrails(enabled: Boolean) {

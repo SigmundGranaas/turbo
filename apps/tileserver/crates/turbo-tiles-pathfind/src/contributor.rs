@@ -45,6 +45,7 @@
 
 use std::sync::Arc;
 
+pub use turbo_route_model::Requirement;
 use turbo_tiles_graph::{EdgeRecord, Profile};
 
 /// Walk pace at flat, maintained trail — seconds per metre.
@@ -82,7 +83,7 @@ pub enum EdgeKind<'a> {
 /// to every consumer. Values are identical to direct sampling; only
 /// the redundancy is removed.
 pub struct EdgeElevProbe<'a> {
-    dem: &'a turbo_tiles_elev::Dem,
+    dem: &'a dyn turbo_route_model::Heightfield,
     fx: f64,
     fy: f64,
     tx: f64,
@@ -100,7 +101,13 @@ pub struct EdgeElevProbe<'a> {
 }
 
 impl<'a> EdgeElevProbe<'a> {
-    pub fn new(dem: &'a turbo_tiles_elev::Dem, fx: f64, fy: f64, tx: f64, ty: f64) -> Self {
+    pub fn new(
+        dem: &'a dyn turbo_route_model::Heightfield,
+        fx: f64,
+        fy: f64,
+        tx: f64,
+        ty: f64,
+    ) -> Self {
         Self {
             dem,
             fx,
@@ -118,11 +125,11 @@ impl<'a> EdgeElevProbe<'a> {
         if let Some(&(_, z)) = self.points.borrow().iter().find(|(b, _)| *b == bits) {
             return z;
         }
-        let p = turbo_tiles_elev::PointXY {
+        let p = turbo_route_model::Point {
             x: self.fx + dx * t,
             y: self.fy + dy * t,
         };
-        let z = self.dem.sample(p).ok().flatten();
+        let z = self.dem.height_at(p);
         self.points.borrow_mut().push((bits, z));
         z
     }
@@ -148,12 +155,12 @@ impl<'a> EdgeElevProbe<'a> {
 }
 
 /// Geometric + categorical context for one edge a contributor is
-/// asked to cost. UTM33N metres throughout; the API layer projects.
+/// asked to cost. Planar metres throughout — the engine has no CRS (C4).
 pub struct EdgeContext<'a> {
-    /// Start coords (EPSG:25833 m).
+    /// Start coords, planar metres.
     pub fx: f64,
     pub fy: f64,
-    /// End coords (EPSG:25833 m).
+    /// End coords, planar metres.
     pub tx: f64,
     pub ty: f64,
     /// Edge length in metres. For graph edges this is the
@@ -167,6 +174,22 @@ pub struct EdgeContext<'a> {
     /// `None` = contributors sample their own primitives directly
     /// (graph edges, tests, callers that don't price terrain).
     pub elev_probe: Option<&'a EdgeElevProbe<'a>>,
+    /// **The resolved per-request tuning.** Boot config merged with any
+    /// per-request patch, once, by the caller.
+    ///
+    /// Contributors read their scalars from here rather than owning
+    /// them, and that is not a style preference — it is the fix for a
+    /// class of bug. A contributor that copies a config value into a
+    /// field at construction can never see a per-request patch: the
+    /// knob compiles, parses, reaches the API, renders in the SPA
+    /// dropdown, and does nothing. Four shipped that way
+    /// (`trail_proximity_*`, `water_*`) and nothing caught it, because
+    /// every check in the repo was structural and none asked whether a
+    /// knob *does* anything.
+    ///
+    /// `tests/knob_liveness.rs` is the guard. A scalar that belongs to
+    /// `CostConfigPatch` and lives on a contributor field will fail it.
+    pub tuning: &'a crate::config::CostConfig,
 }
 
 impl<'a> EdgeContext<'a> {
@@ -197,19 +220,28 @@ pub enum ContributorKind {
     Legacy,
 }
 
-/// A single physical contribution to the cost of traversing an
-/// edge. All contributions are in **walk-seconds** (not metres,
-/// not multipliers).
-///
-/// Positive contributions make the edge harder (slope, brush,
-/// wetland); negative contributions make it preferred (DNT
-/// marking, cairns, viewpoints).
 pub trait CostContributor: Send + Sync {
     /// Stable lower-case identifier. Same convention as
     /// `CostLayer::name`.
     fn name(&self) -> &'static str;
 
     fn kind(&self) -> ContributorKind;
+
+    /// Is this contributor's data load-bearing? Default `Advisory`, so a
+    /// new contributor can never accidentally widen routing coverage.
+    ///
+    /// Contributors sharing one data source (all the DEM-backed slope
+    /// family, say) have identical extents, so marking each of them
+    /// `Required` is correct and idempotent rather than redundant.
+    fn requirement(&self) -> Requirement {
+        Requirement::Advisory
+    }
+
+    /// Does this contributor have authoritative data at this point?
+    /// Only consulted for `Required` contributors.
+    fn covers(&self, _x: f64, _y: f64) -> bool {
+        true
+    }
 
     /// Walk-seconds added (positive) or subtracted (negative) by
     /// this contributor for the given edge.
@@ -259,6 +291,13 @@ pub struct EdgeWalkCost {
     pub vetoed_by: Option<String>,
 }
 
+/// A single physical contribution to the cost of traversing an
+/// edge. All contributions are in **walk-seconds** (not metres,
+/// not multipliers).
+///
+/// Positive contributions make the edge harder (slope, brush,
+/// wetland); negative contributions make it preferred (DNT
+/// marking, cairns, viewpoints).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NamedContribution {
     pub name: String,
@@ -323,105 +362,40 @@ pub fn compose_edge_walk_seconds(
     }
 }
 
-/// Adapter: present any [`crate::cost::CostLayer`] (the legacy
-/// multiplicative trait) as a [`CostContributor`] by converting
-/// its multiplier output into walk-seconds-equivalent against
-/// the edge length.
-///
-/// The conversion: a legacy multiplier `M` on a length `L`
-/// represents a cost of `baked × M` in opaque units. In walk-
-/// seconds the equivalent contribution is `(M - 1) × L × BASE_PACE
-/// _S_PER_M` — the "extra time" the multiplier represents over
-/// the flat-trail baseline. `M = 1.0` → zero contribution. `M =
-/// 1.5` → +50% of base traversal time. `M = INFINITY` → veto.
-///
-/// This is an APPROXIMATION (the legacy multipliers don't really
-/// represent walk-time deltas — they're gut-feel scales). It's
-/// good enough to keep existing layers running while the cost
-/// model migrates contributor-by-contributor.
-pub struct LegacyLayerAdapter {
-    inner: Arc<dyn crate::cost::CostLayer>,
-}
-
-impl LegacyLayerAdapter {
-    pub fn new(inner: Arc<dyn crate::cost::CostLayer>) -> Self {
-        Self { inner }
-    }
-}
-
-impl CostContributor for LegacyLayerAdapter {
-    fn name(&self) -> &'static str {
-        self.inner.name()
-    }
-    fn kind(&self) -> ContributorKind {
-        ContributorKind::Legacy
-    }
-    fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
-        let mult = match &ctx.kind {
-            EdgeKind::Graph(er) => self.inner.edge_multiplier(er, ctx.profile),
-            EdgeKind::Mesh => {
-                self.inner
-                    .edge_cost_modifier(ctx.fx, ctx.fy, ctx.tx, ctx.ty, ctx.profile)
-            }
-        };
-        if !mult.is_finite() {
-            // The composer reads `veto()` first; if we get here it
-            // means the legacy layer is INFINITY for this edge but
-            // didn't surface it via veto. Return INFINITY so the
-            // composer's contract violation branch flags this in
-            // the breakdown.
-            return f64::INFINITY;
-        }
-        ((mult as f64) - 1.0) * ctx.length_m * BASE_PACE_S_PER_M
-    }
-    fn veto(&self, ctx: &EdgeContext<'_>) -> Option<&'static str> {
-        let mult = match &ctx.kind {
-            EdgeKind::Graph(er) => self.inner.edge_multiplier(er, ctx.profile),
-            EdgeKind::Mesh => {
-                self.inner
-                    .edge_cost_modifier(ctx.fx, ctx.fy, ctx.tx, ctx.ty, ctx.profile)
-            }
-        };
-        if !mult.is_finite() {
-            // Use the layer's name as the veto label; the legacy
-            // trait doesn't carry a refusal reason string.
-            Some(static_name_or_default(self.inner.name()))
-        } else {
-            None
-        }
-    }
-}
-
-/// Trait-object `name()` returns `&'static str` already, but the
-/// adapter wants a stable identifier even if the inner trait's
-/// implementation got dynamic. Keep this trivial today; revisit
-/// when refusal labels grow richer.
-fn static_name_or_default(name: &'static str) -> &'static str {
-    name
-}
+// `LegacyLayerAdapter` was deleted in B1 along with the multiplicative
+// cost channel it bridged. Every production layer has a native
+// contributor (`DISPLACED_LEGACY_LAYERS`), so the adapter's only caller
+// -- the breakdown fallback for `Pathfinder::new` consumers with no
+// natives registered -- was unreachable in practice.
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cost::{CellCost, CostLayer};
 
-    struct LegacyFlat(f32);
-    impl CostLayer for LegacyFlat {
+    /// A contributor that adds a fixed number of walk-seconds per metre,
+    /// or vetoes. Replaces the `LegacyLayerAdapter` that these tests used
+    /// as a double before B1 deleted it.
+    struct Flat {
+        s_per_m: f64,
+        veto: bool,
+    }
+    impl CostContributor for Flat {
         fn name(&self) -> &'static str {
             "flat_test"
         }
-        fn cell_cost(&self, _x: f64, _y: f64, _p: Profile) -> CellCost {
-            CellCost::multiplier(1.0)
+        fn kind(&self) -> ContributorKind {
+            ContributorKind::Legacy
         }
-        fn edge_cost_modifier(&self, _fx: f64, _fy: f64, _tx: f64, _ty: f64, _p: Profile) -> f32 {
-            self.0
+        fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
+            self.s_per_m * ctx.length_m
         }
-        fn edge_multiplier(&self, _e: &EdgeRecord, _p: Profile) -> f32 {
-            self.0
+        fn veto(&self, _ctx: &EdgeContext<'_>) -> Option<&'static str> {
+            self.veto.then_some("flat_test")
         }
     }
 
     fn ctx(length_m: f64) -> EdgeContext<'static> {
+        static T: std::sync::OnceLock<crate::config::CostConfig> = std::sync::OnceLock::new();
         EdgeContext {
             fx: 0.0,
             fy: 0.0,
@@ -431,6 +405,7 @@ mod tests {
             profile: Profile::Foot,
             kind: EdgeKind::Mesh,
             elev_probe: None,
+            tuning: T.get_or_init(crate::config::test_config),
         }
     }
 
@@ -442,37 +417,20 @@ mod tests {
     }
 
     #[test]
-    fn legacy_adapter_multiplier_one_is_zero_contribution() {
-        let adapter = LegacyLayerAdapter::new(Arc::new(LegacyFlat(1.0)));
-        let c = ctx(100.0);
-        assert!((adapter.contribute(&c)).abs() < 1e-6);
-    }
-
-    #[test]
-    fn legacy_adapter_multiplier_two_doubles_base() {
-        // Multiplier 2.0 on 100 m → (2-1) × 100 × 0.714 ≈ +71.4 s
-        // (an extra trail's worth of time on top of base).
-        let adapter = LegacyLayerAdapter::new(Arc::new(LegacyFlat(2.0)));
-        let c = ctx(100.0);
-        assert!((adapter.contribute(&c) - 71.428).abs() < 0.01);
-    }
-
-    #[test]
-    fn legacy_adapter_infinity_is_veto() {
-        let adapter = LegacyLayerAdapter::new(Arc::new(LegacyFlat(f32::INFINITY)));
-        let c = ctx(100.0);
-        assert_eq!(adapter.veto(&c), Some("flat_test"));
-    }
-
-    #[test]
     fn compose_sums_contributions() {
         let layers: Vec<Arc<dyn CostContributor>> = vec![
-            Arc::new(LegacyLayerAdapter::new(Arc::new(LegacyFlat(2.0)))),
-            Arc::new(LegacyLayerAdapter::new(Arc::new(LegacyFlat(1.5)))),
+            Arc::new(Flat {
+                s_per_m: BASE_PACE_S_PER_M,
+                veto: false,
+            }),
+            Arc::new(Flat {
+                s_per_m: 0.5 * BASE_PACE_S_PER_M,
+                veto: false,
+            }),
         ];
         let c = ctx(100.0);
         let cost = compose_edge_walk_seconds(&layers, &c);
-        // base = 71.4; first +71.4; second +35.7 → total 178.5.
+        // base = 71.4; first +71.4; second +35.7 -> total 178.5.
         assert!((cost.base_walk_seconds - 71.428).abs() < 0.01);
         assert!((cost.total_walk_seconds - 178.571).abs() < 0.01);
         assert_eq!(cost.contributions.len(), 2);
@@ -482,9 +440,18 @@ mod tests {
     #[test]
     fn compose_veto_short_circuits() {
         let layers: Vec<Arc<dyn CostContributor>> = vec![
-            Arc::new(LegacyLayerAdapter::new(Arc::new(LegacyFlat(2.0)))),
-            Arc::new(LegacyLayerAdapter::new(Arc::new(LegacyFlat(f32::INFINITY)))),
-            Arc::new(LegacyLayerAdapter::new(Arc::new(LegacyFlat(1.5)))),
+            Arc::new(Flat {
+                s_per_m: BASE_PACE_S_PER_M,
+                veto: false,
+            }),
+            Arc::new(Flat {
+                s_per_m: 0.0,
+                veto: true,
+            }),
+            Arc::new(Flat {
+                s_per_m: 0.5 * BASE_PACE_S_PER_M,
+                veto: false,
+            }),
         ];
         let c = ctx(100.0);
         let cost = compose_edge_walk_seconds(&layers, &c);

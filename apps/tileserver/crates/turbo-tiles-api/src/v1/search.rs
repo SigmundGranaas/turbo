@@ -2,10 +2,10 @@
 
 use std::time::Instant;
 
+use crate::v1::frame::artifact_xy as wgs84_to_utm33n_xy;
 use axum::extract::{Query, State};
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use turbo_tiles_elev::wgs84_to_utm33n;
 use turbo_tiles_search::{AnchorHit, AnchorKind, IndexStats};
 
 use crate::error::ApiError;
@@ -38,7 +38,7 @@ pub async fn nearest(
         .search
         .as_ref()
         .ok_or(ApiError::PrimitiveUnavailable("search"))?;
-    let p = wgs84_to_utm33n(req.lon, req.lat);
+    let p = wgs84_to_utm33n_xy(req.lon, req.lat);
     let start = Instant::now();
     let anchors = idx.nearest(p.x as f32, p.y as f32, req.kind, req.n.clamp(1, 200));
     Ok(Json(NearestResp {

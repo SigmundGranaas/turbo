@@ -42,13 +42,21 @@ jobs:
 
       - name: Rust + Android targets + cargo-ndk
         run: |
-          rustup toolchain install 1.94.1 --profile minimal --target aarch64-linux-android --target x86_64-linux-android
+          rustup toolchain install 1.94.1 --profile minimal \
+            --target aarch64-linux-android \
+            --target armv7-linux-androideabi \
+            --target x86_64-linux-android
           cargo install cargo-ndk --locked
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
 
+      # Two workspaces, because the app bundles two Rust engines: the wgpu
+      # map (apps/turbomap) and the router (apps/tileserver). Caching only
+      # the first was invisible while routing-android was on a branch.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/turbomap
+          workspaces: |
+            apps/turbomap
+            apps/tileserver
 
       - name: Static analysis (detekt)
         run: ./gradlew detekt --no-configuration-cache

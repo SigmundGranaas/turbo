@@ -1,5 +1,6 @@
 package com.sigmundgranaas.turbo.expressive.feature.offline
 
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -26,6 +27,9 @@ class DownloadAreaDialogTest {
 
     private val small = OfflineEstimate(tiles = 1_200, bytes = 24_000_000, withinLimits = true)
     private val huge = OfflineEstimate(tiles = 999_999, bytes = 2_000_000_000, withinLimits = false)
+    private val withRouting = small.copy(bytes = 30_000_000, packBytes = 6_000_000)
+    /** Downloadable as a map; past the pack cap. The band between the two guards. */
+    private val mapOnly = small.copy(routingOmittedForSize = true)
 
     @Test
     fun `within limits enables download and confirms with the chosen detail`() {
@@ -54,6 +58,72 @@ class DownloadAreaDialogTest {
         composeRule.onNodeWithTag("detail_Standard").performClick()
         composeRule.onNodeWithTag("downloadConfirm").assertIsEnabled().performClick()
         assertEquals(DetailLevel.Standard, confirmed)
+    }
+
+    @Test
+    fun `an area with routing says so, and one without says that too`() {
+        // Three states, not two. The dialog has to distinguish "small
+        // enough for everything" from "downloadable as a map but too big
+        // for one routing pack" — a band that exists because the tile
+        // guard and the pack cap bound different things. Saying nothing
+        // in the middle case reads as an oversight, and the user finds
+        // out by standing in the area without signal.
+        composeRule.setContent {
+            DownloadAreaDialog(
+                estimateFor = { withRouting },
+                onConfirm = {},
+                onDismiss = {},
+            )
+        }
+        composeRule.onNodeWithTag("routingIncluded").assertExists()
+    }
+
+    @Test
+    fun `an area too big for a pack still downloads, and says what it loses`() {
+        composeRule.setContent {
+            DownloadAreaDialog(estimateFor = { mapOnly }, onConfirm = {}, onDismiss = {})
+        }
+        // The map is still the thing they asked for.
+        composeRule.onNodeWithTag("downloadConfirm").assertIsEnabled()
+        composeRule.onNodeWithTag("routingExcluded").assertExists()
+        composeRule.onNodeWithTag("routingIncluded").assertDoesNotExist()
+    }
+
+    /**
+     * With device builds allowed, "Download" may mean several minutes of
+     * Kartverket before the first tile — and the size estimate is
+     * identical either way, so this line is the only thing that can warn
+     * them. Without it the build reads as a hung download.
+     */
+    @Test
+    fun `with device builds on, the dialog warns the phone may build the routing data`() {
+        composeRule.setContent {
+            DownloadAreaDialog(estimateFor = { withRouting }, onConfirm = {}, onDismiss = {}, buildsOnDevice = true)
+        }
+        composeRule.onNodeWithTag("routingIncluded").assertExists()
+        composeRule.onNodeWithTag("mayBuildOnDevice").assertExists()
+    }
+
+    @Test
+    fun `with device builds off, no build warning is shown`() {
+        composeRule.setContent {
+            DownloadAreaDialog(estimateFor = { withRouting }, onConfirm = {}, onDismiss = {})
+        }
+        composeRule.onNodeWithTag("mayBuildOnDevice").assertDoesNotExist()
+    }
+
+    /**
+     * Past the pack cap the device builder refuses too, on the same
+     * guard. Promising a build that cannot happen would be worse than
+     * the silence.
+     */
+    @Test
+    fun `an area past the pack cap gets no build warning even with builds on`() {
+        composeRule.setContent {
+            DownloadAreaDialog(estimateFor = { mapOnly }, onConfirm = {}, onDismiss = {}, buildsOnDevice = true)
+        }
+        composeRule.onNodeWithTag("routingExcluded").assertExists()
+        composeRule.onNodeWithTag("mayBuildOnDevice").assertDoesNotExist()
     }
 
     @Test

@@ -1,0 +1,326 @@
+package com.sigmundgranaas.turbo.expressive.core.map
+
+import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
+import com.sigmundgranaas.turbo.expressive.domain.RoutingPack
+import java.io.File
+import java.security.MessageDigest
+
+/**
+ * Fetches one region's routing pack into `filesDir/routing-packs/<key>/`.
+ *
+ * Deliberately separate from the tile loop rather than another lane in
+ * it. A tile is 20 KB, is either on disk or not, and may legitimately be
+ * absent — an ocean DEM tile has no data, and `FetchOutcome.Absent`
+ * exists to say so. Every one of those is false for a pack file:
+ *
+ * - **Size.** The DEM is megabytes and can be *half*-written. Resume by
+ *   "skip what exists" would then leave a truncated file — and a
+ *   truncated DEM does not fail to open. It opens, answers "no data" for
+ *   the ground that is missing, and the router reads that as untraversable
+ *   and goes around. Silent, wrong, and shaped exactly like a coastline.
+ *   So each file is checked against the manifest's size and digest.
+ *
+ * - **Absence.** A missing pack file is never legitimate. Treating a 404
+ *   as "no data here" would mark a broken pack complete.
+ *
+ * - **Atomicity.** A pack is only usable whole, so it is assembled in a
+ *   `.partial` directory and renamed. A reader sees a complete pack or
+ *   no pack.
+ */
+class PackDownloader(
+    private val root: File,
+    /**
+     * Where to fetch packs from, resolved per download rather than held.
+     *
+     * A function and not a string because the answer can change between
+     * two downloads in one session: it is a setting, and the reason to
+     * change it — the configured host is not serving — is only ever
+     * discovered by a download failing. Reading it once at construction
+     * would mean the fix took a restart to apply.
+     */
+    private val source: suspend () -> String,
+    private val fetch: suspend (url: String, into: File) -> FetchResult,
+) {
+
+    sealed interface FetchResult {
+        data class Ok(val bytes: Long) : FetchResult
+        /** The server is still cutting this region — retry the same URL. */
+        data class Building(val retryAfterSeconds: Int) : FetchResult
+        /** `404`. Distinct from [Failed] — see [Outcome.Unsupported]. */
+        data object NotFound : FetchResult
+        /**
+         * `400`. The server will not build a pack this big.
+         *
+         * [download] checks the same rule before asking, so in a matched
+         * pair this never arrives. It exists for the pair that is not
+         * matched: the app and the tileserver ship separately, and a
+         * server that tightens its cap must not turn every oversized
+         * region into a failed map download on the phones already out
+         * there. Same reasoning as [Outcome.Unsupported], different
+         * cause.
+         */
+        data object TooLarge : FetchResult
+        data class Failed(val reason: String) : FetchResult
+    }
+
+    sealed interface Outcome {
+        data class Done(val key: String, val dir: File, val bytes: Long) : Outcome
+
+        /**
+         * This server does not serve routing packs.
+         *
+         * A deployment state, not a broken download, and the difference
+         * matters more than it looks. The app and the tileserver ship
+         * separately: whichever order they land in, there is a window
+         * where an app that asks for packs meets a server that has never
+         * heard of them. Treating that as a failure would break offline
+         * map downloads — a feature that works today — for everyone in
+         * that window.
+         *
+         * So the region completes without one. Routing keeps using the
+         * network, exactly as before, and the next download after the
+         * server ships gets a pack.
+         *
+         * Only a missing MANIFEST means this. A file missing *after* the
+         * manifest listed it is a real failure: that server does serve
+         * packs, and this one is broken.
+         */
+        data object Unsupported : Outcome
+
+        /**
+         * The region is too big for one routing pack.
+         *
+         * Like [Unsupported] and unlike [Failed], this must not fail the
+         * region: the map tiles are downloadable and the user asked for
+         * them. What they do not get is offline routing, and the dialog
+         * says so before they commit — `RoutingPack.fitsOnePack` gates
+         * the same rule at estimate time, so reaching this outcome means
+         * either an unmatched app/server pair or a region that grew
+         * between the estimate and the download.
+         *
+         * The map cap and the pack cap are genuinely different sizes: a
+         * tile pyramid degrades gracefully as it grows and a pack does
+         * not, because a pack is one file set built in one request.
+         */
+        data class TooLarge(val areaSqKm: Double) : Outcome
+
+        data class Failed(val reason: String) : Outcome
+    }
+
+    /** One file's expected size and digest, from the manifest. */
+    private data class Expected(val name: String, val bytes: Long, val sha256: String)
+
+    /**
+     * Download the pack covering [bounds], reporting bytes as they land.
+     *
+     * [onProgress] receives (bytesSoFar, bytesTotal); the total is only
+     * known after the manifest, which is why the manifest is fetched
+     * first and separately.
+     */
+    suspend fun download(
+        bounds: GeoBounds,
+        onProgress: (Long, Long) -> Unit = { _, _ -> },
+        waitForBuild: suspend (seconds: Int) -> Unit = {},
+    ): Outcome {
+        val key = RoutingPack.keyFor(bounds)
+        val done = File(root, key)
+        if (File(done, RoutingPack.MANIFEST).isFile) {
+            return Outcome.Done(key, done, done.walkTopDown().filter { it.isFile }.sumOf { it.length() })
+        }
+
+        // Before the network, not after. The server refuses a region
+        // past its cap with a 400, and learning that from a response is
+        // a wasted round trip and a worse error: by then the download is
+        // underway and the only honest thing left to report is failure.
+        if (!RoutingPack.fitsOnePack(bounds)) {
+            return Outcome.TooLarge(RoutingPack.areaSqKm(bounds))
+        }
+
+        val partial = File(root, "$key.partial")
+        partial.deleteRecursively()
+        if (!partial.mkdirs()) return Outcome.Failed("Couldn't create $partial")
+
+        // Read once, not per file. The setting can change while a pack
+        // is in flight, and a pack assembled half from one host and half
+        // from another is a pack whose manifest describes neither.
+        val src = source()
+
+        // The manifest first: it is what triggers the server-side build,
+        // and it carries the file list this download is driven from. A
+        // hard-coded list here would silently skip a file a future pack
+        // format adds.
+        val manifestFile = File(partial, RoutingPack.MANIFEST)
+        val manifestUrl = RoutingPack.urlFor(src, key, RoutingPack.MANIFEST)
+        when (val r = fetchWithBuildWait(manifestUrl, manifestFile, waitForBuild)) {
+            is FetchResult.Ok -> Unit
+            is FetchResult.NotFound -> {
+                partial.deleteRecursively()
+                return Outcome.Unsupported
+            }
+            // Only reachable against a server whose cap is tighter than
+            // this app's copy of it. Reported as the region being too
+            // big rather than broken, which is what it is.
+            is FetchResult.TooLarge -> {
+                partial.deleteRecursively()
+                return Outcome.TooLarge(RoutingPack.areaSqKm(bounds))
+            }
+            is FetchResult.Building -> {
+                partial.deleteRecursively()
+                return Outcome.Failed("The map server is still preparing this area.")
+            }
+            is FetchResult.Failed -> {
+                partial.deleteRecursively()
+                return Outcome.Failed(r.reason)
+            }
+        }
+
+        val expected = parseManifest(manifestFile.readText())
+        if (expected.isEmpty()) {
+            partial.deleteRecursively()
+            return Outcome.Failed("The routing pack's manifest listed no files.")
+        }
+
+        val total = expected.sumOf { it.bytes }
+        var soFar = 0L
+        for (f in expected) {
+            val target = File(partial, f.name)
+            when (val r = fetchWithBuildWait(RoutingPack.urlFor(src, key, f.name), target, waitForBuild)) {
+                is FetchResult.Ok -> Unit
+                // The manifest listed this file, so the server does serve
+                // packs and this one is incomplete. A real failure, unlike
+                // a missing manifest.
+                is FetchResult.NotFound -> {
+                    partial.deleteRecursively()
+                    return Outcome.Failed("${f.name} is missing from the routing pack.")
+                }
+                // The manifest was served, so the cap was not the
+                // problem for this key; a 400 on a file it listed is the
+                // server contradicting itself.
+                is FetchResult.TooLarge -> {
+                    partial.deleteRecursively()
+                    return Outcome.Failed("The map server refused ${f.name} after listing it.")
+                }
+                is FetchResult.Building -> {
+                    partial.deleteRecursively()
+                    return Outcome.Failed("The map server is still preparing this area.")
+                }
+                is FetchResult.Failed -> {
+                    partial.deleteRecursively()
+                    return Outcome.Failed(r.reason)
+                }
+            }
+            verify(target, f)?.let {
+                partial.deleteRecursively()
+                return Outcome.Failed(it)
+            }
+            soFar += f.bytes
+            onProgress(soFar, total)
+        }
+
+        done.deleteRecursively()
+        if (!partial.renameTo(done)) {
+            partial.deleteRecursively()
+            return Outcome.Failed("Couldn't finish the routing pack.")
+        }
+        return Outcome.Done(key, done, total)
+    }
+
+    /** Delete the pack covering [bounds], if this app downloaded one. */
+    fun delete(bounds: GeoBounds) {
+        File(root, RoutingPack.keyFor(bounds)).deleteRecursively()
+    }
+
+    /**
+     * Retry through a `202 Building`.
+     *
+     * The server cuts a region on first request; for a large one that
+     * outlives the request window and it answers "come back". Bounded
+     * retries rather than a loop: a server that is always building is a
+     * server that is broken, and a client that waits forever hides it.
+     */
+    private suspend fun fetchWithBuildWait(
+        url: String,
+        into: File,
+        waitForBuild: suspend (Int) -> Unit,
+    ): FetchResult {
+        var result = fetch(url, into)
+        var attempts = 0
+        while (result is FetchResult.Building && attempts < BUILD_RETRIES) {
+            waitForBuild(result.retryAfterSeconds)
+            attempts++
+            result = fetch(url, into)
+        }
+        return result
+    }
+
+    /**
+     * Size and digest, in that order.
+     *
+     * Size first because it is free and catches the common case — a
+     * truncated download — with a message naming the number that is
+     * wrong. The digest then catches corruption a length check cannot
+     * see, which is what a CDN in the path makes possible.
+     */
+    private fun verify(file: File, expected: Expected): String? {
+        if (!file.isFile) return "${expected.name} is missing from the routing pack."
+        if (file.length() != expected.bytes) {
+            return "${expected.name} arrived truncated (${file.length()} of ${expected.bytes} bytes)."
+        }
+        if (expected.sha256.isNotEmpty() && sha256(file) != expected.sha256) {
+            return "${expected.name} arrived corrupt."
+        }
+        return null
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buf = ByteArray(1 shl 16)
+            while (true) {
+                val n = input.read(buf)
+                if (n <= 0) break
+                digest.update(buf, 0, n)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * Pull `[[pack.files]]` entries out of the manifest.
+     *
+     * A hand-rolled reader rather than a TOML dependency, because this
+     * reads three keys from a file this repo also writes, in a format
+     * the writer pins with a round-trip test. Anything unexpected yields
+     * no entries, which fails the download loudly — the failure mode a
+     * lenient parser would turn into a pack with a file missing.
+     */
+    private fun parseManifest(text: String): List<Expected> {
+        val out = mutableListOf<Expected>()
+        var name: String? = null
+        var bytes: Long? = null
+        var sha: String? = null
+
+        fun flush() {
+            val n = name
+            val b = bytes
+            if (n != null && b != null) out += Expected(n, b, sha.orEmpty())
+            name = null; bytes = null; sha = null
+        }
+
+        for (raw in text.lineSequence()) {
+            val line = raw.substringBefore('#').trim()
+            when {
+                line == "[[pack.files]]" -> flush()
+                line.startsWith("name") -> name = line.substringAfter('=').trim().trim('"')
+                line.startsWith("bytes") -> bytes = line.substringAfter('=').trim().toLongOrNull()
+                line.startsWith("sha256") -> sha = line.substringAfter('=').trim().trim('"')
+            }
+        }
+        flush()
+        return out
+    }
+
+    private companion object {
+        const val BUILD_RETRIES = 12
+    }
+}

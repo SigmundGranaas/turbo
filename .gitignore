@@ -41,3 +41,10 @@ infra/compose/data/
 /web/
 /build/
 /apps/flutter/
+
+# Local routing test data: Kartverket downloads (N50, DTM10) and the
+# primitive artifacts built from them. Multi-GB and fully reproducible
+# from the recipe in
+# docs/architecture/2026-07-routing-engine-experiment-results.md.
+/.data/
+__pycache__/

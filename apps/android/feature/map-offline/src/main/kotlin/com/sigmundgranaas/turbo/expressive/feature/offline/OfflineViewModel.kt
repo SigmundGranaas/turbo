@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
+import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
 import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
 import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -34,7 +36,23 @@ import kotlin.math.floor
 class OfflineViewModel @Inject constructor(
     private val manager: OfflineTileManager,
     private val reverseGeocode: ReverseGeocodeRepository,
+    settings: SettingsRepository,
 ) : ViewModel() {
+
+    /**
+     * Whether this phone will cut a routing pack itself when the server
+     * has none.
+     *
+     * The download dialog needs it because the two cases cost wildly
+     * different amounts of the user's time for the same button: a served
+     * pack is a few megabytes alongside the tiles, and a device build is
+     * several minutes against Kartverket. The size estimate is the same
+     * either way, so nothing else in that dialog can tell them apart.
+     */
+    val buildsPacksOnDevice: StateFlow<Boolean> =
+        settings.settings
+            .map { it.buildPacksOnDevice }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /** Regions staged for deletion: hidden from the list while the undo snackbar runs. */
     private val staged = MutableStateFlow<Set<Long>>(emptySet())

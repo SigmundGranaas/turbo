@@ -26,6 +26,16 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Hiking
+import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.TextButton
+import com.sigmundgranaas.turbo.expressive.domain.RouteEngine
+import com.sigmundgranaas.turbo.expressive.domain.RoutingPack
+import com.sigmundgranaas.turbo.expressive.domain.RouteSolveRecord
+import com.sigmundgranaas.turbo.expressive.domain.RouteSolveStats
+import com.sigmundgranaas.turbo.expressive.domain.DistanceBucket
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MyLocation
@@ -39,6 +49,7 @@ import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +59,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -266,6 +280,83 @@ fun SettingsScreen(
                     trailing = { Switch(settings.experimentalClouds, { haptics.toggle(it); viewModel.setExperimentalClouds(it) }, modifier = Modifier.testTag("experimentalClouds")) },
                 )
             }
+            // Routing engine + the last few solves.
+            //
+            // In the shipped build, not behind a debug flag, because the
+            // question it answers can only be answered here: whether the
+            // phone can route is a property of the RELEASE APK on real
+            // silicon — R8 has run, the ABI split has happened, the .so
+            // is the one that was published — and a debug build proves
+            // none of it. Left in Settings, under a plain warning, at the
+            // bottom, where a curious user finding it costs them a slower
+            // route and nothing else.
+            SettingsGroup {
+                ListRowItem(
+                    Icons.Rounded.Route, stringResource(R.string.settings_routing),
+                    subtitle = stringResource(R.string.settings_routing_sub),
+                )
+                RouteEnginePicker(
+                    selected = settings.routeEngine,
+                    onSelect = { haptics.toggle(true); viewModel.setRouteEngine(it) },
+                )
+                // Where packs come from. Editable because the host that
+                // cuts them is the one part of the stack that can be down
+                // for weeks, and the published APK is the only build the
+                // on-device measurement is valid on — so it has to be
+                // re-pointable without cutting a new release.
+                HorizontalDivider(color = cs.outlineVariant)
+                var packSource by remember(settings.packSourceUrl) {
+                    mutableStateOf(settings.packSourceUrl.orEmpty())
+                }
+                OutlinedTextField(
+                    value = packSource,
+                    onValueChange = { packSource = it },
+                    label = { Text(stringResource(R.string.settings_routing_pack_source)) },
+                    placeholder = { Text(RoutingPack.DEFAULT_SOURCE) },
+                    supportingText = { Text(stringResource(R.string.settings_routing_pack_source_hint)) },
+                    singleLine = true,
+                    trailingIcon = {
+                        TextButton(
+                            onClick = { viewModel.setPackSourceUrl(packSource) },
+                            enabled = packSource != settings.packSourceUrl.orEmpty(),
+                            modifier = Modifier.testTag("packSourceSave"),
+                        ) { Text(stringResource(R.string.settings_routing_pack_source_save)) }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("packSourceField"),
+                )
+                ListRowItem(
+                    Icons.Rounded.Info, stringResource(R.string.settings_routing_shadow),
+                    subtitle = stringResource(R.string.settings_routing_shadow_sub),
+                    trailing = {
+                        Switch(
+                            settings.routeShadowCompare,
+                            { haptics.toggle(it); viewModel.setRouteShadowCompare(it) },
+                            modifier = Modifier.testTag("routeShadowCompare"),
+                        )
+                    },
+                )
+                ListRowItem(
+                    Icons.Rounded.Info, stringResource(R.string.settings_routing_device_build),
+                    subtitle = stringResource(R.string.settings_routing_device_build_sub),
+                    trailing = {
+                        Switch(
+                            settings.buildPacksOnDevice,
+                            { haptics.toggle(it); viewModel.setBuildPacksOnDevice(it) },
+                            modifier = Modifier.testTag("buildPacksOnDevice"),
+                        )
+                    },
+                )
+                val solves by viewModel.routeSolves.collectAsStateWithLifecycle()
+                if (solves.isNotEmpty()) {
+                    HorizontalDivider(color = cs.outlineVariant)
+                    RouteSolveSummary(RouteSolveStats.from(solves))
+                    HorizontalDivider(color = cs.outlineVariant)
+                    RouteSolveList(solves, onClear = viewModel::clearRouteSolves)
+                }
+            }
             SettingsGroup {
                 ListRowItem(
                     Icons.Rounded.Info, stringResource(R.string.settings_about),
@@ -334,6 +425,109 @@ private fun GestureSlider(
     }
 }
 
+/**
+ * Which engine answers, as three exclusive choices.
+ *
+ * A segmented row rather than a switch because the third state is not
+ * "off": forcing the SERVER is how a tester gets a control measurement
+ * to compare a device time against, and a two-state control could not
+ * express it.
+ */
+/** Megabytes, one decimal. The pack is tens of MB; finer is noise. */
+private fun formatSize(bytes: Long): String = "%.0f MB".format(bytes / 1_000_000.0)
+
+@Composable
+private fun RouteEnginePicker(
+    selected: RouteEngine,
+    onSelect: (RouteEngine) -> Unit,
+) {
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        RouteEngine.entries.forEachIndexed { index, engine ->
+            SegmentedButton(
+                selected = selected == engine,
+                onClick = { onSelect(engine) },
+                shape = SegmentedButtonDefaults.itemShape(index, RouteEngine.entries.size),
+                modifier = Modifier.testTag("routeEngine_${engine.name}"),
+            ) {
+                Text(
+                    stringResource(
+                        when (engine) {
+                            RouteEngine.Auto -> R.string.settings_routing_auto
+                            RouteEngine.Device -> R.string.settings_routing_device
+                            RouteEngine.Server -> R.string.settings_routing_server
+                        },
+                    ),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The last few solves, newest first.
+ *
+ * Dense on purpose — this is a readout to copy down, not a dashboard.
+ * Engine, wall time, span and outcome are exactly the columns M1 needs
+ * and nothing else is shown, because every extra field is one more
+ * thing to keep true.
+ */
+@Composable
+private fun RouteSolveList(
+    solves: List<RouteSolveRecord>,
+    onClear: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).testTag("routeSolves")) {
+        solves.forEach { r ->
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    r.engine.name.lowercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = cs.primary,
+                    modifier = Modifier.width(56.dp),
+                )
+                Text(
+                    "%,d ms".format(r.durationMs),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.width(76.dp),
+                )
+                Text(
+                    "%.1f km · %d".format(r.spanKm, r.waypoints),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    when (r.outcome) {
+                        RouteSolveRecord.Outcome.Ok -> "ok"
+                        RouteSolveRecord.Outcome.NoRoute -> "no route"
+                        RouteSolveRecord.Outcome.Failed -> "failed"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (r.outcome == RouteSolveRecord.Outcome.Failed) cs.error else cs.onSurfaceVariant,
+                )
+            }
+            // The message is the whole value of a failed row: on a
+            // release APK this is where a stripped .so or a JNA
+            // reflection failure actually becomes readable.
+            if (r.outcome == RouteSolveRecord.Outcome.Failed && r.detail != null) {
+                Text(
+                    r.detail!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.error,
+                    modifier = Modifier.padding(start = 56.dp, bottom = 4.dp),
+                )
+            }
+        }
+        TextButton(onClick = onClear, modifier = Modifier.testTag("clearRouteSolves")) {
+            Text(stringResource(R.string.settings_routing_clear))
+        }
+    }
+}
+
 @Composable
 private fun SettingsGroup(content: @Composable () -> Unit) {
     val cs = MaterialTheme.colorScheme
@@ -342,4 +536,65 @@ private fun SettingsGroup(content: @Composable () -> Unit) {
             .clip(RoundedCornerShape(TurboRadius.xl)).background(cs.surfaceContainerHigh)
             .padding(horizontal = 18.dp, vertical = 4.dp),
     ) { content() }
+}
+
+/**
+ * The aggregate, above the raw rows.
+ *
+ * The list below it is the evidence; this is the conclusion. Both are
+ * shown because a rate over twenty solves is easy to misread — 50 %
+ * fallback sounds alarming until you see it is one solve out of two —
+ * so every rate carries its denominator rather than just a percentage.
+ */
+@Composable
+private fun RouteSolveSummary(stats: RouteSolveStats) {
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp).testTag("routeSolveSummary")) {
+        DistanceBucket.entries.forEach { bucket ->
+            val d = stats.devicePercentiles[bucket]
+            val s = stats.serverPercentiles[bucket]
+            if (d == null && s == null) return@forEach
+            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Text(
+                    bucket.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = cs.onSurfaceVariant,
+                    modifier = Modifier.width(72.dp),
+                )
+                Text(
+                    d?.let { "phone p95 %,d ms (n=%d)".format(it.p95Ms, it.n) } ?: "phone —",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    s?.let { "server %,d (n=%d)".format(it.p95Ms, it.n) } ?: "server —",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant,
+                )
+            }
+        }
+        Text(
+            "fallback %d/%d · coverage misses %.0f%% · failures %.0f%%".format(
+                (stats.fallbackRate * stats.fallbackEligible).toInt(),
+                stats.fallbackEligible,
+                stats.coverageMissRate * 100,
+                stats.failureRate * 100,
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = cs.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        if (stats.divergences.isNotEmpty()) {
+            Text(
+                "divergence worst %.0f m · %d over %.0f m (n=%d)".format(
+                    stats.worstDivergenceM,
+                    stats.significantDivergences,
+                    com.sigmundgranaas.turbo.expressive.domain.RouteDivergence.SIGNIFICANT_M,
+                    stats.divergences.size,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (stats.significantDivergences > 0) cs.error else cs.onSurfaceVariant,
+            )
+        }
+    }
 }

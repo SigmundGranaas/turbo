@@ -45,6 +45,11 @@ abstract class DataModule {
     abstract fun bindSettingsRepository(impl: DataStoreSettingsRepository): SettingsRepository
 
     @Binds
+    abstract fun bindPackSource(
+        impl: com.sigmundgranaas.turbo.expressive.core.data.SettingsPackSource,
+    ): com.sigmundgranaas.turbo.expressive.domain.PackSource
+
+    @Binds
     abstract fun bindPathRepository(impl: RoomPathRepository): PathRepository
 
     @Binds

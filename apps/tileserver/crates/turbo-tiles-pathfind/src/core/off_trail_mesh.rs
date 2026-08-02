@@ -7,7 +7,7 @@
 //! surface still speaks: the bbox, per-cell cost samples, and refused
 //! polygons that the SPA renders as overlays.
 
-/// 2D point in the mesh's projected CRS (EPSG:25833 metres).
+/// 2D point in the engine's planar frame (metres).
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub struct Point2 {
     pub x: f64,
@@ -23,7 +23,7 @@ impl Point2 {
 }
 
 /// Bbox in the SAME projected CRS as the mesh points (typically
-/// EPSG:25833 metres). The pure builder doesn't know about lon/lat
+/// planar metres). The pure builder doesn't know about geographic
 /// — that's the caller's transform.
 #[derive(Debug, Clone, Copy)]
 pub struct MeshBbox {
