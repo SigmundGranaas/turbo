@@ -21,6 +21,7 @@ use sha2::{Digest, Sha256};
 use turbo_tiles_artifacts::{PackFile, PackManifest, PackMeta, PACK_FORMAT_VERSION};
 
 use crate::BuildError;
+use crate::IoAt;
 
 /// How a pack was produced.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -47,7 +48,7 @@ pub struct Source {
 }
 
 fn digest(path: &Path) -> Result<(u64, String), BuildError> {
-    let bytes = std::fs::read(path)?;
+    let bytes = std::fs::read(path).at(path)?;
     let mut h = Sha256::new();
     h.update(&bytes);
     Ok((bytes.len() as u64, format!("{:x}", h.finalize())))
@@ -65,7 +66,7 @@ pub fn write_manifest(
     created_by: &str,
 ) -> Result<PathBuf, BuildError> {
     let mut files = Vec::new();
-    let mut names: Vec<String> = std::fs::read_dir(dir)?
+    let mut names: Vec<String> = std::fs::read_dir(dir).at(dir)?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().is_file())
         .map(|e| e.file_name().to_string_lossy().to_string())
@@ -104,7 +105,7 @@ pub fn write_manifest(
     let toml = toml::to_string_pretty(&manifest)
         .map_err(|e| BuildError::Logic(format!("serialise pack.toml: {e}")))?;
     let path = dir.join(PackManifest::FILENAME);
-    std::fs::write(&path, toml)?;
+    std::fs::write(&path, toml).at(&path)?;
     Ok(path)
 }
 
@@ -112,7 +113,7 @@ pub fn write_provenance(dir: &Path, p: &Provenance) -> Result<PathBuf, BuildErro
     let toml = toml::to_string_pretty(p)
         .map_err(|e| BuildError::Logic(format!("serialise provenance: {e}")))?;
     let path = dir.join("provenance.toml");
-    std::fs::write(&path, toml)?;
+    std::fs::write(&path, toml).at(&path)?;
     Ok(path)
 }
 

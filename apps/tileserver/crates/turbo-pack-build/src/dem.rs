@@ -23,6 +23,7 @@ use turbo_tiles_elev::{
 use crate::geotiff::Raster;
 use crate::wcs::{BoxUtm, RESOLUTION_M};
 use crate::BuildError;
+use crate::IoAt;
 
 /// Accumulates tiles into `norway.dem` as rasters arrive.
 pub struct DemWriter {
@@ -43,7 +44,7 @@ impl DemWriter {
     /// free (the file is rewritten to the true count); undershooting is
     /// not, so callers should round up.
     pub fn create(out_dir: &Path, expected_tiles: usize) -> Result<Self, BuildError> {
-        std::fs::create_dir_all(out_dir)?;
+        std::fs::create_dir_all(out_dir).at(out_dir)?;
         let out_path = out_dir.join(ArtifactKind::Dem.filename());
         let tmp_path = out_dir.join(format!("{}.tmp", ArtifactKind::Dem.filename()));
         let file = OpenOptions::new()
@@ -51,7 +52,8 @@ impl DemWriter {
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&tmp_path)?;
+            .open(&tmp_path)
+            .at(&tmp_path)?;
         let mut w = BufWriter::with_capacity(8 << 20, file);
 
         write_header(
@@ -201,7 +203,7 @@ impl DemWriter {
         file.sync_all()?;
         drop(file);
 
-        std::fs::rename(&self.tmp_path, &self.out_path)?;
+        std::fs::rename(&self.tmp_path, &self.out_path).at(&self.tmp_path)?;
         Ok(self.out_path)
     }
 }

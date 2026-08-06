@@ -4,6 +4,8 @@ import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.RoutingPack
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 import uniffi.turbo_route_ffi.BuildBounds
@@ -14,6 +16,7 @@ import uniffi.turbo_route_ffi.PackHttp
 import uniffi.turbo_route_ffi.RouteException
 import uniffi.turbo_route_ffi.buildPack
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -91,6 +94,48 @@ class DevicePackBuilder(
         onProgress: (BuildPhase, Float) -> Unit = { _, _ -> },
         isCancelled: () -> Boolean = { false },
     ): Outcome = withContext(io) {
+        val key = RoutingPack.keyFor(bounds)
+        val done = File(root, key)
+        if (File(done, RoutingPack.MANIFEST).isFile) {
+            return@withContext Outcome.Done(key, done, done.sizeOnDisk())
+        }
+        if (!RoutingPack.fitsOnePack(bounds)) {
+            return@withContext Outcome.TooLarge(RoutingPack.areaSqKm(bounds))
+        }
+
+        // One build per pack at a time, and the lock is not optional.
+        //
+        // Cancelling a download does not stop a build that is already
+        // running — `buildPack` is blocking native code, and the
+        // downloader's `cancel()` returns immediately. So a retry, a
+        // resume, or the network gate flipping back on starts a *second*
+        // build for the same region while the first is still inside the
+        // FFI. Both derive the same key, and the second one's
+        // `deleteRecursively()` below removes the directory the first is
+        // still writing into. The first then dies on its next file
+        // operation with a bare "No such file or directory (os error 2)"
+        // — which is what a user saw, and which names neither the file
+        // nor the cause.
+        //
+        // Waiting is the right behaviour rather than merely the safe
+        // one: the loser wakes up to find the pack already built and
+        // returns it, so the work is shared instead of repeated.
+        locks.computeIfAbsent(key) { Mutex() }.withLock {
+            if (File(done, RoutingPack.MANIFEST).isFile) {
+                Outcome.Done(key, done, done.sizeOnDisk())
+            } else {
+                buildInto(key, done, bounds, onProgress, isCancelled)
+            }
+        }
+    }
+
+    private suspend fun buildInto(
+        key: String,
+        done: File,
+        bounds: GeoBounds,
+        onProgress: (BuildPhase, Float) -> Unit,
+        isCancelled: () -> Boolean,
+    ): Outcome {
         // Cancelling the coroutine is not enough on its own. `buildPack`
         // is a blocking call into native code: cancellation cannot
         // interrupt it, it only takes effect when the call returns. A
@@ -102,14 +147,6 @@ class DevicePackBuilder(
         // host already had: returning false from the progress callback.
         val job = coroutineContext[kotlinx.coroutines.Job]
         val stop = { job?.isActive == false || isCancelled() }
-        val key = RoutingPack.keyFor(bounds)
-        val done = File(root, key)
-        if (File(done, RoutingPack.MANIFEST).isFile) {
-            return@withContext Outcome.Done(key, done, done.sizeOnDisk())
-        }
-        if (!RoutingPack.fitsOnePack(bounds)) {
-            return@withContext Outcome.TooLarge(RoutingPack.areaSqKm(bounds))
-        }
 
         val partial = File(root, "$key.partial")
         partial.deleteRecursively()
@@ -153,23 +190,33 @@ class DevicePackBuilder(
             // build has no other way to report that it stopped early —
             // so it is separated back out here rather than shown to the
             // user as a failure they might retry.
-            return@withContext if (stop()) {
+            return if (stop()) {
                 Outcome.Cancelled
             } else {
                 Outcome.Failed(e.message ?: e::class.java.simpleName)
             }
         } catch (e: Exception) {
             partial.deleteRecursively()
-            return@withContext Outcome.Failed(e.message ?: e::class.java.simpleName)
+            return Outcome.Failed(e.message ?: e::class.java.simpleName)
         }
 
         done.deleteRecursively()
         if (!partial.renameTo(done)) {
             partial.deleteRecursively()
-            return@withContext Outcome.Failed("could not move the finished pack into place")
+            return Outcome.Failed("could not move the finished pack into place")
         }
-        Outcome.Done(key, done, done.sizeOnDisk())
+        return Outcome.Done(key, done, done.sizeOnDisk())
     }
+
+    /**
+     * One [Mutex] per pack key, never removed.
+     *
+     * Bounded by the number of distinct regions a user downloads, and an
+     * unlocked Mutex is a few bytes — cheaper than the bookkeeping that
+     * removing them safely would need, which has to prove nobody is
+     * about to take the one being dropped.
+     */
+    private val locks = ConcurrentHashMap<String, Mutex>()
 
     private fun File.sizeOnDisk(): Long =
         walkTopDown().filter { it.isFile }.sumOf { it.length() }

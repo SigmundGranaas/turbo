@@ -26,6 +26,7 @@ use turbo_tiles_mask::{
 
 use crate::wcs::BoxUtm;
 use crate::BuildError;
+use crate::IoAt;
 
 /// The N50 feature types that become water.
 ///
@@ -100,7 +101,7 @@ impl MaskWriter {
 
     /// Pack to 2 bits per cell and write the artifact.
     pub fn finish(self, out_dir: &Path) -> Result<PathBuf, BuildError> {
-        std::fs::create_dir_all(out_dir)?;
+        std::fs::create_dir_all(out_dir).at(out_dir)?;
         let n_packed = packed_bytes(self.cells.len() as u64) as usize;
         let mut packed = vec![0u8; n_packed];
         for (i, &v) in self.cells.iter().enumerate() {
@@ -109,7 +110,7 @@ impl MaskWriter {
 
         let out_path = out_dir.join(ArtifactKind::Mask.filename());
         let tmp_path = out_dir.join(format!("{}.tmp", ArtifactKind::Mask.filename()));
-        let f = File::create(&tmp_path)?;
+        let f = File::create(&tmp_path).at(&tmp_path)?;
         let mut w = BufWriter::new(f);
         write_header(
             &mut w,
@@ -140,7 +141,7 @@ impl MaskWriter {
         w.write_all(&packed)?;
         w.flush()?;
         drop(w);
-        std::fs::rename(&tmp_path, &out_path)?;
+        std::fs::rename(&tmp_path, &out_path).at(&tmp_path)?;
         Ok(out_path)
     }
 }
