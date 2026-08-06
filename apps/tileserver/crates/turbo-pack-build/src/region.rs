@@ -11,6 +11,7 @@ use turbo_tiles_elev::Dem;
 use turbo_tiles_mask::RefusalKind;
 
 use crate::{gml, graph, mask, n50, pack, wcs, wfs, BuildError, Kommuner};
+use crate::IoAt;
 
 /// Progress across the whole build, so a caller can drive one bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,7 +55,7 @@ pub fn build_pack(
 ) -> Result<PackReport, BuildError> {
     let started = std::time::Instant::now();
     let mut report = PackReport::default();
-    std::fs::create_dir_all(out_dir)?;
+    std::fs::create_dir_all(out_dir).at(out_dir)?;
 
     let region = crate::region_box(extent[0], extent[1], extent[2], extent[3], halo_m);
 
@@ -248,7 +249,7 @@ pub fn build_pack(
     )?;
     on_progress(Phase::Manifest, 1, 1);
 
-    report.total_bytes = std::fs::read_dir(out_dir)?
+    report.total_bytes = std::fs::read_dir(out_dir).at(out_dir)?
         .filter_map(|e| e.ok())
         .filter_map(|e| e.metadata().ok())
         .map(|m| m.len())

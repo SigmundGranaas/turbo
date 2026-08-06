@@ -57,6 +57,18 @@ use std::path::PathBuf;
 pub enum BuildError {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    /// An IO failure that knows which file it was.
+    ///
+    /// A bare `ENOENT` names nothing — a user reported "No such file or
+    /// directory (os error 2)" from a device build and there was no way
+    /// to tell from the message whether it was the DEM, a rename, or the
+    /// output directory itself. Every operation that can plausibly fail
+    /// on a path that should exist carries it now.
+    #[error("io: {path}: {source}")]
+    IoAt {
+        path: String,
+        source: std::io::Error,
+    },
     /// A source service failed or answered something unusable.
     #[error("fetch: {0}")]
     Fetch(String),
@@ -68,6 +80,25 @@ pub enum BuildError {
     Decode(String),
     #[error("build: {0}")]
     Logic(String),
+}
+
+/// Attach the path to an IO result: `File::create(&p).at(&p)?`.
+///
+/// `std::io::Error` drops the path on the way out of `std::fs`, so a
+/// `?` on any of these produces an error naming an errno and nothing
+/// else. On a server that is merely annoying — you have the logs and
+/// the working directory. On a phone it is the whole diagnosis.
+pub(crate) trait IoAt<T> {
+    fn at(self, path: &std::path::Path) -> Result<T, BuildError>;
+}
+
+impl<T> IoAt<T> for Result<T, std::io::Error> {
+    fn at(self, path: &std::path::Path) -> Result<T, BuildError> {
+        self.map_err(|source| BuildError::IoAt {
+            path: path.display().to_string(),
+            source,
+        })
+    }
 }
 
 /// A [`fetch::Fetch`] backed by `reqwest`, for callers that want one.
@@ -163,7 +194,7 @@ pub fn build_dem(
     let tiles = writer.tiles_written;
     let nodata = writer.tiles_all_nodata;
     let dem_path = writer.finish()?;
-    let dem_bytes = std::fs::metadata(&dem_path)?.len();
+    let dem_bytes = std::fs::metadata(&dem_path).at(&dem_path)?.len();
 
     Ok(RegionReport {
         out_dir: out_dir.to_path_buf(),
@@ -300,5 +331,24 @@ mod tests {
         assert!(haloed.max_x >= plain.max_x + 990.0);
         assert!(haloed.min_y <= plain.min_y - 990.0);
         assert!(haloed.max_y >= plain.max_y + 990.0);
+    }
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    /// A bare errno is not a diagnosis.
+    ///
+    /// This is the message a user actually saw from a device build:
+    /// "No such file or directory (os error 2)", naming nothing. Anyone
+    /// reading it has to guess which of a dozen file operations it was.
+    #[test]
+    fn an_io_failure_names_the_file_it_was() {
+        let missing = std::path::Path::new("/nonexistent-dir/norway.dem");
+        let err: BuildError = std::fs::read(missing).at(missing).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("norway.dem"), "must name the file: {msg}");
+        assert!(msg.contains("No such file"), "and keep the cause: {msg}");
     }
 }

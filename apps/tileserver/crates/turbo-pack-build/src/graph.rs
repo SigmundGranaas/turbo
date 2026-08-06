@@ -28,6 +28,7 @@ use turbo_tiles_graph::{
 
 use crate::node::{node_endpoints, TOLERANCE_M};
 use crate::BuildError;
+use crate::IoAt;
 
 /// One input way: a polyline plus the classification the cost model reads.
 #[derive(Debug, Clone)]
@@ -64,7 +65,7 @@ pub fn build(
     dem: Option<&Dem>,
     out_dir: &Path,
 ) -> Result<(PathBuf, PathBuf, GraphReport), BuildError> {
-    std::fs::create_dir_all(out_dir)?;
+    std::fs::create_dir_all(out_dir).at(out_dir)?;
     let mut report = GraphReport {
         ways_in: ways.len(),
         ..Default::default()
@@ -202,7 +203,7 @@ pub fn build(
     let out_path = out_dir.join(ArtifactKind::Graph.filename());
     let tmp = out_dir.join(format!("{}.tmp", ArtifactKind::Graph.filename()));
     {
-        let mut w = BufWriter::with_capacity(4 << 20, File::create(&tmp)?);
+        let mut w = BufWriter::with_capacity(4 << 20, File::create(&tmp).at(&tmp)?);
         write_header(
             &mut w,
             &Header {
@@ -236,14 +237,14 @@ pub fn build(
         }
         w.flush()?;
     }
-    std::fs::rename(&tmp, &out_path)?;
-    report.graph_bytes = std::fs::metadata(&out_path)?.len();
+    std::fs::rename(&tmp, &out_path).at(&tmp)?;
+    report.graph_bytes = std::fs::metadata(&out_path).at(&out_path)?.len();
 
     // ---- norway.graph_geom ----
     let geom_path = out_dir.join(ArtifactKind::GraphGeom.filename());
     let geom_tmp = out_dir.join(format!("{}.tmp", ArtifactKind::GraphGeom.filename()));
     {
-        let mut w = BufWriter::with_capacity(4 << 20, File::create(&geom_tmp)?);
+        let mut w = BufWriter::with_capacity(4 << 20, File::create(&geom_tmp).at(&geom_tmp)?);
         let total: u32 = polylines.iter().map(|p| p.len() as u32).sum();
         write_header(
             &mut w,
@@ -276,8 +277,8 @@ pub fn build(
         }
         w.flush()?;
     }
-    std::fs::rename(&geom_tmp, &geom_path)?;
-    report.geom_bytes = std::fs::metadata(&geom_path)?.len();
+    std::fs::rename(&geom_tmp, &geom_path).at(&geom_tmp)?;
+    report.geom_bytes = std::fs::metadata(&geom_path).at(&geom_path)?.len();
 
     Ok((out_path, geom_path, report))
 }
