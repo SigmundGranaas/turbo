@@ -447,6 +447,9 @@ async fn build_region(
                 if done % 5 == 0 || done == total {
                     println!("  dem {done}/{total}");
                 }
+                // The CLI has no cancel: it runs to completion or the
+                // operator kills the process.
+                true
             },
         )
         .map_err(|e| anyhow::anyhow!("build-region failed: {e}"))?;
@@ -488,6 +491,7 @@ async fn build_region(
             if done == total || done % 5 == 0 {
                 println!("  {label} {done}/{total}");
             }
+            true
         },
     )
     .map_err(|e| anyhow::anyhow!("build-region failed: {e}"))?;
