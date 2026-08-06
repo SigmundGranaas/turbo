@@ -225,7 +225,11 @@ pub fn build_pack(
             2,
             |phase, done, total| {
                 if flag.load(Ordering::Relaxed) {
-                    return;
+                    // Already cancelled. Keep saying so — the build
+                    // reads this answer to decide whether to stop, and
+                    // returning true here would restart a build the user
+                    // has already dismissed.
+                    return false;
                 }
                 let p = match phase {
                     turbo_pack_build::region::Phase::Dem => BuildPhase::Terrain,
@@ -234,9 +238,11 @@ pub fn build_pack(
                     turbo_pack_build::region::Phase::Graph => BuildPhase::Trails,
                     turbo_pack_build::region::Phase::Manifest => BuildPhase::Finishing,
                 };
-                if !progress.on_progress(p, done as u32, total as u32) {
+                let keep_going = progress.on_progress(p, done as u32, total as u32);
+                if !keep_going {
                     flag.store(true, Ordering::Relaxed);
                 }
+                keep_going
             },
         )
     };

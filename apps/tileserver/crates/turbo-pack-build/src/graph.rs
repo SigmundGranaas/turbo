@@ -53,6 +53,11 @@ pub struct GraphReport {
     pub geom_bytes: u64,
 }
 
+/// How often the per-way loop reports. Every way would be a callback
+/// across the FFI per way, which on a big region is hundreds of
+/// thousands of them to move a bar by a pixel.
+const PROGRESS_STRIDE: usize = 256;
+
 /// Build both graph artifacts into `out_dir`.
 ///
 /// `dem` is optional and its absence is honest rather than fatal: with
@@ -60,10 +65,17 @@ pub struct GraphReport {
 /// back to distance. That is the same thing the server builder does when
 /// the DEM does not cover an edge, and it is better than guessing a
 /// climb that would move routes.
+///
+/// `on_progress` runs every [`PROGRESS_STRIDE`] ways and returning false
+/// from it stops the build. Both matter on a phone: this phase used to
+/// be a single blocking call between "0 of N" and "N of N", so the bar
+/// sat at one value for its whole duration and a hang looked exactly
+/// like slow terrain sampling.
 pub fn build(
     ways: &[Way],
     dem: Option<&Dem>,
     out_dir: &Path,
+    on_progress: &mut dyn FnMut(usize, usize) -> bool,
 ) -> Result<(PathBuf, PathBuf, GraphReport), BuildError> {
     std::fs::create_dir_all(out_dir).at(out_dir)?;
     let mut report = GraphReport {
@@ -112,6 +124,12 @@ pub fn build(
     let mut polylines: Vec<Vec<NodePos>> = Vec::with_capacity(usable.len() * 2);
 
     for (i, w) in usable.iter().enumerate() {
+        // This loop is the long pole of the phase: every vertex of every
+        // way is a DEM sample. It is also the only place the phase can
+        // be interrupted, so the two jobs share one check.
+        if i % PROGRESS_STRIDE == 0 && !on_progress(i, usable.len()) {
+            return Err(BuildError::Cancelled);
+        }
         let u = topo.node_of[i * 2];
         let v = topo.node_of[i * 2 + 1];
 
@@ -367,7 +385,7 @@ mod tests {
             way(vec![(0.0, 0.0), (100.0, 0.0)], 1),
             way(vec![(100.0, 0.0), (200.0, 50.0)], 1),
         ];
-        let (path, geom, report) = build(&ways, None, dir.path()).unwrap();
+        let (path, geom, report) = build(&ways, None, dir.path(), &mut |_, _| true).unwrap();
 
         assert_eq!(report.nodes, 3, "the shared endpoint should merge");
         assert_eq!(report.edges_directed, 4, "each way is a directed pair");
@@ -391,7 +409,7 @@ mod tests {
             way(vec![(100.0, 0.0), (200.0, 0.0)], 1),
             way(vec![(100.0, 0.0), (100.0, 100.0)], 1),
         ];
-        let (path, _, _) = build(&ways, None, dir.path()).unwrap();
+        let (path, _, _) = build(&ways, None, dir.path(), &mut |_, _| true).unwrap();
         let g = Graph::open(&path).unwrap();
         assert_eq!(g.meta().edge_count, 6);
 
@@ -418,7 +436,7 @@ mod tests {
             way(vec![(0.0, 0.0), (50.0, 40.0), (100.0, 0.0)], 1),
             way(vec![(100.0, 0.0), (150.0, -70.0), (200.0, 0.0)], 1),
         ];
-        let (path, geom, _) = build(&ways, None, dir.path()).unwrap();
+        let (path, geom, _) = build(&ways, None, dir.path(), &mut |_, _| true).unwrap();
         let mut g = Graph::open(&path).unwrap();
         g.attach_geom(&geom).unwrap();
         for e in 0..g.meta().edge_count {
@@ -441,17 +459,76 @@ mod tests {
             way(vec![(500.0, 500.0)], 1),
             way(vec![(600.0, 600.0), (600.2, 600.1)], 1),
         ];
-        let (path, _, report) = build(&ways, None, dir.path()).unwrap();
+        let (path, _, report) = build(&ways, None, dir.path(), &mut |_, _| true).unwrap();
         assert_eq!(report.ways_dropped_degenerate, 2);
         let g = Graph::open(&path).unwrap();
         assert_eq!(g.meta().edge_count, 2);
+    }
+
+    fn a_line_network(n: usize) -> Vec<Way> {
+        (0..n)
+            .map(|i| {
+                let x = i as f64 * 50.0;
+                way(vec![(x, 0.0), (x + 50.0, 0.0)], 1)
+            })
+            .collect()
+    }
+
+    /// The phase used to report only "0 of N" and "N of N", so a host bar
+    /// sat on the phase boundary for the whole graph build and a hang was
+    /// indistinguishable from slow terrain sampling. A user reported it
+    /// as "stuck at 85%" — 85% being exactly where this phase starts.
+    #[test]
+    fn the_graph_phase_reports_while_it_runs_not_only_at_its_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let ways = a_line_network(PROGRESS_STRIDE * 4);
+        let mut seen: Vec<usize> = Vec::new();
+        build(&ways, None, dir.path(), &mut |done, _| {
+            seen.push(done);
+            true
+        })
+        .unwrap();
+
+        let midway: Vec<usize> = seen
+            .iter()
+            .copied()
+            .filter(|&d| d > 0 && d < ways.len())
+            .collect();
+        assert!(
+            midway.len() >= 3,
+            "no progress between the ends of the phase: {seen:?}"
+        );
+    }
+
+    /// Cancellation has to stop the work, not just stop reporting it.
+    /// While `on_progress` returned nothing, a cancelled build ran to
+    /// completion — minutes of DEM sampling after the user hit pause, and
+    /// with a lock held per pack, a retry queued behind all of it.
+    #[test]
+    fn returning_false_from_progress_stops_the_build() {
+        let dir = tempfile::tempdir().unwrap();
+        let ways = a_line_network(PROGRESS_STRIDE * 8);
+        let mut calls = 0usize;
+        let err = build(&ways, None, dir.path(), &mut |_, _| {
+            calls += 1;
+            // Keep going for one stride, then withdraw.
+            calls < 2
+        })
+        .expect_err("a cancelled build must not report success");
+
+        assert!(matches!(err, BuildError::Cancelled), "got {err:?}");
+        assert_eq!(calls, 2, "the loop kept running past the refusal");
+        assert!(
+            !dir.path().join(ArtifactKind::Graph.filename()).exists(),
+            "a cancelled build left a graph artifact behind"
+        );
     }
 
     #[test]
     fn with_no_dem_the_cost_is_distance_only() {
         let dir = tempfile::tempdir().unwrap();
         let ways = vec![way(vec![(0.0, 0.0), (1000.0, 0.0)], 1)];
-        let (path, _, _) = build(&ways, None, dir.path()).unwrap();
+        let (path, _, _) = build(&ways, None, dir.path(), &mut |_, _| true).unwrap();
         let g = Graph::open(&path).unwrap();
         // Foot profile on a flat trail: cost == length.
         assert!(
