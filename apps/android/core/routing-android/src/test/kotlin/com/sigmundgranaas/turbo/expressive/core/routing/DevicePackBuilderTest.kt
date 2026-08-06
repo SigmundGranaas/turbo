@@ -4,7 +4,9 @@ import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.RoutingPack
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,6 +22,10 @@ import uniffi.turbo_route_ffi.PackBuildResult
 import uniffi.turbo_route_ffi.PackHttp
 import uniffi.turbo_route_ffi.RouteException
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The builder around the FFI call — not the build itself, which is
@@ -220,6 +226,69 @@ class DevicePackBuilderTest {
         testScheduler.advanceUntilIdle()
 
         assertEquals("the callback must say stop", false, keptGoing)
+    }
+
+    /**
+     * Two builds of the same region must not overlap.
+     *
+     * `buildPack` is blocking native code, so cancelling a download does
+     * not stop a build already inside it. A retry, a resume, or the
+     * network gate flipping back on therefore starts a second build
+     * while the first is still running — and both derive the same key,
+     * so the second one's `deleteRecursively()` removes the directory
+     * the first is writing into. The first then dies on its next file
+     * operation with a bare "No such file or directory (os error 2)".
+     *
+     * Real threads and latches, not a test dispatcher: the thing under
+     * test is mutual exclusion between two blocking calls, and a
+     * single-threaded scheduler cannot interleave them at all — a
+     * version of this test written that way passed against the bug.
+     */
+    @Test
+    fun a_second_build_of_the_same_region_waits_instead_of_deleting_the_first() = runBlocking {
+        val root = tmp.newFolder()
+        val inside = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val concurrent = AtomicInteger(0)
+        val overlapped = AtomicBoolean(false)
+        val vanished = AtomicBoolean(false)
+        val builds = AtomicInteger(0)
+        val b = DevicePackBuilder(
+            root = root,
+            http = NoHttp,
+            io = Dispatchers.IO,
+            build = { dir, _, _, _, _ ->
+                builds.incrementAndGet()
+                if (concurrent.incrementAndGet() > 1) overlapped.set(true)
+                File(dir).mkdirs()
+                File(dir, "norway.dem").writeText("terrain")
+                inside.countDown()
+                release.await(10, TimeUnit.SECONDS)
+                // Whoever else ran would have wiped this out from under us.
+                if (!File(dir, "norway.dem").isFile) vanished.set(true)
+                File(dir, RoutingPack.MANIFEST).writeText("[pack]\n")
+                concurrent.decrementAndGet()
+                result()
+            },
+        )
+
+        val first = launch(Dispatchers.IO) { b.build(bounds) }
+        assertTrue("the first build must get going", inside.await(10, TimeUnit.SECONDS))
+        val second = launch(Dispatchers.IO) { b.build(bounds) }
+        // Long enough for an unguarded second build to reach its
+        // deleteRecursively, which is the very first thing it does.
+        Thread.sleep(300)
+        release.countDown()
+        first.join()
+        second.join()
+
+        assertFalse("the two builds must not overlap", overlapped.get())
+        assertFalse("neither build may lose its working directory", vanished.get())
+        // The loser finds the pack already there and returns it.
+        assertEquals("built once, not twice", 1, builds.get())
+        val key = RoutingPack.keyFor(bounds)
+        assertTrue("the pack is in place", File(root, "$key/${RoutingPack.MANIFEST}").isFile)
+        assertFalse("no .partial left", File(root, "$key.partial").exists())
     }
 
     /**
