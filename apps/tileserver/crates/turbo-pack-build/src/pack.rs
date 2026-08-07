@@ -66,7 +66,8 @@ pub fn write_manifest(
     created_by: &str,
 ) -> Result<PathBuf, BuildError> {
     let mut files = Vec::new();
-    let mut names: Vec<String> = std::fs::read_dir(dir).at(dir)?
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .at(dir)?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().is_file())
         .map(|e| e.file_name().to_string_lossy().to_string())

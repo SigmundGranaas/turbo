@@ -10,8 +10,8 @@ use std::path::Path;
 use turbo_tiles_elev::Dem;
 use turbo_tiles_mask::RefusalKind;
 
-use crate::{gml, graph, mask, n50, pack, wcs, wfs, BuildError, Kommuner};
 use crate::IoAt;
+use crate::{gml, graph, mask, n50, pack, wcs, wfs, BuildError, Kommuner};
 
 /// Progress across the whole build, so a caller can drive one bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -281,7 +281,8 @@ pub fn build_pack(
     )?;
     progress!(Phase::Manifest, 1, 1);
 
-    report.total_bytes = std::fs::read_dir(out_dir).at(out_dir)?
+    report.total_bytes = std::fs::read_dir(out_dir)
+        .at(out_dir)?
         .filter_map(|e| e.ok())
         .filter_map(|e| e.metadata().ok())
         .map(|m| m.len())
