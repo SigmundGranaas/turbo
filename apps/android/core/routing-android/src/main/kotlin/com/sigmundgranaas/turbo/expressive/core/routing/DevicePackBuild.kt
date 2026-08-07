@@ -39,16 +39,18 @@ class DevicePackBuild(
             is DevicePackBuilder.Outcome.Done ->
                 WgpuOfflineTileManager.DeviceBuildResult.Done(r.bytes)
 
-            // Both of these are "no offline routing for this region",
-            // not "the download broke". Failing the region would take
-            // away the map tiles the user actually asked for, and in the
-            // TooLarge case the dialog already said routing was not
-            // included.
+            // "No offline routing for this region", not "the download
+            // broke". Failing the region would take away the map tiles
+            // the user actually asked for, and the dialog already said
+            // routing was not included for an area this size.
             is DevicePackBuilder.Outcome.TooLarge ->
                 WgpuOfflineTileManager.DeviceBuildResult.Disabled
 
+            // Not Disabled. Disabled means "carry on without routing",
+            // which for a build the user stopped would finish the region
+            // and mark it Complete — the opposite of what they asked for.
             DevicePackBuilder.Outcome.Cancelled ->
-                WgpuOfflineTileManager.DeviceBuildResult.Disabled
+                WgpuOfflineTileManager.DeviceBuildResult.Cancelled
 
             is DevicePackBuilder.Outcome.Failed ->
                 WgpuOfflineTileManager.DeviceBuildResult.Failed(r.reason)

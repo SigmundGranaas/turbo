@@ -87,8 +87,24 @@ class WgpuOfflineTileManager internal constructor(
     /** What a device-side build came back with. */
     sealed interface DeviceBuildResult {
         data class Done(val bytes: Long) : DeviceBuildResult
+
         /** Not attempted — the user has not turned device builds on. */
         data object Disabled : DeviceBuildResult
+
+        /**
+         * The user stopped it: paused, deleted, or the network policy
+         * withdrew.
+         *
+         * Distinct from [Disabled], which it used to be folded into.
+         * `Disabled` means "this region gets no routing, carry on", so a
+         * cancelled build read as permission to finish the region and
+         * mark it Complete without routing data. That it did not happen
+         * relied on the surrounding coroutine also being cancelled and
+         * throwing at the next suspension point — true today, but a
+         * property of the caller rather than anything stated here.
+         */
+        data object Cancelled : DeviceBuildResult
+
         data class Failed(val reason: String) : DeviceBuildResult
     }
 
@@ -205,9 +221,15 @@ class WgpuOfflineTileManager internal constructor(
         if (networkAllowed) startJob(id, spec) else markPaused(id)
     }
 
+    // Cancel, but leave the entry in `jobs`. A cancelled job is not a
+    // stopped job — it keeps running until it reaches a suspension
+    // point, and a device pack build has none for minutes. Dropping the
+    // reference here would leave a later `resume` or `retry` with
+    // nothing to join, which is the same double-start `startJob` exists
+    // to prevent. The job removes its own entry when it finally unwinds.
     override fun pause(id: Long) {
         userPaused += id
-        jobs.remove(id)?.cancel()
+        jobs[id]?.cancel()
         markPaused(id)
     }
 
@@ -232,7 +254,8 @@ class WgpuOfflineTileManager internal constructor(
             // heaviest part of a download.
             it.status == OfflineStatus.Downloading || it.status == OfflineStatus.Building
         }.forEach {
-            jobs.remove(it.id)?.cancel()
+            // Kept, not removed — see [pause].
+            jobs[it.id]?.cancel()
             markPaused(it.id)
         }
     }
@@ -249,7 +272,7 @@ class WgpuOfflineTileManager internal constructor(
     }
 
     override fun delete(id: Long) {
-        jobs.remove(id)?.cancel()
+        jobs[id]?.cancel()
         userPaused.remove(id)
         val spec = specs.remove(id)
         // One region, one delete. Leaving the pack behind would leave
@@ -274,10 +297,39 @@ class WgpuOfflineTileManager internal constructor(
 
     // ---- download orchestration -------------------------------------------------
 
+    /**
+     * Start (or restart) the job for one region.
+     *
+     * **The previous job is joined, not merely cancelled.** `Job.cancel()`
+     * requests cancellation and returns; the coroutine keeps running until
+     * it reaches a suspension point, and a device pack build has none for
+     * minutes at a time — it is a blocking call into native code. Every
+     * caller here can fire while a job is live: [retry], [resume],
+     * [add], and [resumeNetworkPaused], which runs on its own when Wi-Fi
+     * comes back. Launching without joining therefore ran two jobs for the
+     * same region at once, both writing the same tile files and the same
+     * pack directory.
+     *
+     * That race is where three separate user-visible failures came from:
+     * a build whose working directory was deleted by its own replacement,
+     * a cancelled build that kept running while reporting nothing, and a
+     * retry queued behind it. Joining removes the class rather than the
+     * symptoms.
+     */
     private fun startJob(id: Long, spec: DownloadSpec) {
-        jobs.remove(id)?.cancel()
-        update(id) { it.copy(status = OfflineStatus.Downloading, errorReason = null) }
+        val previous = jobs.remove(id)
+        previous?.cancel()
         jobs[id] = scope.launch {
+            // Inside the new job, so the caller is not blocked: `startJob`
+            // is called from the UI thread. The wait is bounded by how
+            // long the old job takes to notice — for a pack build, by the
+            // request it is in the middle of.
+            previous?.join()
+            // After the join, never before: the job being replaced marks
+            // the region Paused on its way out, and setting Downloading
+            // first would let that land afterwards and leave a running
+            // download presenting as paused.
+            update(id) { it.copy(status = OfflineStatus.Downloading, errorReason = null) }
             try {
                 runDownload(id, spec)
             } catch (c: CancellationException) {
@@ -339,6 +391,16 @@ class WgpuOfflineTileManager internal constructor(
                     when (val b = buildOnDevice(id, spec, packShare)) {
                         is DeviceBuildResult.Done -> packBytes = b.bytes
                         DeviceBuildResult.Disabled -> Unit
+                        // Stop the whole region, do not carry on into the
+                        // tiles. The user asked for this to stop, and
+                        // finishing the download would mark it Complete —
+                        // a region that browses but cannot route, which
+                        // they have no way to see and no way to repair
+                        // short of deleting and starting again.
+                        DeviceBuildResult.Cancelled -> {
+                            markPaused(id)
+                            return
+                        }
                         // A build the user explicitly asked for and did
                         // not get is worth failing the region over —
                         // unlike the server having no packs, this is not

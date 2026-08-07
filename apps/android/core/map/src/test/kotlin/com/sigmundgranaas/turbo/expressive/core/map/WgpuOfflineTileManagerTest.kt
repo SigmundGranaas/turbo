@@ -204,4 +204,95 @@ class WgpuOfflineTileManagerTest {
         val tiles = TileMath.tilesFor(bounds, 12.0, 13.0)
         assertTrue("tiles are freed", tiles.none { store.exists("norgeskart", it.z, it.x, it.y) })
     }
+
+    /**
+     * The one that would have caught three separate bugs.
+     *
+     * `Job.cancel()` returns before the coroutine stops, and a device
+     * pack build has no suspension point for minutes — it is a blocking
+     * call into native code. So `pause` followed by `resume` (or a retry,
+     * or Wi-Fi returning) used to launch a second job for the region
+     * while the first was still running: two builds on one directory, the
+     * second deleting the first's working files, the first dying on a
+     * bare ENOENT.
+     *
+     * The build seam here parks under [NonCancellable] precisely because
+     * that is what the real one does — cancelling it changes nothing
+     * until it returns on its own. A test whose fake build stops politely
+     * on cancellation would pass against the bug.
+     */
+    @Test
+    fun `restarting a region waits for the job it replaces instead of running two`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val cache = tmp.newFolder("cache")
+            val meta = tmp.newFolder("meta")
+
+            val inside = java.util.concurrent.atomic.AtomicInteger(0)
+            val mostAtOnce = java.util.concurrent.atomic.AtomicInteger(0)
+            val firstIsIn = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+
+            val mgr = WgpuOfflineTileManager(
+                tileStore = TileStore(cache),
+                store = OfflineRegionStore(meta),
+                serviceLauncher = OfflineServiceLauncher {},
+                fetcher = { FetchOutcome.Data(ByteArray(8)) },
+                laneProvider = oneLane,
+                scope = this,
+                now = { 1_000L },
+                // 404 on the manifest is what "this server has no pack
+                // for that region" looks like, and it is the branch that
+                // hands over to the device build.
+                packs = PackDownloader(
+                    root = tmp.newFolder("packs"),
+                    source = { "https://example/packs" },
+                    fetch = { _, _ -> PackDownloader.FetchResult.NotFound },
+                ),
+                deviceBuild = { _, _ ->
+                    val n = inside.incrementAndGet()
+                    mostAtOnce.updateAndGet { maxOf(it, n) }
+                    firstIsIn.complete(Unit)
+                    try {
+                        // Blocking native code: cancellation does not
+                        // reach in here, it only takes effect on return.
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                            release.await()
+                        }
+                        WgpuOfflineTileManager.DeviceBuildResult.Done(1L)
+                    } finally {
+                        inside.decrementAndGet()
+                    }
+                },
+            )
+
+            // Released in a finally, and asserted only afterwards. A
+            // build parked under NonCancellable keeps `runTest` from
+            // completing, so asserting while one is held turns a failure
+            // into a hang — which is what this test did on its first
+            // draft, and a guard that hangs instead of failing tells
+            // whoever hits it nothing.
+            val peakWhileFirstWasHeld: Int
+            try {
+                mgr.download(spec())
+                firstIsIn.await()
+                val id = mgr.regions.value.single().id
+
+                // The user pauses and immediately resumes, while the
+                // first build is still inside the FFI and unstoppable.
+                mgr.pause(id)
+                mgr.resume(id)
+                advanceUntilIdle()
+                peakWhileFirstWasHeld = mostAtOnce.get()
+            } finally {
+                release.complete(Unit)
+                advanceUntilIdle()
+            }
+
+            assertEquals(
+                "a second build ran while the first was still inside the FFI",
+                1,
+                peakWhileFirstWasHeld,
+            )
+            assertEquals("builds overlapped at some point", 1, mostAtOnce.get())
+        }
 }
