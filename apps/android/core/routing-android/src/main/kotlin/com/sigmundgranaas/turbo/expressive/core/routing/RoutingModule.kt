@@ -47,12 +47,15 @@ object RoutingModule {
      */
     @Provides
     @Singleton
-    fun provideDevicePackBuilder(@ApplicationContext context: Context): DevicePackBuilder =
+    fun provideDevicePackBuilder(
+        @ApplicationContext context: Context,
+        // The shared client. This used to construct `OkHttpClient()`
+        // right here, under a comment claiming it did the opposite.
+        http: OkHttpClient,
+    ): DevicePackBuilder =
         DevicePackBuilder(
             root = File(context.filesDir, RoutingPack.DIR),
-            // The app's client, not a second one — see OkHttpPackHttp
-            // for what a second one costs.
-            http = OkHttpPackHttp(OkHttpClient()),
+            newHttp = { OkHttpPackHttp(http) },
         )
 
     @Provides

@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.core.routing
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.RoutingPack
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -43,7 +44,18 @@ import kotlin.coroutines.cancellation.CancellationException
  */
 class DevicePackBuilder(
     private val root: File,
-    private val http: PackHttp,
+    /**
+     * A fresh HTTP instance per build, not one shared between them.
+     *
+     * Cancelling a build cancels its in-flight requests (see
+     * [AbortableHttp]), and two regions can be cut at the same time —
+     * they take different locks. One shared instance would mean stopping
+     * one region aborted the other's downloads as well.
+     *
+     * Cheap: the real one wraps the app's client with `newBuilder`, so
+     * the pool and dispatcher are shared even though the tracker is not.
+     */
+    private val newHttp: () -> PackHttp,
     private val io: CoroutineDispatcher = Dispatchers.IO,
     /**
      * Seam for tests. The real one is minutes of network against live
@@ -62,8 +74,43 @@ class DevicePackBuilder(
         },
 ) {
 
+    /**
+     * What the build actually produced.
+     *
+     * The FFI has always returned this — node and edge counts, how many
+     * trails and roads went in, how long it took — and it was dropped on
+     * the floor, while the caller re-walked the directory to recover a
+     * byte count the same value already carried. It is the only view
+     * anyone has of a build that runs on a phone for minutes.
+     */
+    data class Stats(
+        val nodes: UInt,
+        val edges: UInt,
+        val trails: UInt,
+        val roads: UInt,
+        val demTiles: ULong,
+        val refusedCells: ULong,
+        val seconds: Double,
+    ) {
+        constructor(r: PackBuildResult) : this(
+            nodes = r.nodes,
+            edges = r.edges,
+            trails = r.trails,
+            roads = r.roads,
+            demTiles = r.demTiles,
+            refusedCells = r.refusedCells,
+            seconds = r.seconds,
+        )
+    }
+
     sealed interface Outcome {
-        data class Done(val key: String, val dir: File, val bytes: Long) : Outcome
+        data class Done(
+            val key: String,
+            val dir: File,
+            val bytes: Long,
+            /** Null when the pack was already on disk and nothing was built. */
+            val stats: Stats? = null,
+        ) : Outcome
 
         /** The user backed out. Nothing was left on disk. */
         data object Cancelled : Outcome
@@ -136,6 +183,40 @@ class DevicePackBuilder(
         onProgress: (BuildPhase, Float) -> Unit,
         isCancelled: () -> Boolean,
     ): Outcome {
+        val http = newHttp()
+        return kotlinx.coroutines.coroutineScope {
+            // Cancellation reaches the build at its next unit-of-work
+            // boundary, and a unit of work is an HTTP request that this
+            // client will wait minutes for. Blocked on a socket, the
+            // build would not see the stop until the request timed out.
+            //
+            // This watcher runs on another thread — the build thread is
+            // inside native code and yields to nobody — and cancels the
+            // requests, which turns a five-minute wait into an error the
+            // builder surfaces immediately.
+            val watcher = launch(Dispatchers.Default) {
+                try {
+                    kotlinx.coroutines.awaitCancellation()
+                } finally {
+                    (http as? AbortableHttp)?.abortInFlight()
+                }
+            }
+            try {
+                runBuild(key, done, bounds, onProgress, isCancelled, http)
+            } finally {
+                watcher.cancel()
+            }
+        }
+    }
+
+    private suspend fun runBuild(
+        key: String,
+        done: File,
+        bounds: GeoBounds,
+        onProgress: (BuildPhase, Float) -> Unit,
+        isCancelled: () -> Boolean,
+        http: PackHttp,
+    ): Outcome {
         // Cancelling the coroutine is not enough on its own. `buildPack`
         // is a blocking call into native code: cancellation cannot
         // interrupt it, it only takes effect when the call returns. A
@@ -164,7 +245,7 @@ class DevicePackBuilder(
             }
         }
 
-        try {
+        val report = try {
             build(
                 partial.absolutePath,
                 BuildBounds(
@@ -205,7 +286,9 @@ class DevicePackBuilder(
             partial.deleteRecursively()
             return Outcome.Failed("could not move the finished pack into place")
         }
-        return Outcome.Done(key, done, done.sizeOnDisk())
+        // The builder already counted the bytes it wrote, so take its
+        // figure rather than walking the tree again to recompute one.
+        return Outcome.Done(key, done, report.totalBytes.toLong(), Stats(report))
     }
 
     /**

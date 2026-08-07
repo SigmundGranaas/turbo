@@ -114,18 +114,22 @@ class WgpuOfflineTileManager internal constructor(
         serviceLauncher: OfflineServiceLauncher,
         packSource: com.sigmundgranaas.turbo.expressive.domain.PackSource,
         devicePacks: DevicePackBuild,
+        // Shared, not built here. Tiles and packs are fetched from the
+        // same hosts, and two clients meant two pools and no reused
+        // sockets between the lanes of a single download.
+        http: OkHttpClient,
     ) : this(
         tileStore = TileStore(File(context.cacheDir, TURBOMAP_TILE_DIR)),
         store = OfflineRegionStore(File(context.filesDir, REGION_META_DIR)),
         serviceLauncher = serviceLauncher,
-        fetcher = okHttpFetcher(defaultHttp()),
+        fetcher = okHttpFetcher(tileClient(http)),
         laneProvider = ::defaultLanes,
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
         now = System::currentTimeMillis,
         packs = PackDownloader(
             root = File(context.filesDir, RoutingPack.DIR),
             source = packSource::current,
-            fetch = okHttpPackFetcher(defaultHttp()),
+            fetch = okHttpPackFetcher(tileClient(http)),
         ),
         deviceBuild = devicePacks::build,
     )
@@ -705,7 +709,15 @@ class WgpuOfflineTileManager internal constructor(
             }
         }
 
-        private fun defaultHttp(): OkHttpClient = OkHttpClient.Builder()
+        /**
+         * The shared client with tile-sized patience.
+         *
+         * `newBuilder` keeps the pool, dispatcher and any interceptors —
+         * this is the same client with different timeouts, not a second
+         * one. Ten seconds is right for a tile and wrong for anything
+         * large, which is why the pack builder sets its own.
+         */
+        private fun tileClient(base: OkHttpClient): OkHttpClient = base.newBuilder()
             .connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
             .readTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
             .build()

@@ -8,6 +8,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.StateFlow
+import okhttp3.OkHttpClient
 import javax.inject.Singleton
 
 /**
@@ -58,4 +59,22 @@ object OfflineModule {
     @Provides
     @Singleton
     fun provideNetworkMonitor(impl: AndroidNetworkMonitor): NetworkMonitor = impl
+
+    /**
+     * One OkHttp client for everything that fetches map or pack data.
+     *
+     * There was no shared client before this, only the phrase "the app's
+     * client" in comments describing one that did not exist: the tile
+     * fetcher built one, the pack fetcher built a second, and the device
+     * pack builder a third. Each carries its own connection pool, thread
+     * pool and idle connections, and none of them share a socket to a
+     * host all three talk to.
+     *
+     * Timeouts stay per-caller — a tile GET and a cold WCS coverage want
+     * very different patience — via `newBuilder`, which shares the pool
+     * and dispatcher rather than starting again.
+     */
+    @Provides
+    @Singleton
+    fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder().build()
 }
