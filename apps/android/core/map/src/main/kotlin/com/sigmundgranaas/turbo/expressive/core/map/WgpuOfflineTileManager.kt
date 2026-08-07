@@ -156,6 +156,18 @@ class WgpuOfflineTileManager internal constructor(
     /**
      * Run the device build, if one is configured, reporting into the
      * same slice of the progress bar the download would have used.
+     *
+     * The region reports [OfflineStatus.Building] while this runs.
+     *
+     * That status, the string that goes with it and the branch that
+     * renders it all existed already — and nothing ever assigned it, so
+     * every region cutting a pack on the phone presented as
+     * "Downloading". A user reporting a download stuck at 83% could not
+     * know whether the phone was fetching tiles or cutting a pack, and
+     * neither could anyone reading the report: the two occupy different
+     * parts of the same bar, and three rounds of diagnosis went into
+     * guessing which. Saying which one it is costs nothing and settles
+     * the question at a glance.
      */
     private suspend fun buildOnDevice(
         id: Long,
@@ -163,8 +175,35 @@ class WgpuOfflineTileManager internal constructor(
         packShare: Double,
     ): DeviceBuildResult {
         val build = deviceBuild ?: return DeviceBuildResult.Disabled
-        return build(spec) { f ->
-            update(id) { it.copy(progress = (f * packShare).toFloat()) }
+        return try {
+            build(spec) { f ->
+                update(id) {
+                    it.copy(
+                        // Announced on the first report rather than up
+                        // front: device builds are off by default, and a
+                        // region that is not building one produces no
+                        // reports at all. Only promote from Downloading,
+                        // so a pause landing mid-build is not overwritten.
+                        status = if (it.status == OfflineStatus.Downloading) {
+                            OfflineStatus.Building
+                        } else {
+                            it.status
+                        },
+                        progress = (f * packShare).toFloat(),
+                    )
+                }
+            }
+        } finally {
+            // Back to Downloading for the tile phase that follows — and
+            // only from Building, so a pause or failure that arrived
+            // while this was running keeps whatever it set.
+            update(id) {
+                if (it.status == OfflineStatus.Building) {
+                    it.copy(status = OfflineStatus.Downloading)
+                } else {
+                    it
+                }
+            }
         }
     }
 

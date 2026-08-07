@@ -295,4 +295,54 @@ class WgpuOfflineTileManagerTest {
             )
             assertEquals("builds overlapped at some point", 1, mostAtOnce.get())
         }
+
+    /**
+     * A region cutting a pack on the phone must say so.
+     *
+     * [OfflineStatus.Building], the string for it and the branch that
+     * renders it were all written and none of them was ever reachable,
+     * because nothing assigned the status. Every device build presented
+     * as "Downloading", so a stall could not be attributed to the pack
+     * build or the tile loop without reading the source — which is how
+     * three rounds of diagnosis got spent on the wrong half of a bar.
+     */
+    @Test
+    fun `a region cutting a pack on the phone reports Building, not Downloading`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val cache = tmp.newFolder("cache")
+            val meta = tmp.newFolder("meta")
+
+            val statusWhileBuilding = kotlinx.coroutines.CompletableDeferred<OfflineStatus>()
+            lateinit var mgr: WgpuOfflineTileManager
+            mgr = WgpuOfflineTileManager(
+                tileStore = TileStore(cache),
+                store = OfflineRegionStore(meta),
+                serviceLauncher = OfflineServiceLauncher {},
+                fetcher = { FetchOutcome.Data(ByteArray(8)) },
+                laneProvider = oneLane,
+                scope = this,
+                now = { 1_000L },
+                packs = PackDownloader(
+                    root = tmp.newFolder("packs"),
+                    source = { "https://example/packs" },
+                    fetch = { _, _ -> PackDownloader.FetchResult.NotFound },
+                ),
+                deviceBuild = { _, onProgress ->
+                    onProgress(0.5f)
+                    statusWhileBuilding.complete(mgr.regions.value.single().status)
+                    WgpuOfflineTileManager.DeviceBuildResult.Done(1L)
+                },
+            )
+
+            mgr.download(spec())
+            advanceUntilIdle()
+
+            assertEquals(
+                "the pack build presented as a tile download",
+                OfflineStatus.Building,
+                statusWhileBuilding.await(),
+            )
+            // And it hands back for the tiles that follow.
+            assertEquals(OfflineStatus.Complete, mgr.regions.value.single().status)
+        }
 }
