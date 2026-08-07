@@ -71,7 +71,7 @@ class DevicePackBuilderTest {
         var gotDir: String? = null
         val b = DevicePackBuilder(
             root = root,
-            http = NoHttp,
+            newHttp = { NoHttp },
             io = StandardTestDispatcher(testScheduler),
             build = { dir, _, _, _, _ ->
                 gotDir = dir
@@ -103,7 +103,7 @@ class DevicePackBuilderTest {
         var gotBounds: BuildBounds? = null
         val b = DevicePackBuilder(
             root = tmp.newFolder(),
-            http = NoHttp,
+            newHttp = { NoHttp },
             io = StandardTestDispatcher(testScheduler),
             build = { dir, bb, k, _, _ ->
                 gotKommuner = k
@@ -134,7 +134,7 @@ class DevicePackBuilderTest {
         val root = tmp.newFolder()
         val b = DevicePackBuilder(
             root = root,
-            http = NoHttp,
+            newHttp = { NoHttp },
             io = StandardTestDispatcher(testScheduler),
             build = { dir, _, _, _, _ ->
                 // Get far enough to have written something, then die.
@@ -157,7 +157,7 @@ class DevicePackBuilderTest {
         val root = tmp.newFolder()
         val b = DevicePackBuilder(
             root = root,
-            http = NoHttp,
+            newHttp = { NoHttp },
             io = StandardTestDispatcher(testScheduler),
             build = { dir, _, _, _, progress ->
                 File(dir).mkdirs()
@@ -184,7 +184,7 @@ class DevicePackBuilderTest {
         var built = false
         val b = DevicePackBuilder(
             root = root,
-            http = NoHttp,
+            newHttp = { NoHttp },
             io = StandardTestDispatcher(testScheduler),
             build = { _, _, _, _, _ -> built = true; result() },
         )
@@ -210,7 +210,7 @@ class DevicePackBuilderTest {
         var job: Job? = null
         val b = DevicePackBuilder(
             root = tmp.newFolder(),
-            http = NoHttp,
+            newHttp = { NoHttp },
             io = StandardTestDispatcher(testScheduler),
             build = { dir, _, _, _, progress ->
                 File(dir).mkdirs()
@@ -255,7 +255,7 @@ class DevicePackBuilderTest {
         val builds = AtomicInteger(0)
         val b = DevicePackBuilder(
             root = root,
-            http = NoHttp,
+            newHttp = { NoHttp },
             io = Dispatchers.IO,
             build = { dir, _, _, _, _ ->
                 builds.incrementAndGet()
@@ -302,7 +302,7 @@ class DevicePackBuilderTest {
         val huge = GeoBounds(south = 58.0, west = 5.0, north = 71.0, east = 31.0)
         val b = DevicePackBuilder(
             root = tmp.newFolder(),
-            http = NoHttp,
+            newHttp = { NoHttp },
             io = StandardTestDispatcher(testScheduler),
             build = { _, _, _, _, _ -> built = true; result() },
         )
@@ -311,5 +311,123 @@ class DevicePackBuilderTest {
 
         assertTrue("$out", out is DevicePackBuilder.Outcome.TooLarge)
         assertFalse("must not touch the network", built)
+    }
+
+    /**
+     * A [PackHttp] that blocks the way a socket read does, and stops
+     * only when something aborts it.
+     *
+     * The real client waits five minutes for a response, because a cold
+     * WCS coverage genuinely takes that long. A fake that returns
+     * promptly would make the test pass whether or not cancellation
+     * reaches the request — which is the whole question.
+     */
+    private class BlockingHttp : PackHttp, AbortableHttp {
+        val entered = CountDownLatch(1)
+        val abortSeen = CountDownLatch(1)
+        private val released = CountDownLatch(1)
+        private val cancelled = AtomicBoolean(false)
+
+        override fun get(url: String): HttpResponse {
+            entered.countDown()
+            released.await()
+            if (cancelled.get()) throw RouteException.Pack("$url: cancelled")
+            return HttpResponse(status = 200u, body = ByteArray(0))
+        }
+
+        override fun postJson(url: String, body: String): HttpResponse = get(url)
+
+        override fun abortInFlight() {
+            forceRelease()
+            abortSeen.countDown()
+        }
+
+        /**
+         * Unpark the blocked thread no matter what the test found.
+         *
+         * A thread sitting in `await()` is not reachable by coroutine
+         * cancellation, so without this a failing run hangs instead of
+         * failing — which is exactly what the first draft did, and what
+         * makes a red test useless to whoever hits it.
+         */
+        fun forceRelease() {
+            cancelled.set(true)
+            released.countDown()
+        }
+    }
+
+    /**
+     * Cancellation is checked between units of work, and a unit of work
+     * is an HTTP request this client waits minutes for. Blocked on a
+     * socket — which is most of a build's life — "stops at the next
+     * boundary" meant "stops in up to five minutes". Cancelling the
+     * request makes the boundary arrive now.
+     *
+     * Real dispatchers and real threads on purpose: the thing under test
+     * is one thread parked in a blocking call while another cancels it,
+     * which a test dispatcher cannot represent.
+     */
+    @Test
+    fun cancelling_a_build_aborts_the_request_it_is_blocked_on() = runBlocking {
+        val http = BlockingHttp()
+        val builder = DevicePackBuilder(
+            root = tmp.newFolder(),
+            newHttp = { http },
+            io = Dispatchers.IO,
+            build = { _, _, _, client, _ ->
+                // Stands in for the Rust side fetching: blocks until the
+                // request is aborted, then surfaces the failure.
+                client.get("https://example/wcs")
+                error("the aborted request should not have returned")
+            },
+        )
+
+        var reachedRequest = false
+        var aborted = false
+        val job = launch(Dispatchers.Default) { builder.build(bounds) }
+        try {
+            reachedRequest = http.entered.await(10, TimeUnit.SECONDS)
+            if (reachedRequest) {
+                job.cancel()
+                aborted = http.abortSeen.await(10, TimeUnit.SECONDS)
+            }
+        } finally {
+            // Before any assertion, so a failure unwinds instead of
+            // parking the test on a latch forever.
+            http.forceRelease()
+            job.cancel()
+            job.join()
+        }
+
+        assertTrue("the build never reached its first request", reachedRequest)
+        assertTrue("cancelling the build left the request in flight", aborted)
+    }
+
+    /**
+     * The FFI reports what it built; the builder used to discard it and
+     * re-walk the directory for a byte count the report already carried.
+     */
+    @Test
+    fun a_finished_build_carries_the_reports_figures() = runTest {
+        val builder = DevicePackBuilder(
+            root = tmp.newFolder(),
+            newHttp = { NoHttp },
+            io = StandardTestDispatcher(testScheduler),
+            build = { dir, _, _, _, _ ->
+                File(dir, RoutingPack.MANIFEST).writeText("built = true")
+                result()
+            },
+        )
+
+        val outcome = builder.build(bounds)
+
+        val done = outcome as DevicePackBuilder.Outcome.Done
+        assertEquals(3_400_000L, done.bytes)
+        val stats = requireNotNull(done.stats) { "a fresh build must carry its stats" }
+        assertEquals(1100u, stats.nodes)
+        assertEquals(1898u, stats.edges)
+        assertEquals(650u, stats.trails)
+        assertEquals(24uL, stats.demTiles)
+        assertEquals(10.5, stats.seconds, 0.0001)
     }
 }

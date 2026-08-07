@@ -10,8 +10,8 @@ use std::path::Path;
 use turbo_tiles_elev::Dem;
 use turbo_tiles_mask::RefusalKind;
 
-use crate::{gml, graph, mask, n50, pack, wcs, wfs, BuildError, Kommuner};
 use crate::IoAt;
+use crate::{gml, graph, mask, n50, pack, wcs, wfs, BuildError, Kommuner};
 
 /// Progress across the whole build, so a caller can drive one bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +40,11 @@ pub struct PackReport {
     pub seconds: f64,
 }
 
+/// Budget for the DEM tile cache while building a pack. This runs on
+/// phones; `turbo_tiles_elev::DEFAULT_CACHE_BYTES` is sized for a server
+/// holding a country.
+const DEM_CACHE_BYTES: usize = 64 * 1024 * 1024;
+
 /// Build a complete pack for `extent` (WGS84 `[w, s, e, n]`).
 #[allow(clippy::too_many_arguments)]
 pub fn build_pack(
@@ -51,8 +56,20 @@ pub fn build_pack(
     wcs_endpoint: &str,
     wfs_endpoint: &str,
     concurrency: usize,
-    mut on_progress: impl FnMut(Phase, usize, usize),
+    mut on_progress: impl FnMut(Phase, usize, usize) -> bool,
 ) -> Result<PackReport, BuildError> {
+    // Returning false from `on_progress` stops the build. Every phase
+    // boundary and every loop iteration is a cancellation point, because
+    // the alternative — what this did until recently — is that a
+    // cancelled build keeps fetching and computing to completion and
+    // only notices on the way out.
+    macro_rules! progress {
+        ($($arg:expr),* $(,)?) => {
+            if !on_progress($($arg),*) {
+                return Err(BuildError::Cancelled);
+            }
+        };
+    }
     let started = std::time::Instant::now();
     let mut report = PackReport::default();
     std::fs::create_dir_all(out_dir).at(out_dir)?;
@@ -60,18 +77,28 @@ pub fn build_pack(
     let region = crate::region_box(extent[0], extent[1], extent[2], extent[3], halo_m);
 
     // ---- 1. Terrain ----
+    // `build_dem` turns a false into `Cancelled` itself, so this one
+    // passes the answer along rather than returning out of the closure.
     let dem_report = crate::build_dem(http, wcs_endpoint, region, out_dir, concurrency, |d, t| {
         on_progress(Phase::Dem, d, t)
     })?;
     report.dem_tiles = dem_report.dem_tiles;
     report.dem_bytes = dem_report.dem_bytes;
-    let dem = Dem::open(&dem_report.dem_path)
+    // Not `Dem::open`: its default cache is 512 MB, which is a server
+    // number. The graph phase samples this DEM across the whole region,
+    // so the cache fills with decompressed f32 tiles and nothing evicts
+    // them — at the 5 500 km² pack limit that is ~220 MB of native
+    // memory on a phone, reached during the one phase that used to
+    // report no progress at all. A tile is 256×256×4 B, so this still
+    // holds 256 of them, and the loop walks ways in roughly spatial
+    // order.
+    let dem = Dem::open_with_cache(&dem_report.dem_path, DEM_CACHE_BYTES)
         .map_err(|e| BuildError::Logic(format!("reopen the DEM just written: {e}")))?;
 
     // ---- 2. Vectors ----
     // N50 first: one order yields both the water/glacier surfaces and
     // the road network, so it is one download for two artifacts.
-    on_progress(Phase::Vector, 0, kommuner.len() + 1);
+    progress!(Phase::Vector, 0, kommuner.len() + 1);
     let mut water: Vec<geo::Polygon<f64>> = Vec::new();
     let mut glacier: Vec<geo::Polygon<f64>> = Vec::new();
     let mut ways: Vec<graph::Way> = Vec::new();
@@ -118,7 +145,7 @@ pub fn build_pack(
             });
         })?;
         report.roads = ways.len();
-        on_progress(Phase::Vector, i + 1, kommuner.len() + 1);
+        progress!(Phase::Vector, i + 1, kommuner.len() + 1);
     }
 
     // Trails come from the WFS, which is bbox-scoped — so unlike N50
@@ -144,7 +171,7 @@ pub fn build_pack(
             report.trails += 1;
         }
     }
-    on_progress(Phase::Vector, kommuner.len() + 1, kommuner.len() + 1);
+    progress!(Phase::Vector, kommuner.len() + 1, kommuner.len() + 1);
 
     // The kommune list is supplied by the caller, and nothing so far has
     // checked that it actually covers the region. Getting it wrong does
@@ -186,7 +213,7 @@ pub fn build_pack(
     }
 
     // ---- 3. Mask ----
-    on_progress(Phase::Mask, 0, water.len() + glacier.len());
+    progress!(Phase::Mask, 0, water.len() + glacier.len());
     let mut mw = mask::MaskWriter::new(region);
     for p in &water {
         mw.add(p, RefusalKind::Water);
@@ -200,22 +227,27 @@ pub fn build_pack(
     report.refused_cells = mw.refused_cells();
     report.total_cells = mw.total_cells();
     mw.finish(out_dir)?;
-    on_progress(
+    progress!(
         Phase::Mask,
         water.len() + glacier.len(),
         water.len() + glacier.len(),
     );
 
     // ---- 4. Graph ----
-    on_progress(Phase::Graph, 0, ways.len());
-    let (_, _, g) = graph::build(&ways, Some(&dem), out_dir)?;
+    // Reported per way rather than as one 0%-then-100% pair. This phase
+    // samples the DEM at every vertex of every way, so on a big region
+    // it is minutes of work, and as a single blocking call it left the
+    // host's bar parked on the phase boundary for all of it.
+    let (_, _, g) = graph::build(&ways, Some(&dem), out_dir, &mut |done, total| {
+        on_progress(Phase::Graph, done, total)
+    })?;
     report.nodes = g.nodes;
     report.edges_directed = g.edges_directed;
     report.edges_without_terrain = g.edges_without_terrain;
-    on_progress(Phase::Graph, ways.len(), ways.len());
+    progress!(Phase::Graph, ways.len(), ways.len());
 
     // ---- 5. Manifest ----
-    on_progress(Phase::Manifest, 0, 1);
+    progress!(Phase::Manifest, 0, 1);
     pack::write_manifest(
         out_dir,
         extent,
@@ -247,9 +279,10 @@ pub fn build_pack(
             dem_resolution_m: wcs::RESOLUTION_M,
         },
     )?;
-    on_progress(Phase::Manifest, 1, 1);
+    progress!(Phase::Manifest, 1, 1);
 
-    report.total_bytes = std::fs::read_dir(out_dir).at(out_dir)?
+    report.total_bytes = std::fs::read_dir(out_dir)
+        .at(out_dir)?
         .filter_map(|e| e.ok())
         .filter_map(|e| e.metadata().ok())
         .map(|m| m.len())

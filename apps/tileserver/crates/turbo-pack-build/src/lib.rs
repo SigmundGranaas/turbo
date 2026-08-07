@@ -80,6 +80,15 @@ pub enum BuildError {
     Decode(String),
     #[error("build: {0}")]
     Logic(String),
+    /// The host asked to stop, and the build actually stopped.
+    ///
+    /// This exists because for a long time it could not. Cancellation was
+    /// a flag the progress closure read and then went quiet about, while
+    /// the build itself ran to completion — minutes of fetching after the
+    /// user hit pause, and, once the host takes a lock per pack, minutes
+    /// of a retry waiting behind a build nobody wants any more.
+    #[error("cancelled")]
+    Cancelled,
 }
 
 /// Attach the path to an IO result: `File::create(&p).at(&p)?`.
@@ -145,7 +154,7 @@ pub fn build_dem(
     region: wcs::BoxUtm,
     out_dir: &std::path::Path,
     concurrency: usize,
-    mut on_progress: impl FnMut(usize, usize),
+    mut on_progress: impl FnMut(usize, usize) -> bool,
 ) -> Result<RegionReport, BuildError> {
     let started = std::time::Instant::now();
     let plan = wcs::plan(region);
@@ -187,7 +196,9 @@ pub fn build_dem(
             let raster = result?;
             writer.add(&raster)?;
             done += 1;
-            on_progress(done, total);
+            if !on_progress(done, total) {
+                return Err(BuildError::Cancelled);
+            }
         }
     }
 
