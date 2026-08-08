@@ -295,4 +295,148 @@ class WgpuOfflineTileManagerTest {
             )
             assertEquals("builds overlapped at some point", 1, mostAtOnce.get())
         }
+
+    /**
+     * A region cutting a pack on the phone must say so.
+     *
+     * [OfflineStatus.Building], the string for it and the branch that
+     * renders it were all written and none of them was ever reachable,
+     * because nothing assigned the status. Every device build presented
+     * as "Downloading", so a stall could not be attributed to the pack
+     * build or the tile loop without reading the source — which is how
+     * three rounds of diagnosis got spent on the wrong half of a bar.
+     */
+    @Test
+    fun `a region cutting a pack on the phone reports Building, not Downloading`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val cache = tmp.newFolder("cache")
+            val meta = tmp.newFolder("meta")
+
+            val statusWhileBuilding = kotlinx.coroutines.CompletableDeferred<OfflineStatus>()
+            lateinit var mgr: WgpuOfflineTileManager
+            mgr = WgpuOfflineTileManager(
+                tileStore = TileStore(cache),
+                store = OfflineRegionStore(meta),
+                serviceLauncher = OfflineServiceLauncher {},
+                fetcher = { FetchOutcome.Data(ByteArray(8)) },
+                laneProvider = oneLane,
+                scope = this,
+                now = { 1_000L },
+                packs = PackDownloader(
+                    root = tmp.newFolder("packs"),
+                    source = { "https://example/packs" },
+                    fetch = { _, _ -> PackDownloader.FetchResult.NotFound },
+                ),
+                deviceBuild = { _, onProgress ->
+                    onProgress(0.5f)
+                    statusWhileBuilding.complete(mgr.regions.value.single().status)
+                    WgpuOfflineTileManager.DeviceBuildResult.Done(1L)
+                },
+            )
+
+            mgr.download(spec())
+            advanceUntilIdle()
+
+            assertEquals(
+                "the pack build presented as a tile download",
+                OfflineStatus.Building,
+                statusWhileBuilding.await(),
+            )
+            // And it hands back for the tiles that follow.
+            assertEquals(OfflineStatus.Complete, mgr.regions.value.single().status)
+        }
+
+    /** Base map from a live host, hill shading from one that is down. */
+    private fun twoLanes(): (DownloadSpec) -> List<WgpuOfflineTileManager.Lane> = {
+        listOf(
+            WgpuOfflineTileManager.Lane("norgeskart", "https://live.example/{z}/{x}/{y}.png", 18),
+            WgpuOfflineTileManager.Lane(
+                "__terrain",
+                "https://dead.example/dem/{z}/{x}/{y}.png",
+                18,
+                essential = false,
+            ),
+        )
+    }
+
+    /**
+     * The one this was all actually about.
+     *
+     * The hill-shading host went down for a month. It is the last lane,
+     * so every download reached the high eighties and then spent five
+     * retries and a timeout per tile — about a minute each, six at a
+     * time — on a host that was never going to answer. Hundreds of tiles
+     * of that is hours, reported as a bar that does not move, and the
+     * region failed at the end of it because a whole lane counted
+     * against the missing-tile bar.
+     *
+     * A region whose base map arrived is a region that works.
+     */
+    @Test
+    fun `a dead optional lane completes the region and names the host`() =
+        runTest(UnconfinedTestDispatcher()) {
+            var deadHostAttempts = 0
+            val mgr = WgpuOfflineTileManager(
+                tileStore = TileStore(tmp.newFolder("cache")),
+                store = OfflineRegionStore(tmp.newFolder("meta")),
+                serviceLauncher = OfflineServiceLauncher {},
+                fetcher = { url ->
+                    if (url.startsWith("https://dead.example")) {
+                        deadHostAttempts++
+                        // What a host that accepts the connection and then
+                        // never answers actually produces on the client.
+                        throw java.net.SocketTimeoutException("timeout")
+                    }
+                    FetchOutcome.Data(ByteArray(32))
+                },
+                laneProvider = twoLanes(),
+                scope = this,
+                now = { 1_000L },
+            )
+
+            mgr.download(spec(b = wide, min = 10.0, max = 14.0))
+            advanceUntilIdle()
+
+            val r = mgr.regions.value.single()
+            assertEquals("the base map arrived; the region is usable", OfflineStatus.Complete, r.status)
+            assertTrue(
+                "the note must name the host that stopped answering: ${r.errorReason}",
+                r.errorReason!!.contains("dead.example"),
+            )
+
+            // And it stopped asking. Without the breaker every tile on the
+            // dead lane costs the full retry budget; with it the host is
+            // written off after a bounded number of attempts.
+            val deadTiles = TileMath.tilesFor(wide, 10.0, 14.0).size
+            assertTrue(
+                "asked the dead host $deadHostAttempts times for $deadTiles tiles — it never gave up",
+                deadHostAttempts < deadTiles,
+            )
+        }
+
+    /** The base map is not optional: losing it is still a failed region. */
+    @Test
+    fun `a dead essential lane still fails the region`() = runTest(UnconfinedTestDispatcher()) {
+        val mgr = WgpuOfflineTileManager(
+            tileStore = TileStore(tmp.newFolder("cache")),
+            store = OfflineRegionStore(tmp.newFolder("meta")),
+            serviceLauncher = OfflineServiceLauncher {},
+            fetcher = { url ->
+                if (url.startsWith("https://live.example")) {
+                    throw java.net.SocketTimeoutException("timeout")
+                }
+                FetchOutcome.Data(ByteArray(32))
+            },
+            laneProvider = twoLanes(),
+            scope = this,
+            now = { 1_000L },
+        )
+
+        mgr.download(spec(b = wide, min = 10.0, max = 14.0))
+        advanceUntilIdle()
+
+        val r = mgr.regions.value.single()
+        assertEquals(OfflineStatus.Failed, r.status)
+        assertTrue("names the host: ${r.errorReason}", r.errorReason!!.contains("live.example"))
+    }
 }

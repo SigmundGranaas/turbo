@@ -156,6 +156,18 @@ class WgpuOfflineTileManager internal constructor(
     /**
      * Run the device build, if one is configured, reporting into the
      * same slice of the progress bar the download would have used.
+     *
+     * The region reports [OfflineStatus.Building] while this runs.
+     *
+     * That status, the string that goes with it and the branch that
+     * renders it all existed already — and nothing ever assigned it, so
+     * every region cutting a pack on the phone presented as
+     * "Downloading". A user reporting a download stuck at 83% could not
+     * know whether the phone was fetching tiles or cutting a pack, and
+     * neither could anyone reading the report: the two occupy different
+     * parts of the same bar, and three rounds of diagnosis went into
+     * guessing which. Saying which one it is costs nothing and settles
+     * the question at a glance.
      */
     private suspend fun buildOnDevice(
         id: Long,
@@ -163,13 +175,91 @@ class WgpuOfflineTileManager internal constructor(
         packShare: Double,
     ): DeviceBuildResult {
         val build = deviceBuild ?: return DeviceBuildResult.Disabled
-        return build(spec) { f ->
-            update(id) { it.copy(progress = (f * packShare).toFloat()) }
+        return try {
+            build(spec) { f ->
+                update(id) {
+                    it.copy(
+                        // Announced on the first report rather than up
+                        // front: device builds are off by default, and a
+                        // region that is not building one produces no
+                        // reports at all. Only promote from Downloading,
+                        // so a pause landing mid-build is not overwritten.
+                        status = if (it.status == OfflineStatus.Downloading) {
+                            OfflineStatus.Building
+                        } else {
+                            it.status
+                        },
+                        progress = (f * packShare).toFloat(),
+                    )
+                }
+            }
+        } finally {
+            // Back to Downloading for the tile phase that follows — and
+            // only from Building, so a pause or failure that arrived
+            // while this was running keeps whatever it set.
+            update(id) {
+                if (it.status == OfflineStatus.Building) {
+                    it.copy(status = OfflineStatus.Downloading)
+                } else {
+                    it
+                }
+            }
         }
     }
 
     /** One source's tile pyramid: a cache-key layer id + URL template + native max zoom. */
-    data class Lane(val layer: String, val urlTemplate: String, val maxZoom: Int)
+    data class Lane(
+        val layer: String,
+        val urlTemplate: String,
+        val maxZoom: Int,
+        /**
+         * Whether the region is worth having without this lane.
+         *
+         * The base map is: without it there is nothing to look at. Hill
+         * shading and overlays are not — they are detail on top of a map
+         * that already works offline. The distinction decides whether a
+         * source being unreachable fails the region or merely annotates
+         * it, and it stopped being academic when the DEM host went down
+         * for a month and took every download with it.
+         */
+        val essential: Boolean = true,
+    )
+
+    /**
+     * Which hosts have stopped answering during one download.
+     *
+     * A host that is down costs [FETCH_RETRIES] attempts times the
+     * request timeout, plus backoff, for *every* tile it owns — about a
+     * minute each, six at a time. Over the hundreds of tiles in a lane
+     * that is hours of no visible progress, which is not a failure the
+     * user can distinguish from a freeze. Noticing once that a host is
+     * not answering, and then not asking it again, turns those hours
+     * into the seconds it takes to notice.
+     *
+     * Consecutive failures only, reset by any success, so a burst of
+     * shed load in the middle of a working download does not trip it.
+     * Once tripped it stays tripped for the rest of this download: the
+     * remaining tiles are skipped rather than retried, and a retry of
+     * the whole region is what re-tests the host.
+     */
+    private class HostHealth(private val threshold: Int) {
+        private val consecutive = ConcurrentHashMap<String, Int>()
+        private val down = ConcurrentHashMap.newKeySet<String>()
+
+        fun isDown(host: String): Boolean = host in down
+
+        /** Anything that came back from the host, including an error response. */
+        fun recordReachable(host: String) {
+            consecutive[host] = 0
+        }
+
+        fun recordUnreachable(host: String) {
+            val n = consecutive.merge(host, 1, Int::plus) ?: 1
+            if (n >= threshold) down += host
+        }
+
+        fun downHosts(): List<String> = down.sorted()
+    }
 
     /** Outcome of fetching one tile. [Absent] (404 / empty body) is legitimate —
      *  a water tile over land, an ocean DEM tile — and must not fail a region;
@@ -177,7 +267,20 @@ class WgpuOfflineTileManager internal constructor(
     sealed interface FetchOutcome {
         data class Data(val bytes: ByteArray) : FetchOutcome
         data object Absent : FetchOutcome
+
+        /** The server answered, with something unusable — a 5xx, a 429, an oversize body. */
         data object Error : FetchOutcome
+
+        /**
+         * No answer at all: timeout, DNS failure, refused connection.
+         *
+         * Split from [Error] because only this one says anything about
+         * the *host*. A server shedding load with 429s is alive and worth
+         * retrying; a host that never completes a handshake is not, and
+         * telling them apart is what lets [HostHealth] write off the
+         * second without ever writing off the first.
+         */
+        data object Unreachable : FetchOutcome
     }
 
     private val _regions = MutableStateFlow<List<OfflineRegionInfo>>(emptyList())
@@ -447,6 +550,12 @@ class WgpuOfflineTileManager internal constructor(
         var stored = 0
         var bytes = 0L
         var failed = 0
+        // Missing tiles, split by whether the lane is one the region
+        // cannot do without. An unreachable hill-shading source is a
+        // note; an unreachable base map is a failed download.
+        var essentialTotal = 0
+        var essentialMissing = 0
+        val health = HostHealth(HOST_DOWN_AFTER)
         coroutineScope {
             work.forEach { (lane, t) ->
                 launch {
@@ -457,10 +566,10 @@ class WgpuOfflineTileManager internal constructor(
                         // it must NOT fail the region. Only a real fetch error does.
                         var errored = false
                         if (!tileStore.exists(lane.layer, t.z, t.x, t.y)) {
-                            when (val r = fetch(urlFor(lane, t))) {
+                            when (val r = fetch(urlFor(lane, t), health)) {
                                 is FetchOutcome.Data -> tileStore.put(lane.layer, t.z, t.x, t.y, r.bytes)
                                 FetchOutcome.Absent -> Unit
-                                FetchOutcome.Error -> errored = true
+                                FetchOutcome.Error, FetchOutcome.Unreachable -> errored = true
                             }
                         }
                         val size = tileStore.size(lane.layer, t.z, t.x, t.y)
@@ -469,6 +578,10 @@ class WgpuOfflineTileManager internal constructor(
                             bytes += size
                             if (size > 0L) stored++
                             if (errored) failed++
+                            if (lane.essential) {
+                                essentialTotal++
+                                if (size <= 0L && errored) essentialMissing++
+                            }
                             if (done % PROGRESS_EVERY == 0 || done == total) {
                                 update(id) {
                                     it.copy(
@@ -499,10 +612,29 @@ class WgpuOfflineTileManager internal constructor(
         // covered. Short of that, the region completes and carries a note
         // saying what is missing. Retry re-runs it, and because stored
         // tiles are skipped it costs only the gaps.
-        val ratio = if (total > 0) failed.toDouble() / total else 0.0
+        //
+        // Measured against the lanes the region cannot do without, not
+        // against every tile requested. A whole optional source being
+        // unreachable — the hill-shading host was down for a month — is
+        // a large fraction of the total and none of the map: counting it
+        // failed every download of an area whose base map had arrived
+        // intact.
+        val ratio = if (essentialTotal > 0) {
+            essentialMissing.toDouble() / essentialTotal
+        } else {
+            0.0
+        }
+        val downHosts = health.downHosts()
         when {
-            ratio > MAX_MISSING_RATIO ->
-                markFailed(id, "$failed of $total tiles could not be downloaded")
+            ratio > MAX_MISSING_RATIO -> markFailed(
+                id,
+                buildString {
+                    append("$essentialMissing of $essentialTotal map tiles could not be downloaded")
+                    if (downHosts.isNotEmpty()) {
+                        append(" — ${downHosts.joinToString(", ")} stopped responding")
+                    }
+                },
+            )
 
             else -> update(id) {
                 it.copy(
@@ -510,39 +642,86 @@ class WgpuOfflineTileManager internal constructor(
                     progress = 1f,
                     tileCount = stored.toLong(),
                     sizeBytes = bytes + packBytes,
-                    errorReason = if (failed > 0) "$failed of $total tiles are missing" else null,
+                    // Name the host. "312 tiles are missing" sends the
+                    // reader looking for a bad region or a full disk; the
+                    // host that stopped answering is the whole answer,
+                    // and it is the one thing the download already knows
+                    // and used to throw away.
+                    errorReason = when {
+                        downHosts.isNotEmpty() ->
+                            "${downHosts.joinToString(", ")} did not respond — " +
+                                "$failed of $total tiles are missing. " +
+                                "The map itself is complete."
+
+                        failed > 0 -> "$failed of $total tiles are missing"
+                        else -> null
+                    },
                 )
             }
         }
     }
 
     /** Fetch one tile, retrying only transient [FetchOutcome.Error]s; an
-     *  [FetchOutcome.Absent] (no data here) returns immediately, not as a failure. */
-    private suspend fun fetch(url: String): FetchOutcome {
+     *  [FetchOutcome.Absent] (no data here) returns immediately, not as a failure.
+     *
+     *  [health] short-circuits a host that has already stopped
+     *  answering. Without it, every tile on a dead host pays the full
+     *  retry budget — five attempts, each waiting out a request timeout,
+     *  plus backoff — and the lane takes hours to fail. */
+    private suspend fun fetch(url: String, health: HostHealth? = null): FetchOutcome {
+        val host = hostOf(url)
         repeat(FETCH_RETRIES) { attempt ->
             coroutineContext.ensureActive()
+            // Checked before every attempt, not just the first: six
+            // workers enter this loop together, and the host can be
+            // declared down by one of them while the others are still
+            // between retries.
+            if (health != null && health.isDown(host)) return FetchOutcome.Error
             val outcome = try {
                 fetcher(url)
             } catch (c: CancellationException) {
                 throw c // a pause/network-gate cancellation must propagate, not become an Error
             } catch (e: Exception) {
-                FetchOutcome.Error
+                // An exception out of the fetcher is a transport failure —
+                // timeout, DNS, refused. The host said nothing.
+                FetchOutcome.Unreachable
             }
             when (outcome) {
-                is FetchOutcome.Data, FetchOutcome.Absent -> return outcome
+                is FetchOutcome.Data, FetchOutcome.Absent -> {
+                    health?.recordReachable(host)
+                    return outcome
+                }
                 // Exponential, and jittered. A fixed delay put all six
                 // workers back on the wire at the same instant, so three
                 // attempts were really one attempt against a server that
                 // was still shedding load — which is how a download loses
                 // a hundred tiles to a burst that lasted two seconds.
-                FetchOutcome.Error -> if (attempt < FETCH_RETRIES - 1) {
-                    val backoff = RETRY_BACKOFF_MS shl attempt
-                    delay(backoff + Random.nextLong(backoff / 2))
+                FetchOutcome.Error, FetchOutcome.Unreachable -> {
+                    if (outcome == FetchOutcome.Unreachable) {
+                        health?.recordUnreachable(host)
+                    } else {
+                        // It answered. Whatever it said, it is up.
+                        health?.recordReachable(host)
+                    }
+                    if (attempt < FETCH_RETRIES - 1) {
+                        val backoff = RETRY_BACKOFF_MS shl attempt
+                        delay(backoff + Random.nextLong(backoff / 2))
+                    }
                 }
             }
         }
         return FetchOutcome.Error
     }
+
+    /**
+     * Host part of a tile URL, for [HostHealth].
+     *
+     * String work rather than `URI`, because this runs once per attempt
+     * and a malformed template must not throw here — an unparseable URL
+     * is the fetcher's problem to report, not this function's.
+     */
+    private fun hostOf(url: String): String =
+        url.substringAfter("://", "").substringBefore('/').substringBefore('?').ifEmpty { url }
 
     private fun urlFor(lane: Lane, t: TileMath.TileXyz): String =
         lane.urlTemplate.replace("{z}", "${t.z}").replace("{x}", "${t.x}").replace("{y}", "${t.y}")
@@ -608,6 +787,16 @@ class WgpuOfflineTileManager internal constructor(
         private const val RETRY_BACKOFF_MS = 400L
 
         /**
+         * Consecutive failures before a host is treated as down.
+         *
+         * Twelve is two full rounds of [PARALLELISM] workers finding
+         * nothing there — about twenty seconds against a host that is
+         * timing out, and far more than a momentary 5xx burst produces
+         * between successes, since any success resets the count.
+         */
+        private const val HOST_DOWN_AFTER = 12
+
+        /**
          * How much of a region may be missing and still count as
          * downloaded. Five percent of a tile pyramid is a gap the user has
          * to hunt for; the alternative on offer was discarding the other
@@ -616,6 +805,9 @@ class WgpuOfflineTileManager internal constructor(
         private const val MAX_MISSING_RATIO = 0.05
         private const val MAX_TILE_BYTES = 8L * 1024 * 1024
         private const val TIMEOUT_MS = 10_000L
+
+        /** Whole-call ceiling for one tile; see [tileClient]. */
+        private const val TILE_CALL_TIMEOUT_MS = 20_000L
         private const val USER_AGENT = "turbo-android-wgpu"
 
         /**
@@ -655,11 +847,16 @@ class WgpuOfflineTileManager internal constructor(
          *  rasters, the vector-water basemap, and the DEM heightmap (3D). Identical
          *  layer ids + URL templates the map fetches, so offline tiles hit at render. */
         private fun defaultLanes(spec: DownloadSpec): List<Lane> {
+            // The base map is the region; the overlays and the hill
+            // shading are things drawn on it. Only the first is worth
+            // failing a download over — see [Lane.essential].
             val raster = MapStyles.turbomapRasterSpecs(spec.base, spec.overlays)
-                .map { Lane(it.id, it.tileUrlTemplate, it.maxZoom) }
+                .mapIndexed { i, raster ->
+                    Lane(raster.id, raster.tileUrlTemplate, raster.maxZoom, essential = i == 0)
+                }
             val vector = MapStyles.turbomapVectorSpecs()
-                .map { Lane(it.id, it.tileUrlTemplate, it.maxZoom) }
-            val dem = Lane(DEM_LAYER, MapStyles.TERRAIN_DEM_URL, DEM_MAX_ZOOM)
+                .map { v -> Lane(v.id, v.tileUrlTemplate, v.maxZoom, essential = false) }
+            val dem = Lane(DEM_LAYER, MapStyles.TERRAIN_DEM_URL, DEM_MAX_ZOOM, essential = false)
             return raster + vector + dem
         }
 
@@ -720,6 +917,12 @@ class WgpuOfflineTileManager internal constructor(
         private fun tileClient(base: OkHttpClient): OkHttpClient = base.newBuilder()
             .connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
             .readTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            // A whole-call bound as well as a per-read one. A host that
+            // completes the TCP connect and then never finishes the TLS
+            // handshake — which is exactly what the DEM host did while it
+            // was down — is not answering and not timing out either, and
+            // only a call timeout ends it.
+            .callTimeout(TILE_CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             .build()
 
         /** A single-shot tile GET over [http], mapped to a [FetchOutcome]: 404/empty
