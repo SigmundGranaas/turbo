@@ -29,6 +29,7 @@ pub mod style;
 pub mod subsystem;
 pub mod sun;
 pub(crate) mod surface;
+pub mod surface_format;
 pub mod tessellate;
 pub mod text;
 pub mod tile;

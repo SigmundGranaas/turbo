@@ -85,7 +85,7 @@ fn buildings_extrude_under_a_tilted_camera() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 

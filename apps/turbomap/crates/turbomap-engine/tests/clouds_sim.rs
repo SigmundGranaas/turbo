@@ -153,13 +153,13 @@ fn storm_sim_replays_deterministically_and_advances() {
     let img_a = render_to_image(&gpu, width, height, |e, v| {
         engine
             .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
     let img_a2 = render_to_image(&gpu, width, height, |e, v| {
         engine
             .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
     assert_eq!(
@@ -174,7 +174,7 @@ fn storm_sim_replays_deterministically_and_advances() {
     let img_b = render_to_image(&gpu, width, height, |e, v| {
         engine
             .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
     let moved = diff_fraction(&img_a, &img_b, 4);
@@ -211,14 +211,14 @@ fn cloud_contribution_follows_the_environment_sun() {
         let on = render_to_image(&gpu, width, height, |e, v| {
             engine
                 .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
-                .expect("a queue uploader takes every write")
+                .expect("the frame renders: a queue takes every upload and the camera is finite")
         });
         engine.after_submit();
         engine.map_mut().set_pass_enabled("clouds", false);
         let off = render_to_image(&gpu, width, height, |e, v| {
             engine
                 .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
-                .expect("a queue uploader takes every write")
+                .expect("the frame renders: a queue takes every upload and the camera is finite")
         });
         engine.after_submit();
         (on, off)

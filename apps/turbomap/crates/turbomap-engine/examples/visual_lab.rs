@@ -136,7 +136,7 @@ fn render_scene(args: &Args, scene: Scene, resolver: Box<dyn SourceResolver>) ->
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
     img

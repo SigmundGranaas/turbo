@@ -153,7 +153,7 @@ fn ir_order_is_the_composited_order_across_kinds() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 

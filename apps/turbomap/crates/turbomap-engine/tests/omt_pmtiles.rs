@@ -420,7 +420,7 @@ fn bundled_pmtiles_scene_is_fully_offline_via_the_production_resolver() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -539,7 +539,7 @@ fn a_chained_source_renders_offline_and_surfaces_detail_to_the_host() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
     let near =
@@ -609,7 +609,7 @@ fn omt_schema_renders_from_a_pmtiles_archive() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 

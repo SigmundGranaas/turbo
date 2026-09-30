@@ -646,7 +646,7 @@ fn render_capture(
         target_view,
         &mut turbomap_core::upload::QueueUploader(&queue),
     )
-    .expect("a queue uploader takes every write");
+    .expect("the frame renders: a queue takes every upload and the camera is finite");
     let bpp = 4u32;
     let unpadded = WIDTH * bpp;
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
@@ -1437,7 +1437,9 @@ fn main() {
                         &target_view,
                         &mut turbomap_core::upload::QueueUploader(&queue),
                     )
-                    .expect("a queue uploader takes every write");
+                    .expect(
+                        "the frame renders: a queue takes every upload and the camera is finite",
+                    );
                     queue.submit([enc.finish()]);
                     map.after_submit();
                     let _ = device.poll(wgpu::PollType::Poll);

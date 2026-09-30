@@ -419,7 +419,7 @@ impl TurboMap {
                     view,
                     &mut turbomap_core::upload::QueueUploader(&gpu.queue),
                 )
-                .expect("a queue uploader takes every write")
+                .expect("the frame renders: a queue takes every upload and the camera is finite")
         })
         .map_err(FfiError::Render)?;
         engine.after_submit();

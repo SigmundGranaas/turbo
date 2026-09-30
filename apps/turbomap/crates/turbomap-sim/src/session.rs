@@ -543,7 +543,7 @@ impl Sim {
         let img = render_to_image(&self.gpu, self.width, self.height, |enc, view| {
             engine
                 .render(enc, view, &mut turbomap_core::upload::QueueUploader(queue))
-                .expect("a queue uploader takes every write")
+                .expect("the frame renders: a queue takes every upload and the camera is finite")
         });
         self.engine.after_submit();
 

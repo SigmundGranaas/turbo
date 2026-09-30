@@ -146,7 +146,7 @@ fn zoom_curve_colour_updates_without_retessellation() {
             v,
             &mut turbomap_core::upload::QueueUploader(&gpu.queue),
         )
-        .expect("a queue uploader takes every write")
+        .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     e.after_submit();
     let (r1, g1, b1) = avg_line_color(&img);
@@ -170,7 +170,7 @@ fn zoom_curve_colour_updates_without_retessellation() {
             v,
             &mut turbomap_core::upload::QueueUploader(&gpu.queue),
         )
-        .expect("a queue uploader takes every write")
+        .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     e.after_submit();
     let (r2, g2, b2) = avg_line_color(&img);

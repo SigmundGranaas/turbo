@@ -468,7 +468,7 @@ fn main() {
         &target_view,
         &mut turbomap_core::upload::QueueUploader(&queue),
     )
-    .expect("a queue uploader takes every write");
+    .expect("the frame renders: a queue takes every upload and the camera is finite");
 
     let bytes_per_pixel = 4u32;
     let unpadded_bpr = WIDTH * bytes_per_pixel;

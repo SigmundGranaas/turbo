@@ -119,19 +119,9 @@ impl TurboMap {
         // sRGB **view** (a permitted format reinterpretation). Without this the
         // frame is presented un-encoded (linear) and looks much darker than the
         // native (Vulkan/Metal) sRGB surfaces — the "darker than mobile" bug.
-        let surface_format = caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| {
-                matches!(
-                    f.remove_srgb_suffix(),
-                    wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm
-                )
-            })
-            .unwrap_or(caps.formats[0]);
-        // The view format we actually render to (always sRGB so the encode runs).
-        let render_format = surface_format.add_srgb_suffix();
+        let formats = turbomap_core::surface_format::srgb_surface_formats(&caps.formats)
+            .map_err(|e| JsValue::from_str(&e))?;
+        let (surface_format, render_format) = (formats.surface, formats.render);
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -278,13 +268,24 @@ impl TurboMap {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        self.engine
-            .render(
-                &mut encoder,
-                &view,
-                &mut turbomap_core::upload::QueueUploader(&self.queue),
-            )
-            .expect("a queue uploader takes every write");
+        let rendered = self.engine.render(
+            &mut encoder,
+            &view,
+            &mut turbomap_core::upload::QueueUploader(&self.queue),
+        );
+        match rendered {
+            Ok(()) => {}
+            Err(e @ turbomap_core::error::RenderError::NonFiniteCamera { .. }) => {
+                // This host's policy for a frame the renderer did not draw: a
+                // non-finite camera is logged and the frame skipped (the last
+                // picture stays on screen), as the renderer itself used to decide.
+                // An upload refusal cannot happen through a queue.
+                log::warn!("turbomap: frame not drawn: {e}");
+            }
+            Err(e @ turbomap_core::error::RenderError::Upload(_)) => {
+                panic!("a queue refused an upload, which a queue never does: {e}")
+            }
+        }
         self.queue.submit([encoder.finish()]);
         self.queue.present(frame);
         self.engine.after_submit();

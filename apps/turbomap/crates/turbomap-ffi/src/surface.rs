@@ -113,6 +113,9 @@ struct OnScreen {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     config: wgpu::SurfaceConfiguration,
+    /// The sRGB format frames are rendered into, through a view of the
+    /// surface's own (see `turbomap_core::surface_format`).
+    render_format: wgpu::TextureFormat,
     engine: TurbomapEngine,
     /// Last viewport bottom-inset applied (px). Mirrored here so the published
     /// snapshot can reconstruct the projection for wait-free, always-valid
@@ -180,14 +183,10 @@ fn build(
     .map_err(|e| format!("no compatible GPU adapter: {e}"))?;
 
     let caps = surface.get_capabilities(&adapter);
-    // Decision 3: prefer an sRGB surface format (colours are blended in linear,
-    // re-encoded by the *Srgb target); fall back to whatever the surface offers.
-    let format = caps
-        .formats
-        .iter()
-        .copied()
-        .find(|f| f.is_srgb())
-        .unwrap_or_else(|| caps.formats[0]);
+    // One rule for every host (turbomap_core::surface_format): an sRGB format,
+    // or an 8-bit one rendered through its sRGB view; neither is refused.
+    let formats = turbomap_core::surface_format::srgb_surface_formats(&caps.formats)?;
+    let (format, render_format) = (formats.surface, formats.render);
 
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("turbomap-surface-device"),
@@ -211,7 +210,7 @@ fn build(
         present_mode: wgpu::PresentMode::Fifo,
         desired_maximum_frame_latency: 2,
         alpha_mode: caps.alpha_modes[0],
-        view_formats: vec![],
+        view_formats: vec![render_format],
     };
     surface.configure(&device, &config);
 
@@ -231,7 +230,7 @@ fn build(
     let engine = TurbomapEngine::new(
         device.clone(),
         turbomap_core::upload::UploadQueue::new(queue.get_timestamp_period()),
-        format,
+        render_format,
         (config.width, config.height),
         camera,
         options,
@@ -244,6 +243,7 @@ fn build(
         device,
         queue,
         config,
+        render_format,
         engine,
         inset: 0.0,
         perf: FramePerf::default(),
@@ -272,19 +272,31 @@ impl OnScreen {
             }
             _ => return,
         };
-        let view = frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(self.render_format),
+            ..Default::default()
+        });
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        self.engine
-            .render(
-                &mut encoder,
-                &view,
-                &mut turbomap_core::upload::QueueUploader(&self.queue),
-            )
-            .expect("a queue uploader takes every write");
+        let rendered = self.engine.render(
+            &mut encoder,
+            &view,
+            &mut turbomap_core::upload::QueueUploader(&self.queue),
+        );
+        match rendered {
+            Ok(()) => {}
+            Err(e @ turbomap_core::error::RenderError::NonFiniteCamera { .. }) => {
+                // This host's policy for a frame the renderer did not draw: a
+                // non-finite camera is logged and the frame skipped (the last
+                // picture stays on screen), as the renderer itself used to decide.
+                // An upload refusal cannot happen through a queue.
+                log::warn!("turbomap: frame not drawn: {e}");
+            }
+            Err(e @ turbomap_core::error::RenderError::Upload(_)) => {
+                panic!("a queue refused an upload, which a queue never does: {e}")
+            }
+        }
         self.queue.submit([encoder.finish()]);
         self.queue.present(frame);
         self.engine.after_submit();

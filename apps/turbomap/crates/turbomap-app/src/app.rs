@@ -858,13 +858,24 @@ impl RunningState {
 
         // 3. Render the map onto the drawable (decoded tiles apply inside
         //    under the per-frame budget).
-        self.engine
-            .render(
-                &mut encoder,
-                &frame.view,
-                &mut turbomap_core::upload::QueueUploader(&self.gpu.queue),
-            )
-            .expect("a queue uploader takes every write");
+        let rendered = self.engine.render(
+            &mut encoder,
+            &frame.view,
+            &mut turbomap_core::upload::QueueUploader(&self.gpu.queue),
+        );
+        match rendered {
+            Ok(()) => {}
+            Err(e @ turbomap_core::error::RenderError::NonFiniteCamera { .. }) => {
+                // This host's policy for a frame the renderer did not draw: a
+                // non-finite camera is logged and the frame skipped (the last
+                // picture stays on screen), as the renderer itself used to decide.
+                // An upload refusal cannot happen through a queue.
+                log::warn!("turbomap: frame not drawn: {e}");
+            }
+            Err(e @ turbomap_core::error::RenderError::Upload(_)) => {
+                panic!("a queue refused an upload, which a queue never does: {e}")
+            }
+        }
 
         // 4. egui on top. `ui.frame` returns a `PendingUi` that we must
         //    hand back to `ui.present` AFTER the queue submit so the GPU

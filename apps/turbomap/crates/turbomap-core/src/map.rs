@@ -3709,19 +3709,22 @@ impl Map {
     /// Tile data the host has no room for waits for a later frame, and is not
     /// drawn until it has been handed over (its ancestor is drawn instead). A
     /// refusal of an *essential* write (uniforms, atlases) is returned: the
-    /// frame was drawn with them.
+    /// frame was drawn with them. So is a non-finite camera, which draws
+    /// nothing ([`crate::error::RenderError`]): the host decides what a
+    /// dropped frame means, not the renderer.
     pub fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         uploader: &mut dyn crate::upload::Uploader,
-    ) -> Result<(), crate::upload::UploadRefused> {
+    ) -> Result<(), crate::error::RenderError> {
         // Tile data first, within the host's budget, so a tile uploaded now
         // is drawn now; what does not fit stays unready and undrawn.
         self.queue.flush_deferrable(uploader);
-        self.record(encoder, target);
+        self.record(encoder, target)?;
         // The frame is drawn with these: they must be taken.
-        self.queue.flush_essential(uploader)
+        self.queue.flush_essential(uploader)?;
+        Ok(())
     }
 
     /// Writes recorded and not yet handed to an uploader.
@@ -3735,7 +3738,11 @@ impl Map {
         self.queue.pending_deferrable()
     }
 
-    fn record(&mut self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+    fn record(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+    ) -> Result<(), crate::error::RenderError> {
         let started = Instant::now();
 
         // ---- Master finite gate -----------------------------------------
@@ -3762,7 +3769,11 @@ impl Map {
                 frame_dropped: true,
                 ..Default::default()
             };
-            return;
+            return Err(crate::error::RenderError::NonFiniteCamera {
+                pitch_deg: self.cam.camera.pitch_deg,
+                zoom: self.cam.camera.zoom,
+                view_projection_finite: crate::render::mat4_is_finite(&gate_vp),
+            });
         }
 
         if let Some(ts) = self.renderer.gpu_timestamps.as_mut() {
@@ -4414,6 +4425,7 @@ impl Map {
                 })
                 .collect(),
         };
+        Ok(())
     }
 
     /// Metrics for the most recent `render()` call. Includes GPU
@@ -4734,5 +4746,82 @@ mod tests {
         // diagnosis is open — see the MapOptions::default comment.
         // Anything inside [0, 1) is sane; sub-zero or 1 s+ is not.
         assert!((0.0..1.0).contains(&o.fade_in_secs));
+    }
+}
+
+#[cfg(test)]
+mod render_error_tests {
+    use super::*;
+
+    /// A camera that degenerated to non-finite draws nothing and says so to
+    /// the host (`RenderError::NonFiniteCamera`) — it used to be dropped with
+    /// a log line, deciding on the host's behalf. The frame's metrics still
+    /// record the drop.
+    #[test]
+    fn a_non_finite_camera_is_reported_to_the_host_not_dropped_silently() {
+        let instance = wgpu::Instance::default();
+        let Ok(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                force_fallback_adapter: true,
+                ..Default::default()
+            }))
+        else {
+            eprintln!("no software adapter");
+            return;
+        };
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+                .expect("device");
+        let mut map = Map::new(
+            Arc::new(device),
+            crate::upload::UploadQueue::new(queue.get_timestamp_period()),
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            (64, 64),
+            Camera::new(
+                crate::geo::LatLng {
+                    lng: 5.3,
+                    lat: 60.4,
+                },
+                8.0,
+            ),
+            MapOptions::default(),
+        )
+        .expect("map");
+        // Past the public setters (they sanitise): the internal degeneration
+        // the guard exists for.
+        map.cam.camera.zoom = f64::NAN;
+        let target = map.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 64,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let mut enc = map.device.create_command_encoder(&Default::default());
+        let err = map
+            .render(
+                &mut enc,
+                &target.create_view(&Default::default()),
+                &mut crate::upload::QueueUploader(&queue),
+            )
+            .expect_err("a NaN zoom drew a frame");
+        assert!(
+            matches!(
+                err,
+                crate::error::RenderError::NonFiniteCamera {
+                    view_projection_finite: false,
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+        assert!(map.last_frame_metrics().frame_dropped);
     }
 }

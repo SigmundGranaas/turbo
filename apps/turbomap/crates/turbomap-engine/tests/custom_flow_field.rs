@@ -94,7 +94,7 @@ fn flow_field_custom_layer_renders_deterministically() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -120,7 +120,7 @@ fn flow_field_custom_layer_renders_deterministically() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
     assert_eq!(
@@ -158,7 +158,7 @@ fn unknown_custom_kind_degrades_to_unsupported() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 }

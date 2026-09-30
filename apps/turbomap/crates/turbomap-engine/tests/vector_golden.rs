@@ -131,7 +131,7 @@ fn full_overlay_set_renders_as(format: wgpu::TextureFormat) {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -228,7 +228,7 @@ fn line_width_is_pixel_constant_across_zoom() {
     let img0 = render_to_image(&gpu, w, h, |e, v| {
         engine
             .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
     let t0 = thickness(&img0);
@@ -243,7 +243,7 @@ fn line_width_is_pixel_constant_across_zoom() {
     let img1 = render_to_image(&gpu, w, h, |e, v| {
         engine
             .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
     let t1 = thickness(&img1);
@@ -329,7 +329,7 @@ fn msaa_smooths_polygon_fill_edges() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -424,7 +424,7 @@ fn dashed_line_renders_with_gaps() {
     let image = render_to_image(&gpu, w, h, |e, v| {
         engine
             .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -562,7 +562,7 @@ fn label_importance_ranking_wins_collisions() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -695,7 +695,7 @@ fn data_driven_match_width_builds_road_hierarchy() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -858,7 +858,7 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines_as(format: wgpu::TextureFor
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -978,7 +978,7 @@ fn cjk_labels_render_via_fallback_font() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -1090,7 +1090,7 @@ fn complex_scripts_render_with_shaping_and_bidi() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -1212,7 +1212,7 @@ fn road_name_follows_the_centerline() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -1377,7 +1377,7 @@ fn icons_and_route_shields_render() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -1508,7 +1508,7 @@ fn symbol_labels_render_over_raster() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -1611,7 +1611,7 @@ fn data_driven_match_colour_styles_lines_by_property() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -1696,7 +1696,7 @@ fn geojson_fill_renders_over_raster() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 
@@ -1754,7 +1754,7 @@ fn geojson_line_renders_over_raster() {
                 view,
                 &mut turbomap_core::upload::QueueUploader(&gpu.queue),
             )
-            .expect("a queue uploader takes every write")
+            .expect("the frame renders: a queue takes every upload and the camera is finite")
     });
     engine.after_submit();
 

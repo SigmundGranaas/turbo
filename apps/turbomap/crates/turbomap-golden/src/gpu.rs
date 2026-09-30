@@ -26,8 +26,9 @@ pub struct Gpu {
 /// Golden references are captured in this format.
 pub const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
-/// Build a headless context, preferring a software adapter for
-/// determinism. Returns `None` if no adapter can be acquired.
+/// Build a headless context on the software adapter (or on hardware when
+/// `TURBOMAP_GOLDEN_ADAPTER=hardware` asks for it). Returns `None` if that
+/// adapter is not available — never a different one in its place.
 pub fn headless() -> Option<Gpu> {
     let instance = wgpu::Instance::new({
         let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
@@ -35,25 +36,26 @@ pub fn headless() -> Option<Gpu> {
         desc
     });
 
-    // Prefer the fallback (software) adapter — deterministic across
-    // machines. Fall back to whatever exists so a dev box with only a
-    // hardware GPU can still run the harness (with looser tolerances).
+    // The goldens are held on the software adapter (Lavapipe) — CI's, and
+    // deterministic across machines. A hardware adapter is used only when
+    // asked for by name (`TURBOMAP_GOLDEN_ADAPTER=hardware`), and the adapter
+    // is printed with every golden. This used to fall back to any adapter
+    // silently, so a box without Lavapipe certified a different rasteriser
+    // against goldens tuned for another.
+    let hardware = match std::env::var("TURBOMAP_GOLDEN_ADAPTER").as_deref() {
+        Ok("hardware") => true,
+        Ok("software") | Err(_) => false,
+        Ok(other) => panic!(
+            "TURBOMAP_GOLDEN_ADAPTER={other}: expected `software` (the default) or `hardware`"
+        ),
+    };
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::LowPower,
         compatible_surface: None,
-        force_fallback_adapter: true,
+        force_fallback_adapter: !hardware,
         apply_limit_buckets: false,
     }))
-    .ok()
-    .or_else(|| {
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::LowPower,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-            apply_limit_buckets: false,
-        }))
-        .ok()
-    })?;
+    .ok()?;
 
     let adapter_name = adapter.get_info().name;
 

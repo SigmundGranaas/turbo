@@ -804,7 +804,7 @@ impl TurbomapEngine {
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         uploader: &mut dyn turbomap_core::upload::Uploader,
-    ) -> Result<(), turbomap_core::upload::UploadRefused> {
+    ) -> Result<(), turbomap_core::error::RenderError> {
         self.pump_decoded();
         self.update_dynamic_paint();
         self.map.render(encoder, target, uploader)

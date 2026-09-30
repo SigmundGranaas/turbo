@@ -182,7 +182,7 @@ fn declared_passes_match_the_frame_graph_report() {
         &view,
         &mut turbomap_core::upload::QueueUploader(&gpu.queue),
     )
-    .expect("a queue uploader takes every write");
+    .expect("the frame renders: a queue takes every upload and the camera is finite");
     gpu.queue.submit([encoder.finish()]);
 
     // Every pass label in the frame report must be claimed by exactly one
