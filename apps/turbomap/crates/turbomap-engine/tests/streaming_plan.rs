@@ -138,3 +138,24 @@ fn plan_start_deliver_cancel_acknowledge_loop_keeps_the_table_honest() {
     let acked = e.streaming_plan(0);
     assert!(acked.cancel.is_empty(), "acknowledged cancels don't repeat");
 }
+
+/// A DEM tile that arrives after the scene stopped declaring terrain (a
+/// fetch that raced a scene edit) is accepted and dropped, as a vector
+/// tile for a removed layer is. It used to be decoded under a guessed
+/// Terrain-RGB encoding and uploaded as heights no scene asked for.
+#[test]
+fn a_terrain_tile_for_a_scene_without_terrain_is_dropped_not_decoded() {
+    let Some(gpu) = gpu_or_skip() else { return };
+    let mut e = engine(&gpu);
+    e.apply(raster_scene());
+    let before = e.decode_backlog();
+    assert!(
+        e.ingest_terrain_encoded(turbomap_core::TileId::new(9, 266, 142), &tiny_png()),
+        "a stale delivery is accepted (the host has nothing to retry)"
+    );
+    assert_eq!(
+        e.decode_backlog(),
+        before,
+        "nothing was queued for decode: the scene has no terrain to decode it for"
+    );
+}

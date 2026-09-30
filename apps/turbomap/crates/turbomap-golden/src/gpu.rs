@@ -67,7 +67,9 @@ pub fn headless() -> Option<Gpu> {
         experimental_features: wgpu::ExperimentalFeatures::default(),
         trace: wgpu::Trace::Off,
     }))
-    .ok()?;
+    // `None` means "no adapter here", which callers skip. An adapter that
+    // exists and will not open a device is a failure to see, never a skip.
+    .unwrap_or_else(|e| panic!("turbomap-golden: {adapter_name} refused a device: {e}"));
 
     Some(Gpu {
         device: Arc::new(device),

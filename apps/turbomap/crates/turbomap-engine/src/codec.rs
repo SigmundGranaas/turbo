@@ -63,7 +63,6 @@ pub(crate) struct DecodeJob {
 
 impl QueueKey {
     /// For a failure message: which layer and tile.
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     fn describe(&self) -> String {
         match self {
             QueueKey::Raster { layer_id, tile } => {
@@ -118,7 +117,13 @@ fn decode(job: DecodeJob) -> (QueueKey, Option<Decoded>) {
             Err(_) => (key, None),
         },
         QueueKey::Terrain { .. } => {
-            let enc = dem_encoding.unwrap_or(DemEncoding::MapboxRgb);
+            let Some(enc) = dem_encoding else {
+                panic!(
+                    "turbomap: {} was queued without its source's DEM encoding \
+                     (ingest_terrain_encoded never does that: a bug)",
+                    key.describe()
+                )
+            };
             match image::load_from_memory(&bytes) {
                 Ok(img) => {
                     let img = img.to_rgba8();
@@ -350,10 +355,11 @@ mod tests {
         let key = QueueKey::Terrain {
             tile: TileId::new(3, 1, 2),
         };
-        assert!(q.enqueue(key.clone(), png_1x1(), None, None));
+        let mapbox = Some(DemEncoding::MapboxRgb);
+        assert!(q.enqueue(key.clone(), png_1x1(), None, mapbox));
         assert_eq!(q.backlog(), 1);
         // The same key is deduped while in flight.
-        assert!(!q.enqueue(key, png_1x1(), None, None));
+        assert!(!q.enqueue(key, png_1x1(), None, mapbox));
 
         // Terrain jobs run the DEM codec in the worker (plan D3): the apply
         // side receives real heights, not RGBA. Pixel (1,2,3) in Mapbox

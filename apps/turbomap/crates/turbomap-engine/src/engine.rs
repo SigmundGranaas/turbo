@@ -515,12 +515,18 @@ impl TurbomapEngine {
         }
         // The DEM codec (plan D3) runs in the decode worker; hand it the
         // source's declared RGB→metres encoding.
-        let enc = self.terrain_source.as_ref().map(|s| s.dem_encoding());
+        let Some(enc) = self.terrain_source.as_ref().map(|s| s.dem_encoding()) else {
+            // Terrain gone (raced a scene edit): accepted-and-dropped, as
+            // `ingest_mvt` does for a vector layer that left the scene.
+            // Decoding it under a guessed encoding would upload heights no
+            // scene asked for.
+            return true;
+        };
         self.decode_queue.enqueue(
             crate::codec::QueueKey::Terrain { tile },
             bytes.to_vec(),
             None,
-            enc,
+            Some(enc),
         );
         true
     }

@@ -400,7 +400,14 @@ impl Sim {
                 std::num::NonZeroUsize::new(2).unwrap(),
             )),
         )
-        .ok()?;
+        // An adapter was found, so an engine that will not build on it is
+        // a bug to see, not a GPU-less machine to skip.
+        .unwrap_or_else(|e| {
+            panic!(
+                "turbomap-sim: the engine failed to build on {}: {e}",
+                gpu.adapter_name
+            )
+        });
         Some(Self {
             gpu,
             engine,
