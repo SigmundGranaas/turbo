@@ -395,6 +395,10 @@ impl Sim {
             camera,
             options,
             Box::new(HostDrivenResolver),
+            std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+                "turbomap-decode",
+                std::num::NonZeroUsize::new(2).unwrap(),
+            )),
         )
         .ok()?;
         Some(Self {

@@ -125,6 +125,10 @@ fn render_scene(args: &Args, scene: Scene, resolver: Box<dyn SourceResolver>) ->
             ..Default::default()
         },
         resolver,
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("engine");
     engine.apply(scene);

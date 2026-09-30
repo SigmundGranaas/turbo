@@ -400,6 +400,10 @@ impl ApplicationHandler for TurbomapApp {
             self.initial_camera,
             MapOptions::default(),
             Box::new(HostDrivenResolver),
+            std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+                "turbomap-decode",
+                std::num::NonZeroUsize::new(2).unwrap(),
+            )),
         )
         .expect("create engine");
 

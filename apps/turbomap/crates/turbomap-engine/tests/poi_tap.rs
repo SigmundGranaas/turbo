@@ -97,6 +97,10 @@ fn tapping_a_poi_returns_its_name_and_class() {
             ..Default::default()
         },
         Box::new(BergenResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 

@@ -111,6 +111,10 @@ fn full_overlay_set_renders_as(format: wgpu::TextureFormat) {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
@@ -202,6 +206,10 @@ fn line_width_is_pixel_constant_across_zoom() {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("engine");
 
@@ -317,6 +325,10 @@ fn msaa_smooths_polygon_fill_edges() {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
@@ -416,6 +428,10 @@ fn dashed_line_renders_with_gaps() {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("engine");
 
@@ -550,6 +566,10 @@ fn label_importance_ranking_wins_collisions() {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
@@ -683,6 +703,10 @@ fn data_driven_match_width_builds_road_hierarchy() {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
@@ -845,6 +869,10 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines_as(format: wgpu::TextureFor
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
@@ -962,6 +990,10 @@ fn cjk_labels_render_via_fallback_font() {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
@@ -1076,6 +1108,10 @@ fn complex_scripts_render_with_shaping_and_bidi() {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
@@ -1198,6 +1234,10 @@ fn road_name_follows_the_centerline() {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
@@ -1363,6 +1403,10 @@ fn icons_and_route_shields_render() {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
@@ -1490,6 +1534,10 @@ fn symbol_labels_render_over_raster() {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
@@ -1596,6 +1644,10 @@ fn data_driven_match_colour_styles_lines_by_property() {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
@@ -1681,6 +1733,10 @@ fn geojson_fill_renders_over_raster() {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
@@ -1732,6 +1788,10 @@ fn geojson_line_renders_over_raster() {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 

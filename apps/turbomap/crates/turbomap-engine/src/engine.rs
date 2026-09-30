@@ -96,6 +96,10 @@ impl TurbomapEngine {
         camera: CameraState,
         options: MapOptions,
         resolver: Box<dyn SourceResolver>,
+        // Where tile decode and tessellation run: the host's threads, not
+        // the engine's (see `turbomap_core::work`). wasm has no threads and
+        // decodes inline under the apply budget, so takes none.
+        #[cfg(not(target_arch = "wasm32"))] decode: Arc<dyn turbomap_core::work::Executor>,
     ) -> Result<Self, MapError> {
         let max_texture_size = device.limits().max_texture_dimension_2d;
         let pixel_ratio = options.pixel_ratio.max(0.5);
@@ -119,6 +123,9 @@ impl TurbomapEngine {
             unsupported: Vec::new(),
             max_texture_size,
             pixel_ratio,
+            #[cfg(not(target_arch = "wasm32"))]
+            decode_queue: crate::codec::DecodeQueue::new(decode),
+            #[cfg(target_arch = "wasm32")]
             decode_queue: crate::codec::DecodeQueue::new(),
             vector_style_epochs: HashMap::new(),
             cloud_field_source: None,

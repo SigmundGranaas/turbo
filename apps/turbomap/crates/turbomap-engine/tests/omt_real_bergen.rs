@@ -67,6 +67,10 @@ fn real_bergen_renders_like_a_basemap() {
             ..Default::default()
         },
         Box::new(BergenResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 

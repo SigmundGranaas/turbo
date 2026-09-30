@@ -70,6 +70,10 @@ fn buildings_extrude_under_a_tilted_camera() {
             ..Default::default()
         },
         Box::new(BergenResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 

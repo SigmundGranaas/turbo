@@ -240,6 +240,10 @@ fn main() {
             ..Default::default()
         },
         Box::new(SyntheticResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct engine");
 

@@ -35,6 +35,7 @@ pub mod text;
 pub mod tile;
 pub mod upload;
 pub mod vector;
+pub mod work;
 
 pub use camera::{Camera, CameraAnimation, FiniteF64, ZoomBounds, ZoomLock, TILE_SIZE_PX};
 pub use dem::{decode_dem_rgba, decode_elevation, DemEncoding};

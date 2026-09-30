@@ -170,6 +170,10 @@ impl TurboMap {
             to_camera_state(camera),
             MapOptions::default(),
             Box::new(HostDrivenResolver),
+            std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+                "turbomap-decode",
+                std::num::NonZeroUsize::new(2).unwrap(),
+            )),
         )
         .map_err(|e| FfiError::Engine(e.to_string()))?;
         Ok(Self {

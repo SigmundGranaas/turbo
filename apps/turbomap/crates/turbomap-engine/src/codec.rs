@@ -3,8 +3,9 @@
 //! Before this, `ingest_raster_encoded`/`ingest_terrain_encoded` ran
 //! `image::load_from_memory` on the calling thread — the render thread on
 //! Android (mitigated by time-slicing the ingest drain), the main thread on
-//! web. Now `ingest_*` only *accepts bytes*: decode runs on a small worker
-//! pool (native) or inline under the apply budget (wasm has no threads),
+//! web. Now `ingest_*` only *accepts bytes*: decode runs on the host's
+//! [`turbomap_core::work::Executor`] (native) or inline under the apply
+//! budget (wasm has no threads),
 //! and the decoded RGBA is applied to the GPU caches at the top of
 //! `render()`, bounded per frame by the tiered apply budget
 //! ([`APPLY_BUDGET_MOVING`] / [`APPLY_BUDGET_SETTLED`]).
@@ -58,6 +59,22 @@ pub(crate) struct DecodeJob {
     /// is where the DEM codec runs (plan D3) — the worker decodes to real
     /// heights and the render path never sees an encoding.
     pub dem_encoding: Option<DemEncoding>,
+}
+
+impl QueueKey {
+    /// For a failure message: which layer and tile.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    fn describe(&self) -> String {
+        match self {
+            QueueKey::Raster { layer_id, tile } => {
+                format!("raster layer {layer_id:?} tile {tile:?}")
+            }
+            QueueKey::Terrain { tile } => format!("terrain tile {tile:?}"),
+            QueueKey::Vector { layer_id, tile } => {
+                format!("vector layer {layer_id:?} tile {tile:?}")
+            }
+        }
+    }
 }
 
 /// A decoded, ready-to-apply tile.
@@ -133,12 +150,40 @@ fn decode(job: DecodeJob) -> (QueueKey, Option<Decoded>) {
     }
 }
 
-// ---- native: a small worker pool ----------------------------------------
+// ---- native: the host's executor ----------------------------------------
+
+/// What comes back from a job: its result, or word that it never ran.
+#[cfg(not(target_arch = "wasm32"))]
+enum Outcome {
+    Done(QueueKey, Option<Decoded>),
+    Lost(QueueKey),
+}
+
+/// Rides inside a job and reports it [`Outcome::Lost`] if the job is
+/// dropped without running, or unwinds out of its decode. The executor
+/// contract ("every job runs") is checked here rather than trusted.
+#[cfg(not(target_arch = "wasm32"))]
+struct Receipt {
+    key: Option<QueueKey>,
+    results: crossbeam_channel::Sender<Outcome>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for Receipt {
+    fn drop(&mut self) {
+        if let Some(key) = self.key.take() {
+            // A closed channel means the engine is gone, and nobody is
+            // waiting for this tile.
+            let _ = self.results.send(Outcome::Lost(key));
+        }
+    }
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) struct DecodeQueue {
-    jobs: crossbeam_channel::Sender<DecodeJob>,
-    results: crossbeam_channel::Receiver<(QueueKey, Option<Decoded>)>,
+    executor: Arc<dyn turbomap_core::work::Executor>,
+    results_tx: crossbeam_channel::Sender<Outcome>,
+    results: crossbeam_channel::Receiver<Outcome>,
     /// Keys enqueued and not yet applied/failed — the dedup set. Only the
     /// engine's thread touches it (`&mut self` API), so no lock.
     in_flight: HashSet<QueueKey>,
@@ -146,30 +191,13 @@ pub(crate) struct DecodeQueue {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl DecodeQueue {
-    pub fn new() -> Self {
-        let (jobs, job_rx) = crossbeam_channel::unbounded::<DecodeJob>();
-        let (result_tx, results) = crossbeam_channel::unbounded();
-        // Two workers: image decode is the only work, and tile bursts are
-        // bounded by the host's inflight caps — more threads would just
-        // trade cache locality for no wall-clock win on mobile cores.
-        for i in 0..2 {
-            let rx = job_rx.clone();
-            let tx = result_tx.clone();
-            std::thread::Builder::new()
-                .name(format!("turbomap-decode-{i}"))
-                .spawn(move || {
-                    while let Ok(job) = rx.recv() {
-                        // A closed results channel means the engine dropped;
-                        // exit quietly with it.
-                        if tx.send(decode(job)).is_err() {
-                            break;
-                        }
-                    }
-                })
-                .expect("spawn decode worker");
-        }
+    /// Decodes run on `executor`, which the host owns (see
+    /// [`turbomap_core::work`]). The engine spawns no thread of its own.
+    pub fn new(executor: Arc<dyn turbomap_core::work::Executor>) -> Self {
+        let (results_tx, results) = crossbeam_channel::unbounded();
         Self {
-            jobs,
+            executor,
+            results_tx,
             results,
             in_flight: HashSet::new(),
         }
@@ -188,18 +216,22 @@ impl DecodeQueue {
         if !self.in_flight.insert(key.clone()) {
             return false;
         }
-        // Send can only fail if workers died (poisoned process state);
-        // clear the dedup entry so the tile can be retried.
         let job = DecodeJob {
             key: key.clone(),
             bytes,
             style,
             dem_encoding,
         };
-        if self.jobs.send(job).is_err() {
-            self.in_flight.remove(&key);
-            return false;
-        }
+        let mut receipt = Receipt {
+            key: Some(key),
+            results: self.results_tx.clone(),
+        };
+        self.executor.spawn(Box::new(move || {
+            let (key, decoded) = decode(job);
+            // Ran: the receipt must not also report it lost.
+            receipt.key = None;
+            let _ = receipt.results.send(Outcome::Done(key, decoded));
+        }));
         true
     }
 
@@ -207,7 +239,15 @@ impl DecodeQueue {
     /// `apply` uploads one decoded tile to the GPU caches.
     pub fn drain(&mut self, budget: Duration, mut apply: impl FnMut(Decoded)) {
         let start = Instant::now();
-        while let Ok((key, decoded)) = self.results.try_recv() {
+        while let Ok(outcome) = self.results.try_recv() {
+            let (key, decoded) = match outcome {
+                Outcome::Done(key, decoded) => (key, decoded),
+                Outcome::Lost(key) => panic!(
+                    "turbomap: the decode executor dropped the job for {} without running it, \
+                     or its decode panicked; the tile would stay pending forever",
+                    key.describe()
+                ),
+            };
             self.in_flight.remove(&key);
             if let Some(d) = decoded {
                 apply(d);
@@ -289,6 +329,13 @@ impl DecodeQueue {
 mod tests {
     use super::*;
 
+    fn pool() -> Arc<dyn turbomap_core::work::Executor> {
+        Arc::new(turbomap_core::work::ThreadPool::new(
+            "decode-test",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        ))
+    }
+
     fn png_1x1() -> Vec<u8> {
         // Encode a real 1×1 PNG through the same crate that decodes it.
         let img = image::RgbaImage::from_pixel(1, 1, image::Rgba([1, 2, 3, 255]));
@@ -299,7 +346,7 @@ mod tests {
 
     #[test]
     fn decodes_off_thread_and_applies_within_budget() {
-        let mut q = DecodeQueue::new();
+        let mut q = DecodeQueue::new(pool());
         let key = QueueKey::Terrain {
             tile: TileId::new(3, 1, 2),
         };
@@ -334,7 +381,7 @@ mod tests {
 
     #[test]
     fn a_decode_failure_clears_the_key_for_retry() {
-        let mut q = DecodeQueue::new();
+        let mut q = DecodeQueue::new(pool());
         let key = QueueKey::Raster {
             layer_id: "base".into(),
             tile: TileId::new(1, 0, 0),
@@ -359,7 +406,7 @@ mod tests {
             .line(&[(0, 0), (4096, 4096)], &[])
             .finish()
             .finish();
-        let mut q = DecodeQueue::new();
+        let mut q = DecodeQueue::new(pool());
         let key = QueueKey::Vector {
             layer_id: "roads-l".into(),
             tile: TileId::new(3, 1, 2),
@@ -384,5 +431,65 @@ mod tests {
         }
         assert_eq!(got, Some(7), "the apply side needs the enqueue-time epoch");
         assert_eq!(q.backlog(), 0);
+    }
+
+    /// A host's own executor runs the decodes: here, one that runs each
+    /// job on the calling thread, so the tile is decoded by the time
+    /// `enqueue` returns and applies on the first drain.
+    #[test]
+    fn decodes_run_on_the_executor_the_host_supplies() {
+        struct OnCaller(std::sync::atomic::AtomicUsize);
+        impl turbomap_core::work::Executor for OnCaller {
+            fn spawn(&self, job: turbomap_core::work::Job) {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                job();
+            }
+        }
+        let host = Arc::new(OnCaller(Default::default()));
+        let mut q = DecodeQueue::new(host.clone());
+        let key = QueueKey::Raster {
+            layer_id: "base".into(),
+            tile: TileId::new(1, 0, 0),
+        };
+        assert!(q.enqueue(key, png_1x1(), None, None));
+        assert_eq!(host.0.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let mut applied = 0;
+        q.drain(Duration::from_secs(1), |d| {
+            if let DecodedKind::Image { rgba, w, h } = d.kind {
+                assert_eq!((w, h, rgba.as_slice()), (1, 1, &[1u8, 2, 3, 255][..]));
+                applied += 1;
+            }
+        });
+        assert_eq!(
+            applied, 1,
+            "decoded on the host's executor, applied on the first drain"
+        );
+        assert_eq!(q.backlog(), 0);
+    }
+
+    /// An executor that loses a job (drops it unrun) is a bug the engine
+    /// names on its next frame. Before, the tile stayed pending forever and
+    /// a render-on-demand host spun waiting for it.
+    #[test]
+    #[should_panic(expected = "dropped the job for vector layer \"roads\" tile")]
+    fn an_executor_that_loses_a_job_fails_naming_the_tile() {
+        struct Discards;
+        impl turbomap_core::work::Executor for Discards {
+            fn spawn(&self, job: turbomap_core::work::Job) {
+                drop(job);
+            }
+        }
+        let mut q = DecodeQueue::new(Arc::new(Discards));
+        let key = QueueKey::Vector {
+            layer_id: "roads".into(),
+            tile: TileId::new(3, 1, 2),
+        };
+        assert!(q.enqueue(
+            key,
+            Vec::new(),
+            Some((Arc::new(VectorStyle::default()), 1)),
+            None
+        ));
+        q.drain(Duration::from_secs(1), |_| panic!("nothing was decoded"));
     }
 }

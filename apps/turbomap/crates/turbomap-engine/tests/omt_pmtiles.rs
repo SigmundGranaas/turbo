@@ -389,6 +389,10 @@ fn bundled_pmtiles_scene_is_fully_offline_via_the_production_resolver() {
             ..Default::default()
         },
         Box::new(turbomap_engine::HostDrivenResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
@@ -503,6 +507,10 @@ fn a_chained_source_renders_offline_and_surfaces_detail_to_the_host() {
             ..Default::default()
         },
         Box::new(turbomap_engine::HostDrivenResolver),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
@@ -591,6 +599,10 @@ fn omt_schema_renders_from_a_pmtiles_archive() {
         Box::new(OmtPmtilesResolver {
             archive: build_fixture_archive(),
         }),
+        std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+            "turbomap-decode",
+            std::num::NonZeroUsize::new(2).unwrap(),
+        )),
     )
     .expect("construct TurbomapEngine");
 
