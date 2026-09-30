@@ -1,32 +1,39 @@
 //! **Uploads, recorded — and flushed through the host's uploader.**
 //!
 //! The renderer never writes to a `wgpu::Queue` itself. Every buffer and
-//! texture write — a tile's texture at ingest, the text atlas, a frame's
-//! uniforms — is recorded here in order, and [`crate::map::Map::render`]
-//! flushes them through the [`Uploader`] its host passes in, before the host
-//! submits the frame's encoder.
+//! texture write is recorded here, and [`crate::map::Map::render`] hands them
+//! to the [`Uploader`] its host passes in, before the host submits the
+//! frame's encoder. A queue write takes effect at the next submit whenever it
+//! was issued, so this is the same frame the renderer drew before; what it
+//! buys is that the host decides how a write reaches the GPU — straight to
+//! its queue ([`QueueUploader`]), or through an embedding application's
+//! budgeted uploader (Edits' `GpuView` frames lend no queue at all).
 //!
-//! A queue write takes effect at the next submit whenever it was issued, so
-//! recording now and flushing at the end of `render` is the same frame the
-//! renderer drew before. What it buys is that the host decides how a write
-//! reaches the GPU: straight to its queue ([`QueueUploader`]),
-//! or through an embedding application's budgeted uploader (Edits'
-//! `GpuView` frames lend no queue at all).
+//! # Two logs, because a host's budget can run out
 //!
-//! A refusal is an error today, never a partial frame: deferring a write
-//! while the same frame draws what it wrote would put an uninitialised
-//! texture on screen. Deferral waits for per-write readiness in the draw
-//! path.
+//! - **Deferrable** writes are tile data at ingest
+//!   ([`UploadQueue::write_texture_deferrable`]). Each returns an
+//!   [`UploadTicket`]; the tile cache treats a tile whose ticket is not
+//!   [`UploadQueue::is_ready`] as not resident, so the draw falls back to its
+//!   ancestor exactly as for a tile still in flight. `render` hands these
+//!   over FIRST, while the host's [`Uploader::remaining`] allows — keeping a
+//!   reserve the size of the essential bytes the previous frame needed — so
+//!   a tile uploaded this frame is drawn this frame. What does not fit waits
+//!   for the next frame, and nothing draws it until then.
+//! - **Essential** writes are everything else — construction-time
+//!   placeholders, atlases, a frame's uniforms. The frame is drawn with them,
+//!   so they are handed over after recording and must be taken: a refusal is
+//!   [`UploadRefused`], an error, never a frame drawn with stale uniforms.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-/// The host would not take a write this frame (a byte budget, say).
+/// The host would not take an essential write this frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UploadRefused {
     /// Bytes of the write that was refused.
     pub bytes: u64,
-    /// Writes still pending, including the refused one.
+    /// Essential writes still pending, including the refused one.
     pub pending: usize,
 }
 
@@ -34,7 +41,8 @@ impl std::fmt::Display for UploadRefused {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "the host refused a {}-byte upload with {} still pending — the renderer does not yet defer uploads safely",
+            "the host refused an essential {}-byte upload with {} still pending — a frame's uniforms and atlases \
+             must fit the host's per-frame upload budget",
             self.bytes, self.pending
         )
     }
@@ -48,6 +56,10 @@ pub struct Refused;
 
 /// How recorded writes reach the GPU. The host's to implement.
 pub trait Uploader {
+    /// Bytes this uploader will still take this frame; `None` for no limit.
+    fn remaining(&self) -> Option<u64> {
+        None
+    }
     fn write_buffer(&mut self, dst: &wgpu::Buffer, offset: u64, data: &[u8])
         -> Result<(), Refused>;
     fn write_texture(
@@ -86,6 +98,10 @@ impl Uploader for QueueUploader<'_> {
     }
 }
 
+/// Proof that a deferrable write was recorded; ready once handed to the host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UploadTicket(u64);
+
 enum Write {
     Buffer {
         dst: wgpu::Buffer,
@@ -104,6 +120,45 @@ enum Write {
 }
 
 impl Write {
+    /// Whether `self`, recorded later, overwrites exactly what `earlier`
+    /// wrote — same resource, same region — so `earlier` need never reach
+    /// the GPU: only the last write's bytes are there at submit.
+    fn supersedes(&self, earlier: &Write) -> bool {
+        match (self, earlier) {
+            (
+                Write::Buffer {
+                    dst: a,
+                    offset: oa,
+                    data: da,
+                },
+                Write::Buffer {
+                    dst: b,
+                    offset: ob,
+                    data: db,
+                },
+            ) => a == b && oa == ob && da.len() == db.len(),
+            (
+                Write::Texture {
+                    dst: a,
+                    mip_level: ma,
+                    origin: oa,
+                    aspect: aa,
+                    size: sa,
+                    ..
+                },
+                Write::Texture {
+                    dst: b,
+                    mip_level: mb,
+                    origin: ob,
+                    aspect: ab,
+                    size: sb,
+                    ..
+                },
+            ) => a == b && ma == mb && oa == ob && aa == ab && sa == sb,
+            _ => false,
+        }
+    }
+
     fn bytes(&self) -> u64 {
         match self {
             Write::Buffer { data, .. } | Write::Texture { data, .. } => data.len() as u64,
@@ -111,11 +166,22 @@ impl Write {
     }
 }
 
+struct Logs {
+    essential: VecDeque<Write>,
+    deferrable: VecDeque<(u64, Write)>,
+    next_ticket: u64,
+    /// Every deferrable write with a ticket below this has been handed over.
+    ready_below: u64,
+    /// Essential bytes the last flush handed over: with the essential bytes
+    /// already recorded, the reserve the next deferrable flush leaves free.
+    last_essential_bytes: u64,
+}
+
 /// The renderer's write log. Cheap to clone (shared); written from any
 /// pipeline with the same calls a `wgpu::Queue` takes.
 #[derive(Clone)]
 pub struct UploadQueue {
-    writes: Arc<Mutex<VecDeque<Write>>>,
+    logs: Arc<Mutex<Logs>>,
     timestamp_period: f32,
 }
 
@@ -123,26 +189,46 @@ impl UploadQueue {
     /// `timestamp_period`: the device queue's `get_timestamp_period()`, for
     /// GPU timing — the one thing the renderer read off a queue besides writes.
     pub fn new(timestamp_period: f32) -> Self {
+        let logs = Logs {
+            essential: VecDeque::new(),
+            deferrable: VecDeque::new(),
+            next_ticket: 0,
+            ready_below: 0,
+            last_essential_bytes: 0,
+        };
         Self {
-            writes: Arc::new(Mutex::new(VecDeque::new())),
+            logs: Arc::new(Mutex::new(logs)),
             timestamp_period,
         }
     }
 
-    fn log(&self) -> MutexGuard<'_, VecDeque<Write>> {
-        self.writes.lock().unwrap_or_else(|_| {
+    fn log(&self) -> MutexGuard<'_, Logs> {
+        self.logs.lock().unwrap_or_else(|_| {
             panic!("the renderer's upload log is poisoned: a write or flush panicked (a bug; the first panic is the cause)")
         })
     }
 
+    /// An essential buffer write (see the module doc).
     pub fn write_buffer(&self, dst: &wgpu::Buffer, offset: u64, data: &[u8]) {
-        self.log().push_back(Write::Buffer {
+        self.record_essential(Write::Buffer {
             dst: dst.clone(),
             offset,
             data: data.to_vec(),
         });
     }
 
+    /// Record an essential write, dropping any still-queued one it fully
+    /// overwrites (same resource, same region): only the final bytes are on
+    /// the GPU at submit, so the frame is unchanged — and a host's budget is
+    /// not spent on, e.g., three copies of a height field rewritten per DEM
+    /// tile ingested (measured: 256 KiB each).
+    fn record_essential(&self, w: Write) {
+        let mut logs = self.log();
+        logs.essential.retain(|earlier| !w.supersedes(earlier));
+        logs.essential.push_back(w);
+    }
+
+    /// An essential texture write (see the module doc).
     pub fn write_texture(
         &self,
         dst: wgpu::TexelCopyTextureInfo<'_>,
@@ -150,71 +236,148 @@ impl UploadQueue {
         layout: wgpu::TexelCopyBufferLayout,
         size: wgpu::Extent3d,
     ) {
-        self.log().push_back(Write::Texture {
-            dst: dst.texture.clone(),
-            mip_level: dst.mip_level,
-            origin: dst.origin,
-            aspect: dst.aspect,
-            data: data.to_vec(),
-            layout,
-            size,
-        });
+        self.record_essential(texture_write(dst, data, layout, size));
+    }
+
+    /// A tile's data, which may wait for a later frame: the returned ticket
+    /// is [`Self::is_ready`] once the write has been handed to the host, and
+    /// what it wrote must not be drawn before then.
+    pub fn write_texture_deferrable(
+        &self,
+        dst: wgpu::TexelCopyTextureInfo<'_>,
+        data: &[u8],
+        layout: wgpu::TexelCopyBufferLayout,
+        size: wgpu::Extent3d,
+    ) -> UploadTicket {
+        let mut logs = self.log();
+        let t = logs.next_ticket;
+        logs.next_ticket += 1;
+        logs.deferrable
+            .push_back((t, texture_write(dst, data, layout, size)));
+        UploadTicket(t)
+    }
+
+    /// Whether the write behind `ticket` has been handed to the host.
+    pub fn is_ready(&self, ticket: UploadTicket) -> bool {
+        ticket.0 < self.log().ready_below
     }
 
     pub fn get_timestamp_period(&self) -> f32 {
         self.timestamp_period
     }
 
-    /// Writes recorded and not yet flushed.
+    /// Writes recorded and not yet handed over (both logs).
     pub fn pending(&self) -> usize {
-        self.log().len()
+        let logs = self.log();
+        logs.essential.len() + logs.deferrable.len()
     }
 
-    /// Hand every recorded write to `uploader`, in record order. On a refusal
-    /// the refused write and everything after it stay recorded, and the
-    /// refusal is returned.
-    ///
-    /// The log's lock is never held while the uploader runs: one write is
-    /// taken, the lock released, the write handed over, and on a refusal put
-    /// back at the front. An uploader that records into this log again
-    /// (directly, or through something it calls) waits for nothing.
-    pub fn flush(&self, uploader: &mut dyn Uploader) -> Result<(), UploadRefused> {
+    /// Deferrable writes still waiting — a frame is wanted while any are.
+    pub fn pending_deferrable(&self) -> usize {
+        self.log().deferrable.len()
+    }
+
+    /// Hand over deferrable writes, in order, while `uploader` has room
+    /// beyond the reserve the essential writes will need. Stops at the first
+    /// that does not fit, leaving it and the rest for a later frame. The lock
+    /// is never held while the uploader runs.
+    pub fn flush_deferrable(&self, uploader: &mut dyn Uploader) {
         loop {
-            let Some(w) = self.log().pop_front() else {
+            let (ticket, w) = {
+                let mut logs = self.log();
+                // Room for the essential writes this frame will hand over:
+                // those already recorded (construction and ingest-time data,
+                // known now) plus what the last frame's recording added
+                // (uniforms). Without the first term a mount's first frame
+                // gave its whole budget to tiles and refused its own
+                // placeholders (measured: 296 KB of them on the first frame).
+                let reserve = logs.essential.iter().map(Write::bytes).sum::<u64>()
+                    + logs.last_essential_bytes;
+                let Some((_, front)) = logs.deferrable.front() else {
+                    return;
+                };
+                if let Some(left) = uploader.remaining() {
+                    if front.bytes().saturating_add(reserve) > left {
+                        return;
+                    }
+                }
+                logs.deferrable.pop_front().expect("front checked")
+            };
+            if hand_over(&w, uploader).is_err() {
+                // It fitted by `remaining()` and was refused anyway: keep it
+                // for the next frame.
+                self.log().deferrable.push_front((ticket, w));
+                return;
+            }
+            self.log().ready_below = ticket + 1;
+        }
+    }
+
+    /// Hand over every essential write, in record order. They must all be
+    /// taken; on a refusal the refused write and those after it stay
+    /// recorded and the refusal is returned. The lock is never held while
+    /// the uploader runs, so an uploader that records into this log again
+    /// waits for nothing.
+    pub fn flush_essential(&self, uploader: &mut dyn Uploader) -> Result<(), UploadRefused> {
+        let mut handed = 0u64;
+        loop {
+            let Some(w) = self.log().essential.pop_front() else {
+                self.log().last_essential_bytes = handed;
                 return Ok(());
             };
-            let ok = match &w {
-                Write::Buffer { dst, offset, data } => uploader.write_buffer(dst, *offset, data),
-                Write::Texture {
-                    dst,
-                    mip_level,
-                    origin,
-                    aspect,
-                    data,
-                    layout,
-                    size,
-                } => uploader.write_texture(
-                    wgpu::TexelCopyTextureInfo {
-                        texture: dst,
-                        mip_level: *mip_level,
-                        origin: *origin,
-                        aspect: *aspect,
-                    },
-                    data,
-                    *layout,
-                    *size,
-                ),
-            };
-            if ok.is_err() {
+            if hand_over(&w, uploader).is_err() {
                 let bytes = w.bytes();
-                let mut log = self.log();
-                log.push_front(w);
+                let mut logs = self.log();
+                logs.essential.push_front(w);
                 return Err(UploadRefused {
                     bytes,
-                    pending: log.len(),
+                    pending: logs.essential.len(),
                 });
             }
+            handed += w.bytes();
         }
+    }
+}
+
+fn texture_write(
+    dst: wgpu::TexelCopyTextureInfo<'_>,
+    data: &[u8],
+    layout: wgpu::TexelCopyBufferLayout,
+    size: wgpu::Extent3d,
+) -> Write {
+    Write::Texture {
+        dst: dst.texture.clone(),
+        mip_level: dst.mip_level,
+        origin: dst.origin,
+        aspect: dst.aspect,
+        data: data.to_vec(),
+        layout,
+        size,
+    }
+}
+
+fn hand_over(w: &Write, uploader: &mut dyn Uploader) -> Result<(), Refused> {
+    match w {
+        Write::Buffer { dst, offset, data } => uploader.write_buffer(dst, *offset, data),
+        Write::Texture {
+            dst,
+            mip_level,
+            origin,
+            aspect,
+            data,
+            layout,
+            size,
+        } => uploader.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: dst,
+                mip_level: *mip_level,
+                origin: *origin,
+                aspect: *aspect,
+            },
+            data,
+            *layout,
+            *size,
+        ),
     }
 }
 
@@ -331,8 +494,35 @@ mod tests {
             buf: &buf,
             got: vec![],
         };
-        log.flush(&mut up).expect("taken");
+        log.flush_essential(&mut up).expect("taken");
         assert_eq!(up.got, [0, 32]);
+    }
+
+    /// A write that fully overwrites a queued one replaces it; a partial
+    /// overlap does not (both must reach the GPU, in order).
+    #[test]
+    fn a_full_overwrite_supersedes_the_queued_write_and_a_partial_one_does_not() {
+        let Some(device) = device() else { return };
+        let buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 64,
+            usage: wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let log = UploadQueue::new(1.0);
+        log.write_buffer(&buf, 0, &[1; 16]);
+        log.write_buffer(&buf, 0, &[2; 8]); // partial: both stay
+        log.write_buffer(&buf, 0, &[3; 16]); // full overwrite of the first
+        let mut up = Recording {
+            got: vec![],
+            refuse_from: usize::MAX,
+        };
+        log.flush_essential(&mut up).expect("taken");
+        assert_eq!(
+            up.got,
+            ["buf@0:8", "buf@0:16"],
+            "the first 16-byte write was superseded; order kept"
+        );
     }
 
     #[test]
@@ -357,7 +547,7 @@ mod tests {
             refuse_from: 2,
         };
         let refused = log
-            .flush(&mut first)
+            .flush_essential(&mut first)
             .expect_err("the third write is refused");
         assert_eq!(first.got, ["buf@0:4", "buf@8:8"]);
         assert_eq!(
@@ -373,7 +563,7 @@ mod tests {
             got: vec![],
             refuse_from: usize::MAX,
         };
-        log.flush(&mut second).expect("taken now");
+        log.flush_essential(&mut second).expect("taken now");
         assert_eq!(
             second.got,
             ["buf@16:16"],

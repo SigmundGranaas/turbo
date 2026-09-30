@@ -68,3 +68,57 @@ fn golden_hillshade_bergen() {
         },
     );
 }
+
+/// Tile uploads through a host's byte budget (turbomap_core::upload), at
+/// 1 MiB a frame — Edits' per-view inline budget. It holds the first frame's
+/// essential writes (~296 KB of placeholders, measured) and a fraction of a
+/// scene's tile data (raster-parchment: ~9.4 MB in 243 mip writes), so the
+/// tiles are spread over several frames; the final frame must be exactly the
+/// golden — a budget changes when tiles appear, never what they look like.
+fn run_budgeted(name: &str, cfg: GoldenConfig) -> Option<turbomap_golden::BudgetedReplay> {
+    let gpu = gpu_or_skip(name)?;
+    let trace = load_trace(name);
+    let r = turbomap_golden::replay_with_budget(&trace, &gpu, 1 << 20, 200);
+    eprintln!("[budget] {name}: settled after {} frames", r.frames);
+    assert!(
+        r.frames > 1,
+        "the budget never deferred a tile in '{name}', so this measured nothing"
+    );
+    assert_golden(name, &r.last, cfg);
+    Some(r)
+}
+
+#[test]
+fn golden_raster_parchment_through_a_small_upload_budget() {
+    // A flat colour: a fallback ancestor looks like the final frame, so only
+    // convergence is asserted here; the hillshade test below shows deferral.
+    run_budgeted(
+        "raster-parchment",
+        GoldenConfig {
+            max_channel_diff: 2,
+            max_outlier_frac: 0.001,
+        },
+    );
+}
+
+/// A gradient, where an ancestor and the final tile differ: the first
+/// budgeted frame is not the final picture. So a tile whose upload had not
+/// been handed over was not drawn — its ancestor was — and it was drawn once
+/// it had been.
+#[test]
+fn golden_hillshade_bergen_through_a_small_upload_budget() {
+    let Some(r) = run_budgeted(
+        "hillshade-bergen",
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
+    ) else {
+        return;
+    };
+    assert_ne!(
+        r.first.as_raw(),
+        r.last.as_raw(),
+        "the first budgeted frame already showed the final picture"
+    );
+}

@@ -820,7 +820,9 @@ impl TurbomapEngine {
     /// this goes false. The backlog term is load-bearing: decoded tiles
     /// apply inside `render()`, so a sleeping host would strand them.
     pub fn is_animating(&self) -> bool {
-        self.map.is_animating() || self.decode_queue.backlog() > 0
+        self.map.is_animating()
+            || self.decode_queue.backlog() > 0
+            || self.map.pending_tile_uploads() > 0
     }
 
     /// Metrics for the last rendered frame (cpu/gpu time, per-layer cache

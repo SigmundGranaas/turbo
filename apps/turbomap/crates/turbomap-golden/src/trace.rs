@@ -144,6 +144,132 @@ pub fn replay(trace: &Trace, gpu: &Gpu) -> RgbaImage {
     image
 }
 
+/// An uploader with a byte budget per frame, over a queue — what an
+/// embedding app with an upload budget looks like to the renderer.
+pub struct BudgetUploader<'a> {
+    queue: &'a wgpu::Queue,
+    left: u64,
+}
+
+impl<'a> BudgetUploader<'a> {
+    pub fn new(queue: &'a wgpu::Queue, budget: u64) -> Self {
+        Self {
+            queue,
+            left: budget,
+        }
+    }
+    fn take(&mut self, bytes: usize) -> Result<(), turbomap_core::upload::Refused> {
+        let bytes = bytes as u64;
+        if bytes > self.left {
+            return Err(turbomap_core::upload::Refused);
+        }
+        self.left -= bytes;
+        Ok(())
+    }
+}
+
+impl turbomap_core::upload::Uploader for BudgetUploader<'_> {
+    fn remaining(&self) -> Option<u64> {
+        Some(self.left)
+    }
+    fn write_buffer(
+        &mut self,
+        dst: &wgpu::Buffer,
+        offset: u64,
+        data: &[u8],
+    ) -> Result<(), turbomap_core::upload::Refused> {
+        self.take(data.len())?;
+        self.queue.write_buffer(dst, offset, data);
+        Ok(())
+    }
+    fn write_texture(
+        &mut self,
+        dst: wgpu::TexelCopyTextureInfo<'_>,
+        data: &[u8],
+        layout: wgpu::TexelCopyBufferLayout,
+        size: wgpu::Extent3d,
+    ) -> Result<(), turbomap_core::upload::Refused> {
+        self.take(data.len())?;
+        self.queue.write_texture(dst, data, layout, size);
+        Ok(())
+    }
+}
+
+/// What [`replay_with_budget`] saw: the first and the final frame, and how
+/// many frames it took before no tile upload was waiting.
+pub struct BudgetedReplay {
+    pub first: RgbaImage,
+    pub last: RgbaImage,
+    pub frames: u32,
+}
+
+/// [`replay`], but every frame's uploads go through a [`BudgetUploader`] of
+/// `budget` bytes — frames are rendered until no tile upload is waiting (at
+/// most `max_frames`, then it panics: a budget that never drains is a bug).
+pub fn replay_with_budget(
+    trace: &Trace,
+    gpu: &Gpu,
+    budget: u64,
+    max_frames: u32,
+) -> BudgetedReplay {
+    let camera = Camera::new(
+        LatLng {
+            lng: trace.camera.lng,
+            lat: trace.camera.lat,
+        },
+        trace.camera.zoom,
+    )
+    .with_pitch(trace.camera.pitch)
+    .with_bearing(trace.camera.bearing);
+    let mut map = Map::new(
+        gpu.device.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
+        TARGET_FORMAT,
+        (trace.width, trace.height),
+        camera,
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
+    )
+    .expect("map construction");
+    let mut raster_sources: HashMap<String, Arc<dyn TileSource>> = HashMap::new();
+    let mut terrain_source: Option<Arc<dyn TileSource>> = None;
+    for layer in &trace.layers {
+        match layer {
+            LayerSpec::Raster { id, source } => {
+                let src = source.build();
+                map.add_raster_layer(id, src.clone());
+                raster_sources.insert(id.clone(), src);
+            }
+            LayerSpec::Hillshade { id, terrain } => {
+                let src = terrain.build();
+                map.set_terrain_source(src.clone(), TerrainOptions::default());
+                map.add_hillshade_layer(id, HillshadeStyle::default());
+                terrain_source = Some(src);
+            }
+        }
+    }
+    drain_pending(&mut map, &raster_sources, terrain_source.as_ref());
+    let mut first = None;
+    for frame in 1..=max_frames {
+        let image = render_to_image(gpu, trace.width, trace.height, |enc, view| {
+            map.render(enc, view, &mut BudgetUploader::new(&gpu.queue, budget))
+                .expect("the frame's essential uploads fit the budget")
+        });
+        map.after_submit();
+        let first_frame = first.get_or_insert_with(|| image.clone()).clone();
+        if map.pending_tile_uploads() == 0 {
+            return BudgetedReplay {
+                first: first_frame,
+                last: image,
+                frames: frame,
+            };
+        }
+    }
+    panic!("{max_frames} frames at a {budget}-byte budget and tile uploads are still waiting")
+}
+
 fn ingest_raster_tile(
     map: &mut Map,
     src: &Arc<dyn TileSource>,

@@ -12,6 +12,10 @@ pub(crate) struct CacheEntry {
     pub bind_group: wgpu::BindGroup,
     pub bytes: usize,
     pub created_at: Instant,
+    /// The tile's texture upload (every mip level; tickets are handed over
+    /// in order, so the last level's covers them all). Until it is ready the
+    /// entry is held but not drawable — see [`TextureCache::peek`].
+    pub uploaded: crate::upload::UploadTicket,
 }
 
 pub(crate) struct TextureCache {
@@ -85,14 +89,25 @@ impl TextureCache {
 
     /// Seconds since `id` was inserted, or `None` if not cached. Read-only —
     /// does *not* bump the LRU.
+    ///
+    /// `None` too for a tile whose upload has not been handed to the host:
+    /// callers pick drawable tiles by this (hillshade's `prepare` does), and
+    /// it must agree with [`Self::peek`], which the draw then relies on.
     pub(crate) fn age_secs(&self, id: TileId) -> Option<f32> {
-        self.entries
-            .get(&id)
+        self.peek(id)
             .map(|e| Instant::now().duration_since(e.created_at).as_secs_f32())
     }
 
+    /// Whether `id`'s texture has been handed to the host (see
+    /// `crate::upload`): an entry is only drawable once it has.
+    fn drawable(&self, id: TileId) -> bool {
+        self.entries
+            .get(&id)
+            .is_some_and(|e| self.queue.is_ready(e.uploaded))
+    }
+
     pub(crate) fn get(&mut self, id: TileId) -> Option<&CacheEntry> {
-        if self.entries.contains_key(&id) {
+        if self.drawable(id) {
             self.touch(id);
             self.stat_hits += 1;
             self.entries.get(&id)
@@ -105,15 +120,21 @@ impl TextureCache {
     /// Read-only lookup — does *not* bump the LRU or the hit/miss
     /// counters. Used at draw time inside a render pass, where every
     /// referenced tile was already touched by the prepare phase.
+    ///
+    /// A tile whose upload has not been handed to the host yet is absent
+    /// here, so the draw falls back to its ancestor exactly as for a tile
+    /// still in flight — never an uninitialised texture.
     pub(crate) fn peek(&self, id: TileId) -> Option<&CacheEntry> {
-        self.entries.get(&id)
+        self.entries
+            .get(&id)
+            .filter(|e| self.queue.is_ready(e.uploaded))
     }
 
     /// Walk up the pyramid looking for the nearest ancestor in the cache.
     pub(crate) fn nearest_ancestor(&mut self, id: TileId) -> Option<TileId> {
         for k in 1..=id.z {
             let ancestor = id.ancestor(k)?;
-            if self.entries.contains_key(&ancestor) {
+            if self.drawable(ancestor) {
                 self.touch(ancestor);
                 return Some(ancestor);
             }
@@ -171,10 +192,11 @@ impl TextureCache {
             view_formats: &[],
         });
         let mut bytes = 0usize;
+        let mut uploaded = None;
         for (level, data) in chain.iter().enumerate() {
             let lw = (width >> level).max(1);
             let lh = (height >> level).max(1);
-            self.queue.write_texture(
+            uploaded = Some(self.queue.write_texture_deferrable(
                 wgpu::TexelCopyTextureInfo {
                     texture: &texture,
                     mip_level: level as u32,
@@ -192,7 +214,7 @@ impl TextureCache {
                     height: lh,
                     depth_or_array_layers: 1,
                 },
-            );
+            ));
             bytes += data.len();
         }
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -219,6 +241,7 @@ impl TextureCache {
                 bind_group,
                 bytes,
                 created_at: Instant::now(),
+                uploaded: uploaded.expect("a mip chain has at least its base level"),
             },
         );
         self.lru.push_back(id);
@@ -352,6 +375,120 @@ fn linear_to_srgb(l: f32) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The draw-side half of the upload contract (`crate::upload`): a tile
+    /// whose texture upload has not been handed to the host is held but not
+    /// drawable — `peek`, `get`, `age_secs` and `nearest_ancestor` all miss —
+    /// until a flush with room hands it over. Over budget, it stays unready.
+    #[test]
+    fn a_tile_is_drawable_only_once_its_upload_has_been_handed_over() {
+        let instance = wgpu::Instance::default();
+        let Ok(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                force_fallback_adapter: true,
+                ..Default::default()
+            }))
+        else {
+            eprintln!("no software adapter: covered by the budgeted goldens instead");
+            return;
+        };
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+                .expect("device");
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+        let uploads = crate::upload::UploadQueue::new(1.0);
+        let mut cache = TextureCache::new(
+            Arc::new(device),
+            uploads.clone(),
+            Arc::new(layout),
+            Arc::new(sampler),
+            64 << 20,
+            wgpu::TextureFormat::Rgba8Unorm,
+            false,
+        );
+        let parent = TileId::new(3, 1, 1);
+        let child = TileId::new(4, 2, 2);
+        cache.insert(parent, &vec![200u8; 16 * 16 * 4], 16, 16);
+        cache.insert(child, &vec![100u8; 16 * 16 * 4], 16, 16);
+        assert!(
+            cache.peek(child).is_none() && cache.get(child).is_none(),
+            "drawable before its upload was handed over"
+        );
+        assert!(cache.age_secs(child).is_none());
+        assert_eq!(
+            cache.nearest_ancestor(child),
+            None,
+            "the parent is not drawable either yet"
+        );
+
+        // A budget with room for only the parent (1 KiB each).
+        struct Tight<'a>(&'a wgpu::Queue, u64);
+        impl crate::upload::Uploader for Tight<'_> {
+            fn remaining(&self) -> Option<u64> {
+                Some(self.1)
+            }
+            fn write_buffer(
+                &mut self,
+                _: &wgpu::Buffer,
+                _: u64,
+                _: &[u8],
+            ) -> Result<(), crate::upload::Refused> {
+                Err(crate::upload::Refused)
+            }
+            fn write_texture(
+                &mut self,
+                dst: wgpu::TexelCopyTextureInfo<'_>,
+                data: &[u8],
+                layout: wgpu::TexelCopyBufferLayout,
+                size: wgpu::Extent3d,
+            ) -> Result<(), crate::upload::Refused> {
+                self.1 = self
+                    .1
+                    .checked_sub(data.len() as u64)
+                    .ok_or(crate::upload::Refused)?;
+                self.0.write_texture(dst, data, layout, size);
+                Ok(())
+            }
+        }
+        uploads.flush_deferrable(&mut Tight(&queue, 1024));
+        assert!(cache.peek(parent).is_some(), "the parent's upload fitted");
+        assert!(
+            cache.peek(child).is_none(),
+            "the child's did not: still not drawable"
+        );
+        assert_eq!(
+            cache.nearest_ancestor(child),
+            Some(parent),
+            "so the draw falls back to the parent"
+        );
+
+        uploads.flush_deferrable(&mut Tight(&queue, 1024));
+        assert!(
+            cache.peek(child).is_some(),
+            "handed over on the next frame, and drawable now"
+        );
+    }
 
     #[test]
     fn mip_chain_for_256_has_nine_levels() {

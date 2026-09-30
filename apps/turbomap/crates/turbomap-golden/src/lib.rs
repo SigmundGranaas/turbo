@@ -24,4 +24,7 @@ pub mod trace;
 
 pub use golden::{assert_golden, GoldenConfig};
 pub use gpu::{headless, render_to_image, Gpu, TARGET_FORMAT};
-pub use trace::{replay, CameraSpec, LayerSpec, SourceSpec, Trace};
+pub use trace::{
+    replay, replay_with_budget, BudgetUploader, BudgetedReplay, CameraSpec, LayerSpec, SourceSpec,
+    Trace,
+};

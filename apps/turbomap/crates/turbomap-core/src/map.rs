@@ -3706,21 +3706,33 @@ impl Map {
     /// renderer drew when it wrote to a queue directly. See
     /// [`crate::upload`] for why the host owns the queue.
     ///
-    /// A refusal is returned, and the refused write and those after it stay
-    /// recorded (see [`crate::upload`]: not yet a safe partial frame).
+    /// Tile data the host has no room for waits for a later frame, and is not
+    /// drawn until it has been handed over (its ancestor is drawn instead). A
+    /// refusal of an *essential* write (uniforms, atlases) is returned: the
+    /// frame was drawn with them.
     pub fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         uploader: &mut dyn crate::upload::Uploader,
     ) -> Result<(), crate::upload::UploadRefused> {
+        // Tile data first, within the host's budget, so a tile uploaded now
+        // is drawn now; what does not fit stays unready and undrawn.
+        self.queue.flush_deferrable(uploader);
         self.record(encoder, target);
-        self.queue.flush(uploader)
+        // The frame is drawn with these: they must be taken.
+        self.queue.flush_essential(uploader)
     }
 
     /// Writes recorded and not yet handed to an uploader.
     pub fn pending_uploads(&self) -> usize {
         self.queue.pending()
+    }
+
+    /// Tile data waiting for room in the host's upload budget. A host keeps
+    /// rendering frames while this is non-zero, or those tiles never appear.
+    pub fn pending_tile_uploads(&self) -> usize {
+        self.queue.pending_deferrable()
     }
 
     fn record(&mut self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
