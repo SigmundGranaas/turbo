@@ -2425,6 +2425,41 @@ impl Map {
         self.ease_to(target, duration);
     }
 
+    /// Jump so all of `bounds` shows with `padding_px` clear on every side
+    /// of the visible viewport. See [`Camera::fitted_to`] for the pose.
+    pub fn fit_bounds(
+        &mut self,
+        bounds: crate::geo::LatLngBounds,
+        padding_px: f64,
+    ) -> Result<(), crate::error::FitError> {
+        let target = self.fitted_camera(bounds, padding_px)?;
+        self.set_camera(target);
+        Ok(())
+    }
+
+    /// [`Self::fit_bounds`], eased over `duration` from the current pose.
+    pub fn fly_to_bounds(
+        &mut self,
+        bounds: crate::geo::LatLngBounds,
+        padding_px: f64,
+        duration: Duration,
+    ) -> Result<(), crate::error::FitError> {
+        let target = self.fitted_camera(bounds, padding_px)?;
+        self.ease_to(target, duration);
+        Ok(())
+    }
+
+    fn fitted_camera(
+        &self,
+        bounds: crate::geo::LatLngBounds,
+        padding_px: f64,
+    ) -> Result<Camera, crate::error::FitError> {
+        let (w, h) = self.viewport_px;
+        self.cam
+            .camera
+            .fitted_to(bounds, (w as f64, h as f64), padding_px)
+    }
+
     pub fn ease_to(&mut self, target: Camera, duration: Duration) {
         self.cam.active = Some(ActiveAnim::Ease(CameraAnimation::new(
             self.cam.camera,

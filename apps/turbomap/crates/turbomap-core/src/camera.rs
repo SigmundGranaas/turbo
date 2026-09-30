@@ -412,6 +412,55 @@ impl Camera {
         .to_lat_lng();
     }
 
+    /// The camera that shows all of `bounds` in this camera's visible
+    /// viewport — `viewport_px` minus its insets — with `padding_px` clear
+    /// on every side. The result looks straight down (pitch 0; a pitched
+    /// footprint is a trapezoid no fit of a rectangle describes), keeps
+    /// this camera's bearing, insets and zoom bounds, and its zoom is
+    /// clamped to those bounds: a single point, or a rectangle smaller
+    /// than the deepest allowed zoom shows, lands at the deepest zoom.
+    pub fn fitted_to(
+        self,
+        bounds: crate::geo::LatLngBounds,
+        viewport_px: (f64, f64),
+        padding_px: f64,
+    ) -> Result<Camera, crate::error::FitError> {
+        let room_w = viewport_px.0 - self.viewport_inset_right_px - 2.0 * padding_px;
+        let room_h = viewport_px.1 - self.viewport_inset_px - 2.0 * padding_px;
+        // `!(x > 0)` also refuses NaN.
+        if !(room_w > 0.0 && room_h > 0.0 && padding_px >= 0.0) {
+            return Err(crate::error::FitError::NoRoom {
+                viewport_w: viewport_px.0,
+                viewport_h: viewport_px.1,
+                padding_px,
+                room_w,
+                room_h,
+            });
+        }
+        let (nw, se) = bounds.world_rect();
+        let (dx, dy) = (se.x - nw.x, se.y - nw.y);
+        let centre = WorldPoint::new(((nw.x + se.x) / 2.0).rem_euclid(1.0), (nw.y + se.y) / 2.0);
+        // The rectangle's extent across and down the screen once rotated
+        // by the bearing, in world units.
+        let (sin, cos) = self.bearing_deg.to_radians().sin_cos();
+        let across = dx * cos.abs() + dy * sin.abs();
+        let down = dx * sin.abs() + dy * cos.abs();
+        // Pixels per world unit that fit each axis; the tighter one wins.
+        let ppw = (room_w / across).min(room_h / down);
+        let zoom = if ppw.is_finite() {
+            (ppw / TILE_SIZE_PX).log2()
+        } else {
+            // A point (zero extent): no zoom is too deep for it.
+            f64::INFINITY
+        };
+        Ok(Camera {
+            center: centre.to_lat_lng(),
+            zoom: self.zoom_bounds.clamp(zoom),
+            pitch_deg: 0.0,
+            ..self
+        })
+    }
+
     /// Pixels per world unit at the current zoom (one world unit = the full
     /// Mercator extent, i.e. one root tile). This is the value at the
     /// camera's centre on the ground plane — perspective makes the
@@ -1991,5 +2040,164 @@ mod tests {
                 "vp must be finite at zoom {zoom}, pitch 80"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod fit_tests {
+    //! `fitted_to` is judged by what lands on screen: every corner of the
+    //! bounds projects inside the visible viewport, clear of the padding,
+    //! and the fit is tight (a corner reaches the padding on one axis), so
+    //! the bounds are not just visible but as large as they can be.
+
+    use super::*;
+    use crate::error::FitError;
+    use crate::geo::LatLngBounds;
+
+    const VIEW: (f64, f64) = (800.0, 600.0);
+    const PAD: f64 = 40.0;
+
+    fn bergen() -> LatLngBounds {
+        LatLngBounds::new(LatLng::new(60.30, 5.20), LatLng::new(60.45, 5.45)).unwrap()
+    }
+
+    /// The corners' screen positions, each world x taken as the copy of the
+    /// world nearest the camera (a rectangle across the antimeridian has
+    /// corners either side of x = 0).
+    fn corners_on_screen(cam: Camera, b: LatLngBounds) -> Vec<(f64, f64)> {
+        let c = cam.center.to_world();
+        [
+            (b.north(), b.west()),
+            (b.north(), b.east()),
+            (b.south(), b.west()),
+            (b.south(), b.east()),
+        ]
+        .into_iter()
+        .map(|(lat, lng)| {
+            let mut w = LatLng::new(lat, lng).to_world();
+            w.x -= (w.x - c.x).round();
+            cam.world_to_screen(w, VIEW)
+                .expect("a corner in front of a top-down camera")
+        })
+        .collect()
+    }
+
+    /// Every corner inside `[PAD, limit − PAD]`, and some corner within a
+    /// pixel of the padding edge.
+    fn assert_fits_tightly(cam: Camera, b: LatLngBounds, right_limit: f64, bottom_limit: f64) {
+        let pts = corners_on_screen(cam, b);
+        let eps = 1e-6;
+        for &(x, y) in &pts {
+            assert!(
+                x >= PAD - eps
+                    && x <= right_limit - PAD + eps
+                    && y >= PAD - eps
+                    && y <= bottom_limit - PAD + eps,
+                "corner ({x:.2}, {y:.2}) outside the padded room {PAD}..{}, {PAD}..{}",
+                right_limit - PAD,
+                bottom_limit - PAD
+            );
+        }
+        let tight = pts.iter().any(|&(x, y)| {
+            (x - PAD).abs() < 1.0
+                || (x - (right_limit - PAD)).abs() < 1.0
+                || (y - PAD).abs() < 1.0
+                || (y - (bottom_limit - PAD)).abs() < 1.0
+        });
+        assert!(
+            tight,
+            "no corner reaches the padding: the fit is loose ({pts:?})"
+        );
+    }
+
+    #[test]
+    fn a_fit_shows_every_corner_inside_the_padding_and_no_smaller_than_it_must() {
+        let start = Camera::new(LatLng::new(0.0, 0.0), 2.0).with_pitch(40.0);
+        let cam = start.fitted_to(bergen(), VIEW, PAD).unwrap();
+        assert_eq!(cam.pitch_deg, 0.0, "a fit looks straight down");
+        assert_fits_tightly(cam, bergen(), VIEW.0, VIEW.1);
+    }
+
+    #[test]
+    fn a_fit_keeps_the_bearing_and_still_contains_the_rotated_rectangle() {
+        let start = Camera::new(LatLng::new(0.0, 0.0), 2.0).with_bearing(30.0);
+        let cam = start.fitted_to(bergen(), VIEW, PAD).unwrap();
+        assert_eq!(cam.bearing_deg, 30.0);
+        assert_fits_tightly(cam, bergen(), VIEW.0, VIEW.1);
+    }
+
+    #[test]
+    fn a_fit_keeps_clear_of_the_panels_the_insets_describe() {
+        // Each layout makes one inset the binding one: a fit that forgot
+        // that panel would size to the other axis and run under it.
+        for (bottom, right) in [(100.0, 450.0), (350.0, 0.0)] {
+            let start = Camera::new(LatLng::new(0.0, 0.0), 2.0)
+                .with_viewport_inset(bottom)
+                .with_viewport_inset_right(right);
+            let cam = start.fitted_to(bergen(), VIEW, PAD).unwrap();
+            assert_fits_tightly(cam, bergen(), VIEW.0 - right, VIEW.1 - bottom);
+        }
+    }
+
+    #[test]
+    fn photographs_either_side_of_the_antimeridian_fit_as_a_narrow_rectangle() {
+        // Fiji: Suva (178.44° E) and Vanua Balavu's neighbour at 179.2° W.
+        let b = LatLngBounds::containing([LatLng::new(-18.14, 178.44), LatLng::new(-17.2, -179.2)])
+            .unwrap()
+            .unwrap();
+        assert!(
+            b.west() > b.east(),
+            "the rectangle crosses the antimeridian: {b:?}"
+        );
+        let cam = Camera::new(LatLng::new(0.0, 0.0), 1.0)
+            .fitted_to(b, VIEW, PAD)
+            .unwrap();
+        assert!(
+            cam.zoom > 6.0,
+            "two islands 2.4° apart, not the whole world: zoom {}",
+            cam.zoom
+        );
+        assert_fits_tightly(cam, b, VIEW.0, VIEW.1);
+    }
+
+    #[test]
+    fn a_single_photograph_lands_at_the_deepest_zoom_the_map_allows() {
+        let p = LatLng::new(60.39, 5.32);
+        let b = LatLngBounds::containing([p]).unwrap().unwrap();
+        let start =
+            Camera::new(LatLng::new(0.0, 0.0), 2.0).with_zoom_bounds(ZoomBounds::new(0.0, 17.0));
+        let cam = start.fitted_to(b, VIEW, PAD).unwrap();
+        assert_eq!(cam.zoom, 17.0);
+        assert!((cam.center.lat - p.lat).abs() < 1e-9 && (cam.center.lng - p.lng).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_fit_with_no_room_left_is_refused_naming_the_room() {
+        let err = Camera::new(LatLng::new(0.0, 0.0), 2.0)
+            .with_viewport_inset_right(750.0)
+            .fitted_to(bergen(), VIEW, PAD)
+            .unwrap_err();
+        assert!(
+            matches!(err, FitError::NoRoom { room_w, .. } if room_w < 0.0),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn a_rectangle_that_is_not_one_is_refused() {
+        let ll = LatLng::new;
+        assert!(matches!(
+            LatLngBounds::new(ll(10.0, 0.0), ll(5.0, 1.0)),
+            Err(FitError::Latitudes { .. })
+        ));
+        assert!(matches!(
+            LatLngBounds::new(ll(f64::NAN, 0.0), ll(5.0, 1.0)),
+            Err(FitError::NonFiniteCorner { .. })
+        ));
+        assert!(matches!(
+            LatLngBounds::new(ll(0.0, 0.0), ll(5.0, 181.0)),
+            Err(FitError::Longitude { .. })
+        ));
+        assert_eq!(LatLngBounds::containing(std::iter::empty()), Ok(None));
     }
 }

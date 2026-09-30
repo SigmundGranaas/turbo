@@ -40,8 +40,8 @@ pub mod work;
 pub use camera::{Camera, CameraAnimation, FiniteF64, ZoomBounds, ZoomLock, TILE_SIZE_PX};
 pub use dem::{decode_dem_rgba, decode_elevation, DemEncoding};
 pub use environment::Environment;
-pub use error::{MapError, TileError};
-pub use geo::{LatLng, WorldPoint, MAX_LATITUDE_DEG};
+pub use error::{FitError, MapError, TileError};
+pub use geo::{LatLng, LatLngBounds, WorldPoint, MAX_LATITUDE_DEG};
 pub use lighting::{Lighting, LightingMode};
 pub use map::{
     CloudParams, FrameMetrics, HitFeature, HitMarker, HitResult, LayerKind, LayerMetrics, Map,

@@ -602,6 +602,28 @@ impl TurbomapEngine {
         true
     }
 
+    /// Jump so all of `bounds` shows with `padding_px` clear on every side
+    /// of the visible viewport: top-down, at the current bearing, the zoom
+    /// clamped to the map's zoom lock ([`turbomap_core::Camera::fitted_to`]).
+    pub fn fit_bounds(
+        &mut self,
+        bounds: turbomap_core::LatLngBounds,
+        padding_px: f64,
+    ) -> Result<(), turbomap_core::FitError> {
+        self.map.fit_bounds(bounds, padding_px)
+    }
+
+    /// [`Self::fit_bounds`], eased over `duration`; drive it with
+    /// [`tick_now`](Self::tick_now) each frame.
+    pub fn fly_to_bounds(
+        &mut self,
+        bounds: turbomap_core::LatLngBounds,
+        padding_px: f64,
+        duration: std::time::Duration,
+    ) -> Result<(), turbomap_core::FitError> {
+        self.map.fly_to_bounds(bounds, padding_px, duration)
+    }
+
     /// Animate the camera to `target` over `duration`; drive with
     /// [`tick_now`](Self::tick_now) each frame.
     pub fn ease_to(&mut self, target: CameraState, duration: std::time::Duration) {

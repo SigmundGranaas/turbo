@@ -28,6 +28,30 @@ pub enum RenderError {
     Upload(#[from] crate::upload::UploadRefused),
 }
 
+/// Why a [`crate::LatLngBounds`] could not be built or fitted.
+#[derive(Debug, Error, Clone, Copy, PartialEq)]
+pub enum FitError {
+    /// A corner was NaN or infinite.
+    #[error("bounds corner is not finite: lat {lat}, lng {lng}")]
+    NonFiniteCorner { lat: f64, lng: f64 },
+    /// South above north, or a latitude outside ±90°.
+    #[error("bounds latitudes are not south ≤ north within ±90°: south {south}, north {north}")]
+    Latitudes { south: f64, north: f64 },
+    /// A longitude outside ±180°.
+    #[error("bounds longitude {lng} is outside ±180°")]
+    Longitude { lng: f64 },
+    /// The visible viewport — the viewport minus the camera's insets and the
+    /// padding on every side — has no width or no height to fit into.
+    #[error("no room to fit bounds: viewport {viewport_w}×{viewport_h} px leaves {room_w}×{room_h} px after insets and {padding_px} px padding")]
+    NoRoom {
+        viewport_w: f64,
+        viewport_h: f64,
+        padding_px: f64,
+        room_w: f64,
+        room_h: f64,
+    },
+}
+
 #[derive(Debug, Error)]
 pub enum TileError {
     #[error("network: {0}")]
