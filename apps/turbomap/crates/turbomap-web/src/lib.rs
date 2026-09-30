@@ -163,7 +163,7 @@ impl TurboMap {
         };
         let engine = TurbomapEngine::new(
             device.clone(),
-            queue.clone(),
+            turbomap_core::upload::UploadQueue::new(queue.get_timestamp_period()),
             render_format,
             (config.width, config.height),
             camera,
@@ -278,7 +278,13 @@ impl TurboMap {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        self.engine.render(&mut encoder, &view);
+        self.engine
+            .render(
+                &mut encoder,
+                &view,
+                &mut turbomap_core::upload::QueueUploader(&self.queue),
+            )
+            .expect("a queue uploader takes every write");
         self.queue.submit([encoder.finish()]);
         self.queue.present(frame);
         self.engine.after_submit();

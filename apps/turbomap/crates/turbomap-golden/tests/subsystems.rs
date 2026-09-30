@@ -39,7 +39,7 @@ fn populated_map(gpu: &turbomap_golden::Gpu) -> Map {
     );
     let mut map = Map::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         turbomap_golden::TARGET_FORMAT,
         (256, 256),
         camera,
@@ -177,7 +177,12 @@ fn declared_passes_match_the_frame_graph_report() {
     });
     let view = target.create_view(&Default::default());
     let mut encoder = gpu.device.create_command_encoder(&Default::default());
-    map.render(&mut encoder, &view);
+    map.render(
+        &mut encoder,
+        &view,
+        &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+    )
+    .expect("a queue uploader takes every write");
     gpu.queue.submit([encoder.finish()]);
 
     // Every pass label in the frame report must be claimed by exactly one

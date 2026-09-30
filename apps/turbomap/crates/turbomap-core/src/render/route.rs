@@ -44,13 +44,13 @@ pub(crate) struct RoutePipeline {
     index_capacity: u64,
     index_count: u32,
     device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
+    queue: crate::upload::UploadQueue,
 }
 
 impl RoutePipeline {
     pub(crate) fn new(
         device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
+        queue: crate::upload::UploadQueue,
         surface_format: wgpu::TextureFormat,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {

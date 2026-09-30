@@ -60,7 +60,7 @@ fn buildings_extrude_under_a_tilted_camera() {
 
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         camera,
@@ -78,7 +78,15 @@ fn buildings_extrude_under_a_tilted_camera() {
     assert!(stats.vector_tiles >= 4, "tiles should load, got {stats:?}");
     assert!(engine.unsupported_layers().is_empty());
 
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     // Roofs are the full colour; walls are directionally shaded, so both a

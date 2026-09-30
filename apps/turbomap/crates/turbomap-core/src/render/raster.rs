@@ -246,7 +246,7 @@ pub(crate) struct RasterPipeline {
     /// drawn set, so it stays bounded by viewport coverage.
     first_seen: std::collections::HashMap<TileId, web_time::Instant>,
     device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
+    queue: crate::upload::UploadQueue,
 }
 
 impl RasterPipeline {
@@ -257,7 +257,7 @@ impl RasterPipeline {
     /// subdivided tile mesh.
     pub(crate) fn new(
         device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
+        queue: crate::upload::UploadQueue,
         surface_format: wgpu::TextureFormat,
         terrain_bgl: &wgpu::BindGroupLayout,
         shadow_bgl: &wgpu::BindGroupLayout,

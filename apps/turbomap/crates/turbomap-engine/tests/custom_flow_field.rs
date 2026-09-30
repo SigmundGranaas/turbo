@@ -41,7 +41,7 @@ fn flow_scene(kind: &str) -> Scene {
 fn engine(gpu: &Gpu, size: (u32, u32)) -> TurbomapEngine {
     TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         size,
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
@@ -87,7 +87,15 @@ fn flow_field_custom_layer_renders_deterministically() {
 
     // Pin the animation clock: the golden must not depend on wall time.
     engine.set_time_override(Some(120.0));
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     // The custom layer is a named frame-graph node in the pass report.
@@ -105,7 +113,15 @@ fn flow_field_custom_layer_renders_deterministically() {
 
     // Determinism under a pinned clock: an identical re-render is
     // byte-identical (the streak field is a pure function of world + time).
-    let again = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let again = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
     assert_eq!(
         image.as_raw(),
@@ -135,6 +151,14 @@ fn unknown_custom_kind_degrades_to_unsupported() {
     );
     // The frame still renders (the base layer alone) without panicking.
     engine.pump_tiles();
-    let _ = render_to_image(&gpu, 256, 256, |enc, view| engine.render(enc, view));
+    let _ = render_to_image(&gpu, 256, 256, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 }

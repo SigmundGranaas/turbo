@@ -47,13 +47,13 @@ pub(crate) struct MarkerPipeline {
     globals_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
+    queue: crate::upload::UploadQueue,
 }
 
 impl MarkerPipeline {
     pub(crate) fn new(
         device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
+        queue: crate::upload::UploadQueue,
         surface_format: wgpu::TextureFormat,
     ) -> Self {
         use wgpu::util::DeviceExt;

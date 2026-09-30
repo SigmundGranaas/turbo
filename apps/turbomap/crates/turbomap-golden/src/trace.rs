@@ -97,7 +97,7 @@ pub fn replay(trace: &Trace, gpu: &Gpu) -> RgbaImage {
 
     let mut map = Map::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (trace.width, trace.height),
         camera,
@@ -133,7 +133,12 @@ pub fn replay(trace: &Trace, gpu: &Gpu) -> RgbaImage {
 
     drain_pending(&mut map, &raster_sources, terrain_source.as_ref());
     let image = render_to_image(gpu, trace.width, trace.height, |enc, view| {
-        map.render(enc, view)
+        map.render(
+            enc,
+            view,
+            &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+        )
+        .expect("a queue uploader takes every write")
     });
     map.after_submit();
     image

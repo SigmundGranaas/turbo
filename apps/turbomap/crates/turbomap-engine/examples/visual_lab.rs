@@ -115,7 +115,7 @@ fn render_scene(args: &Args, scene: Scene, resolver: Box<dyn SourceResolver>) ->
     let gpu = headless().expect("no wgpu adapter");
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (args.width, args.height),
         CameraState::new(args.center, args.zoom),
@@ -130,7 +130,13 @@ fn render_scene(args: &Args, scene: Scene, resolver: Box<dyn SourceResolver>) ->
     engine.apply(scene);
     engine.pump_tiles();
     let img = render_to_image(&gpu, args.width, args.height, |enc, view| {
-        engine.render(enc, view)
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
     });
     engine.after_submit();
     img

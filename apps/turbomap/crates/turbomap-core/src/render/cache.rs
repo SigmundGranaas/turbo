@@ -20,7 +20,7 @@ pub(crate) struct TextureCache {
     bytes_used: usize,
     budget_bytes: usize,
     device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
+    queue: crate::upload::UploadQueue,
     bind_group_layout: Arc<wgpu::BindGroupLayout>,
     sampler: Arc<wgpu::Sampler>,
     /// Texture format used for every entry. Raster basemaps want sRGB
@@ -46,7 +46,7 @@ pub(crate) struct TextureCache {
 impl TextureCache {
     pub(crate) fn new(
         device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
+        queue: crate::upload::UploadQueue,
         bind_group_layout: Arc<wgpu::BindGroupLayout>,
         sampler: Arc<wgpu::Sampler>,
         budget_bytes: usize,

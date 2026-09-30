@@ -111,7 +111,7 @@ fn ir_order_is_the_composited_order_across_kinds() {
     let (width, height) = (512, 384);
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
@@ -146,7 +146,15 @@ fn ir_order_is_the_composited_order_across_kinds() {
         "the marker store answers hits regardless of compositing order"
     );
 
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     // Pixel assertions BEFORE the golden so a compositing regression names

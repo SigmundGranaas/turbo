@@ -25,3 +25,6 @@ rustybuzz.workspace = true
 unicode-bidi.workspace = true
 web-time.workspace = true
 half.workspace = true
+
+[dev-dependencies]
+pollster.workspace = true

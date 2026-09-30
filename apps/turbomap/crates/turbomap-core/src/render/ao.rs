@@ -58,7 +58,7 @@ pub(crate) struct AoField {
     pipeline: wgpu::RenderPipeline,
     params_buffer: wgpu::Buffer,
     params_bind_group: wgpu::BindGroup,
-    queue: std::sync::Arc<wgpu::Queue>,
+    queue: crate::upload::UploadQueue,
     /// How many directions of the current key are baked so far (`>= TOTAL_DIRS`
     /// means converged → no more passes until the key changes).
     pub(crate) done: u32,
@@ -69,7 +69,7 @@ pub(crate) struct AoField {
 impl AoField {
     pub(crate) fn new(
         device: &wgpu::Device,
-        queue: std::sync::Arc<wgpu::Queue>,
+        queue: crate::upload::UploadQueue,
         height_tex_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {

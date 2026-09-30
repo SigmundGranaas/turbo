@@ -52,7 +52,7 @@ fn real_bergen_renders_like_a_basemap() {
     let (width, height) = (1280, 880);
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         // Bergen sentrum — Torgallmenningen-ish. Camera zoom is in
@@ -78,7 +78,15 @@ fn real_bergen_renders_like_a_basemap() {
     );
     assert!(engine.unsupported_layers().is_empty());
 
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     let near =

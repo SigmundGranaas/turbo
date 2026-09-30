@@ -111,7 +111,7 @@ fn camera(zoom: f64) -> CameraState {
 fn engine(gpu: &Gpu, zoom: f64) -> TurbomapEngine {
     TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (512, 384),
         camera(zoom),
@@ -140,7 +140,14 @@ fn zoom_curve_colour_updates_without_retessellation() {
     assert!(loaded.vector_tiles > 0, "route should load: {loaded:?}");
 
     // At zoom 9.0 the curve is fully RED.
-    let img = render_to_image(&gpu, 512, 384, |enc, v| e.render(enc, v));
+    let img = render_to_image(&gpu, 512, 384, |enc, v| {
+        e.render(
+            enc,
+            v,
+            &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+        )
+        .expect("a queue uploader takes every write")
+    });
     e.after_submit();
     let (r1, g1, b1) = avg_line_color(&img);
     assert!(
@@ -157,7 +164,14 @@ fn zoom_curve_colour_updates_without_retessellation() {
         "a zoom change within one tile level must not re-tessellate, got {after:?}"
     );
 
-    let img = render_to_image(&gpu, 512, 384, |enc, v| e.render(enc, v));
+    let img = render_to_image(&gpu, 512, 384, |enc, v| {
+        e.render(
+            enc,
+            v,
+            &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+        )
+        .expect("a queue uploader takes every write")
+    });
     e.after_submit();
     let (r2, g2, b2) = avg_line_color(&img);
     assert!(

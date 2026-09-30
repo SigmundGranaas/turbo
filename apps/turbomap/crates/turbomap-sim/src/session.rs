@@ -389,7 +389,7 @@ impl Sim {
         let gpu = turbomap_golden::headless()?;
         let engine = TurbomapEngine::new(
             gpu.device.clone(),
-            gpu.queue.clone(),
+            turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
             turbomap_golden::TARGET_FORMAT,
             (width, height),
             camera,
@@ -539,8 +539,11 @@ impl Sim {
 
         // Render a real frame and measure it.
         let engine = &mut self.engine;
+        let queue = &self.gpu.queue;
         let img = render_to_image(&self.gpu, self.width, self.height, |enc, view| {
-            engine.render(enc, view)
+            engine
+                .render(enc, view, &mut turbomap_core::upload::QueueUploader(queue))
+                .expect("a queue uploader takes every write")
         });
         self.engine.after_submit();
 

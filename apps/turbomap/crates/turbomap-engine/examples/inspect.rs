@@ -231,7 +231,7 @@ fn main() {
     };
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (args.width, args.height),
         camera,
@@ -253,7 +253,13 @@ fn main() {
     let drain = engine.pump_tiles();
 
     let image = render_to_image(&gpu, args.width, args.height, |enc, view| {
-        engine.render(enc, view)
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
     });
     engine.after_submit();
     image.save(&args.png).expect("write png");

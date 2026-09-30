@@ -86,7 +86,7 @@ fn tapping_a_poi_returns_its_name_and_class() {
     let (width, height) = (1280, 880);
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         // Centre the camera on the POI so it lands at screen centre.

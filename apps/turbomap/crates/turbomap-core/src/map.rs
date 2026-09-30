@@ -622,7 +622,7 @@ struct Renderer {
 impl Renderer {
     fn new(
         device: &Arc<wgpu::Device>,
-        queue: &Arc<wgpu::Queue>,
+        queue: &crate::upload::UploadQueue,
         surface_format: wgpu::TextureFormat,
         initial_size: (u32, u32),
     ) -> Self {
@@ -1120,7 +1120,7 @@ impl CameraState {
 
 pub struct Map {
     device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
+    queue: crate::upload::UploadQueue,
     surface_format: wgpu::TextureFormat,
     viewport_px: (u32, u32),
     /// The camera's pose + drive state: the shared camera, the single in-flight
@@ -1313,7 +1313,7 @@ struct ShadowKey {
 impl Map {
     pub fn new(
         device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
+        queue: crate::upload::UploadQueue,
         surface_format: wgpu::TextureFormat,
         initial_size: (u32, u32),
         initial_camera: Camera,
@@ -3698,7 +3698,32 @@ impl Map {
         writes: &[Res::FrameTarget],
     };
 
-    pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+    /// **Draw the frame into `target`, then hand every recorded upload to
+    /// `uploader`** — tile data ingested since the last frame and this
+    /// frame's own uniforms, in the order they were written. The host
+    /// submits `encoder` after this returns; a queue write takes effect at
+    /// that submit whenever it was issued, so this is the frame the
+    /// renderer drew when it wrote to a queue directly. See
+    /// [`crate::upload`] for why the host owns the queue.
+    ///
+    /// A refusal is returned, and the refused write and those after it stay
+    /// recorded (see [`crate::upload`]: not yet a safe partial frame).
+    pub fn render(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        uploader: &mut dyn crate::upload::Uploader,
+    ) -> Result<(), crate::upload::UploadRefused> {
+        self.record(encoder, target);
+        self.queue.flush(uploader)
+    }
+
+    /// Writes recorded and not yet handed to an uploader.
+    pub fn pending_uploads(&self) -> usize {
+        self.queue.pending()
+    }
+
+    fn record(&mut self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
         let started = Instant::now();
 
         // ---- Master finite gate -----------------------------------------

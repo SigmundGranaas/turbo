@@ -90,7 +90,7 @@ fn full_overlay_set_renders() {
     let (width, height) = (512, 384);
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
@@ -112,7 +112,15 @@ fn full_overlay_set_renders() {
     // Three measure points → three markers.
     assert_eq!(engine.map().markers().len(), 3, "expected 3 circle markers");
 
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     assert_golden(
@@ -173,7 +181,7 @@ fn line_width_is_pixel_constant_across_zoom() {
 
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (w, h),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
@@ -205,7 +213,11 @@ fn line_width_is_pixel_constant_across_zoom() {
 
     engine.apply(scene);
     engine.pump_tiles();
-    let img0 = render_to_image(&gpu, w, h, |e, v| engine.render(e, v));
+    let img0 = render_to_image(&gpu, w, h, |e, v| {
+        engine
+            .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
     let t0 = thickness(&img0);
 
@@ -216,7 +228,11 @@ fn line_width_is_pixel_constant_across_zoom() {
         drained.vector_tiles, 0,
         "zoom within a level must not re-tessellate"
     );
-    let img1 = render_to_image(&gpu, w, h, |e, v| engine.render(e, v));
+    let img1 = render_to_image(&gpu, w, h, |e, v| {
+        engine
+            .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
     let t1 = thickness(&img1);
 
@@ -280,7 +296,7 @@ fn msaa_smooths_polygon_fill_edges() {
 
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
@@ -294,7 +310,15 @@ fn msaa_smooths_polygon_fill_edges() {
 
     engine.apply(scene);
     engine.pump_tiles();
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     // Edge pixels: red channel strictly between the fill (40) and the base
@@ -371,7 +395,7 @@ fn dashed_line_renders_with_gaps() {
 
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (w, h),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
@@ -385,7 +409,11 @@ fn dashed_line_renders_with_gaps() {
 
     engine.apply(scene);
     engine.pump_tiles();
-    let image = render_to_image(&gpu, w, h, |e, v| engine.render(e, v));
+    let image = render_to_image(&gpu, w, h, |e, v| {
+        engine
+            .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     // Find the line's row (most red pixels), then count red runs along it.
@@ -501,7 +529,7 @@ fn label_importance_ranking_wins_collisions() {
 
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
@@ -515,7 +543,15 @@ fn label_importance_ranking_wins_collisions() {
 
     engine.apply(scene);
     engine.pump_tiles();
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     let dark = image
@@ -626,7 +662,7 @@ fn data_driven_match_width_builds_road_hierarchy() {
 
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
@@ -640,7 +676,15 @@ fn data_driven_match_width_builds_road_hierarchy() {
 
     engine.apply(scene);
     engine.pump_tiles();
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     // Scan the centre column top-to-bottom; the three horizontal lines are
@@ -768,7 +812,7 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines() {
 
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
@@ -783,7 +827,15 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines() {
     engine.apply(scene);
     engine.pump_tiles();
 
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     // The halo paints white pixels that are NOT the line colour and NOT the
@@ -877,7 +929,7 @@ fn cjk_labels_render_via_fallback_font() {
 
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 11.0),
@@ -895,7 +947,15 @@ fn cjk_labels_render_via_fallback_font() {
 
     engine.apply(scene);
     engine.pump_tiles();
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     let dark = image
@@ -983,7 +1043,7 @@ fn complex_scripts_render_with_shaping_and_bidi() {
 
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 11.0),
@@ -999,7 +1059,15 @@ fn complex_scripts_render_with_shaping_and_bidi() {
 
     engine.apply(scene);
     engine.pump_tiles();
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     let dark = image
@@ -1097,7 +1165,7 @@ fn road_name_follows_the_centerline() {
 
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 10.0),
@@ -1113,7 +1181,15 @@ fn road_name_follows_the_centerline() {
     engine.pump_tiles();
     assert!(engine.unsupported_layers().is_empty());
 
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     // Dark label ink — collect its bounding box.
@@ -1254,7 +1330,7 @@ fn icons_and_route_shields_render() {
 
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.392, 5.3225), 12.0),
@@ -1270,7 +1346,15 @@ fn icons_and_route_shields_render() {
     engine.pump_tiles();
     assert!(engine.unsupported_layers().is_empty());
 
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     let near =
@@ -1373,7 +1457,7 @@ fn symbol_labels_render_over_raster() {
 
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
@@ -1393,7 +1477,15 @@ fn symbol_labels_render_over_raster() {
     );
     assert!(engine.unsupported_layers().is_empty());
 
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     assert_golden(
@@ -1471,7 +1563,7 @@ fn data_driven_match_colour_styles_lines_by_property() {
 
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
@@ -1488,7 +1580,15 @@ fn data_driven_match_colour_styles_lines_by_property() {
     assert!(stats.vector_tiles > 0, "expected way tiles, got {stats:?}");
     assert!(engine.unsupported_layers().is_empty());
 
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     assert_golden(
@@ -1548,7 +1648,7 @@ fn geojson_fill_renders_over_raster() {
 
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
@@ -1565,7 +1665,15 @@ fn geojson_fill_renders_over_raster() {
     assert!(stats.vector_tiles > 0, "expected fill tiles, got {stats:?}");
     assert!(engine.unsupported_layers().is_empty());
 
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     assert_golden(
@@ -1591,7 +1699,7 @@ fn geojson_line_renders_over_raster() {
     let (width, height) = (512, 384);
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
@@ -1615,7 +1723,15 @@ fn geojson_line_renders_over_raster() {
         engine.unsupported_layers()
     );
 
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     assert_golden(

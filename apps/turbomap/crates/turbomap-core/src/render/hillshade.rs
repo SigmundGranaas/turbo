@@ -87,7 +87,7 @@ pub(crate) struct HillshadePipeline {
     /// seams.
     halo_px: u32,
     device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
+    queue: crate::upload::UploadQueue,
 }
 
 impl HillshadePipeline {
@@ -97,7 +97,7 @@ impl HillshadePipeline {
     /// group binding at render time.
     pub(crate) fn new(
         device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
+        queue: crate::upload::UploadQueue,
         surface_format: wgpu::TextureFormat,
         terrain_bgl: &wgpu::BindGroupLayout,
         halo_px: u32,

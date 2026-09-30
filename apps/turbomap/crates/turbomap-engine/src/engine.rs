@@ -90,7 +90,7 @@ impl TurbomapEngine {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
+        uploads: turbomap_core::upload::UploadQueue,
         surface_format: wgpu::TextureFormat,
         size: (u32, u32),
         camera: CameraState,
@@ -101,7 +101,7 @@ impl TurbomapEngine {
         let pixel_ratio = options.pixel_ratio.max(0.5);
         let map = Map::new(
             device,
-            queue,
+            uploads,
             surface_format,
             size,
             to_core_camera(camera),
@@ -796,11 +796,18 @@ impl TurbomapEngine {
         }
     }
 
-    /// Record one frame into the host's encoder + target view.
-    pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+    /// Record one frame into the host's encoder + target view, then hand
+    /// every recorded upload to `uploader` (`turbomap_core::upload`); the
+    /// host submits `encoder` after.
+    pub fn render(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        uploader: &mut dyn turbomap_core::upload::Uploader,
+    ) -> Result<(), turbomap_core::upload::UploadRefused> {
         self.pump_decoded();
         self.update_dynamic_paint();
-        self.map.render(encoder, target);
+        self.map.render(encoder, target, uploader)
     }
 
     /// Finalize per-frame bookkeeping after the queue submit.

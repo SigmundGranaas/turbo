@@ -60,7 +60,7 @@ fn with_route(color: Color) -> Scene {
 fn engine(gpu: &Gpu) -> TurbomapEngine {
     TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (512, 384),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),

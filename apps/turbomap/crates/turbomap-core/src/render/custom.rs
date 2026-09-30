@@ -18,7 +18,7 @@ use std::sync::Arc;
 /// contributions — against `depth_format`.
 pub struct CustomLayerInit {
     pub device: Arc<wgpu::Device>,
-    pub queue: Arc<wgpu::Queue>,
+    pub queue: crate::upload::UploadQueue,
     /// The frame target format the MSAA pass resolves to.
     pub color_format: wgpu::TextureFormat,
     /// Depth attachment format of the MSAA pass.

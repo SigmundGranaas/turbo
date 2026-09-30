@@ -18,7 +18,7 @@ fn engine(gpu: &Gpu) -> Box<dyn MapEngine> {
     Box::new(
         TurbomapEngine::new(
             gpu.device.clone(),
-            gpu.queue.clone(),
+            turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
             TARGET_FORMAT,
             (1024, 768),
             CameraState::new(LatLng::new(0.0, 0.0), 0.0),

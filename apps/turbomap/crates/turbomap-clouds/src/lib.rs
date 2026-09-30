@@ -17,6 +17,53 @@
 
 use bytemuck::{Pod, Zeroable};
 
+/// Where this crate's buffer and texture writes go. A `wgpu::Queue` takes
+/// them directly; an embedding renderer can instead record them and flush
+/// them through its host's uploader (turbomap-core's `UploadQueue`
+/// implements this), so the clouds' writes land in the same ordered log as
+/// every other pass's.
+pub trait QueueWrites {
+    fn write_buffer(&self, dst: &wgpu::Buffer, offset: u64, data: &[u8]);
+    fn write_texture(
+        &self,
+        dst: wgpu::TexelCopyTextureInfo<'_>,
+        data: &[u8],
+        layout: wgpu::TexelCopyBufferLayout,
+        size: wgpu::Extent3d,
+    );
+}
+
+/// Hosts share their queue; the clouds take a shared one as it is.
+impl QueueWrites for std::sync::Arc<wgpu::Queue> {
+    fn write_buffer(&self, dst: &wgpu::Buffer, offset: u64, data: &[u8]) {
+        wgpu::Queue::write_buffer(self, dst, offset, data);
+    }
+    fn write_texture(
+        &self,
+        dst: wgpu::TexelCopyTextureInfo<'_>,
+        data: &[u8],
+        layout: wgpu::TexelCopyBufferLayout,
+        size: wgpu::Extent3d,
+    ) {
+        wgpu::Queue::write_texture(self, dst, data, layout, size);
+    }
+}
+
+impl QueueWrites for wgpu::Queue {
+    fn write_buffer(&self, dst: &wgpu::Buffer, offset: u64, data: &[u8]) {
+        wgpu::Queue::write_buffer(self, dst, offset, data);
+    }
+    fn write_texture(
+        &self,
+        dst: wgpu::TexelCopyTextureInfo<'_>,
+        data: &[u8],
+        layout: wgpu::TexelCopyBufferLayout,
+        size: wgpu::Extent3d,
+    ) {
+        wgpu::Queue::write_texture(self, dst, data, layout, size);
+    }
+}
+
 pub mod data;
 pub mod metrics;
 pub mod noise3d;
@@ -279,7 +326,7 @@ impl CloudScene {
     /// generated + uploaded once here (needs `queue`).
     pub fn new(
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &dyn QueueWrites,
         format: wgpu::TextureFormat,
         data_w: u32,
         data_h: u32,
@@ -606,7 +653,7 @@ impl CloudScene {
 
     /// Upload a radar frame into slot `0` (A) or `1` (B). The frame's
     /// dimensions must match the scene's grid.
-    pub fn upload(&self, queue: &wgpu::Queue, slot: usize, frame: &RadarFrame) {
+    pub fn upload(&self, queue: &dyn QueueWrites, slot: usize, frame: &RadarFrame) {
         assert_eq!(
             (frame.width, frame.height),
             (self.data_w, self.data_h),
@@ -640,7 +687,7 @@ impl CloudScene {
     /// in the target (e.g. the live map) showing through.
     pub fn render(
         &self,
-        queue: &wgpu::Queue,
+        queue: &dyn QueueWrites,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
         params: &CloudParams,
@@ -721,7 +768,7 @@ impl CloudScene {
     /// pixels); the diagnostic full-res look is unchanged via [`Self::render`].
     pub fn render_overlay_downsampled(
         &mut self,
-        queue: &wgpu::Queue,
+        queue: &dyn QueueWrites,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         params: &CloudParams,

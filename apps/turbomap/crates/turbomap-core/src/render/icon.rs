@@ -55,7 +55,7 @@ pub(crate) struct IconPipeline {
     globals_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
+    queue: crate::upload::UploadQueue,
     atlas: SpriteAtlas,
     staged: Vec<IconInstance>,
     frame_viewport: [f32; 2],
@@ -68,7 +68,7 @@ pub(crate) struct IconPipeline {
 impl IconPipeline {
     pub(crate) fn new(
         device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
+        queue: crate::upload::UploadQueue,
         surface_format: wgpu::TextureFormat,
     ) -> Self {
         use wgpu::util::DeviceExt;

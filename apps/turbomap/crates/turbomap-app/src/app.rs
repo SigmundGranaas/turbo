@@ -394,7 +394,7 @@ impl ApplicationHandler for TurbomapApp {
         // `map_host.rs`) and pushes them back via `ingest_*`.
         let mut engine = TurbomapEngine::new(
             gpu.device.clone(),
-            gpu.queue.clone(),
+            turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
             gpu.surface_format,
             render_surface.size(),
             self.initial_camera,
@@ -858,7 +858,13 @@ impl RunningState {
 
         // 3. Render the map onto the drawable (decoded tiles apply inside
         //    under the per-frame budget).
-        self.engine.render(&mut encoder, &frame.view);
+        self.engine
+            .render(
+                &mut encoder,
+                &frame.view,
+                &mut turbomap_core::upload::QueueUploader(&self.gpu.queue),
+            )
+            .expect("a queue uploader takes every write");
 
         // 4. egui on top. `ui.frame` returns a `PendingUi` that we must
         //    hand back to `ui.present` AFTER the queue submit so the GPU

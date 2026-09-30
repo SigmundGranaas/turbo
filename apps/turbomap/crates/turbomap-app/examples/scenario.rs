@@ -641,7 +641,12 @@ fn render_capture(
     target_view: &wgpu::TextureView,
 ) -> RgbaImage {
     let mut encoder = device.create_command_encoder(&Default::default());
-    map.render(&mut encoder, target_view);
+    map.render(
+        &mut encoder,
+        target_view,
+        &mut turbomap_core::upload::QueueUploader(&queue),
+    )
+    .expect("a queue uploader takes every write");
     let bpp = 4u32;
     let unpadded = WIDTH * bpp;
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
@@ -823,7 +828,7 @@ fn main() {
 
     let mut map = Map::new(
         device.clone(),
-        queue.clone(),
+        turbomap_core::upload::UploadQueue::new(queue.get_timestamp_period()),
         target_format,
         (WIDTH, HEIGHT),
         Camera::new(cli.center, cli.zoom),
@@ -1427,7 +1432,12 @@ fn main() {
                     // Full render + submit (no readback) — exercises the GPU
                     // path without the readback stall on every frame.
                     let mut enc = device.create_command_encoder(&Default::default());
-                    map.render(&mut enc, &target_view);
+                    map.render(
+                        &mut enc,
+                        &target_view,
+                        &mut turbomap_core::upload::QueueUploader(&queue),
+                    )
+                    .expect("a queue uploader takes every write");
                     queue.submit([enc.finish()]);
                     map.after_submit();
                     let _ = device.poll(wgpu::PollType::Poll);

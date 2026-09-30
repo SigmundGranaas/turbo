@@ -164,7 +164,7 @@ impl TurboMap {
             .ok_or_else(|| FfiError::NoAdapter("no wgpu adapter available".into()))?;
         let engine = TurbomapEngine::new(
             gpu.device.clone(),
-            gpu.queue.clone(),
+            turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
             offscreen::TARGET_FORMAT,
             (width, height),
             to_camera_state(camera),
@@ -412,8 +412,16 @@ impl TurboMap {
         let mut inner = self.lock();
         let (w, h) = (inner.width, inner.height);
         let Inner { engine, gpu, .. } = &mut *inner;
-        let rgba = offscreen::render_to_rgba(gpu, w, h, |enc, view| engine.render(enc, view))
-            .map_err(FfiError::Render)?;
+        let rgba = offscreen::render_to_rgba(gpu, w, h, |enc, view| {
+            engine
+                .render(
+                    enc,
+                    view,
+                    &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+                )
+                .expect("a queue uploader takes every write")
+        })
+        .map_err(FfiError::Render)?;
         engine.after_submit();
         let mut png = Vec::new();
         {

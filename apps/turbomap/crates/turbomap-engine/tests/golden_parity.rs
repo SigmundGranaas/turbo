@@ -63,7 +63,7 @@ fn scene_path_matches_imperative_hillshade_reference() {
     let (width, height) = (512, 384);
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
@@ -82,7 +82,15 @@ fn scene_path_matches_imperative_hillshade_reference() {
         "expected raster + terrain tiles to drain, got {stats:?}"
     );
 
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     // Same tolerance as the imperative hillshade golden.

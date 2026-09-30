@@ -35,7 +35,7 @@ pub struct FlowFieldLayer {
     pipeline: wgpu::RenderPipeline,
     uniform_buf: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
-    queue: std::sync::Arc<wgpu::Queue>,
+    queue: turbomap_core::upload::UploadQueue,
     instances: u32,
 }
 

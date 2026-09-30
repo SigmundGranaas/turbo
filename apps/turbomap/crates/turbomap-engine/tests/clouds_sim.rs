@@ -88,7 +88,7 @@ fn storm_scene(sun_altitude_deg: f32) -> Scene {
 fn engine(gpu: &Gpu, size: (u32, u32)) -> TurbomapEngine {
     TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         size,
         CameraState::new(LatLng::new(60.39, 5.32), 8.0),
@@ -150,9 +150,17 @@ fn storm_sim_replays_deterministically_and_advances() {
     );
 
     engine.set_time_override(Some(112.0));
-    let img_a = render_to_image(&gpu, width, height, |e, v| engine.render(e, v));
+    let img_a = render_to_image(&gpu, width, height, |e, v| {
+        engine
+            .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
-    let img_a2 = render_to_image(&gpu, width, height, |e, v| engine.render(e, v));
+    let img_a2 = render_to_image(&gpu, width, height, |e, v| {
+        engine
+            .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
     assert_eq!(
         img_a.as_raw(),
@@ -163,7 +171,11 @@ fn storm_sim_replays_deterministically_and_advances() {
     // Advance the pinned clock: drift + radar advection move the weather
     // with no host scrubbing.
     engine.set_time_override(Some(124.0));
-    let img_b = render_to_image(&gpu, width, height, |e, v| engine.render(e, v));
+    let img_b = render_to_image(&gpu, width, height, |e, v| {
+        engine
+            .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
     let moved = diff_fraction(&img_a, &img_b, 4);
     assert!(
@@ -196,10 +208,18 @@ fn cloud_contribution_follows_the_environment_sun() {
         engine.pump_tiles();
         ingest_storm(&mut engine);
         engine.set_time_override(Some(110.0));
-        let on = render_to_image(&gpu, width, height, |e, v| engine.render(e, v));
+        let on = render_to_image(&gpu, width, height, |e, v| {
+            engine
+                .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
+                .expect("a queue uploader takes every write")
+        });
         engine.after_submit();
         engine.map_mut().set_pass_enabled("clouds", false);
-        let off = render_to_image(&gpu, width, height, |e, v| engine.render(e, v));
+        let off = render_to_image(&gpu, width, height, |e, v| {
+            engine
+                .render(e, v, &mut turbomap_core::upload::QueueUploader(&gpu.queue))
+                .expect("a queue uploader takes every write")
+        });
         engine.after_submit();
         (on, off)
     };

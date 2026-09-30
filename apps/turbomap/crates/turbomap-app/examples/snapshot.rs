@@ -324,7 +324,7 @@ fn main() {
 
     let mut map = Map::new(
         device.clone(),
-        queue.clone(),
+        turbomap_core::upload::UploadQueue::new(queue.get_timestamp_period()),
         target_format,
         (WIDTH, HEIGHT),
         Camera::new(cli.center, cli.zoom)
@@ -463,7 +463,12 @@ fn main() {
     // Real frame: render + copy_texture_to_buffer in a single encoder
     // so the readback captures *this* frame's pixels.
     let mut encoder = device.create_command_encoder(&Default::default());
-    map.render(&mut encoder, &target_view);
+    map.render(
+        &mut encoder,
+        &target_view,
+        &mut turbomap_core::upload::QueueUploader(&queue),
+    )
+    .expect("a queue uploader takes every write");
 
     let bytes_per_pixel = 4u32;
     let unpadded_bpr = WIDTH * bytes_per_pixel;

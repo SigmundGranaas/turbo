@@ -84,7 +84,7 @@ pub(crate) struct TextPipeline {
     atlas_texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
     device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
+    queue: crate::upload::UploadQueue,
     atlas: FontAtlas,
     /// Anchor-relative laid-out glyphs, keyed by (text, font_size). Avoids
     /// per-frame layout for the steady-state visible label set.
@@ -114,7 +114,7 @@ pub(crate) struct TextPipeline {
 impl TextPipeline {
     pub(crate) fn new(
         device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
+        queue: crate::upload::UploadQueue,
         surface_format: wgpu::TextureFormat,
     ) -> Self {
         use wgpu::util::DeviceExt;

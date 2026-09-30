@@ -380,7 +380,7 @@ fn bundled_pmtiles_scene_is_fully_offline_via_the_production_resolver() {
     let (width, height) = (512, 384);
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), f64::from(FIXTURE_ZOOM)),
@@ -413,7 +413,15 @@ fn bundled_pmtiles_scene_is_fully_offline_via_the_production_resolver() {
         plan.start.len()
     );
 
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     // Coverage census — the map is genuinely there, not just "no errors".
@@ -486,7 +494,7 @@ fn a_chained_source_renders_offline_and_surfaces_detail_to_the_host() {
     let (width, height) = (512, 384);
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), f64::from(FIXTURE_ZOOM)),
@@ -524,7 +532,15 @@ fn a_chained_source_renders_offline_and_surfaces_detail_to_the_host() {
         unserved_visible.is_empty(),
         "every visible-zoom tile must come from the bundle, got {unserved_visible:?}"
     );
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
     let near =
         |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol);
@@ -564,7 +580,7 @@ fn omt_schema_renders_from_a_pmtiles_archive() {
     let (width, height) = (512, 384);
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
-        gpu.queue.clone(),
+        turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
         TARGET_FORMAT,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), f64::from(FIXTURE_ZOOM)),
@@ -586,7 +602,15 @@ fn omt_schema_renders_from_a_pmtiles_archive() {
     );
     assert!(engine.unsupported_layers().is_empty());
 
-    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    let image = render_to_image(&gpu, width, height, |enc, view| {
+        engine
+            .render(
+                enc,
+                view,
+                &mut turbomap_core::upload::QueueUploader(&gpu.queue),
+            )
+            .expect("a queue uploader takes every write")
+    });
     engine.after_submit();
 
     let near =

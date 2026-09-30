@@ -62,13 +62,13 @@ pub(crate) struct VectorPipeline {
     camera_bind_group: wgpu::BindGroup,
     tile_uniform_buffer: wgpu::Buffer,
     tile_bind_group: wgpu::BindGroup,
-    queue: Arc<wgpu::Queue>,
+    queue: crate::upload::UploadQueue,
 }
 
 impl VectorPipeline {
     pub(crate) fn new(
         device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
+        queue: crate::upload::UploadQueue,
         surface_format: wgpu::TextureFormat,
         // Shared terrain DEM bind-group layout (group 2) so vector
         // features can drape onto the 3D terrain. Bound per tile at draw.

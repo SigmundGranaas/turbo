@@ -33,13 +33,13 @@ pub(crate) struct FloorPipeline {
     pipeline: wgpu::RenderPipeline,
     globals_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
-    queue: Arc<wgpu::Queue>,
+    queue: crate::upload::UploadQueue,
 }
 
 impl FloorPipeline {
     pub(crate) fn new(
         device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
+        queue: crate::upload::UploadQueue,
         surface_format: wgpu::TextureFormat,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {

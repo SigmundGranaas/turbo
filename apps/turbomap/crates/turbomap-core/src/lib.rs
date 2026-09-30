@@ -32,6 +32,7 @@ pub(crate) mod surface;
 pub mod tessellate;
 pub mod text;
 pub mod tile;
+pub mod upload;
 pub mod vector;
 
 pub use camera::{Camera, CameraAnimation, FiniteF64, ZoomBounds, ZoomLock, TILE_SIZE_PX};

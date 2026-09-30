@@ -53,11 +53,11 @@ pub(crate) struct ShadowMap {
     /// the heightfield). Written by the AO accumulation pass, sampled by the
     /// terrain shader.
     ao_view: wgpu::TextureView,
-    queue: Arc<wgpu::Queue>,
+    queue: crate::upload::UploadQueue,
 }
 
 impl ShadowMap {
-    pub(crate) fn new(device: &wgpu::Device, queue: &Arc<wgpu::Queue>) -> Self {
+    pub(crate) fn new(device: &wgpu::Device, queue: &crate::upload::UploadQueue) -> Self {
         let layout = Arc::new(
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("turbomap-shadow-bgl"),

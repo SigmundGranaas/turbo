@@ -132,7 +132,7 @@ pub(crate) struct TerrainShared {
 }
 
 impl TerrainShared {
-    pub(crate) fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+    pub(crate) fn new(device: &wgpu::Device, queue: &crate::upload::UploadQueue) -> Self {
         let layout = Arc::new(
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("turbomap-terrain-bgl"),
@@ -254,7 +254,7 @@ impl TerrainCache {
     /// — the shared resources outlive any individual cache.
     pub(crate) fn new(
         device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
+        queue: crate::upload::UploadQueue,
         shared: &TerrainShared,
         budget_bytes: usize,
         halo_px: u32,

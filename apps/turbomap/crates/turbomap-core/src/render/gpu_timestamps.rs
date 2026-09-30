@@ -69,7 +69,7 @@ pub(crate) struct GpuTimestamps {
 }
 
 impl GpuTimestamps {
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Option<Self> {
+    pub fn new(device: &wgpu::Device, queue: &crate::upload::UploadQueue) -> Option<Self> {
         // wgpu 22 split TIMESTAMP_QUERY into multiple slots:
         // - TIMESTAMP_QUERY: lets us allocate `QuerySet`s of type
         //   `Timestamp` and resolve them.
