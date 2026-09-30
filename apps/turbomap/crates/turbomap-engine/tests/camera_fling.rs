@@ -77,3 +77,72 @@ fn fling_glides_the_camera_then_settles() {
     engine.set_camera(CameraState::new(LatLng::new(0.0, 0.0), 4.0));
     assert!(!engine.tick_now(), "set_camera cancels the fling");
 }
+
+/// `fit_bounds` jumps and `fly_to_bounds` eases to the same pose: the one
+/// `Camera::fitted_to` gives for the engine's CURRENT size (after a
+/// resize), whose screen-space guarantees are unit-tested in core.
+#[test]
+fn fit_and_fly_to_bounds_land_on_the_fit_for_the_current_viewport() {
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+    let make = || {
+        TurbomapEngine::new(
+            gpu.device.clone(),
+            turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
+            TARGET_FORMAT,
+            (1024, 768),
+            CameraState::new(LatLng::new(0.0, 0.0), 2.0),
+            MapOptions {
+                fade_in_secs: 0.0,
+                ..Default::default()
+            },
+            Box::new(SyntheticResolver),
+            std::sync::Arc::new(turbomap_core::work::ThreadPool::new(
+                "turbomap-decode",
+                std::num::NonZeroUsize::new(2).unwrap(),
+            )),
+        )
+        .expect("construct TurbomapEngine")
+    };
+    let ll = turbomap_core::LatLng::new;
+    let bergen = turbomap_core::LatLngBounds::new(ll(60.30, 5.20), ll(60.45, 5.45)).unwrap();
+    let expected = turbomap_core::Camera::new(ll(0.0, 0.0), 2.0)
+        .fitted_to(bergen, (600.0, 400.0), 24.0)
+        .unwrap();
+    let close = |c: CameraState| {
+        (c.center.lat - expected.center.lat).abs() < 1e-7
+            && (c.center.lng - expected.center.lng).abs() < 1e-7
+            && (c.zoom - expected.zoom).abs() < 1e-7
+            && c.pitch_deg == 0.0
+    };
+
+    let mut jumped = make();
+    jumped.resize(600, 400);
+    jumped.fit_bounds(bergen, 24.0).unwrap();
+    assert!(
+        close(jumped.camera()),
+        "jump: {:?} vs {expected:?}",
+        jumped.camera()
+    );
+
+    let mut flown = make();
+    flown.resize(600, 400);
+    flown
+        .fly_to_bounds(bergen, 24.0, Duration::from_millis(120))
+        .unwrap();
+    assert!(flown.tick_now(), "the flight animates");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while flown.tick_now() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(8));
+    }
+    assert!(
+        close(flown.camera()),
+        "flight end: {:?} vs {expected:?}",
+        flown.camera()
+    );
+}
