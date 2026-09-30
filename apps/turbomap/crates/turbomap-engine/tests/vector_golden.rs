@@ -79,6 +79,18 @@ fn overlay_scene() -> Scene {
 
 #[test]
 fn full_overlay_set_renders() {
+    full_overlay_set_renders_as(TARGET_FORMAT);
+}
+
+/// The same scene into a half-float target (an HDR-capable plane's format),
+/// read back linear, encoded to sRGB and held to the same golden: MSAA
+/// resolve, blending and glyphs do not depend on the target doing the encode.
+#[test]
+fn full_overlay_set_renders_on_a_half_float_target() {
+    full_overlay_set_renders_as(wgpu::TextureFormat::Rgba16Float);
+}
+
+fn full_overlay_set_renders_as(format: wgpu::TextureFormat) {
     let Some(gpu) = headless() else {
         if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
             panic!("REQUIRE_GPU=1 but no wgpu adapter available");
@@ -91,7 +103,7 @@ fn full_overlay_set_renders() {
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
         turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
-        TARGET_FORMAT,
+        format,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
         MapOptions {
@@ -112,7 +124,7 @@ fn full_overlay_set_renders() {
     // Three measure points → three markers.
     assert_eq!(engine.map().markers().len(), 3, "expected 3 circle markers");
 
-    let image = render_to_image(&gpu, width, height, |enc, view| {
+    let image = turbomap_golden::render_to_image_as(&gpu, format, width, height, |enc, view| {
         engine
             .render(
                 enc,
@@ -730,6 +742,18 @@ fn data_driven_match_width_builds_road_hierarchy() {
 
 #[test]
 fn symbol_halo_keeps_labels_readable_over_busy_lines() {
+    symbol_halo_keeps_labels_readable_over_busy_lines_as(TARGET_FORMAT);
+}
+
+/// The same scene into a half-float target (an HDR-capable plane's format),
+/// read back linear, encoded to sRGB and held to the same golden: MSAA
+/// resolve, blending and glyphs do not depend on the target doing the encode.
+#[test]
+fn symbol_halo_keeps_labels_readable_over_busy_lines_on_a_half_float_target() {
+    symbol_halo_keeps_labels_readable_over_busy_lines_as(wgpu::TextureFormat::Rgba16Float);
+}
+
+fn symbol_halo_keeps_labels_readable_over_busy_lines_as(format: wgpu::TextureFormat) {
     // The readability test: dark labels with a white halo, sitting on top
     // of thick dark-blue lines. Without the halo the ink would blend into
     // the lines where they cross; the halo must keep the glyphs legible.
@@ -813,7 +837,7 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines() {
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
         turbomap_core::upload::UploadQueue::new(gpu.queue.get_timestamp_period()),
-        TARGET_FORMAT,
+        format,
         (width, height),
         CameraState::new(LatLng::new(60.39, 5.32), 9.0),
         MapOptions {
@@ -827,7 +851,7 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines() {
     engine.apply(scene);
     engine.pump_tiles();
 
-    let image = render_to_image(&gpu, width, height, |enc, view| {
+    let image = turbomap_golden::render_to_image_as(&gpu, format, width, height, |enc, view| {
         engine
             .render(
                 enc,
