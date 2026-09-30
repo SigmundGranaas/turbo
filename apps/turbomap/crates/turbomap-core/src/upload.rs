@@ -173,10 +173,17 @@ impl UploadQueue {
     /// Hand every recorded write to `uploader`, in record order. On a refusal
     /// the refused write and everything after it stay recorded, and the
     /// refusal is returned.
+    ///
+    /// The log's lock is never held while the uploader runs: one write is
+    /// taken, the lock released, the write handed over, and on a refusal put
+    /// back at the front. An uploader that records into this log again
+    /// (directly, or through something it calls) waits for nothing.
     pub fn flush(&self, uploader: &mut dyn Uploader) -> Result<(), UploadRefused> {
-        let mut log = self.log();
-        while let Some(w) = log.front() {
-            let ok = match w {
+        loop {
+            let Some(w) = self.log().pop_front() else {
+                return Ok(());
+            };
+            let ok = match &w {
                 Write::Buffer { dst, offset, data } => uploader.write_buffer(dst, *offset, data),
                 Write::Texture {
                     dst,
@@ -199,14 +206,15 @@ impl UploadQueue {
                 ),
             };
             if ok.is_err() {
+                let bytes = w.bytes();
+                let mut log = self.log();
+                log.push_front(w);
                 return Err(UploadRefused {
-                    bytes: w.bytes(),
+                    bytes,
                     pending: log.len(),
                 });
             }
-            log.pop_front();
         }
-        Ok(())
     }
 }
 
@@ -274,6 +282,57 @@ mod tests {
         pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
             .ok()
             .map(|(d, _)| d)
+    }
+
+    /// An uploader that writes into the log it is flushing (as a host that
+    /// re-records a refused tile might): no deadlock, and the new write is
+    /// flushed after the ones before it.
+    #[test]
+    fn an_uploader_may_record_into_the_log_it_is_flushing() {
+        let Some(device) = device() else { return };
+        let buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 64,
+            usage: wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let log = UploadQueue::new(1.0);
+        log.write_buffer(&buf, 0, &[0; 4]);
+        struct Reentrant<'a> {
+            log: &'a UploadQueue,
+            buf: &'a wgpu::Buffer,
+            got: Vec<u64>,
+        }
+        impl Uploader for Reentrant<'_> {
+            fn write_buffer(
+                &mut self,
+                _: &wgpu::Buffer,
+                offset: u64,
+                _: &[u8],
+            ) -> Result<(), Refused> {
+                if self.got.is_empty() {
+                    self.log.write_buffer(self.buf, 32, &[0; 4]);
+                }
+                self.got.push(offset);
+                Ok(())
+            }
+            fn write_texture(
+                &mut self,
+                _: wgpu::TexelCopyTextureInfo<'_>,
+                _: &[u8],
+                _: wgpu::TexelCopyBufferLayout,
+                _: wgpu::Extent3d,
+            ) -> Result<(), Refused> {
+                Ok(())
+            }
+        }
+        let mut up = Reentrant {
+            log: &log,
+            buf: &buf,
+            got: vec![],
+        };
+        log.flush(&mut up).expect("taken");
+        assert_eq!(up.got, [0, 32]);
     }
 
     #[test]
