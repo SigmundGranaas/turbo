@@ -644,7 +644,7 @@ fn render_capture(
     map.render(
         &mut encoder,
         target_view,
-        &mut turbomap_core::upload::QueueUploader(&queue),
+        &mut turbomap_core::upload::QueueUploader(queue),
     )
     .expect("the frame renders: a queue takes every upload and the camera is finite");
     let bpp = 4u32;

@@ -288,10 +288,14 @@ impl OnScreen {
             Ok(()) => {}
             Err(e @ turbomap_core::error::RenderError::NonFiniteCamera { .. }) => {
                 // This host's policy for a frame the renderer did not draw: a
-                // non-finite camera is logged and the frame skipped (the last
-                // picture stays on screen), as the renderer itself used to decide.
-                // An upload refusal cannot happen through a queue.
-                log::warn!("turbomap: frame not drawn: {e}");
+                // non-finite camera is logged and the frame skipped. Skipped means
+                // NOT submitted or presented: the acquired surface texture is
+                // dropped unpresented, so the last presented picture stays on
+                // screen. (Presenting it would show a texture nothing drew into —
+                // what the renderer's own drop used to do.) A queue never refuses
+                // an upload.
+                log::warn!("turbomap: frame not drawn, and not presented: {e}");
+                return;
             }
             Err(e @ turbomap_core::error::RenderError::Upload(_)) => {
                 panic!("a queue refused an upload, which a queue never does: {e}")
