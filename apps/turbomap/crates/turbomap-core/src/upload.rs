@@ -98,6 +98,38 @@ impl Uploader for QueueUploader<'_> {
     }
 }
 
+/// The most one deferrable write hands over at once: tile uploads are split
+/// into row bands of at most this (see [`UploadQueue::write_texture_deferrable`]).
+pub const DEFERRABLE_BAND_BYTES: u64 = 256 * 1024;
+
+/// `(first_row, rows, byte range)` bands of a 2D write, each at most
+/// [`DEFERRABLE_BAND_BYTES`] (at least one row). A write with no row stride
+/// or more than one layer stays whole.
+fn bands(
+    layout: &wgpu::TexelCopyBufferLayout,
+    size: wgpu::Extent3d,
+    len: usize,
+) -> Vec<(u32, u32, std::ops::Range<usize>)> {
+    let whole = vec![(0, size.height, layout.offset as usize..len)];
+    let Some(stride) = layout.bytes_per_row else {
+        return whole;
+    };
+    if size.depth_or_array_layers != 1 || size.height <= 1 {
+        return whole;
+    }
+    let rows_per_band = ((DEFERRABLE_BAND_BYTES / u64::from(stride)).max(1)) as u32;
+    let mut out = Vec::new();
+    let mut row = 0;
+    while row < size.height {
+        let rows = rows_per_band.min(size.height - row);
+        let start = layout.offset as usize + row as usize * stride as usize;
+        let end = (start + rows as usize * stride as usize).min(len);
+        out.push((row, rows, start..end));
+        row += rows;
+    }
+    out
+}
+
 /// Proof that a deferrable write was recorded; ready once handed to the host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UploadTicket(u64);
@@ -242,6 +274,14 @@ impl UploadQueue {
     /// A tile's data, which may wait for a later frame: the returned ticket
     /// is [`Self::is_ready`] once the write has been handed to the host, and
     /// what it wrote must not be drawn before then.
+    ///
+    /// Split into row bands of at most [`DEFERRABLE_BAND_BYTES`]: the flush
+    /// stops at the first write that does not fit, so a write larger than a
+    /// host's budget (less the reserve) would wait forever — and the engine,
+    /// wanting frames while uploads wait, would spin on it. A 512² RGBA base
+    /// level is 1 MiB; in bands, any tile fits any budget above one band plus
+    /// the reserve. The returned ticket is the last band's (bands are handed
+    /// over in order, so it covers them all).
     pub fn write_texture_deferrable(
         &self,
         dst: wgpu::TexelCopyTextureInfo<'_>,
@@ -250,11 +290,36 @@ impl UploadQueue {
         size: wgpu::Extent3d,
     ) -> UploadTicket {
         let mut logs = self.log();
-        let t = logs.next_ticket;
-        logs.next_ticket += 1;
-        logs.deferrable
-            .push_back((t, texture_write(dst, data, layout, size)));
-        UploadTicket(t)
+        let bands = bands(&layout, size, data.len());
+        let mut last = None;
+        for (first_row, rows, range) in bands {
+            let t = logs.next_ticket;
+            logs.next_ticket += 1;
+            let band_dst = wgpu::TexelCopyTextureInfo {
+                texture: dst.texture,
+                mip_level: dst.mip_level,
+                origin: wgpu::Origin3d {
+                    y: dst.origin.y + first_row,
+                    ..dst.origin
+                },
+                aspect: dst.aspect,
+            };
+            let band_layout = wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: layout.bytes_per_row,
+                rows_per_image: Some(rows),
+            };
+            let band_size = wgpu::Extent3d {
+                height: rows,
+                ..size
+            };
+            logs.deferrable.push_back((
+                t,
+                texture_write(band_dst, &data[range], band_layout, band_size),
+            ));
+            last = Some(t);
+        }
+        UploadTicket(last.expect("a texture write has at least one band"))
     }
 
     /// Whether the write behind `ticket` has been handed to the host.
@@ -523,6 +588,85 @@ mod tests {
             ["buf@0:8", "buf@0:16"],
             "the first 16-byte write was superseded; order kept"
         );
+    }
+
+    /// A deferrable write larger than a frame's budget is not stuck: in row
+    /// bands it is handed over across frames, and ready after the last.
+    #[test]
+    fn a_tile_larger_than_the_budget_is_handed_over_in_bands_across_frames() {
+        let instance = wgpu::Instance::default();
+        let Ok(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                force_fallback_adapter: true,
+                ..Default::default()
+            }))
+        else {
+            return;
+        };
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+                .expect("device");
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 512,
+                height: 512,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let log = UploadQueue::new(1.0);
+        let ticket = log.write_texture_deferrable(
+            texture.as_image_copy(),
+            &vec![7u8; 512 * 512 * 4], // 1 MiB: more than a frame's 512 KiB
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(512 * 4),
+                rows_per_image: Some(512),
+            },
+            wgpu::Extent3d {
+                width: 512,
+                height: 512,
+                depth_or_array_layers: 1,
+            },
+        );
+        struct Budget<'a>(&'a wgpu::Queue, u64);
+        impl Uploader for Budget<'_> {
+            fn remaining(&self) -> Option<u64> {
+                Some(self.1)
+            }
+            fn write_buffer(&mut self, _: &wgpu::Buffer, _: u64, _: &[u8]) -> Result<(), Refused> {
+                Err(Refused)
+            }
+            fn write_texture(
+                &mut self,
+                dst: wgpu::TexelCopyTextureInfo<'_>,
+                data: &[u8],
+                layout: wgpu::TexelCopyBufferLayout,
+                size: wgpu::Extent3d,
+            ) -> Result<(), Refused> {
+                self.1 = self.1.checked_sub(data.len() as u64).ok_or(Refused)?;
+                self.0.write_texture(dst, data, layout, size);
+                Ok(())
+            }
+        }
+        let mut frames = 0;
+        while !log.is_ready(ticket) {
+            frames += 1;
+            assert!(
+                frames <= 16,
+                "a 1 MiB tile never finished at 512 KiB a frame: it is stuck"
+            );
+            log.flush_deferrable(&mut Budget(&queue, 512 * 1024));
+        }
+        assert_eq!(frames, 2, "four 256 KiB bands at two a frame");
+        assert_eq!(log.pending_deferrable(), 0);
+        queue.submit([]);
     }
 
     #[test]
