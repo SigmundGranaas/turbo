@@ -20,12 +20,12 @@ members = [
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.92"
-license = "AGPL-3.0-only"
+rust-version = "1.95"
+license = "MIT"
 publish = false
 
 [workspace.dependencies]
-wgpu = "29"
+wgpu = "30"
 winit = "0.30"
 glam = { version = "0.29", features = ["bytemuck"] }
 bytemuck = { version = "1", features = ["derive"] }
@@ -59,10 +59,10 @@ half = { version = "2", features = ["bytemuck"] }
 uniffi = { version = "0.29", features = ["cli"] }
 # UI overlay for the desktop demo. egui is the only crate in the
 # workspace that consumes these — kept here so versions stay in sync
-# with the workspace wgpu (egui 0.34 targets wgpu 29).
-egui = "0.34"
-egui-wgpu = { version = "0.34", features = ["winit"] }
-egui-winit = "0.34"
+# with the workspace wgpu (egui 0.36 targets wgpu 30).
+egui = "0.36"
+egui-wgpu = { version = "0.36", features = ["winit"] }
+egui-winit = "0.36"
 
 # Workspace-level lints: match apps/tileserver's strict posture.
 [workspace.lints.rust]

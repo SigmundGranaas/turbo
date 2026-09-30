@@ -53,8 +53,9 @@ pub struct SurfaceFrame {
 }
 
 impl SurfaceFrame {
-    pub fn present(self) {
-        self.texture.present();
+    /// wgpu 30 presents through the queue that rendered the frame.
+    pub fn present(self, queue: &wgpu::Queue) {
+        queue.present(self.texture);
     }
 }
 
@@ -77,6 +78,9 @@ impl RenderSurface {
             // "compositor presented stale pixels" when chasing
             // a flicker.
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            // wgpu 30: the surface's colour space. Auto keeps the platform's
+            // default, which is what this demo presented before the field.
+            color_space: wgpu::SurfaceColorSpace::Auto,
             format,
             width: w,
             height: h,

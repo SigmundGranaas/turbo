@@ -277,6 +277,7 @@ fn main() {
         power_preference: wgpu::PowerPreference::LowPower,
         compatible_surface: None,
         force_fallback_adapter: false,
+        apply_limit_buckets: false,
     }))
     .expect("no adapter");
     // The snapshot deliberately does NOT request TIMESTAMP_QUERY: in
@@ -536,7 +537,9 @@ fn main() {
             panic!("readback map timed out");
         }
     }
-    let data = slice.get_mapped_range();
+    let data = slice
+        .get_mapped_range()
+        .unwrap_or_else(|e| panic!("mapped range unavailable after a successful map: {e}"));
 
     // Strip the row padding back out and save as PNG.
     let mut tight: Vec<u8> = Vec::with_capacity((unpadded_bpr * HEIGHT) as usize);

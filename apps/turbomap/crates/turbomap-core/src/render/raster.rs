@@ -396,7 +396,7 @@ impl RasterPipeline {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[vertex_layout, instance_layout],
+                buffers: &[Some(vertex_layout), Some(instance_layout)],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {

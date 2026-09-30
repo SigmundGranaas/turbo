@@ -139,9 +139,12 @@ impl UiOverlay {
             size_in_pixels: [surface_size.0, surface_size.1],
             pixels_per_point,
         };
-        for (id, image_delta) in &output.textures_delta.set {
-            self.renderer
-                .update_texture(device, queue, *id, image_delta);
+        // egui 0.36 batches several deltas per texture; apply them in order.
+        for (id, image_deltas) in &output.textures_delta.set {
+            for image_delta in image_deltas {
+                self.renderer
+                    .update_texture(device, queue, *id, image_delta);
+            }
         }
         self.renderer
             .update_buffers(device, queue, encoder, &clipped, &screen_desc);
@@ -173,7 +176,7 @@ impl UiOverlay {
             .any(|v| v.repaint_delay.is_zero());
 
         PendingUi {
-            free_textures: output.textures_delta.free,
+            free_textures: output.textures_delta.free.iter().copied().collect(),
             wants_repaint,
         }
     }

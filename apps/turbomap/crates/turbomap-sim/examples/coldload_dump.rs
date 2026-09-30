@@ -93,7 +93,7 @@ fn census(img: &image::RgbaImage, n: usize) {
     }
     let total = (img.width() * img.height()) as f64;
     let mut top: Vec<_> = counts.into_iter().collect();
-    top.sort_by(|a, b| b.1.cmp(&a.1));
+    top.sort_by_key(|e| std::cmp::Reverse(e.1));
     for (rgb, count) in top.iter().take(n) {
         eprintln!(
             "  {:>3},{:>3},{:>3}  {:>6.2}%",

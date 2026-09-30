@@ -689,7 +689,9 @@ fn render_capture(
             panic!("readback map timed out");
         }
     }
-    let data = slice.get_mapped_range();
+    let data = slice
+        .get_mapped_range()
+        .unwrap_or_else(|e| panic!("mapped range unavailable after a successful map: {e}"));
     let mut tight = Vec::with_capacity((unpadded * HEIGHT) as usize);
     for row in 0..HEIGHT {
         let s = (row * padded) as usize;
@@ -775,6 +777,7 @@ fn main() {
         power_preference: wgpu::PowerPreference::LowPower,
         compatible_surface: None,
         force_fallback_adapter: false,
+        apply_limit_buckets: false,
     }))
     .expect("no adapter");
     // GPU-side per-scope timing (ao / frame-pass / clouds), opt-in: the

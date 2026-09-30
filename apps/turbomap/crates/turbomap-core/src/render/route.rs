@@ -105,7 +105,7 @@ impl RoutePipeline {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[vertex_layout],
+                buffers: &[Some(vertex_layout)],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {

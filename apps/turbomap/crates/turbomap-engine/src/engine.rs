@@ -540,22 +540,24 @@ impl TurbomapEngine {
             (QueueKey::Terrain { tile }, DecodedKind::Dem { dem }) => {
                 map.ingest_terrain_tile(tile, &dem);
             }
-            (QueueKey::Vector { ref layer_id, tile }, DecodedKind::Vector { out, epoch }) => {
-                // Stale-style guard: a repaint/rebuild bumped the epoch
-                // while this tile tessellated — drop it; the tile is still
-                // pending and refetches against the new style.
-                if epochs.get(layer_id).copied().unwrap_or(0) == epoch {
-                    map.ingest_vector_mesh(
-                        layer_id,
-                        tile,
-                        &out.mesh,
-                        out.labels,
-                        out.icons,
-                        out.interactive,
-                    );
-                }
+            // Only a tile tessellated under the current style epoch is ingested.
+            (QueueKey::Vector { ref layer_id, tile }, DecodedKind::Vector { out, epoch })
+                if epochs.get(layer_id).copied().unwrap_or(0) == epoch =>
+            {
+                map.ingest_vector_mesh(
+                    layer_id,
+                    tile,
+                    &out.mesh,
+                    out.labels,
+                    out.icons,
+                    out.interactive,
+                );
             }
-            // Key/kind disagreement cannot be constructed by `decode`.
+            // Two things land here, both dropped on purpose:
+            // - a vector tile whose style epoch was bumped (a repaint/rebuild)
+            //   while it tessellated — it is still pending and refetches
+            //   against the new style;
+            // - a key/kind disagreement, which `decode` cannot construct.
             _ => {}
         });
     }

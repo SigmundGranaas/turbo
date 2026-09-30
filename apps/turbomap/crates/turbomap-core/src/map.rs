@@ -2148,10 +2148,8 @@ impl Map {
         });
         match kind {
             Some(LayerKind::Circle) => self.overlays.markers.remove_group(id),
-            Some(LayerKind::Tube) => {
-                if self.overlays.route_tubes.tubes.remove(id).is_some() {
-                    self.overlays.route_tubes.dirty = true;
-                }
+            Some(LayerKind::Tube) if self.overlays.route_tubes.tubes.remove(id).is_some() => {
+                self.overlays.route_tubes.dirty = true;
             }
             _ => {}
         }

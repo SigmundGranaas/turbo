@@ -175,6 +175,7 @@ fn build(
         power_preference: wgpu::PowerPreference::LowPower,
         compatible_surface: Some(&surface),
         force_fallback_adapter: false,
+        apply_limit_buckets: false,
     }))
     .map_err(|e| format!("no compatible GPU adapter: {e}"))?;
 
@@ -202,6 +203,8 @@ fn build(
 
     let config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        // wgpu 30: the platform's default colour space, as before the field.
+        color_space: wgpu::SurfaceColorSpace::Auto,
         format,
         width: width.max(1),
         height: height.max(1),
@@ -277,7 +280,7 @@ impl OnScreen {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         self.engine.render(&mut encoder, &view);
         self.queue.submit([encoder.finish()]);
-        frame.present();
+        self.queue.present(frame);
         self.engine.after_submit();
         // Reclaim deferred GPU resources. When the tile caches evict under
         // budget (every pan/zoom drops textures + bind groups), wgpu queues the

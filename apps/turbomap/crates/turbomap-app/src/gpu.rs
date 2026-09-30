@@ -66,6 +66,7 @@ impl GpuContext {
             power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }))
         .expect("request adapter");
         // Opt into TIMESTAMP_QUERY when the adapter offers it

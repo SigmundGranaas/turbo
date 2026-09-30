@@ -897,7 +897,7 @@ impl RunningState {
         self.frame_counter = self.frame_counter.wrapping_add(1);
         self.gpu.queue.submit([encoder.finish()]);
         self.engine.after_submit();
-        frame.present();
+        frame.present(&self.gpu.queue);
         if self.ui.present(pending) {
             self.scheduler.notice_egui_repaint();
         }
@@ -1215,7 +1215,9 @@ fn save_dump_to_png(
             return;
         }
     }
-    let data = buffer_slice.get_mapped_range();
+    let data = buffer_slice
+        .get_mapped_range()
+        .unwrap_or_else(|e| panic!("mapped range unavailable after a successful map: {e}"));
     // Strip the row padding into a contiguous RGBA buffer.
     let mut rgba = Vec::with_capacity((unpadded_bytes_per_row * height) as usize);
     for row in 0..height {

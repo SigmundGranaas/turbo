@@ -127,7 +127,11 @@ impl GpuTimestamps {
             return;
         }
         let slice = self.readback_buffer.slice(..);
-        let data = slice.get_mapped_range();
+        // wgpu 30: the range is a Result. It was mapped by the callback that
+        // got us here, so a failure now is a bug, never a frame to skip.
+        let data = slice
+            .get_mapped_range()
+            .unwrap_or_else(|e| panic!("GPU timestamp readback: the mapped range is unavailable after a successful map: {e}"));
         // Little-endian u64 timestamps in raw GPU ticks: frame begin/end at
         // 0/1, then one pair per armed scope.
         let read = |i: usize| -> u64 {

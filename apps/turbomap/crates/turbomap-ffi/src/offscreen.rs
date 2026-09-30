@@ -38,6 +38,7 @@ pub fn headless() -> Option<GpuContext> {
         power_preference: wgpu::PowerPreference::LowPower,
         compatible_surface: None,
         force_fallback_adapter: true,
+        apply_limit_buckets: false,
     }))
     .ok()
     .or_else(|| {
@@ -45,6 +46,7 @@ pub fn headless() -> Option<GpuContext> {
             power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: None,
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }))
         .ok()
     })?;
@@ -140,7 +142,9 @@ pub fn render_to_rgba(
             return Err("readback map timed out".to_string());
         }
     }
-    let data = slice.get_mapped_range();
+    let data = slice
+        .get_mapped_range()
+        .unwrap_or_else(|e| panic!("mapped range unavailable after a successful map: {e}"));
     let mut tight = Vec::with_capacity((unpadded_bpr * height) as usize);
     for row in 0..height {
         let start = (row * padded_bpr) as usize;

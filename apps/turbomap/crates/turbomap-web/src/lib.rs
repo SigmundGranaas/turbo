@@ -87,6 +87,7 @@ impl TurboMap {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+                apply_limit_buckets: false,
             })
             .await
             .map_err(|e| {
@@ -134,6 +135,8 @@ impl TurboMap {
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            // wgpu 30: the platform's default colour space, as before the field.
+            color_space: wgpu::SurfaceColorSpace::Auto,
             format: surface_format,
             width: width.max(1),
             height: height.max(1),
@@ -277,7 +280,7 @@ impl TurboMap {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         self.engine.render(&mut encoder, &view);
         self.queue.submit([encoder.finish()]);
-        frame.present();
+        self.queue.present(frame);
         self.engine.after_submit();
     }
 

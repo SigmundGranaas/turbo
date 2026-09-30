@@ -103,4 +103,4 @@ clipped clip+tessellate runs ~9× faster than the unclipped path.
 
 ## License
 
-AGPL-3.0-only (matches `apps/tileserver`).
+MIT — see [`LICENSE`](LICENSE). The renderer crates in this workspace were relicensed from AGPL-3.0-only by their author on 2026-09-30 so they can be embedded in other applications; `apps/tileserver` and the rest of this repository keep their own licenses.

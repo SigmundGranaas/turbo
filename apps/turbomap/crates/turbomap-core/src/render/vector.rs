@@ -183,7 +183,7 @@ impl VectorPipeline {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[vertex_layout],
+                buffers: &[Some(vertex_layout)],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -342,7 +342,7 @@ impl VectorPipeline {
             .into_iter()
             .filter(|a| cache.peek(*a).is_some())
             .collect();
-        ancestors.sort_by(|a, b| (a.z, a.x, a.y).cmp(&(b.z, b.x, b.y)));
+        ancestors.sort_by_key(|a| (a.z, a.x, a.y));
         let mut ordered: Vec<(TileId, f32)> = ancestors.into_iter().map(|a| (a, 1.0)).collect();
         ordered.extend(to_draw);
         let to_draw = ordered;
