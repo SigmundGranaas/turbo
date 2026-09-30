@@ -2,7 +2,8 @@
 name = "turbomap-app"
 version = "0.1.0"
 edition.workspace = true
-rust-version.workspace = true
+# egui 0.36 (the demo UI on wgpu 30) needs 1.95; the library crates do not.
+rust-version = "1.95"
 license.workspace = true
 publish.workspace = true
 description = "Desktop host for the turbomap renderer (winit + wgpu)."

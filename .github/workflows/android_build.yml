@@ -46,6 +46,13 @@ jobs:
             --target aarch64-linux-android \
             --target armv7-linux-androideabi \
             --target x86_64-linux-android
+          # apps/turbomap pins 1.97.1 (wgpu 30 / egui 0.36); apps/tileserver
+          # still pins 1.94.1. Each rust-toolchain.toml picks its own, so both
+          # need the Android targets.
+          rustup toolchain install 1.97.1 --profile minimal \
+            --target aarch64-linux-android \
+            --target armv7-linux-androideabi \
+            --target x86_64-linux-android
           cargo install cargo-ndk --locked
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
 

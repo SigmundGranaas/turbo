@@ -42,6 +42,8 @@ jobs:
       - name: Rust + Android targets + cargo-ndk
         run: |
           rustup toolchain install 1.94.1 --profile minimal --target aarch64-linux-android --target x86_64-linux-android
+          # apps/turbomap pins 1.97.1; apps/tileserver 1.94.1 — each needs the targets.
+          rustup toolchain install 1.97.1 --profile minimal --target aarch64-linux-android --target x86_64-linux-android
           cargo install cargo-ndk --locked
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
 
