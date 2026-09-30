@@ -122,3 +122,38 @@ fn golden_hillshade_bergen_through_a_small_upload_budget() {
         "the first budgeted frame already showed the final picture"
     );
 }
+
+/// The same scenes into a half-float target (an HDR-capable plane's
+/// format): read back linear, encoded to sRGB, and held to the SAME goldens —
+/// so the renderer's look does not depend on its target doing the encode.
+/// One code step of tolerance more than the sRGB run: the encode happens on
+/// the CPU here, in the texture unit there.
+#[test]
+fn golden_raster_parchment_on_a_half_float_target() {
+    let name = "raster-parchment";
+    let Some(gpu) = gpu_or_skip(name) else { return };
+    let img = turbomap_golden::replay_as(&load_trace(name), &gpu, wgpu::TextureFormat::Rgba16Float);
+    assert_golden(
+        name,
+        &img,
+        GoldenConfig {
+            max_channel_diff: 3,
+            max_outlier_frac: 0.001,
+        },
+    );
+}
+
+#[test]
+fn golden_hillshade_bergen_on_a_half_float_target() {
+    let name = "hillshade-bergen";
+    let Some(gpu) = gpu_or_skip(name) else { return };
+    let img = turbomap_golden::replay_as(&load_trace(name), &gpu, wgpu::TextureFormat::Rgba16Float);
+    assert_golden(
+        name,
+        &img,
+        GoldenConfig {
+            max_channel_diff: 7,
+            max_outlier_frac: 0.02,
+        },
+    );
+}

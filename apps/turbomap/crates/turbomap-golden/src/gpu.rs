@@ -84,8 +84,29 @@ pub fn render_to_image(
     gpu: &Gpu,
     width: u32,
     height: u32,
+    render: impl FnMut(&mut wgpu::CommandEncoder, &wgpu::TextureView),
+) -> RgbaImage {
+    render_to_image_as(gpu, TARGET_FORMAT, width, height, render)
+}
+
+/// The target formats a renderer frame can be read back from, as an sRGB
+/// 8-bit image comparable with the goldens: `Rgba8UnormSrgb` as stored, and
+/// `Rgba16Float` (linear, an HDR-capable plane's format) encoded to sRGB on
+/// the CPU — so the same golden holds the renderer to the same look in both.
+pub fn render_to_image_as(
+    gpu: &Gpu,
+    format: wgpu::TextureFormat,
+    width: u32,
+    height: u32,
     mut render: impl FnMut(&mut wgpu::CommandEncoder, &wgpu::TextureView),
 ) -> RgbaImage {
+    let bytes_per_pixel: u32 = match format {
+        wgpu::TextureFormat::Rgba8UnormSrgb => 4,
+        wgpu::TextureFormat::Rgba16Float => 8,
+        other => {
+            panic!("the golden harness reads back Rgba8UnormSrgb or Rgba16Float, not {other:?}")
+        }
+    };
     let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("turbomap-golden-target"),
         size: wgpu::Extent3d {
@@ -96,13 +117,12 @@ pub fn render_to_image(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: TARGET_FORMAT,
+        format,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
     let target_view = target.create_view(&Default::default());
 
-    let bytes_per_pixel = 4u32;
     let unpadded_bpr = width * bytes_per_pixel;
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
     let padded_bpr = unpadded_bpr.div_ceil(align) * align;
@@ -167,5 +187,44 @@ pub fn render_to_image(
         let end = start + unpadded_bpr as usize;
         tight.extend_from_slice(&data[start..end]);
     }
-    RgbaImage::from_raw(width, height, tight).expect("golden rgba dimensions")
+    let rgba8 = match format {
+        wgpu::TextureFormat::Rgba16Float => tight
+            .chunks_exact(2)
+            .enumerate()
+            .map(|(i, h)| {
+                let v = f16_to_f32(u16::from_le_bytes([h[0], h[1]]));
+                // Colour channels are linear; alpha is not encoded.
+                let c = if i % 4 == 3 { v } else { linear_to_srgb(v) };
+                (c.clamp(0.0, 1.0) * 255.0).round() as u8
+            })
+            .collect(),
+        _ => tight,
+    };
+    RgbaImage::from_raw(width, height, rgba8).expect("golden rgba dimensions")
+}
+
+fn linear_to_srgb(c: f32) -> f32 {
+    if c <= 0.003_130_8 {
+        12.92 * c
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// IEEE 754 binary16 → f32 (the half-float target's texels).
+fn f16_to_f32(h: u16) -> f32 {
+    let sign = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
+    let exp = (h >> 10) & 0x1f;
+    let frac = f32::from(h & 0x3ff);
+    match exp {
+        0 => sign * frac * 2f32.powi(-24),
+        0x1f => {
+            if frac == 0.0 {
+                sign * f32::INFINITY
+            } else {
+                f32::NAN
+            }
+        }
+        e => sign * (1.0 + frac / 1024.0) * 2f32.powi(i32::from(e) - 15),
+    }
 }
