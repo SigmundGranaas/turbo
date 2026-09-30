@@ -353,6 +353,10 @@ impl LngOf for CameraState {
 }
 
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "a CPU-time gate: its budgets are for an optimised build; run with --release, as CI's turbomap_sim.yml does"
+)]
 fn frame_cost_stays_within_budget() {
     // Relative regression caps for the software rasteriser. Generous on
     // purpose: they catch "suddenly 3× slower", not absolute mobile perf.
@@ -413,6 +417,10 @@ fn frame_cost_stays_within_budget() {
 /// Runs on a software rasteriser, so absolute ms are inflated — the assertion is
 /// RELATIVE (shadows-on vs -off over the SAME pan), which is machine-robust.
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "a CPU-time gate: its budgets are for an optimised build; run with --release, as CI's turbomap_sim.yml does"
+)]
 fn terrain_cast_shadows_do_not_stall_the_render_thread_while_panning() {
     let Some(mut sim) = sim_or_skip(14.0, no_fade()) else {
         return;
@@ -504,6 +512,10 @@ fn terrain_cast_shadows_do_not_stall_the_render_thread_while_panning() {
 }
 
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "a CPU-time gate: its budgets are for an optimised build; run with --release, as CI's turbomap_sim.yml does"
+)]
 fn storm_sim_keeps_animating_coherently_within_budget() {
     // The E2 storm scenario: a scene-declared radar overlay in SIM mode.
     // Three behaviours a user would notice, asserted over one session:
