@@ -2258,8 +2258,17 @@ impl Map {
     /// (screen px/s, the drag-release velocity). The map glides and
     /// decelerates as `tick` is pumped. A near-zero velocity is a no-op.
     pub fn fling(&mut self, velocity_px: (f64, f64)) {
-        let f = FlingAnimation::new(self.cam.camera, velocity_px);
-        if f.is_finished(Instant::now()) {
+        self.fling_at(velocity_px, Instant::now());
+    }
+
+    /// [`fling`](Self::fling) released at `at` on the clock `tick` is driven
+    /// with — for a host whose frames run on a clock of their own (a
+    /// compositor's, a headless runner's). Started at `Instant::now()`
+    /// instead, a fling sampled on a clock behind it holds still until that
+    /// clock catches up, and one sampled ahead of it is cut short.
+    pub fn fling_at(&mut self, velocity_px: (f64, f64), at: Instant) {
+        let f = FlingAnimation::new_at(self.cam.camera, velocity_px, at, FlingAnimation::DEFAULT_TAU);
+        if f.is_finished(at) {
             return;
         }
         self.cam.active = Some(ActiveAnim::PanFling(f));

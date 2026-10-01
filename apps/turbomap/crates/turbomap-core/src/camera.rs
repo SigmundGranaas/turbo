@@ -990,8 +990,11 @@ impl FlingAnimation {
     /// A fling from `start` released at `velocity_px` (screen px/s). The
     /// default `tau` (0.32 s) matches the gentle deceleration touch maps use.
     pub fn new(start: Camera, velocity_px: (f64, f64)) -> Self {
-        Self::new_at(start, velocity_px, Instant::now(), 0.32)
+        Self::new_at(start, velocity_px, Instant::now(), Self::DEFAULT_TAU)
     }
+
+    /// The decay time constant [`new`](Self::new) uses, in seconds.
+    pub const DEFAULT_TAU: f64 = 0.32;
 
     /// Construct with an explicit start time + `tau` — used by tests so they
     /// can pin behaviour without sleeping.

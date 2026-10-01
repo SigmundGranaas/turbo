@@ -637,6 +637,12 @@ impl TurbomapEngine {
         self.map.fling(velocity_px);
     }
 
+    /// [`fling`](Self::fling) released at `at` on the clock the map is ticked
+    /// with — for an embedder whose frames run on a clock of their own.
+    pub fn fling_at(&mut self, velocity_px: (f64, f64), at: std::time::Instant) {
+        self.map.fling_at(velocity_px, at);
+    }
+
     /// Pan the map by a screen-pixel drag delta (the per-move gesture step).
     pub fn pan_by_pixels(&mut self, dx: f64, dy: f64) {
         self.map.pan_by_pixels(dx, dy);
