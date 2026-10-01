@@ -1074,9 +1074,12 @@ impl ZoomFlingAnimation {
             focus_px,
             viewport_px,
             Instant::now(),
-            0.25,
+            Self::DEFAULT_TAU,
         )
     }
+
+    /// The decay time constant [`new`](Self::new) uses, in seconds.
+    pub const DEFAULT_TAU: f64 = 0.25;
 
     #[allow(clippy::too_many_arguments)]
     pub fn new_at(

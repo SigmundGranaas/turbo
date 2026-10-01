@@ -1157,6 +1157,9 @@ pub struct Map {
     time_override: Option<f32>,
     /// The previous frame's clock, for the simulation tick's `dt`.
     last_frame_clock: Option<f32>,
+    /// The instant [`Self::tick`] was last driven at, on the EMBEDDER's
+    /// clock. Every camera animation starts here (see [`Self::clock`]).
+    ticked_at: Option<Instant>,
     /// Camera-eye world position at the previous plan selection — the
     /// finite-difference travel direction that feeds the priority score's
     /// motion term (stream WHERE WE'RE HEADING). `None` until the first call;
@@ -1373,6 +1376,7 @@ impl Map {
             start: Instant::now(),
             time_override: None,
             last_frame_clock: None,
+            ticked_at: None,
             last_priority_eye: std::cell::Cell::new(None),
             // Dual-write phase: effectively-unbounded capacity so the table
             // observes without interfering; the real governor activates when
@@ -2258,7 +2262,19 @@ impl Map {
     /// (screen px/s, the drag-release velocity). The map glides and
     /// decelerates as `tick` is pumped. A near-zero velocity is a no-op.
     pub fn fling(&mut self, velocity_px: (f64, f64)) {
-        self.fling_at(velocity_px, Instant::now());
+        self.fling_at(velocity_px, self.clock());
+    }
+
+    /// **Where an animation starts: the clock this map is ticked on.** The
+    /// instant of the last [`Self::tick`] — the wall clock only before the
+    /// first. An embedder may drive `tick` with a clock of its own (a
+    /// compositor's frame time, a headless runner's virtual frames); an
+    /// animation started on the wall clock and sampled on that one holds
+    /// still while it runs behind, and is cut short or skipped while it runs
+    /// ahead. One frame's latency at most, against a clock that can be off by
+    /// seconds.
+    fn clock(&self) -> Instant {
+        self.ticked_at.unwrap_or_else(Instant::now)
     }
 
     /// [`fling`](Self::fling) released at `at` on the clock `tick` is driven
@@ -2279,13 +2295,16 @@ impl Map {
     /// a near-zero velocity is a no-op.
     pub fn zoom_fling(&mut self, zoom_velocity: f64, focus_px: (f64, f64)) {
         let (w, h) = self.viewport_px;
-        let z = ZoomFlingAnimation::new(
+        let at = self.clock();
+        let z = ZoomFlingAnimation::new_at(
             self.cam.camera,
             zoom_velocity,
             focus_px,
             (w as f64, h as f64),
+            at,
+            ZoomFlingAnimation::DEFAULT_TAU,
         );
-        if z.is_finished(Instant::now()) {
+        if z.is_finished(at) {
             return;
         }
         self.cam.active = Some(ActiveAnim::ZoomFling(z));
@@ -2470,14 +2489,16 @@ impl Map {
     }
 
     pub fn ease_to(&mut self, target: Camera, duration: Duration) {
-        self.cam.active = Some(ActiveAnim::Ease(CameraAnimation::new(
+        self.cam.active = Some(ActiveAnim::Ease(CameraAnimation::new_at(
             self.cam.camera,
             target,
+            self.clock(),
             duration,
         )));
     }
 
     pub fn tick(&mut self, now: Instant) -> bool {
+        self.ticked_at = Some(now);
         // CameraState samples the animation + re-stamps the pose; the Map runs
         // the scene-sync seam whenever a frame advanced.
         let (advanced, still_animating) = self.cam.tick(now);
