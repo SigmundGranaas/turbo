@@ -51,11 +51,22 @@ struct FileRangeReader {
 }
 
 impl RangeReader for FileRangeReader {
+    /// Reads at most what the file holds: `len` comes from the archive's
+    /// own header and directories, and a truncated or corrupt archive can
+    /// state gigabytes — allocated up front, that aborts the process where
+    /// memory is not overcommitted. A read the file cannot fill is an
+    /// `UnexpectedEof` naming both lengths.
     fn read_at(&self, offset: u64, len: usize) -> io::Result<Vec<u8>> {
         let mut f = self.file.lock();
         f.seek(SeekFrom::Start(offset))?;
-        let mut buf = vec![0u8; len];
-        f.read_exact(&mut buf)?;
+        let mut buf = Vec::new();
+        (&mut *f).take(len as u64).read_to_end(&mut buf)?;
+        if buf.len() != len {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!("the archive states {len} bytes at offset {offset} and the file ends after {}", buf.len()),
+            ));
+        }
         Ok(buf)
     }
 }
@@ -367,6 +378,20 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::TempDir;
+
+
+    /// A length the archive states beyond what the file holds is an error,
+    /// not an allocation of that length: 1 TiB up front aborts the process.
+    #[test]
+    fn a_read_the_file_cannot_fill_is_refused_without_allocating_it() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(&[7u8; 64]).unwrap();
+        let reader = FileRangeReader { file: Mutex::new(File::open(f.path()).unwrap()) };
+        assert_eq!(reader.read_at(8, 16).unwrap(), vec![7u8; 16]);
+        let err = reader.read_at(8, 1 << 40).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+        assert!(err.to_string().contains("ends after 56"), "{err}");
+    }
 
     #[test]
     fn brotli_tiles_decompress() {
