@@ -3764,15 +3764,17 @@ impl Map {
     };
 
     /// **Draw the frame into `target`, then hand every recorded upload to
-    /// `uploader`** — tile data ingested since the last frame and this
-    /// frame's own uniforms, in the order they were written. The host
+    /// `uploader`** — this frame's own uniforms and atlases first, then tile
+    /// data ingested since the last frame in what the uploader has left
+    /// ([`crate::upload::UploadQueue::flush`]). The host
     /// submits `encoder` after this returns; a queue write takes effect at
     /// that submit whenever it was issued, so this is the frame the
     /// renderer drew when it wrote to a queue directly. See
     /// [`crate::upload`] for why the host owns the queue.
     ///
-    /// Tile data the host has no room for waits for a later frame, and is not
-    /// drawn until it has been handed over (its ancestor is drawn instead). A
+    /// Tile data is drawn from the frame after it is handed over; what the
+    /// host has no room for waits for a later frame (its ancestor is drawn
+    /// until then). A
     /// refusal of an *essential* write (uniforms, atlases) is returned: the
     /// frame was drawn with them. So is a non-finite camera, which draws
     /// nothing ([`crate::error::RenderError`]): the host decides what a
@@ -3783,12 +3785,10 @@ impl Map {
         target: &wgpu::TextureView,
         uploader: &mut dyn crate::upload::Uploader,
     ) -> Result<(), crate::error::RenderError> {
-        // Tile data first, within the host's budget, so a tile uploaded now
-        // is drawn now; what does not fit stays unready and undrawn.
-        self.queue.flush_deferrable(uploader);
         self.record(encoder, target)?;
-        // The frame is drawn with these: they must be taken.
-        self.queue.flush_essential(uploader)?;
+        // The frame is drawn with its essentials: they go first and must be
+        // taken; tile data then has what is left.
+        self.queue.flush(uploader)?;
         Ok(())
     }
 

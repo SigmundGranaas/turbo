@@ -11,19 +11,27 @@
 //!
 //! # Two logs, because a host's budget can run out
 //!
+//! - **Essential** writes are everything else — construction-time
+//!   placeholders, atlases, a frame's uniforms. The frame is drawn with them,
+//!   so they are handed over first, after recording, and must be taken: a
+//!   refusal is [`UploadRefused`], an error, never a frame drawn with stale
+//!   uniforms.
 //! - **Deferrable** writes are tile data at ingest
 //!   ([`UploadQueue::write_texture_deferrable`]). Each returns an
 //!   [`UploadTicket`]; the tile cache treats a tile whose ticket is not
 //!   [`UploadQueue::is_ready`] as not resident, so the draw falls back to its
-//!   ancestor exactly as for a tile still in flight. `render` hands these
-//!   over FIRST, while the host's [`Uploader::remaining`] allows — keeping a
-//!   reserve the size of the essential bytes the previous frame needed — so
-//!   a tile uploaded this frame is drawn this frame. What does not fit waits
-//!   for the next frame, and nothing draws it until then.
-//! - **Essential** writes are everything else — construction-time
-//!   placeholders, atlases, a frame's uniforms. The frame is drawn with them,
-//!   so they are handed over after recording and must be taken: a refusal is
-//!   [`UploadRefused`], an error, never a frame drawn with stale uniforms.
+//!   ancestor exactly as for a tile still in flight. They are handed over
+//!   after the essentials, in whatever the host's [`Uploader::remaining`]
+//!   leaves; what does not fit waits for the next frame. A tile handed over
+//!   this frame is drawn from the next.
+//!
+//! [`UploadQueue::flush`] is that order, and the only way `render` hands
+//! anything over. It used to be the reverse — tiles first, keeping back what
+//! the *previous* frame's essentials had needed — so a frame whose uniforms
+//! outgrew the last one's had them refused while a pan brought tiles in:
+//! the map failed its own frame (measured through Edits' 1 MiB-a-frame
+//! uploader: 16 of 20 pans of 540 frames). A frame's essential bytes are
+//! known exactly only after recording, which is when they now go first.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -204,9 +212,6 @@ struct Logs {
     next_ticket: u64,
     /// Every deferrable write with a ticket below this has been handed over.
     ready_below: u64,
-    /// Essential bytes the last flush handed over: with the essential bytes
-    /// already recorded, the reserve the next deferrable flush leaves free.
-    last_essential_bytes: u64,
 }
 
 /// The renderer's write log. Cheap to clone (shared); written from any
@@ -226,7 +231,6 @@ impl UploadQueue {
             deferrable: VecDeque::new(),
             next_ticket: 0,
             ready_below: 0,
-            last_essential_bytes: 0,
         };
         Self {
             logs: Arc::new(Mutex::new(logs)),
@@ -350,14 +354,10 @@ impl UploadQueue {
         loop {
             let (ticket, w) = {
                 let mut logs = self.log();
-                // Room for the essential writes this frame will hand over:
-                // those already recorded (construction and ingest-time data,
-                // known now) plus what the last frame's recording added
-                // (uniforms). Without the first term a mount's first frame
-                // gave its whole budget to tiles and refused its own
-                // placeholders (measured: 296 KB of them on the first frame).
-                let reserve = logs.essential.iter().map(Write::bytes).sum::<u64>()
-                    + logs.last_essential_bytes;
+                // Room for every essential write still recorded: none, when
+                // called from `flush`, which hands those over first. Kept so
+                // a caller that flushes tiles alone cannot starve them.
+                let reserve = logs.essential.iter().map(Write::bytes).sum::<u64>();
                 let Some((_, front)) = logs.deferrable.front() else {
                     return;
                 };
@@ -378,16 +378,24 @@ impl UploadQueue {
         }
     }
 
+    /// **Hand this frame's writes to `uploader`**: every essential write (they
+    /// must be taken — see [`Self::flush_essential`]), then tile data in what
+    /// the uploader has left ([`Self::flush_deferrable`]). Called once a frame,
+    /// after recording.
+    pub fn flush(&self, uploader: &mut dyn Uploader) -> Result<(), UploadRefused> {
+        self.flush_essential(uploader)?;
+        self.flush_deferrable(uploader);
+        Ok(())
+    }
+
     /// Hand over every essential write, in record order. They must all be
     /// taken; on a refusal the refused write and those after it stay
     /// recorded and the refusal is returned. The lock is never held while
     /// the uploader runs, so an uploader that records into this log again
     /// waits for nothing.
     pub fn flush_essential(&self, uploader: &mut dyn Uploader) -> Result<(), UploadRefused> {
-        let mut handed = 0u64;
         loop {
             let Some(w) = self.log().essential.pop_front() else {
-                self.log().last_essential_bytes = handed;
                 return Ok(());
             };
             if hand_over(&w, uploader).is_err() {
@@ -399,7 +407,6 @@ impl UploadQueue {
                     pending: logs.essential.len(),
                 });
             }
-            handed += w.bytes();
         }
     }
 }
@@ -666,6 +673,88 @@ mod tests {
         }
         assert_eq!(frames, 2, "four 256 KiB bands at two a frame");
         assert_eq!(log.pending_deferrable(), 0);
+        queue.submit([]);
+    }
+
+    /// **A frame's own writes are never starved by tiles.** Tile data that
+    /// would fill the host's whole budget is waiting, and this frame records
+    /// more essential bytes than the last one did — what a pan does when
+    /// tiles arrive and the frame's uniforms grow. Every essential write is
+    /// taken; the tiles get what is left and the rest waits. Until `flush`
+    /// handed essentials over first, the reserve was the previous frame's
+    /// essential bytes and this frame's grown uniforms were refused.
+    #[test]
+    fn a_frames_essentials_are_taken_before_tiles_even_when_they_grew() {
+        let instance = wgpu::Instance::default();
+        let Ok(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                force_fallback_adapter: true,
+                ..Default::default()
+            }))
+        else {
+            return;
+        };
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+                .expect("device");
+        let buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 4096,
+            usage: wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d { width: 256, height: 256, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        struct Budget<'a>(&'a wgpu::Queue, u64);
+        impl Uploader for Budget<'_> {
+            fn remaining(&self) -> Option<u64> {
+                Some(self.1)
+            }
+            fn write_buffer(&mut self, dst: &wgpu::Buffer, offset: u64, data: &[u8]) -> Result<(), Refused> {
+                self.1 = self.1.checked_sub(data.len() as u64).ok_or(Refused)?;
+                self.0.write_buffer(dst, offset, data);
+                Ok(())
+            }
+            fn write_texture(
+                &mut self,
+                dst: wgpu::TexelCopyTextureInfo<'_>,
+                data: &[u8],
+                layout: wgpu::TexelCopyBufferLayout,
+                size: wgpu::Extent3d,
+            ) -> Result<(), Refused> {
+                self.1 = self.1.checked_sub(data.len() as u64).ok_or(Refused)?;
+                self.0.write_texture(dst, data, layout, size);
+                Ok(())
+            }
+        }
+        let log = UploadQueue::new(1.0);
+        // Frame 1: a small essential write, nothing else.
+        log.write_buffer(&buf, 0, &[0; 64]);
+        log.flush(&mut Budget(&queue, 256 * 1024)).expect("frame 1's essentials");
+        // Frame 2: a whole budget's worth of tiles arrives, and the frame's
+        // own writes grow to sixteen times frame 1's.
+        let tile = log.write_texture_deferrable(
+            texture.as_image_copy(),
+            &vec![7u8; 256 * 256 * 4],
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(256 * 4), rows_per_image: Some(256) },
+            wgpu::Extent3d { width: 256, height: 256, depth_or_array_layers: 1 },
+        );
+        log.write_buffer(&buf, 0, &[0; 1024]);
+        let mut frame = Budget(&queue, 256 * 1024);
+        log.flush(&mut frame).expect("a frame's own writes are taken before any tile");
+        assert_eq!(log.pending() - log.pending_deferrable(), 0, "every essential write was handed over");
+        assert!(!log.is_ready(tile), "the tile did not fit what the essentials left; it waits");
+        // Frame 3: the tile has the budget to itself.
+        log.flush(&mut Budget(&queue, 256 * 1024)).expect("frame 3");
+        assert!(log.is_ready(tile), "the tile goes the next frame");
         queue.submit([]);
     }
 
