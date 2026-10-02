@@ -3797,10 +3797,12 @@ impl Map {
         self.queue.pending()
     }
 
-    /// Tile data waiting for room in the host's upload budget. A host keeps
-    /// rendering frames while this is non-zero, or those tiles never appear.
+    /// Tile data no frame has drawn yet: waiting for room in the host's
+    /// upload budget, or handed over after the last frame recorded. A host
+    /// keeps rendering frames while this is non-zero, or those tiles never
+    /// appear ([`crate::upload::UploadQueue::undrawn_deferrable`]).
     pub fn pending_tile_uploads(&self) -> usize {
-        self.queue.pending_deferrable()
+        self.queue.undrawn_deferrable()
     }
 
     fn record(
@@ -3840,6 +3842,10 @@ impl Map {
                 view_projection_finite: crate::render::mat4_is_finite(&gate_vp),
             });
         }
+
+        // Every tile handed over so far is drawn by this frame; one handed
+        // over after it is first drawn by the next.
+        self.queue.recording();
 
         if let Some(ts) = self.renderer.gpu_timestamps.as_mut() {
             ts.try_drain();

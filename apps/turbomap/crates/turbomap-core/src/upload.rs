@@ -212,6 +212,10 @@ struct Logs {
     next_ticket: u64,
     /// Every deferrable write with a ticket below this has been handed over.
     ready_below: u64,
+    /// `ready_below` as the last recording saw it: every write below this has
+    /// been drawn. A write is handed over after the frame that recorded
+    /// ([`UploadQueue::flush`]), so it is first drawn by the next one.
+    drawn_below: u64,
 }
 
 /// The renderer's write log. Cheap to clone (shared); written from any
@@ -231,6 +235,7 @@ impl UploadQueue {
             deferrable: VecDeque::new(),
             next_ticket: 0,
             ready_below: 0,
+            drawn_below: 0,
         };
         Self {
             logs: Arc::new(Mutex::new(logs)),
@@ -341,9 +346,27 @@ impl UploadQueue {
         logs.essential.len() + logs.deferrable.len()
     }
 
-    /// Deferrable writes still waiting — a frame is wanted while any are.
+    /// Deferrable writes still waiting for room in an uploader.
     pub fn pending_deferrable(&self) -> usize {
         self.log().deferrable.len()
+    }
+
+    /// **Deferrable writes no frame has drawn yet** — still waiting for room,
+    /// or handed over since the last recording. A frame is wanted while any
+    /// are: a write handed over after a frame recorded is first drawn by the
+    /// next frame, and a host that stops at zero *waiting* writes would never
+    /// draw the last ones handed over (Edits' map_tiles, 2026-10-03: eight
+    /// stories whose tiles arrived and were never shown).
+    pub fn undrawn_deferrable(&self) -> usize {
+        let logs = self.log();
+        logs.deferrable.len() + (logs.ready_below - logs.drawn_below) as usize
+    }
+
+    /// A frame is recording: every write handed over so far is drawn by it.
+    /// Called by the renderer at the start of each recording.
+    pub fn recording(&self) {
+        let mut logs = self.log();
+        logs.drawn_below = logs.ready_below;
     }
 
     /// Hand over deferrable writes, in order, while `uploader` has room
@@ -755,6 +778,12 @@ mod tests {
         // Frame 3: the tile has the budget to itself.
         log.flush(&mut Budget(&queue, 256 * 1024)).expect("frame 3");
         assert!(log.is_ready(tile), "the tile goes the next frame");
+        // Handed over after frame 3 recorded, so no frame has drawn it: a
+        // frame is still wanted, or a host that renders on demand stops here
+        // and the tile never appears.
+        assert_eq!(log.undrawn_deferrable(), 1, "the tile was handed over and no frame has drawn it yet");
+        log.recording();
+        assert_eq!(log.undrawn_deferrable(), 0, "frame 4 recorded with the tile ready: it is drawn");
         queue.submit([]);
     }
 
