@@ -888,6 +888,38 @@ impl TurbomapEngine {
         self.map.streaming_plan(max_start)
     }
 
+    /// **A plan request the engine answers itself.** A streaming host is
+    /// handed every request the plan starts; one whose layer reads an inline
+    /// GeoJSON source has nothing to fetch — its data is in the scene, and its
+    /// source resolved in-process. A host calls this on each started request
+    /// first: `true` is the tile produced from that source and ingested (the
+    /// attempt complete); `false` is a tile that is the host's to fetch. A
+    /// host that sent such a request on instead had nowhere to get it (Edits'
+    /// map host panicked on it, 2026-10-03).
+    pub fn serve_inline(&mut self, fetch: &PendingTile) -> bool {
+        let PendingTile::Vector { layer_id, tile } = fetch else {
+            return false;
+        };
+        let inline = self
+            .scene
+            .layers
+            .iter()
+            .find(|l| l.id() == layer_id)
+            .and_then(Layer::source)
+            .is_some_and(|s| matches!(self.scene.sources.get(s), Some(SourceDef::GeoJson { .. })));
+        if !inline {
+            return false;
+        }
+        let source = self.vector_sources.get(layer_id).cloned().unwrap_or_else(|| {
+            panic!("layer '{layer_id}' reads inline GeoJSON but has no resolved source (Bug: install_layer resolves every vector layer)")
+        });
+        let vtile = source.request(*tile).unwrap_or_else(|e| {
+            panic!("inline GeoJSON for layer '{layer_id}' did not produce tile {tile:?}: {e:?} (Bug: an in-process source has no transient failure)")
+        });
+        self.map.ingest_vector_tile(layer_id, *tile, &vtile);
+        true
+    }
+
     /// Report a plan-issued fetch attempt as failed (re-pends if wanted).
     pub fn fetch_failed(&mut self, request: turbomap_world::RequestId) {
         self.map.fetch_failed(request);

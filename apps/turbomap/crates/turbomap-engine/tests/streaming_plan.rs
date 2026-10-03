@@ -159,3 +159,45 @@ fn a_terrain_tile_for_a_scene_without_terrain_is_dropped_not_decoded() {
         "nothing was queued for decode: the scene has no terrain to decode it for"
     );
 }
+
+/// An inline GeoJSON line over a raster base: the plan starts its tiles like
+/// any other, the engine answers them itself (`serve_inline`), and they never
+/// start again; the raster tiles stay the host's.
+#[test]
+fn inline_geojson_tiles_are_served_by_the_engine_not_the_host() {
+    let Some(gpu) = gpu_or_skip() else { return };
+    let mut e = engine(&gpu);
+    let mut scene = raster_scene();
+    scene.sources.insert(
+        "route".to_string(),
+        SourceDef::GeoJson { data: r#"{"type":"LineString","coordinates":[[5.0,60.2],[5.6,60.6]]}"#.to_string() },
+    );
+    scene.layers.push(Layer::Line {
+        id: "route".to_string(),
+        source: "route".to_string(),
+        source_layer: None,
+        filter: turbomap_scene::Filter::Always,
+        color: Paint::Const(turbomap_scene::Color::rgb(200, 30, 30)),
+        width: Paint::Const(4.0),
+        dash_array: None,
+    });
+    e.apply(scene);
+    let plan = e.streaming_plan(256);
+    let (mut served, mut host) = (Vec::new(), 0);
+    for r in &plan.start {
+        if e.serve_inline(&r.fetch) {
+            assert!(matches!(&r.fetch, PendingTile::Vector { layer_id, .. } if layer_id == "route"), "served {:?}", r.fetch);
+            served.push(r.id.0);
+        } else {
+            assert!(matches!(&r.fetch, PendingTile::Raster { .. }), "left to the host: {:?}", r.fetch);
+            host += 1;
+        }
+    }
+    assert!(!served.is_empty(), "the route's tiles were in the plan and served inline");
+    assert!(host > 0, "the raster base stays the host's");
+    let again = e.streaming_plan(256);
+    assert!(
+        again.start.iter().all(|r| !matches!(&r.fetch, PendingTile::Vector { .. })),
+        "a served tile is delivered and does not start again"
+    );
+}
