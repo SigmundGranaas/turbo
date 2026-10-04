@@ -693,23 +693,26 @@ impl TextPipeline {
         }
 
         // 2. Re-upload the atlas if it's been touched since the last frame.
-        if self.atlas.take_dirty() {
+        // Only the rows placed glyphs occupy (gutters included): a new
+        // glyph is a few kilobytes, not the whole 1 MB atlas.
+        if let Some((first, end)) = self.atlas.take_dirty() {
+            let rows = &self.atlas.bitmap()[(first * ATLAS_SIZE) as usize..(end * ATLAS_SIZE) as usize];
             self.queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &self.atlas_texture,
                     mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
+                    origin: wgpu::Origin3d { x: 0, y: first, z: 0 },
                     aspect: wgpu::TextureAspect::All,
                 },
-                self.atlas.bitmap(),
+                rows,
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(ATLAS_SIZE),
-                    rows_per_image: Some(ATLAS_SIZE),
+                    rows_per_image: Some(end - first),
                 },
                 wgpu::Extent3d {
                     width: ATLAS_SIZE,
-                    height: ATLAS_SIZE,
+                    height: end - first,
                     depth_or_array_layers: 1,
                 },
             );

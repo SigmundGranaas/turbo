@@ -182,7 +182,10 @@ pub struct FontAtlas {
     cursor_x: u32,
     cursor_y: u32,
     row_height: u32,
-    dirty: bool,
+    /// Rows written since the last upload, `[first, end)`, each glyph's
+    /// cell with the gutter row above and below it: the texels a draw can
+    /// sample that the GPU's copy does not yet hold. `None` = nothing new.
+    dirty_rows: Option<(u32, u32)>,
 }
 
 impl Default for FontAtlas {
@@ -207,7 +210,9 @@ impl FontAtlas {
             cursor_x: 1,
             cursor_y: 1,
             row_height: 0,
-            dirty: true,
+            // Nothing is sampled until a glyph is placed, so nothing is owed:
+            // each glyph's own rows (gutters included) go up with it.
+            dirty_rows: None,
         }
     }
 
@@ -228,12 +233,23 @@ impl FontAtlas {
         self.stack.len()
     }
 
-    /// Read & clear the dirty flag — used by the GPU upload to know whether
-    /// the atlas texture needs re-uploading this frame.
-    pub fn take_dirty(&mut self) -> bool {
-        let d = self.dirty;
-        self.dirty = false;
-        d
+    /// **The rows to upload**, `[first, end)`, and clear them: every row a
+    /// glyph placed since the last upload occupies, with a gutter row either
+    /// side (the bilinear sampler reads it), across the full width (so the
+    /// cell's side gutters go up too). A frame that placed nothing owes
+    /// nothing; one that placed a glyph owes its rows, not the whole
+    /// 1024 × 1024 atlas — which was a 1 MB upload for every new glyph, past
+    /// an inline view's per-frame budget on its own (Edits P9, 2026-10-04).
+    pub fn take_dirty(&mut self) -> Option<(u32, u32)> {
+        self.dirty_rows.take()
+    }
+
+    fn mark_rows(&mut self, first: u32, end: u32) {
+        let (first, end) = (first.saturating_sub(1), (end + 1).min(ATLAS_SIZE));
+        self.dirty_rows = Some(match self.dirty_rows {
+            Some((a, b)) => (a.min(first), b.max(end)),
+            None => (first, end),
+        });
     }
 
     /// Shape `text` into glyphs in **visual** (left-to-right) order, ready to
@@ -372,9 +388,11 @@ impl FontAtlas {
         }
 
         self.glyphs.insert((face_id, glyph_id.0), info);
+        if height > 0 {
+            self.mark_rows(self.cursor_y, self.cursor_y + height);
+        }
         self.cursor_x += width.max(1) + 1;
         self.row_height = self.row_height.max(height);
-        self.dirty = true;
         Some(info)
     }
 
@@ -1217,6 +1235,23 @@ mod tests {
         for &v in &sdf {
             assert_eq!(v, 255, "no-target mask must encode as max outside");
         }
+    }
+
+    #[test]
+    fn a_new_glyph_owes_only_its_own_rows_not_the_atlas() {
+        let mut atlas = FontAtlas::new();
+        assert_eq!(atlas.take_dirty(), None, "an atlas no draw has sampled owes nothing");
+        let glyphs = atlas.shape("Bergen");
+        let first = atlas.ensure(glyphs[0].face_id, glyphs[0].glyph_id).expect("a glyph");
+        let (a, b) = atlas.take_dirty().expect("a placed glyph owes its rows");
+        assert!(a < first.atlas_y && first.atlas_y + first.height < b, "the glyph's rows {}..{} lie inside {a}..{b}, gutters included", first.atlas_y, first.atlas_y + first.height);
+        assert!(b - a <= first.height + 2, "{} rows owed for a {}-row glyph: the span is the glyph and its two gutter rows", b - a, first.height);
+        assert_eq!(atlas.take_dirty(), None, "owed once");
+        for g in &glyphs[1..] {
+            atlas.ensure(g.face_id, g.glyph_id);
+        }
+        let (a, b) = atlas.take_dirty().expect("the rest of the word");
+        assert!(((b - a) * ATLAS_SIZE) < ATLAS_SIZE * ATLAS_SIZE / 8, "a word owes {} rows, not the atlas", b - a);
     }
 
     #[test]
