@@ -8,8 +8,9 @@
 //! tile-local [`VectorTile`]. Empty tiles are returned for tiles the line
 //! doesn't cross, so the layer's pull loop still drains.
 //!
-//! This slice handles `LineString`/`MultiLineString`. Points (→ markers)
-//! and polygons are later slices.
+//! Lines (`LineString`/`MultiLineString`) and polygons (`Polygon`/
+//! `MultiPolygon`, rings clipped Sutherland–Hodgman) are emitted as tile
+//! features; points are parsed separately for markers ([`parse_points`]).
 
 use std::collections::HashMap;
 
